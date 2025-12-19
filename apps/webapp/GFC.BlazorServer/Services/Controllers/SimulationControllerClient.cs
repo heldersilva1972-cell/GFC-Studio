@@ -8,7 +8,7 @@ namespace GFC.BlazorServer.Services.Controllers;
 /// <summary>
 /// Simulation controller client that maintains in-memory state without any network calls.
 /// </summary>
-internal class SimulationControllerClient : IControllerClient
+public class SimulationControllerClient : IControllerClient
 {
     private const int DefaultEventBatchSize = 100;
     private const string DefaultResultStatus = "OK";

@@ -174,27 +174,21 @@ public class Program
         // Register Mengqi controller clients used by controller-test tooling
         builder.Services.AddScoped<GFC.BlazorServer.Services.SimulationControllerClient>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.RealControllerClient>();
+
+        // Register Dynamic proxies
+        builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.DynamicControllerClient>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.DynamicMengqiControllerClient>();
         
-        // Register IControllerClient that resolves based on UseRealControllers setting
+        // Register IControllerClient that dynamically resolves based on UseRealControllers setting
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.IControllerClient>(sp =>
-        {
-            var modeProvider = sp.GetRequiredService<IControllerModeProvider>();
-            return modeProvider.UseRealControllers
-                ? sp.GetRequiredService<GFC.BlazorServer.Services.Controllers.RealControllerClient>()
-                : sp.GetRequiredService<GFC.BlazorServer.Services.Controllers.SimulationControllerClient>();
-        });
+            sp.GetRequiredService<GFC.BlazorServer.Services.Controllers.DynamicControllerClient>());
         
         // Register ControllerNetworkConfigService AFTER IControllerClient is registered
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.ControllerNetworkConfigService>();
         
-        // Wire IMengqiControllerClient to resolve based on UseRealControllers setting
+        // Wire IMengqiControllerClient to dynamically resolve based on UseRealControllers setting
         builder.Services.AddScoped<IMengqiControllerClient>(sp =>
-        {
-            var modeProvider = sp.GetRequiredService<IControllerModeProvider>();
-            return modeProvider.UseRealControllers
-                ? sp.GetRequiredService<GFC.BlazorServer.Services.RealControllerClient>()
-                : sp.GetRequiredService<GFC.BlazorServer.Services.SimulationControllerClient>();
-        });
+            sp.GetRequiredService<GFC.BlazorServer.Services.DynamicMengqiControllerClient>());
         // END Simulation/Real controller toggle wiring
         
         builder.Services.AddScoped<ControllerTestService>();

@@ -7,7 +7,7 @@ namespace GFC.BlazorServer.Services.Simulation;
 /// <summary>
 /// Internal engine that maintains simulation controller state and serves deterministic responses.
 /// </summary>
-internal interface ISimulationStateEngine
+public interface ISimulationStateEngine
 {
     // Controllers / status
     Task<AgentRunStatusDto?> GetRunStatusAsync(string controllerSn, CancellationToken cancellationToken = default);

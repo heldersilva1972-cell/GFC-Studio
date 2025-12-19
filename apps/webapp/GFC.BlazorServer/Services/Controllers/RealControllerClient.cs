@@ -11,7 +11,7 @@ namespace GFC.BlazorServer.Services.Controllers;
 /// <summary>
 /// Real controller client that delegates to AgentApiClient (Agent PC).
 /// </summary>
-internal class RealControllerClient : IControllerClient
+public class RealControllerClient : IControllerClient
 {
     private readonly AgentApiClient _agentApiClient;
     private readonly ILogger<RealControllerClient> _logger;

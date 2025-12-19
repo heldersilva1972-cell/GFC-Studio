@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace GFC.BlazorServer.Services;
 
-internal sealed class AgentApiClient
+public sealed class AgentApiClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _httpClient;
