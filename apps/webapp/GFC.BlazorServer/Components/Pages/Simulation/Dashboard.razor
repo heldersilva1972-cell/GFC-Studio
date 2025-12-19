@@ -92,7 +92,7 @@
     else
     {
         <!-- Main Dashboard Layout -->
-        <div class="row g-3">
+        <div class="row g-3 simulation-dashboard">
             
             <!-- Left Column: Controls & State -->
             <div class="col-lg-5">
@@ -242,17 +242,15 @@
                                     @if(_selectedControllerId == 0) { <small class="text-danger d-block w-100 mt-1">* Select controller first</small> }
                                 </div>
                             </div>
-                            <div class="col-md-6">
-                                <h6 class="small text-muted text-uppercase">Card Reader Emulation</h6>
-                                <div class="input-group input-group-sm mb-2">
-                                    <input type="text" class="form-control" @bind="_testCardNumber" placeholder="Card Number..." />
-                                    <button class="btn btn-outline-primary" @onclick="SimulateCardSwipeAsync" disabled="@_isProcessing">Swipe</button>
-                                </div>
-                                <small class="text-muted">Simulates a physical swipe at the selected controller's reader.</small>
-                            </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- Card Reader Emulation (NEW STANDALONE TILE) -->
+                <CardReaderEmulator 
+                    Controllers="@_controllers"
+                    IsProcessing="@_isProcessing"
+                    OnCardScanned="HandleCardScanned" />
 
                 <!-- Traces Table -->
                  <div class="card shadow-sm">
@@ -549,6 +547,34 @@
                 await OnControllerSelected(); // Refresh active view
                 StateHasChanged();
             });
+        }
+    }
+
+    private async Task HandleCardScanned(CardReaderEmulator.CardScanEvent scanEvent)
+    {
+        _isProcessing = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            // Log the card scan event
+            Logger.LogInformation("Card scanned: Controller={ControllerId}, Card={CardNumber}, Time={ScannedAt}", 
+                scanEvent.ControllerId, scanEvent.CardNumber, scanEvent.ScannedAt);
+
+            _successMessage = $"Card {scanEvent.CardNumber} scanned successfully at {scanEvent.ScannedAt:HH:mm:ss}";
+            
+            // Optionally reload traces
+            await ReloadTracesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to process card scan");
+            _errorMessage = $"Failed to process card scan: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
         }
     }
 

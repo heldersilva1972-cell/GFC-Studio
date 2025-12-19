@@ -1,0 +1,241 @@
+@inject IJSRuntime JSRuntime
+
+<div class="json-viewer">
+    @if (string.IsNullOrWhiteSpace(JsonContent))
+    {
+        <div class="text-center text-muted py-3">
+            <i class="bi bi-code-slash"></i>
+            <div class="small mt-2">No data to display</div>
+        </div>
+    }
+    else
+    {
+        <div class="json-viewer-toolbar">
+            <div class="btn-group btn-group-sm" role="group">
+                <button class="btn btn-outline-secondary" 
+                        @onclick="ToggleExpanded"
+                        title="@(_isExpanded ? "Collapse All" : "Expand All")">
+                    <i class="bi bi-@(_isExpanded ? "dash-square" : "plus-square")"></i>
+                    @(_isExpanded ? "Collapse" : "Expand")
+                </button>
+                <button class="btn btn-outline-secondary" 
+                        @onclick="CopyToClipboard"
+                        title="Copy to Clipboard">
+                    <i class="bi bi-clipboard"></i>
+                    Copy
+                </button>
+                <button class="btn btn-outline-secondary" 
+                        @onclick="DownloadJson"
+                        title="Download JSON">
+                    <i class="bi bi-download"></i>
+                    Download
+                </button>
+            </div>
+        </div>
+        
+        <div class="json-viewer-content @(_isExpanded ? "expanded" : "collapsed")">
+            <pre><code>@((MarkupString)_formattedJson)</code></pre>
+        </div>
+    }
+</div>
+
+<style>
+    .json-viewer {
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        background: #f8f9fa;
+        overflow: hidden;
+    }
+
+    .json-viewer-toolbar {
+        padding: 0.5rem;
+        background: #e9ecef;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .json-viewer-content {
+        max-height: 400px;
+        overflow-y: auto;
+        background: #282c34;
+        color: #abb2bf;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+
+    .json-viewer-content pre {
+        margin: 0;
+        padding: 1rem;
+    }
+
+    .json-viewer-content code {
+        color: #abb2bf;
+    }
+
+    /* Syntax Highlighting */
+    .json-key {
+        color: #e06c75;
+        font-weight: 500;
+    }
+
+    .json-string {
+        color: #98c379;
+    }
+
+    .json-number {
+        color: #d19a66;
+    }
+
+    .json-boolean {
+        color: #56b6c2;
+        font-weight: 600;
+    }
+
+    .json-null {
+        color: #c678dd;
+        font-style: italic;
+    }
+
+    .json-bracket {
+        color: #61afef;
+        font-weight: bold;
+    }
+
+    /* Scrollbar Styling */
+    .json-viewer-content::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .json-viewer-content::-webkit-scrollbar-track {
+        background: #21252b;
+    }
+
+    .json-viewer-content::-webkit-scrollbar-thumb {
+        background: #4b5263;
+        border-radius: 4px;
+    }
+
+    .json-viewer-content::-webkit-scrollbar-thumb:hover {
+        background: #5c6370;
+    }
+</style>
+
+@code {
+    [Parameter] public string JsonContent { get; set; } = string.Empty;
+    [Parameter] public string FileName { get; set; } = "data.json";
+
+    private bool _isExpanded = true;
+    private string _formattedJson = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        FormatJson();
+    }
+
+    private void FormatJson()
+    {
+        if (string.IsNullOrWhiteSpace(JsonContent))
+        {
+            _formattedJson = string.Empty;
+            return;
+        }
+
+        try
+        {
+            // Parse and re-format for pretty printing
+            var jsonDoc = System.Text.Json.JsonDocument.Parse(JsonContent);
+            var formatted = System.Text.Json.JsonSerializer.Serialize(
+                jsonDoc.RootElement,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true }
+            );
+
+            // Apply syntax highlighting
+            _formattedJson = HighlightJson(formatted);
+        }
+        catch
+        {
+            // If parsing fails, just display as-is
+            _formattedJson = System.Web.HttpUtility.HtmlEncode(JsonContent);
+        }
+    }
+
+    private string HighlightJson(string json)
+    {
+        // Simple regex-based syntax highlighting
+        json = System.Web.HttpUtility.HtmlEncode(json);
+
+        // Highlight keys (property names)
+        json = System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @"&quot;([^&]+)&quot;(\s*:)",
+            @"<span class=""json-key"">&quot;$1&quot;</span>$2"
+        );
+
+        // Highlight string values
+        json = System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @":\s*&quot;([^&]*)&quot;",
+            @": <span class=""json-string"">&quot;$1&quot;</span>"
+        );
+
+        // Highlight numbers
+        json = System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @":\s*(\d+\.?\d*)",
+            @": <span class=""json-number"">$1</span>"
+        );
+
+        // Highlight booleans
+        json = System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @":\s*(true|false)",
+            @": <span class=""json-boolean"">$1</span>"
+        );
+
+        // Highlight null
+        json = System.Text.RegularExpressions.Regex.Replace(
+            json,
+            @":\s*(null)",
+            @": <span class=""json-null"">$1</span>"
+        );
+
+        // Highlight brackets
+        json = json.Replace("{", "<span class=\"json-bracket\">{</span>");
+        json = json.Replace("}", "<span class=\"json-bracket\">}</span>");
+        json = json.Replace("[", "<span class=\"json-bracket\">[</span>");
+        json = json.Replace("]", "<span class=\"json-bracket\">]</span>");
+
+        return json;
+    }
+
+    private void ToggleExpanded()
+    {
+        _isExpanded = !_isExpanded;
+    }
+
+    private async Task CopyToClipboard()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", JsonContent);
+        }
+        catch
+        {
+            // Clipboard API might not be available
+        }
+    }
+
+    private async Task DownloadJson()
+    {
+        try
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(JsonContent);
+            var base64 = Convert.ToBase64String(bytes);
+            await JSRuntime.InvokeVoidAsync("downloadFile", FileName, base64, "application/json");
+        }
+        catch
+        {
+            // Download might fail
+        }
+    }
+}

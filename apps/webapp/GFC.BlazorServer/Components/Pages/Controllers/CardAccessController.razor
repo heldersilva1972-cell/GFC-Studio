@@ -1,0 +1,347 @@
+@page "/controllers/card-access"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject ControllerRegistryService RegistryService
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<CardAccessController> Logger
+
+<PageTitle>Card Access Controller - GFC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="h3 mb-1">Card Access Controller</h1>
+        <p class="text-muted mb-0">Manage controllers, doors, schedules, and holidays</p>
+    </div>
+</div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @_errorMessage
+        <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+    </div>
+}
+
+@if (_successMessage != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @_successMessage
+        <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+    </div>
+}
+
+@if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        <!-- Left Column: Controller Selection & Status -->
+        <div class="col-lg-4">
+            <!-- Controller Selection -->
+            <div class="card shadow-sm mb-3">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-hdd-network"></i> Controllers
+                    </h5>
+                </div>
+                <div class="card-body">
+                    @if (!_controllers.Any())
+                    {
+                        <div class="text-center text-muted py-3">
+                            <i class="bi bi-info-circle"></i>
+                            <div class="small mt-2">No controllers registered</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var controller in _controllers)
+                            {
+                                <button type="button" 
+                                        class="list-group-item list-group-item-action @(_selectedControllerId == controller.Id ? "active" : "")"
+                                        @onclick="() => SelectController(controller.Id)">
+                                    <div class="d-flex w-100 justify-content-between align-items-center">
+                                        <div>
+                                            <h6 class="mb-1">@controller.Name</h6>
+                                            <small class="@(_selectedControllerId == controller.Id ? "text-white-50" : "text-muted")">
+                                                SN: @controller.SerialNumberDisplay
+                                            </small>
+                                        </div>
+                                        <span class="badge @(_selectedControllerId == controller.Id ? "bg-light text-dark" : "bg-primary")">
+                                            @controller.Doors.Count doors
+                                        </span>
+                                    </div>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (_controllers.Any())
+                {
+                    <div class="card-footer bg-light">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle"></i> Select a controller to view details
+                        </small>
+                    </div>
+                }
+            </div>
+
+            <!-- Quick Actions -->
+            @if (_selectedController != null)
+            {
+                <div class="card shadow-sm">
+                    <div class="card-header bg-light">
+                        <h6 class="card-title mb-0">
+                            <i class="bi bi-lightning-charge"></i> Quick Actions
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToDoorConfig">
+                                <i class="bi bi-door-open"></i> Configure Doors
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToSchedules">
+                                <i class="bi bi-calendar-event"></i> Manage Schedules
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToAutoOpen">
+                                <i class="bi bi-clock-history"></i> Auto-Open Schedules
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToAdvancedModes">
+                                <i class="bi bi-gear-wide-connected"></i> Advanced Door Modes
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="NavigateToTest">
+                                <i class="bi bi-wrench-adjustable"></i> Test Controller
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Right Column: Details -->
+        <div class="col-lg-8">
+            @if (_selectedController == null)
+            {
+                <div class="card shadow-sm">
+                    <div class="card-body text-center py-5">
+                        <i class="bi bi-arrow-left-circle text-muted" style="font-size: 3rem;"></i>
+                        <h5 class="mt-3 text-muted">Select a controller to view details</h5>
+                        <p class="text-muted">Choose a controller from the list on the left</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <!-- Controller Info -->
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-info-circle"></i> @_selectedController.Name
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="border-start border-primary border-3 ps-3">
+                                    <div class="small text-muted">Serial Number</div>
+                                    <div class="fw-bold">@_selectedController.SerialNumberDisplay</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="border-start border-primary border-3 ps-3">
+                                    <div class="small text-muted">Network Address</div>
+                                    <div class="fw-bold">@_selectedController.IpAddress:@_selectedController.Port</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="border-start border-success border-3 ps-3">
+                                    <div class="small text-muted">Total Doors</div>
+                                    <div class="fw-bold">@_selectedController.Doors.Count</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="border-start border-info border-3 ps-3">
+                                    <div class="small text-muted">Model</div>
+                                    <div class="fw-bold">@(_selectedController.Model ?? "N/A")</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Doors Overview -->
+                <div class="card shadow-sm">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">
+                            <i class="bi bi-door-open"></i> Doors
+                        </h5>
+                        <button class="btn btn-sm btn-primary" @onclick="NavigateToDoorConfig">
+                            <i class="bi bi-gear"></i> Configure
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        @if (!_selectedController.Doors.Any())
+                        {
+                            <div class="text-center text-muted py-4">
+                                <i class="bi bi-info-circle"></i>
+                                <div class="small mt-2">No doors configured</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Index</th>
+                                            <th>Name</th>
+                                            <th>Notes</th>
+                                            <th class="text-center">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <span class="badge bg-secondary">@door.DoorIndex</span>
+                                                </td>
+                                                <td class="fw-bold">@door.Name</td>
+                                                <td class="text-muted">@(door.Notes ?? "—")</td>
+                                                <td class="text-center">
+                                                    @if (door.IsEnabled)
+                                                    {
+                                                        <span class="badge bg-success">
+                                                            <i class="bi bi-check-circle"></i> Enabled
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary">
+                                                            <i class="bi bi-x-circle"></i> Disabled
+                                                        </span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<ControllerDevice> _controllers = new();
+    private ControllerDevice? _selectedController;
+    private int _selectedControllerId = 0;
+    private bool _isLoading = true;
+    private string? _errorMessage;
+    private string? _successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var isAdmin = await CheckAdminAccess();
+        if (!isAdmin)
+        {
+            _isLoading = false;
+            return;
+        }
+
+        await LoadControllers();
+    }
+
+    private async Task<bool> CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser != null)
+            {
+                isAdmin = currentUser.IsAdmin;
+            }
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Card Access Controller page");
+            Navigation.NavigateTo("/", forceLoad: true);
+            return false;
+        }
+        return true;
+    }
+
+    private async Task LoadControllers()
+    {
+        try
+        {
+            _controllers = (await RegistryService.GetControllersAsync(cancellationToken: CancellationToken.None)).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load controllers");
+            _errorMessage = "Failed to load controllers: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void SelectController(int controllerId)
+    {
+        _selectedControllerId = controllerId;
+        _selectedController = _controllers.FirstOrDefault(c => c.Id == controllerId);
+        StateHasChanged();
+    }
+
+    private void NavigateToDoorConfig()
+    {
+        if (_selectedController != null)
+        {
+            Navigation.NavigateTo($"/controllers/{_selectedController.Id}/door-configuration");
+        }
+    }
+
+    private void NavigateToSchedules()
+    {
+        if (_selectedController != null)
+        {
+            Navigation.NavigateTo($"/controllers/{_selectedController.Id}/schedules");
+        }
+    }
+
+    private void NavigateToTest()
+    {
+        if (_selectedController != null)
+        {
+            Navigation.NavigateTo($"/controllers/{_selectedController.Id}/test");
+        }
+    }
+
+    private void NavigateToAutoOpen()
+    {
+        Navigation.NavigateTo("/controllers/auto-open");
+    }
+
+    private void NavigateToAdvancedModes()
+    {
+        Navigation.NavigateTo("/controllers/advanced-modes");
+    }
+}

@@ -1,0 +1,407 @@
+@using GFC.BlazorServer.Services.SimulationReplay
+@inject IReplayService ReplayService
+@inject ILogger<ReplayTimeline> Logger
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<div class="card shadow-sm" @ref="_cardElement" tabindex="0" @onkeydown="HandleKeyDown">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-play-circle"></i> Replay Timeline
+        </h5>
+        <div class="small text-muted">
+            <kbd>Space</kbd> Play/Pause · <kbd>←→</kbd> Step · <kbd>Home/End</kbd> Jump
+        </div>
+    </div>
+    <div class="card-body">
+        @if (!_loaded)
+        {
+            <div class="text-center py-3">
+                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="small text-muted mt-2">Loading replay data...</div>
+            </div>
+        }
+        else if (!_replaySteps.Any())
+        {
+            <div class="text-center text-muted py-3">
+                <i class="bi bi-inbox"></i>
+                <div class="small mt-2">No replay data available</div>
+                <div class="small">Run some simulation operations to generate replay data</div>
+            </div>
+        }
+        else
+        {
+            <!-- Playback Controls -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="btn-group" role="group">
+                    <button class="btn btn-sm @(_isPlaying ? "btn-warning" : "btn-success")" 
+                            @onclick="TogglePlayPause"
+                            disabled="@(_currentStepIndex >= _replaySteps.Count - 1 && !_isPlaying)">
+                        <i class="bi bi-@(_isPlaying ? "pause-fill" : "play-fill")"></i>
+                        @(_isPlaying ? "Pause" : "Play")
+                    </button>
+                    <button class="btn btn-sm btn-secondary" 
+                            @onclick="Stop"
+                            disabled="@(!_isPlaying && _currentStepIndex == 0)">
+                        <i class="bi bi-stop-fill"></i> Stop
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" 
+                            @onclick="StepBackward"
+                            disabled="@(_isPlaying || _currentStepIndex == 0)">
+                        <i class="bi bi-skip-backward-fill"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" 
+                            @onclick="StepForward"
+                            disabled="@(_isPlaying || _currentStepIndex >= _replaySteps.Count - 1)">
+                        <i class="bi bi-skip-forward-fill"></i>
+                    </button>
+                </div>
+                
+                <div class="d-flex align-items-center gap-2">
+                    <label class="small mb-0">Speed:</label>
+                    <select class="form-select form-select-sm" style="width: auto;" @bind="_playbackSpeed">
+                        <option value="0.5">0.5x</option>
+                        <option value="1">1x</option>
+                        <option value="2">2x</option>
+                        <option value="5">5x</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Timeline Scrubber -->
+            <div class="timeline-container mb-3">
+                <div class="timeline-track">
+                    <!-- Progress Bar -->
+                    <div class="timeline-progress" style="width: @GetProgressPercentage()%"></div>
+                    
+                    <!-- Event Markers -->
+                    @for (int i = 0; i < _replaySteps.Count; i++)
+                    {
+                        var step = _replaySteps[i];
+                        var position = (double)i / (_replaySteps.Count - 1) * 100;
+                        <div class="timeline-marker @GetMarkerClass(step)" 
+                             style="left: @position%"
+                             title="@step.Summary"
+                             @onclick="@(() => SeekToStep(i))">
+                        </div>
+                    }
+                    
+                    <!-- Playhead -->
+                    <div class="timeline-playhead" style="left: @GetProgressPercentage()%">
+                        <div class="timeline-playhead-line"></div>
+                        <div class="timeline-playhead-handle"></div>
+                    </div>
+                </div>
+                
+                <!-- Time Labels -->
+                <div class="d-flex justify-content-between small text-muted mt-1">
+                    <span>@GetStartTime()</span>
+                    <span>@GetCurrentTime()</span>
+                    <span>@GetEndTime()</span>
+                </div>
+            </div>
+
+            <!-- Current Step Info -->
+            @if (_currentStepIndex < _replaySteps.Count)
+            {
+                var currentStep = _replaySteps[_currentStepIndex];
+                <div class="alert alert-@GetStepAlertClass(currentStep) mb-0">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fw-semibold">Step @(_currentStepIndex + 1) of @_replaySteps.Count</div>
+                            <div class="small">@currentStep.Summary</div>
+                            <div class="small text-muted">
+                                @currentStep.TimestampUtc.ToLocalTime().ToString("HH:mm:ss.fff")
+                            </div>
+                        </div>
+                        <span class="badge bg-@GetStatusBadge(currentStep.ResultStatus)">
+                            @currentStep.ResultStatus
+                        </span>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<style>
+    .timeline-container {
+        position: relative;
+        padding: 10px 0;
+    }
+
+    .timeline-track {
+        position: relative;
+        height: 8px;
+        background: #e9ecef;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .timeline-progress {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        background: linear-gradient(90deg, #0d6efd, #0dcaf0);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+    }
+
+    .timeline-marker {
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #6c757d;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        z-index: 2;
+    }
+
+    .timeline-marker:hover {
+        width: 12px;
+        height: 12px;
+    }
+
+    .timeline-marker-success {
+        background: #28a745;
+    }
+
+    .timeline-marker-warning {
+        background: #ffc107;
+    }
+
+    .timeline-marker-error {
+        background: #dc3545;
+    }
+
+    .timeline-playhead {
+        position: absolute;
+        top: -10px;
+        transform: translateX(-50%);
+        z-index: 3;
+        pointer-events: none;
+    }
+
+    .timeline-playhead-line {
+        width: 2px;
+        height: 28px;
+        background: #0d6efd;
+    }
+
+    .timeline-playhead-handle {
+        width: 12px;
+        height: 12px;
+        background: #0d6efd;
+        border: 2px solid white;
+        border-radius: 50%;
+        margin-top: -2px;
+        margin-left: -5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+</style>
+
+@code {
+    [Parameter] public string SessionFilter { get; set; } = "current";
+    [Parameter] public EventCallback<ReplayStep> OnStepChanged { get; set; }
+
+    private List<ReplayStep> _replaySteps = new();
+    private int _currentStepIndex = 0;
+    private bool _isPlaying = false;
+    private double _playbackSpeed = 1.0;
+    private bool _loaded = false;
+    private System.Threading.Timer? _playbackTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadReplayDataAsync();
+    }
+
+    private async Task LoadReplayDataAsync()
+    {
+        try
+        {
+            var steps = await ReplayService.BuildReplayStepsAsync(SessionFilter);
+            _replaySteps = steps.ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load replay data");
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private void TogglePlayPause()
+    {
+        _isPlaying = !_isPlaying;
+        
+        if (_isPlaying)
+        {
+            StartPlayback();
+        }
+        else
+        {
+            StopPlayback();
+        }
+    }
+
+    private void Stop()
+    {
+        _isPlaying = false;
+        _currentStepIndex = 0;
+        StopPlayback();
+        StateHasChanged();
+    }
+
+    private void StepForward()
+    {
+        if (_currentStepIndex < _replaySteps.Count - 1)
+        {
+            _currentStepIndex++;
+            NotifyStepChanged();
+        }
+    }
+
+    private void StepBackward()
+    {
+        if (_currentStepIndex > 0)
+        {
+            _currentStepIndex--;
+            NotifyStepChanged();
+        }
+    }
+
+    private void SeekToStep(int index)
+    {
+        _currentStepIndex = index;
+        NotifyStepChanged();
+    }
+
+    private void StartPlayback()
+    {
+        var interval = (int)(1000 / _playbackSpeed);
+        _playbackTimer = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                if (_currentStepIndex < _replaySteps.Count - 1)
+                {
+                    _currentStepIndex++;
+                    NotifyStepChanged();
+                    StateHasChanged();
+                }
+                else
+                {
+                    _isPlaying = false;
+                    StopPlayback();
+                    StateHasChanged();
+                }
+            });
+        }, null, interval, interval);
+    }
+
+    private void StopPlayback()
+    {
+        _playbackTimer?.Dispose();
+        _playbackTimer = null;
+    }
+
+    private async void NotifyStepChanged()
+    {
+        if (_currentStepIndex < _replaySteps.Count)
+        {
+            await OnStepChanged.InvokeAsync(_replaySteps[_currentStepIndex]);
+        }
+    }
+
+    private double GetProgressPercentage()
+    {
+        if (_replaySteps.Count == 0) return 0;
+        return ((double)_currentStepIndex / (_replaySteps.Count - 1)) * 100;
+    }
+
+    private string GetMarkerClass(ReplayStep step)
+    {
+        return step.ResultStatus?.ToLower() switch
+        {
+            "success" => "timeline-marker-success",
+            "failed" or "error" => "timeline-marker-error",
+            "partial" or "warning" => "timeline-marker-warning",
+            _ => string.Empty
+        };
+    }
+
+    private string GetStepAlertClass(ReplayStep step)
+    {
+        return step.ResultStatus?.ToLower() switch
+        {
+            "success" => "success",
+            "failed" or "error" => "danger",
+            "partial" or "warning" => "warning",
+            _ => "info"
+        };
+    }
+
+    private string GetStatusBadge(string? status)
+    {
+        return status?.ToLower() switch
+        {
+            "success" => "success",
+            "failed" or "error" => "danger",
+            "partial" or "warning" => "warning",
+            _ => "secondary"
+        };
+    }
+
+    private string GetStartTime() => _replaySteps.FirstOrDefault()?.TimestampUtc.ToLocalTime().ToString("HH:mm:ss") ?? "--:--:--";
+    private string GetCurrentTime() => _currentStepIndex < _replaySteps.Count 
+        ? _replaySteps[_currentStepIndex].TimestampUtc.ToLocalTime().ToString("HH:mm:ss") 
+        : "--:--:--";
+    private string GetEndTime() => _replaySteps.LastOrDefault()?.TimestampUtc.ToLocalTime().ToString("HH:mm:ss") ?? "--:--:--";
+
+    private ElementReference _cardElement;
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (_replaySteps.Count == 0) return;
+
+        switch (e.Code)
+        {
+            case "Space":
+                TogglePlayPause();
+                break;
+            
+            case "ArrowRight":
+                if (!_isPlaying) StepForward();
+                break;
+            
+            case "ArrowLeft":
+                if (!_isPlaying) StepBackward();
+                break;
+            
+            case "Home":
+                if (!_isPlaying) SeekToStep(0);
+                break;
+            
+            case "End":
+                if (!_isPlaying) SeekToStep(_replaySteps.Count - 1);
+                break;
+        }
+        
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        StopPlayback();
+        await Task.CompletedTask;
+    }
+}

@@ -1,0 +1,151 @@
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services.Simulation
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-sliders"></i> Control Bench
+        </h5>
+    </div>
+    <div class="card-body">
+        <!-- Time Control Section -->
+        <div class="mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <div class="small text-muted mb-1">Simulation Time</div>
+                    <div class="h4 mb-0 font-monospace">
+                        @CurrentTime.ToString("HH:mm:ss") 
+                        <small class="text-muted fs-6">UTC</small>
+                    </div>
+                    <small class="text-muted">
+                        Offset: @((CurrentTime - DateTime.UtcNow).ToString(@"dd\.hh\:mm\:ss"))
+                    </small>
+                </div>
+                <button class="btn btn-sm btn-outline-primary" 
+                        @onclick="OnSyncToNow" 
+                        disabled="@IsProcessing">
+                    <i class="bi bi-arrow-counterclockwise"></i> Sync Now
+                </button>
+            </div>
+            
+            <div class="btn-group w-100 mb-2">
+                <button class="btn btn-outline-secondary" 
+                        @onclick="@(() => HandleAdvanceTime(TimeSpan.FromMinutes(10)))" 
+                        disabled="@IsProcessing">
+                    +10m
+                </button>
+                <button class="btn btn-outline-secondary" 
+                        @onclick="@(() => HandleAdvanceTime(TimeSpan.FromHours(1)))" 
+                        disabled="@IsProcessing">
+                    +1h
+                </button>
+                <button class="btn btn-outline-secondary" 
+                        @onclick="@(() => HandleAdvanceTime(TimeSpan.FromHours(6)))" 
+                        disabled="@IsProcessing">
+                    +6h
+                </button>
+                <button class="btn btn-outline-secondary" 
+                        @onclick="@(() => HandleAdvanceTime(TimeSpan.FromDays(1)))" 
+                        disabled="@IsProcessing">
+                    +1d
+                </button>
+            </div>
+        </div>
+
+        <!-- Event Injection Section -->
+        <div class="border-top pt-3">
+            <div class="small text-muted mb-2">
+                <i class="bi bi-lightning-charge"></i> Event Injection
+            </div>
+            
+            <div class="mb-2">
+                <label class="form-label small">Controller & Door</label>
+                <div class="input-group input-group-sm">
+                    <select class="form-select" @bind="_selectedControllerId">
+                        <option value="0">Select Controller...</option>
+                        @foreach (var controller in Controllers)
+                        {
+                            <option value="@controller.Id">@controller.Name</option>
+                        }
+                    </select>
+                    <input type="number" 
+                           class="form-control" 
+                           @bind="_doorIndex" 
+                           placeholder="Door" 
+                           min="0" 
+                           max="15" 
+                           style="max-width: 70px;" />
+                </div>
+            </div>
+
+            <div class="mb-2">
+                <div class="row g-2">
+                    <div class="col-7">
+                        <label class="form-label small">Event Type</label>
+                        <select class="form-select form-select-sm" @bind="_eventType">
+                            <option value="1">Door Open</option>
+                            <option value="2">Door Closed</option>
+                            <option value="3">Access Granted</option>
+                            <option value="4">Access Denied</option>
+                            <option value="5">Card Swipe</option>
+                        </select>
+                    </div>
+                    <div class="col-5">
+                        <label class="form-label small">Card ID</label>
+                        <input type="text" 
+                               class="form-control form-control-sm" 
+                               @bind="_cardId" 
+                               placeholder="Optional" 
+                               maxlength="10" />
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-sm btn-primary w-100" 
+                    @onclick="HandleInjectEvent" 
+                    disabled="@(_selectedControllerId == 0 || IsProcessing)">
+                <i class="bi bi-lightning-charge-fill"></i> Inject Event
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public DateTime CurrentTime { get; set; } = DateTime.UtcNow;
+    [Parameter] public List<ControllerDevice> Controllers { get; set; } = new();
+    [Parameter] public bool IsProcessing { get; set; }
+    [Parameter] public EventCallback<TimeSpan> OnAdvanceTime { get; set; }
+    [Parameter] public EventCallback OnSyncToNow { get; set; }
+    [Parameter] public EventCallback<EventInjectionRequest> OnInjectEvent { get; set; }
+
+    private int _selectedControllerId = 0;
+    private int _doorIndex = 0;
+    private int _eventType = 3; // Default to Access Granted
+    private string _cardId = string.Empty;
+
+    private async Task HandleAdvanceTime(TimeSpan timeSpan)
+    {
+        await OnAdvanceTime.InvokeAsync(timeSpan);
+    }
+
+    private async Task HandleInjectEvent()
+    {
+        var request = new EventInjectionRequest
+        {
+            ControllerId = _selectedControllerId,
+            DoorIndex = _doorIndex,
+            EventType = _eventType,
+            CardId = string.IsNullOrWhiteSpace(_cardId) ? null : _cardId
+        };
+
+        await OnInjectEvent.InvokeAsync(request);
+    }
+
+    public class EventInjectionRequest
+    {
+        public int ControllerId { get; set; }
+        public int DoorIndex { get; set; }
+        public int EventType { get; set; }
+        public string? CardId { get; set; }
+    }
+}

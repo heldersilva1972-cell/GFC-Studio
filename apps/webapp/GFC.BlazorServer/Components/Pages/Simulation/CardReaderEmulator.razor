@@ -1,0 +1,211 @@
+@using GFC.BlazorServer.Data.Entities
+@using Microsoft.JSInterop
+
+<div class="card shadow-sm">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-credit-card"></i> Card Reader Emulation
+            <span class="badge bg-success ms-2" style="font-size: 0.6rem; vertical-align: middle;">NEW</span>
+        </h5>
+    </div>
+    <div class="card-body">
+        @if (!Controllers.Any())
+        {
+            <div class="text-center text-muted py-3">
+                <i class="bi bi-info-circle"></i>
+                <div class="small mt-2">No controllers available</div>
+            </div>
+        }
+        else
+        {
+            <!-- Controller Selection Only -->
+            <div class="mb-3">
+                <label class="form-label small">Controller</label>
+                <select class="form-select form-select-sm" @bind="_selectedControllerId">
+                    <option value="0">Select controller...</option>
+                    @foreach (var controller in Controllers)
+                    {
+                        <option value="@controller.Id">@controller.Name</option>
+                    }
+                </select>
+            </div>
+
+            <!-- Card Number Display -->
+            <div class="mb-3">
+                <label class="form-label small">
+                    Card Number
+                    @if (_cardScanned)
+                    {
+                        <span class="badge bg-success ms-1" style="font-size: 0.6rem;">SCANNED</span>
+                    }
+                </label>
+                <input type="text" 
+                       class="form-control" 
+                       @bind="_cardNumber" 
+                       disabled="true"
+                       placeholder="@(_cardScanned ? "Card: " + _cardNumber : "Press 'Scan Card' and tap your card...")" 
+                       style="@(_cardScanned ? "background-color: #d4edda; font-weight: 600;" : "")" />
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-grid gap-2">
+                @if (!_cardScanned)
+                {
+                    <button class="btn btn-primary" 
+                            @onclick="EnableScanning" 
+                            disabled="@(_selectedControllerId == 0 || IsProcessing || _scanningEnabled)">
+                        <i class="bi bi-upc-scan"></i> Scan Card
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-warning" 
+                            @onclick="ClearCard" 
+                            disabled="@IsProcessing">
+                        <i class="bi bi-x-circle"></i> Clear Card
+                    </button>
+                }
+            </div>
+
+            <!-- Hidden input for card reader -->
+            @if (_scanningEnabled && !_cardScanned)
+            {
+                <input type="text" 
+                       @ref="_cardInputRef"
+                       @bind="_cardNumber"
+                       @bind:event="oninput"
+                       @onkeydown="HandleKeyDown"
+                       autofocus
+                       style="position: absolute; left: -9999px;" />
+            }
+
+            <!-- Status Messages -->
+            @if (_scanningEnabled && !_cardScanned)
+            {
+                <div class="alert alert-info mt-3 mb-0 small">
+                    <i class="bi bi-info-circle"></i> Ready to scan. Tap your card on the reader now...
+                </div>
+            }
+            else if (_cardScanned)
+            {
+                <div class="alert alert-success mt-3 mb-0 small">
+                    <i class="bi bi-check-circle"></i> Card scanned successfully! Click "Clear Card" to scan another.
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_statusMessage))
+            {
+                <div class="alert alert-@_statusClass mt-3 mb-0 small">
+                    @_statusMessage
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<ControllerDevice> Controllers { get; set; } = new();
+    [Parameter] public bool IsProcessing { get; set; }
+    [Parameter] public EventCallback<CardScanEvent> OnCardScanned { get; set; }
+
+    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+
+    private int _selectedControllerId = 0;
+    private string _cardNumber = string.Empty;
+    private bool _cardScanned = false;
+    private bool _scanningEnabled = false;
+    private string _statusMessage = string.Empty;
+    private string _statusClass = "info";
+    private ElementReference _cardInputRef;
+
+    private async Task EnableScanning()
+    {
+        if (_selectedControllerId == 0)
+        {
+            ShowStatus("Please select a controller first", "warning");
+            return;
+        }
+
+        _scanningEnabled = true;
+        _cardScanned = false;
+        _cardNumber = string.Empty;
+        StateHasChanged();
+
+        // Give the DOM time to render the input, then focus it
+        await Task.Delay(100);
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.querySelector('input[style*=\"-9999px\"]')?.focus()");
+        }
+        catch
+        {
+            // Focus might fail, that's okay
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        // Lock the card as soon as Enter is pressed (card reader sends Enter after number)
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_cardNumber) && !_cardScanned)
+        {
+            _cardScanned = true;
+            _scanningEnabled = false;
+            
+            try
+            {
+                var scanEvent = new CardScanEvent
+                {
+                    ControllerId = _selectedControllerId,
+                    CardNumber = _cardNumber.Trim(),
+                    ScannedAt = DateTime.UtcNow
+                };
+
+                await OnCardScanned.InvokeAsync(scanEvent);
+            }
+            catch (Exception ex)
+            {
+                ShowStatus($"Error: {ex.Message}", "danger");
+                _cardScanned = false;
+                _scanningEnabled = false;
+            }
+            
+            StateHasChanged();
+        }
+    }
+
+    private void ClearCard()
+    {
+        _cardNumber = string.Empty;
+        _cardScanned = false;
+        _scanningEnabled = false;
+        _statusMessage = string.Empty;
+        StateHasChanged();
+    }
+
+    private void ShowStatus(string message, string alertClass)
+    {
+        _statusMessage = message;
+        _statusClass = alertClass;
+        StateHasChanged();
+        
+        // Auto-clear status after 5 seconds
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(5000);
+            await InvokeAsync(() =>
+            {
+                if (_statusMessage == message)
+                {
+                    _statusMessage = string.Empty;
+                    StateHasChanged();
+                }
+            });
+        });
+    }
+
+    public class CardScanEvent
+    {
+        public int ControllerId { get; set; }
+        public string CardNumber { get; set; } = string.Empty;
+        public DateTime ScannedAt { get; set; }
+    }
+}
