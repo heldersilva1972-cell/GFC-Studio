@@ -7,6 +7,7 @@ using GFC.BlazorServer.Services.Core;
 using GFC.BlazorServer.Services.Dashboard;
 using GFC.BlazorServer.Services.Members;
 using GFC.BlazorServer.Services.Controllers;
+using GFC.BlazorServer.Data.Repositories;
 using GFC.Data;
 using GFC.Core.Helpers;
 using GFC.Core.Interfaces;
@@ -86,6 +87,8 @@ public class Program
         builder.Services.AddScoped<IAppSettingsRepository, AppSettingsRepository>();
         builder.Services.AddScoped<ILotteryShiftRepository, LotteryShiftRepository>();
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
+        builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
+        builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();

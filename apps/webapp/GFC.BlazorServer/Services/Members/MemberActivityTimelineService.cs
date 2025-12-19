@@ -89,7 +89,7 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
             foreach (var payment in dues)
             {
                 var amountText = payment.Amount.HasValue
-                    ? payment.Amount.Value.ToString("C", CultureInfo.InvariantCulture)
+                    ? payment.Amount.Value.ToString("C", new CultureInfo("en-US"))
                     : "Payment";
                 var paidDate = payment.PaidDate ?? new DateTime(payment.Year, 1, 1);
                 var details = $"Year {payment.Year}";
@@ -198,7 +198,14 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
             return value;
         }
 
-        return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        // If it's local time, convert to UTC properly
+        if (value.Kind == DateTimeKind.Local)
+        {
+            return value.ToUniversalTime();
+        }
+
+        // If unspecified, treat as local time and convert to UTC
+        return DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime();
     }
 
     private static string GetSourceLabel(string source)

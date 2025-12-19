@@ -12,9 +12,25 @@
 @inject ILogger<UserManagement> Logger
 @inject IPasswordPolicy PasswordPolicy
 
+<link href="css/user-management-animations.css" rel="stylesheet" />
+
 <PageTitle>User Management - GFC Membership</PageTitle>
 
 <h1 class="page-title">User Management</h1>
+
+@* Reminder Alert for Directors Needing Notification Setup *@
+@if (_showDirectorReminder && _newDirectorsCount > 0)
+{
+    <div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+        <i class="bi bi-bell"></i>
+        <strong>Action Required:</strong> 
+        @_newDirectorsCount Director(s) need notification preferences configured.
+        <button class="btn btn-sm btn-primary ms-2" @onclick='() => SetFilter("directors")'>
+            <i class="bi bi-funnel"></i> View Directors
+        </button>
+        <button type="button" class="btn-close" @onclick="DismissDirectorReminder"></button>
+    </div>
+}
 
 @* Bypass Authentication Toggle - DISABLED FOR SECURITY *@
 <div class="data-card mb-4">
@@ -38,10 +54,47 @@
 <div class="data-card">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3>Users</h3>
-        <button class="btn btn-success btn-sm" @onclick="async () => await StartAddUser()">
-            <i class="bi bi-plus-circle"></i> Add User
+        <button class="btn btn-primary" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: all 0.3s ease;" 
+                @onclick="async () => await StartAddUser()"
+                @onmouseover="@((MouseEventArgs e) => { })"
+                @onmouseout="@((MouseEventArgs e) => { })">
+            <i class="bi bi-person-plus-fill me-2"></i>Add User
         </button>
     </div>
+
+    @* Filter Tabs *@
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <button class="nav-link @(_userFilter == "all" ? "active" : "")" 
+                    @onclick='() => SetFilter("all")'>
+                All Users (@_users.Count)
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_userFilter == "directors" ? "active" : "")" 
+                    @onclick='() => SetFilter("directors")'>
+                <i class="bi bi-star"></i> Current Directors (@GetFilteredCount("directors"))
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_userFilter == "admins" ? "active" : "")" 
+                    @onclick='() => SetFilter("admins")'>
+                <i class="bi bi-shield-check"></i> Admins (@_users.Count(u => u.IsAdmin))
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_userFilter == "active" ? "active" : "")" 
+                    @onclick='() => SetFilter("active")'>
+                <i class="bi bi-check-circle"></i> Active (@_users.Count(u => u.IsActive))
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_userFilter == "inactive" ? "active" : "")" 
+                    @onclick='() => SetFilter("inactive")'>
+                <i class="bi bi-x-circle"></i> Inactive (@_users.Count(u => !u.IsActive))
+            </button>
+        </li>
+    </ul>
 
     @if (_loading)
     {
@@ -72,7 +125,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var user in _users)
+                    @foreach (var user in FilteredUsers)
                     {
                         <tr>
                             <td>
@@ -114,20 +167,47 @@
                                 }
                             </td>
                             <td>
-                                <div class="table-actions">
-                                    <button class="btn btn-outline-primary btn-sm" @onclick="() => ViewHistory(user.UserId)">
-                                        History
+                                <div class="d-flex gap-2 align-items-center">
+                                    <!-- History Button -->
+                                    <button class="btn btn-sm" 
+                                            style="width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e0e0e0; background: white; color: #6c757d; transition: all 0.2s ease;"
+                                            @onclick="() => ViewHistory(user.UserId)"
+                                            title="View Login History">
+                                        <i class="bi bi-clock-history"></i>
                                     </button>
-                                    <button class="btn btn-outline btn-sm" @onclick="() => EditUser(user.UserId)">
-                                        Edit
+                                    
+                                    <!-- Edit Button -->
+                                    <button class="btn btn-sm" 
+                                            style="width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e0e0e0; background: white; color: #0d6efd; transition: all 0.2s ease;"
+                                            @onclick="() => EditUser(user.UserId)"
+                                            title="Edit User">
+                                        <i class="bi bi-pencil-fill"></i>
                                     </button>
+                                    
+                                    <!-- Notifications Button -->
+                                    <button class="btn btn-sm" 
+                                            style="width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e0e0e0; background: white; color: #17a2b8; transition: all 0.2s ease;"
+                                            @onclick="() => ConfigureNotifications(user.UserId)"
+                                            title="Notification Preferences">
+                                        <i class="bi bi-bell-fill"></i>
+                                    </button>
+                                    
+                                    <!-- Page Permissions Button -->
+                                    <button class="btn btn-sm" 
+                                            style="width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e0e0e0; background: white; color: #ffc107; transition: all 0.2s ease;"
+                                            @onclick="() => ConfigurePagePermissions(user.UserId, user.Username, user.IsAdmin)"
+                                            title="Page Access Permissions">
+                                        <i class="bi bi-shield-lock-fill"></i>
+                                    </button>
+                                    
+                                    <!-- Deactivate/Activate Button (only for non-admin users) -->
                                     @if (!user.IsAdmin)
                                     {
-                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ToggleUserStatus(user.UserId, !user.IsActive)">
-                                            @(user.IsActive ? "Deactivate" : "Activate")
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteUser(user.UserId, user.Username)">
-                                            Deactivate
+                                        <button class="btn btn-sm" 
+                                                style="width: 36px; height: 36px; border-radius: 8px; border: 1px solid #e0e0e0; background: white; color: @(user.IsActive ? "#dc3545" : "#28a745"); transition: all 0.2s ease;"
+                                                @onclick="() => ConfirmDeleteUser(user.UserId, user.Username)"
+                                                title="@(user.IsActive ? "Deactivate User" : "Activate User")">
+                                            <i class="bi @(user.IsActive ? "bi-person-x-fill" : "bi-person-check-fill")"></i>
                                         </button>
                                     }
                                 </div>
@@ -244,9 +324,113 @@
         }
         else
         {
-            <div class="table-container">
+            @* Login Statistics Summary *@
+            <div class="row g-3 mb-4">
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm" style="background: #28a745;">
+                        <div class="card-body text-white text-center">
+                            <i class="bi bi-check-circle-fill" style="font-size: 2rem; opacity: 0.9;"></i>
+                            <h3 class="mb-0 mt-2">@_loginHistory.Count(x => x.LoginSuccessful)</h3>
+                            <small style="opacity: 0.9;">Successful Logins</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm" style="background: #dc3545;">
+                        <div class="card-body text-white text-center">
+                            <i class="bi bi-x-circle-fill" style="font-size: 2rem; opacity: 0.9;"></i>
+                            <h3 class="mb-0 mt-2">@_loginHistory.Count(x => !x.LoginSuccessful)</h3>
+                            <small style="opacity: 0.9;">Failed Attempts</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm" style="background: #0d6efd;">
+                        <div class="card-body text-white text-center">
+                            <i class="bi bi-percent" style="font-size: 2rem; opacity: 0.9;"></i>
+                            <h3 class="mb-0 mt-2">
+                                @if (_loginHistory.Any())
+                                {
+                                    <text>@(Math.Round((_loginHistory.Count(x => x.LoginSuccessful) * 100.0 / _loginHistory.Count), 1))%</text>
+                                }
+                                else
+                                {
+                                    <text>0%</text>
+                                }
+                            </h3>
+                            <small style="opacity: 0.9;">Success Rate</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm" style="background: #fd7e14;">
+                        <div class="card-body text-white text-center">
+                            <i class="bi bi-clock-history" style="font-size: 2rem; opacity: 0.9;"></i>
+                            <h6 class="mb-0 mt-2" style="font-size: 0.85rem;">
+                                @if (_loginHistory.Any(x => x.LoginSuccessful))
+                                {
+                                    var lastSuccess = _loginHistory.Where(x => x.LoginSuccessful).OrderByDescending(x => x.LoginDate).First();
+                                    @lastSuccess.LoginDate.ToLocalTime().ToString("MMM d, h:mm tt")
+                                }
+                                else
+                                {
+                                    <text>Never</text>
+                                }
+                            </h6>
+                            <small style="opacity: 0.9;">Last Successful</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            @* Second Row - Average Logins per Week *@
+            <div class="row g-3 mb-4">
+                <div class="col-md-12">
+                    <div class="card border-0 shadow-sm" style="background: #20c997;">
+                        <div class="card-body text-white">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-graph-up-arrow" style="font-size: 2.5rem; opacity: 0.9; margin-right: 20px;"></i>
+                                    <div>
+                                        <h3 class="mb-0">
+                                            @if (_loginHistory.Any())
+                                            {
+                                                var oldestLogin = _loginHistory.OrderBy(x => x.LoginDate).First().LoginDate;
+                                                var newestLogin = _loginHistory.OrderByDescending(x => x.LoginDate).First().LoginDate;
+                                                var daysDiff = (newestLogin - oldestLogin).TotalDays;
+                                                var weeks = daysDiff > 0 ? daysDiff / 7.0 : 1;
+                                                var avgPerWeek = _loginHistory.Count / weeks;
+                                                @Math.Round(avgPerWeek, 1)
+                                            }
+                                            else
+                                            {
+                                                <text>0</text>
+                                            }
+                                        </h3>
+                                        <small style="opacity: 0.9;">Average Logins per Week</small>
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <small style="opacity: 0.9;">
+                                        @if (_loginHistory.Any())
+                                        {
+                                            var oldestLogin = _loginHistory.OrderBy(x => x.LoginDate).First().LoginDate;
+                                            var newestLogin = _loginHistory.OrderByDescending(x => x.LoginDate).First().LoginDate;
+                                            var daysDiff = (newestLogin - oldestLogin).TotalDays;
+                                            <text>Based on @Math.Round(daysDiff, 0) days of history</text>
+                                        }
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+
+            <div class="table-container" style="max-height: 500px; overflow-y: auto; margin-bottom: 20px;">
                 <table class="data-table table-compact">
-                    <thead>
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
                         <tr>
                             <th>Date</th>
                             <th>IP Address</th>
@@ -275,6 +459,11 @@
                         }
                     </tbody>
                 </table>
+            </div>
+            
+            <!-- Close Button at Bottom -->
+            <div class="d-flex justify-content-end">
+                <button type="button" class="btn btn-outline" @onclick="CloseHistoryModal">Close</button>
             </div>
         }
     </div>
@@ -305,6 +494,237 @@
     </div>
 }
 
+@* Notification Configuration Modal *@
+@if (_showNotificationModal && _selectedNotificationUserId.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 800px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">
+                Notification Preferences - @_selectedUserName
+                @if (_selectedUserIsDirector)
+                {
+                    <span class="badge bg-primary ms-2">Director</span>
+                }
+            </h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CloseNotificationModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_notificationError))
+        {
+            <div class="alert alert-danger mb-3">
+                <strong>Error:</strong> @_notificationError
+            </div>
+        }
+
+        <!-- Contact Information -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <label class="form-label small">Email Address</label>
+                <input type="email" class="form-control form-control-sm" 
+                       @bind="_notificationForm.Email" placeholder="user@example.com" />
+                <small class="text-muted">Required for email notifications</small>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">Phone Number</label>
+                <input type="tel" class="form-control form-control-sm" 
+                       @bind="_notificationForm.Phone" placeholder="(555) 123-4567" />
+                <small class="text-muted">Required for SMS notifications</small>
+            </div>
+        </div>
+
+        <!-- Notification Preferences Table -->
+        <h6 class="mb-3">Notification Events</h6>
+        <p class="text-muted small mb-3">Select how this user should be notified for each event type. All notifications are OFF by default.</p>
+        
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 40%;">Event Type</th>
+                        <th class="text-center" style="width: 15%;">None</th>
+                        <th class="text-center" style="width: 15%;">Email</th>
+                        <th class="text-center" style="width: 15%;">SMS</th>
+                        <th class="text-center" style="width: 15%;">Both</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Reimbursement Requests -->
+                    <tr>
+                        <td><i class="bi bi-receipt text-primary"></i> Reimbursement Requests</td>
+                        <td class="text-center">
+                            <input type="radio" name="reimb" 
+                                   checked="@(!_notificationForm.ReimbursementNotifyEmail && !_notificationForm.ReimbursementNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.Reimbursement, NotificationMethod.None)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="reimb" 
+                                   checked="@(_notificationForm.ReimbursementNotifyEmail && !_notificationForm.ReimbursementNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.Reimbursement, NotificationMethod.Email)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="reimb" 
+                                   checked="@(!_notificationForm.ReimbursementNotifyEmail && _notificationForm.ReimbursementNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.Reimbursement, NotificationMethod.SMS)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="reimb" 
+                                   checked="@(_notificationForm.ReimbursementNotifyEmail && _notificationForm.ReimbursementNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.Reimbursement, NotificationMethod.Both)" />
+                        </td>
+                    </tr>
+                    
+                    <!-- Member Signups -->
+                    <tr>
+                        <td><i class="bi bi-person-plus text-success"></i> New Member Signups</td>
+                        <td class="text-center">
+                            <input type="radio" name="member" 
+                                   checked="@(!_notificationForm.MemberSignupNotifyEmail && !_notificationForm.MemberSignupNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.MemberSignup, NotificationMethod.None)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="member" 
+                                   checked="@(_notificationForm.MemberSignupNotifyEmail && !_notificationForm.MemberSignupNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.MemberSignup, NotificationMethod.Email)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="member" 
+                                   checked="@(!_notificationForm.MemberSignupNotifyEmail && _notificationForm.MemberSignupNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.MemberSignup, NotificationMethod.SMS)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="member" 
+                                   checked="@(_notificationForm.MemberSignupNotifyEmail && _notificationForm.MemberSignupNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.MemberSignup, NotificationMethod.Both)" />
+                        </td>
+                    </tr>
+                    
+                    <!-- Dues Payments -->
+                    <tr>
+                        <td><i class="bi bi-wallet2 text-warning"></i> Dues Payments</td>
+                        <td class="text-center">
+                            <input type="radio" name="dues" 
+                                   checked="@(!_notificationForm.DuesPaymentNotifyEmail && !_notificationForm.DuesPaymentNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.DuesPayment, NotificationMethod.None)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="dues" 
+                                   checked="@(_notificationForm.DuesPaymentNotifyEmail && !_notificationForm.DuesPaymentNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.DuesPayment, NotificationMethod.Email)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="dues" 
+                                   checked="@(!_notificationForm.DuesPaymentNotifyEmail && _notificationForm.DuesPaymentNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.DuesPayment, NotificationMethod.SMS)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="dues" 
+                                   checked="@(_notificationForm.DuesPaymentNotifyEmail && _notificationForm.DuesPaymentNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.DuesPayment, NotificationMethod.Both)" />
+                        </td>
+                    </tr>
+                    
+                    <!-- System Alerts -->
+                    <tr>
+                        <td><i class="bi bi-exclamation-triangle text-danger"></i> System Alerts</td>
+                        <td class="text-center">
+                            <input type="radio" name="system" 
+                                   checked="@(!_notificationForm.SystemAlertNotifyEmail && !_notificationForm.SystemAlertNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.SystemAlert, NotificationMethod.None)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="system" 
+                                   checked="@(_notificationForm.SystemAlertNotifyEmail && !_notificationForm.SystemAlertNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.SystemAlert, NotificationMethod.Email)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="system" 
+                                   checked="@(!_notificationForm.SystemAlertNotifyEmail && _notificationForm.SystemAlertNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.SystemAlert, NotificationMethod.SMS)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="system" 
+                                   checked="@(_notificationForm.SystemAlertNotifyEmail && _notificationForm.SystemAlertNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.SystemAlert, NotificationMethod.Both)" />
+                        </td>
+                    </tr>
+                    
+                    <!-- Lottery Sales -->
+                    <tr>
+                        <td><i class="bi bi-ticket-perforated text-info"></i> Lottery Sales</td>
+                        <td class="text-center">
+                            <input type="radio" name="lottery" 
+                                   checked="@(!_notificationForm.LotterySalesNotifyEmail && !_notificationForm.LotterySalesNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.LotterySales, NotificationMethod.None)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="lottery" 
+                                   checked="@(_notificationForm.LotterySalesNotifyEmail && !_notificationForm.LotterySalesNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.LotterySales, NotificationMethod.Email)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="lottery" 
+                                   checked="@(!_notificationForm.LotterySalesNotifyEmail && _notificationForm.LotterySalesNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.LotterySales, NotificationMethod.SMS)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="lottery" 
+                                   checked="@(_notificationForm.LotterySalesNotifyEmail && _notificationForm.LotterySalesNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.LotterySales, NotificationMethod.Both)" />
+                        </td>
+                    </tr>
+                    
+                    <!-- Controller Events -->
+                    <tr>
+                        <td><i class="bi bi-door-open text-secondary"></i> Controller Events</td>
+                        <td class="text-center">
+                            <input type="radio" name="controller" 
+                                   checked="@(!_notificationForm.ControllerEventNotifyEmail && !_notificationForm.ControllerEventNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.ControllerEvent, NotificationMethod.None)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="controller" 
+                                   checked="@(_notificationForm.ControllerEventNotifyEmail && !_notificationForm.ControllerEventNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.ControllerEvent, NotificationMethod.Email)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="controller" 
+                                   checked="@(!_notificationForm.ControllerEventNotifyEmail && _notificationForm.ControllerEventNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.ControllerEvent, NotificationMethod.SMS)" />
+                        </td>
+                        <td class="text-center">
+                            <input type="radio" name="controller" 
+                                   checked="@(_notificationForm.ControllerEventNotifyEmail && _notificationForm.ControllerEventNotifySMS)"
+                                   @onchange="() => SetNotification(NotificationType.ControllerEvent, NotificationMethod.Both)" />
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="modal-card__actions">
+            <button type="button" class="btn btn-primary" @onclick="SaveNotificationPreferences" disabled="@_savingNotifications">
+                <span class="spinner-border spinner-border-sm me-1" hidden="@(!_savingNotifications)"></span>
+                <i class="bi bi-save"></i> Save Preferences
+            </button>
+            <button type="button" class="btn btn-outline" @onclick="CloseNotificationModal" disabled="@_savingNotifications">Cancel</button>
+        </div>
+    </div>
+}
+
+@* Page Permissions Modal *@
+@if (_showPagePermissionsModal && _selectedPagePermissionsUserId.HasValue)
+{
+    <UserPagePermissionsModal 
+        UserId="@_selectedPagePermissionsUserId.Value"
+        Username="@_selectedPagePermissionsUsername"
+        IsAdmin="@_selectedPagePermissionsIsAdmin"
+        OnClose="@ClosePagePermissionsModal"
+        OnSaved="@OnPagePermissionsSaved" />
+}
+
 @code {
     private List<UserListItemDto> _users = new();
     private List<ActiveMemberDto> _activeMembers = new();
@@ -324,6 +744,12 @@
     private string _modalError = string.Empty;
     private string? _originalUsername = null; // Store the original username when editing
     private bool _originalUserIsAdmin = false;
+    
+    // Page permissions modal state
+    private bool _showPagePermissionsModal = false;
+    private int? _selectedPagePermissionsUserId = null;
+    private string _selectedPagePermissionsUsername = string.Empty;
+    private bool _selectedPagePermissionsIsAdmin = false;
 
     private UserFormModel _userForm = new();
     
@@ -772,5 +1198,231 @@
 
         public string Notes { get; set; } = string.Empty;
     }
-}
 
+    // ===== NOTIFICATION SYSTEM =====
+    
+    // Filter state
+    private string _userFilter = "all";
+    
+    // Director reminder state
+    private bool _showDirectorReminder = false; // Will be set to true after loading
+    private int _newDirectorsCount = 0;
+    
+    // Notification modal state
+    private bool _showNotificationModal = false;
+    private int? _selectedNotificationUserId = null;
+    private string _selectedUserName = "";
+    private bool _selectedUserIsDirector = false;
+    private bool _savingNotifications = false;
+    private string _notificationError = "";
+    private NotificationPreferencesForm _notificationForm = new();
+    
+    // Filtered users property
+    private List<UserListItemDto> FilteredUsers => _userFilter switch
+    {
+        "directors" => _users.Where(u => IsCurrentDirector(u)).ToList(),
+        "admins" => _users.Where(u => u.IsAdmin).ToList(),
+        "active" => _users.Where(u => u.IsActive).ToList(),
+        "inactive" => _users.Where(u => !u.IsActive).ToList(),
+        _ => _users
+    };
+    
+    // Filter methods
+    private void SetFilter(string filter)
+    {
+        _userFilter = filter;
+        StateHasChanged();
+    }
+    
+    private int GetFilteredCount(string filter)
+    {
+        return filter switch
+        {
+            "directors" => _users.Count(u => IsCurrentDirector(u)),
+            "admins" => _users.Count(u => u.IsAdmin),
+            "active" => _users.Count(u => u.IsActive),
+            "inactive" => _users.Count(u => !u.IsActive),
+            _ => _users.Count
+        };
+    }
+    
+    // Director checking
+    private bool IsCurrentDirector(UserListItemDto user)
+    {
+        // TODO: Implement actual Director checking logic
+        // For now, return false (will be implemented in Phase 3)
+        // This should check if user.MemberId is in the Directors table and is active
+        return false;
+    }
+    
+    // Reminder handling
+    private async Task DismissDirectorReminder()
+    {
+        // TODO: Mark all new directors' reminders as dismissed in database
+        // For now, just hide the reminder
+        _showDirectorReminder = false;
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+    
+    // Notification configuration
+    private async Task ConfigureNotifications(int userId)
+    {
+        _selectedNotificationUserId = userId;
+        var user = _users.FirstOrDefault(u => u.UserId == userId);
+        _selectedUserName = user?.Username ?? "";
+        _selectedUserIsDirector = user != null && IsCurrentDirector(user);
+        _notificationError = "";
+        
+        // TODO: Load existing preferences from database
+        // For now, create empty form
+        _notificationForm = new NotificationPreferencesForm();
+        
+        _showNotificationModal = true;
+        await Task.CompletedTask;
+    }
+    
+    private void CloseNotificationModal()
+    {
+        _showNotificationModal = false;
+        _selectedNotificationUserId = null;
+        _selectedUserName = "";
+        _selectedUserIsDirector = false;
+        _notificationForm = new();
+        _notificationError = "";
+    }
+    
+    private void SetNotification(NotificationType type, NotificationMethod method)
+    {
+        var (email, sms) = method switch
+        {
+            NotificationMethod.Email => (true, false),
+            NotificationMethod.SMS => (false, true),
+            NotificationMethod.Both => (true, true),
+            _ => (false, false)
+        };
+
+        switch (type)
+        {
+            case NotificationType.Reimbursement:
+                _notificationForm.ReimbursementNotifyEmail = email;
+                _notificationForm.ReimbursementNotifySMS = sms;
+                break;
+            case NotificationType.MemberSignup:
+                _notificationForm.MemberSignupNotifyEmail = email;
+                _notificationForm.MemberSignupNotifySMS = sms;
+                break;
+            case NotificationType.DuesPayment:
+                _notificationForm.DuesPaymentNotifyEmail = email;
+                _notificationForm.DuesPaymentNotifySMS = sms;
+                break;
+            case NotificationType.SystemAlert:
+                _notificationForm.SystemAlertNotifyEmail = email;
+                _notificationForm.SystemAlertNotifySMS = sms;
+                break;
+            case NotificationType.LotterySales:
+                _notificationForm.LotterySalesNotifyEmail = email;
+                _notificationForm.LotterySalesNotifySMS = sms;
+                break;
+            case NotificationType.ControllerEvent:
+                _notificationForm.ControllerEventNotifyEmail = email;
+                _notificationForm.ControllerEventNotifySMS = sms;
+                break;
+        }
+    }
+    
+    private async Task SaveNotificationPreferences()
+    {
+        _savingNotifications = true;
+        _notificationError = "";
+        
+        try
+        {
+            // TODO: Save to database via repository/service
+            // For now, just simulate save
+            await Task.Delay(500);
+            
+            // Close modal on success
+            _showNotificationModal = false;
+            
+            // Refresh to update reminder if needed
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save notification preferences");
+            _notificationError = "Failed to save preferences: " + ex.Message;
+        }
+        finally
+        {
+            _savingNotifications = false;
+        }
+    }
+    
+    // Page Permissions Modal Methods
+    private void ConfigurePagePermissions(int userId, string username, bool isAdmin)
+    {
+        _selectedPagePermissionsUserId = userId;
+        _selectedPagePermissionsUsername = username;
+        _selectedPagePermissionsIsAdmin = isAdmin;
+        _showPagePermissionsModal = true;
+    }
+    
+    private void ClosePagePermissionsModal()
+    {
+        _showPagePermissionsModal = false;
+        _selectedPagePermissionsUserId = null;
+        _selectedPagePermissionsUsername = string.Empty;
+        _selectedPagePermissionsIsAdmin = false;
+    }
+    
+    private async Task OnPagePermissionsSaved()
+    {
+        // Optionally refresh data or show success message
+        ClosePagePermissionsModal();
+        StateHasChanged();
+    }
+    
+    // Enums and models
+    private enum NotificationType
+    {
+        Reimbursement,
+        MemberSignup,
+        DuesPayment,
+        SystemAlert,
+        LotterySales,
+        ControllerEvent
+    }
+    
+    private enum NotificationMethod
+    {
+        None,
+        Email,
+        SMS,
+        Both
+    }
+    
+    private class NotificationPreferencesForm
+    {
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        
+        public bool ReimbursementNotifyEmail { get; set; } = false;
+        public bool ReimbursementNotifySMS { get; set; } = false;
+        
+        public bool MemberSignupNotifyEmail { get; set; } = false;
+        public bool MemberSignupNotifySMS { get; set; } = false;
+        
+        public bool DuesPaymentNotifyEmail { get; set; } = false;
+        public bool DuesPaymentNotifySMS { get; set; } = false;
+        
+        public bool SystemAlertNotifyEmail { get; set; } = false;
+        public bool SystemAlertNotifySMS { get; set; } = false;
+        
+        public bool LotterySalesNotifyEmail { get; set; } = false;
+        public bool LotterySalesNotifySMS { get; set; } = false;
+        
+        public bool ControllerEventNotifyEmail { get; set; } = false;
+        public bool ControllerEventNotifySMS { get; set; } = false;
+    }
+}

@@ -1,0 +1,225 @@
+@using GFC.Core.Models
+@inject IUserManagementService UserService
+
+<div class="modal-backdrop"></div>
+<div class="modal-card" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+    <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">
+            <i class="bi bi-shield-lock"></i> Page Access Permissions - @Username
+            @if (IsAdmin)
+            {
+                <span class="badge bg-primary ms-2">Admin</span>
+            }
+        </h4>
+        <button class="btn btn-link text-muted p-0" type="button" @onclick="OnClose">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger mb-3">
+            <strong>Error:</strong> @ErrorMessage
+        </div>
+    }
+
+    @if (IsAdmin)
+    {
+        <div class="alert alert-info mb-3">
+            <i class="bi bi-info-circle"></i>
+            <strong>Admin User:</strong> Administrators have full access to all pages by default and cannot have their permissions restricted.
+        </div>
+    }
+    else
+    {
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <p class="text-muted mb-0">
+                    Select which pages this user can access. Unchecked pages will be inaccessible to this user.
+                </p>
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-primary me-2" @onclick="SelectAll">
+                        <i class="bi bi-check-square"></i> Select All
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearAll">
+                        <i class="bi bi-square"></i> Clear All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        @if (Loading)
+        {
+            <div class="loading-state">
+                <div class="spinner-border spinner-border-sm text-info" role="status"></div> Loading pages...
+            </div>
+        }
+        else
+        {
+            @foreach (var category in PagesByCategory.Keys.OrderBy(k => k))
+            {
+                <div class="mb-4">
+                    <h6 class="text-primary mb-3">
+                        <i class="bi bi-folder"></i> @category
+                    </h6>
+                    <div class="row g-2">
+                        @foreach (var page in PagesByCategory[category])
+                        {
+                            <div class="col-md-6">
+                                @{
+                                    var pageId = page.PageId;
+                                    var checkboxId = $"page_{pageId}";
+                                    var isSelected = SelectedPageIds.Contains(pageId);
+                                    var isDisabled = page.RequiresAdmin;
+                                    var pageName = page.PageName;
+                                    var pageRoute = page.PageRoute;
+                                    var pageDescription = page.Description;
+                                    var requiresAdmin = page.RequiresAdmin;
+                                }
+                                <div class="form-check p-3 border rounded @(isSelected ? "bg-light" : "")">
+                                    <input class="form-check-input" 
+                                           type="checkbox" 
+                                           id="@checkboxId"
+                                           checked="@isSelected"
+                                           @onchange="@(e => TogglePage(pageId))"
+                                           disabled="@isDisabled" />
+                                    <label class="form-check-label w-100" for="@checkboxId">
+                                        <div class="fw-semibold">@pageName</div>
+                                        <div class="small text-muted">@pageRoute</div>
+                                        @if (!string.IsNullOrEmpty(pageDescription))
+                                        {
+                                            <div class="small text-muted fst-italic">@pageDescription</div>
+                                        }
+                                        @if (requiresAdmin)
+                                        {
+                                            <span class="badge bg-warning text-dark small">Admin Only</span>
+                                        }
+                                    </label>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    }
+
+    <div class="modal-card__actions">
+        @if (!IsAdmin)
+        {
+            <button type="button" class="btn btn-primary" @onclick="SavePermissions" disabled="@Saving">
+                <span class="spinner-border spinner-border-sm me-1" hidden="@(!Saving)"></span>
+                <i class="bi bi-save"></i> Save Permissions
+            </button>
+        }
+        <button type="button" class="btn btn-outline" @onclick="OnClose" disabled="@Saving">Close</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int UserId { get; set; }
+    [Parameter] public string Username { get; set; } = string.Empty;
+    [Parameter] public bool IsAdmin { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private bool Loading { get; set; } = true;
+    private bool Saving { get; set; } = false;
+    private string ErrorMessage { get; set; } = string.Empty;
+    
+    private List<AppPage> AllPages { get; set; } = new();
+    private Dictionary<string, List<AppPage>> PagesByCategory { get; set; } = new();
+    private HashSet<int> SelectedPageIds { get; set; } = new();
+    private HashSet<int> OriginalSelectedPageIds { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        Loading = true;
+        ErrorMessage = string.Empty;
+        
+        try
+        {
+            // Load all active pages
+            AllPages = await Task.Run(() => UserService.GetActivePages());
+            
+            // Group by category
+            PagesByCategory = AllPages
+                .GroupBy(p => p.Category ?? "Other")
+                .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
+            
+            // Load user's current permissions
+            if (!IsAdmin)
+            {
+                var userPermissions = await Task.Run(() => UserService.GetUserPagePermissions(UserId));
+                SelectedPageIds = userPermissions.Select(p => p.PageId).ToHashSet();
+                OriginalSelectedPageIds = new HashSet<int>(SelectedPageIds);
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load page permissions: {ex.Message}";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private void TogglePage(int pageId)
+    {
+        if (SelectedPageIds.Contains(pageId))
+        {
+            SelectedPageIds.Remove(pageId);
+        }
+        else
+        {
+            SelectedPageIds.Add(pageId);
+        }
+    }
+
+    private void SelectAll()
+    {
+        SelectedPageIds = AllPages
+            .Where(p => !p.RequiresAdmin)
+            .Select(p => p.PageId)
+            .ToHashSet();
+    }
+
+    private void ClearAll()
+    {
+        SelectedPageIds.Clear();
+    }
+
+    private async Task SavePermissions()
+    {
+        Saving = true;
+        ErrorMessage = string.Empty;
+        
+        try
+        {
+            await Task.Run(() => UserService.SetUserPagePermissions(
+                UserId, 
+                SelectedPageIds.ToList(), 
+                "Admin")); // TODO: Get current admin username
+            
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to save permissions: {ex.Message}";
+            Saving = false;
+        }
+        finally
+        {
+            if (string.IsNullOrEmpty(ErrorMessage))
+            {
+                Saving = false;
+            }
+        }
+    }
+}

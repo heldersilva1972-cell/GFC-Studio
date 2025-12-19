@@ -14,6 +14,7 @@ public class UserManagementService : IUserManagementService
     private readonly IBoardRepository _boardRepository;
     private readonly IAuditLogger _auditLogger;
     private readonly IPasswordPolicy _passwordPolicy;
+    private readonly IPagePermissionRepository _pagePermissionRepository;
 
     public UserManagementService(
         IUserRepository userRepository,
@@ -22,7 +23,8 @@ public class UserManagementService : IUserManagementService
         IDuesRepository duesRepository,
         IBoardRepository boardRepository,
         IAuditLogger auditLogger,
-        IPasswordPolicy passwordPolicy)
+        IPasswordPolicy passwordPolicy,
+        IPagePermissionRepository pagePermissionRepository)
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
@@ -31,6 +33,7 @@ public class UserManagementService : IUserManagementService
         _boardRepository = boardRepository ?? throw new ArgumentNullException(nameof(boardRepository));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
         _passwordPolicy = passwordPolicy ?? throw new ArgumentNullException(nameof(passwordPolicy));
+        _pagePermissionRepository = pagePermissionRepository ?? throw new ArgumentNullException(nameof(pagePermissionRepository));
     }
 
     public List<UserListItemDto> GetAllUsers()
@@ -282,6 +285,42 @@ public class UserManagementService : IUserManagementService
                 : result.ErrorMessage;
             throw new InvalidOperationException(message);
         }
+    }
+
+    // Page Permission Management
+    public List<AppPage> GetAllPages()
+    {
+        return _pagePermissionRepository.GetAllPages().ToList();
+    }
+
+    public List<AppPage> GetActivePages()
+    {
+        return _pagePermissionRepository.GetActivePages().ToList();
+    }
+
+    public List<UserPagePermission> GetUserPagePermissions(int userId)
+    {
+        return _pagePermissionRepository.GetUserPermissions(userId).ToList();
+    }
+
+    public bool UserHasPageAccess(int userId, string pageRoute)
+    {
+        return _pagePermissionRepository.HasPermission(userId, pageRoute);
+    }
+
+    public void SetUserPagePermissions(int userId, List<int> pageIds, string grantedBy)
+    {
+        _pagePermissionRepository.SetUserPermissions(userId, pageIds, grantedBy);
+    }
+
+    public void GrantAllPagePermissions(int userId, string grantedBy)
+    {
+        _pagePermissionRepository.GrantAllPermissions(userId, grantedBy);
+    }
+
+    public void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy)
+    {
+        _pagePermissionRepository.CopyPermissions(sourceUserId, targetUserId, grantedBy);
     }
 }
 

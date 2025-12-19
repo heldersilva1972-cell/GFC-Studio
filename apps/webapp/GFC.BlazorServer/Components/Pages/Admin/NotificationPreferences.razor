@@ -1,0 +1,479 @@
+@page "/admin/notification-preferences"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject IUserRepository UserRepository
+@inject ILogger<NotificationPreferences> Logger
+@inject NavigationManager Navigation
+
+<PageTitle>Notification Preferences - GFC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="h3 mb-1">Notification Preferences</h1>
+        <p class="text-muted mb-0">Configure email and SMS notifications for users</p>
+    </div>
+</div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @_errorMessage
+        <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+    </div>
+}
+
+@if (_successMessage != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @_successMessage
+        <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+    </div>
+}
+
+@if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <!-- Filter Section -->
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">Filter by Role</label>
+                    <select class="form-select form-select-sm" @bind="_roleFilter" @bind:after="ApplyFilter">
+                        <option value="all">All Users</option>
+                        <option value="directors">Directors Only</option>
+                        <option value="admins">Admins Only</option>
+                        <option value="board">Board Members</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">Search</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Search by name..." 
+                           @bind="_searchText" @bind:event="oninput" @bind:after="ApplyFilter" />
+                </div>
+                <div class="col-md-4 text-end">
+                    <label class="form-label small mb-1 d-block">&nbsp;</label>
+                    <span class="badge bg-info">@_filteredUsers.Count user(s)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Notification Preferences -->
+    @if (!_filteredUsers.Any())
+    {
+        <div class="card shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-inbox text-muted" style="font-size: 3rem;"></i>
+                <h5 class="mt-3 text-muted">No users found</h5>
+                <p class="text-muted">Try adjusting your filters</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        @foreach (var userPref in _filteredUsers)
+        {
+            <div class="card shadow-sm mb-3">
+                <div class="card-header bg-light">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-0">
+                                @userPref.UserName
+                                @if (userPref.IsDirector)
+                                {
+                                    <span class="badge bg-primary ms-2">Director</span>
+                                }
+                                @if (userPref.IsAdmin)
+                                {
+                                    <span class="badge bg-danger ms-1">Admin</span>
+                                }
+                            </h6>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ToggleExpanded(userPref.UserId)">
+                            <i class="bi @(IsExpanded(userPref.UserId) ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                @if (IsExpanded(userPref.UserId))
+                {
+                    <div class="card-body">
+                        <!-- Contact Information -->
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <label class="form-label small">Email Address</label>
+                                <input type="email" class="form-control form-control-sm" 
+                                       @bind="userPref.Email" placeholder="user@example.com" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Phone Number</label>
+                                <input type="tel" class="form-control form-control-sm" 
+                                       @bind="userPref.Phone" placeholder="(555) 123-4567" />
+                            </div>
+                        </div>
+
+                        <!-- Notification Preferences Table -->
+                        <h6 class="mb-3">Notification Events</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Event Type</th>
+                                        <th class="text-center" style="width: 100px;">Email</th>
+                                        <th class="text-center" style="width: 100px;">SMS</th>
+                                        <th class="text-center" style="width: 100px;">Both</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><i class="bi bi-receipt text-primary"></i> Reimbursement Requests</td>
+                                        <td class="text-center">
+                                            <input type="radio" name="reimb_@userPref.UserId" 
+                                                   checked="@(userPref.ReimbursementNotifyEmail && !userPref.ReimbursementNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.Reimbursement, NotificationMethod.Email)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="reimb_@userPref.UserId" 
+                                                   checked="@(!userPref.ReimbursementNotifyEmail && userPref.ReimbursementNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.Reimbursement, NotificationMethod.SMS)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="reimb_@userPref.UserId" 
+                                                   checked="@(userPref.ReimbursementNotifyEmail && userPref.ReimbursementNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.Reimbursement, NotificationMethod.Both)" />
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><i class="bi bi-person-plus text-success"></i> New Member Signups</td>
+                                        <td class="text-center">
+                                            <input type="radio" name="member_@userPref.UserId" 
+                                                   checked="@(userPref.MemberSignupNotifyEmail && !userPref.MemberSignupNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.MemberSignup, NotificationMethod.Email)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="member_@userPref.UserId" 
+                                                   checked="@(!userPref.MemberSignupNotifyEmail && userPref.MemberSignupNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.MemberSignup, NotificationMethod.SMS)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="member_@userPref.UserId" 
+                                                   checked="@(userPref.MemberSignupNotifyEmail && userPref.MemberSignupNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.MemberSignup, NotificationMethod.Both)" />
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><i class="bi bi-wallet2 text-warning"></i> Dues Payments</td>
+                                        <td class="text-center">
+                                            <input type="radio" name="dues_@userPref.UserId" 
+                                                   checked="@(userPref.DuesPaymentNotifyEmail && !userPref.DuesPaymentNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.DuesPayment, NotificationMethod.Email)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="dues_@userPref.UserId" 
+                                                   checked="@(!userPref.DuesPaymentNotifyEmail && userPref.DuesPaymentNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.DuesPayment, NotificationMethod.SMS)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="dues_@userPref.UserId" 
+                                                   checked="@(userPref.DuesPaymentNotifyEmail && userPref.DuesPaymentNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.DuesPayment, NotificationMethod.Both)" />
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><i class="bi bi-exclamation-triangle text-danger"></i> System Alerts</td>
+                                        <td class="text-center">
+                                            <input type="radio" name="system_@userPref.UserId" 
+                                                   checked="@(userPref.SystemAlertNotifyEmail && !userPref.SystemAlertNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.SystemAlert, NotificationMethod.Email)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="system_@userPref.UserId" 
+                                                   checked="@(!userPref.SystemAlertNotifyEmail && userPref.SystemAlertNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.SystemAlert, NotificationMethod.SMS)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="system_@userPref.UserId" 
+                                                   checked="@(userPref.SystemAlertNotifyEmail && userPref.SystemAlertNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.SystemAlert, NotificationMethod.Both)" />
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><i class="bi bi-ticket-perforated text-info"></i> Lottery Sales</td>
+                                        <td class="text-center">
+                                            <input type="radio" name="lottery_@userPref.UserId" 
+                                                   checked="@(userPref.LotterySalesNotifyEmail && !userPref.LotterySalesNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.LotterySales, NotificationMethod.Email)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="lottery_@userPref.UserId" 
+                                                   checked="@(!userPref.LotterySalesNotifyEmail && userPref.LotterySalesNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.LotterySales, NotificationMethod.SMS)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="lottery_@userPref.UserId" 
+                                                   checked="@(userPref.LotterySalesNotifyEmail && userPref.LotterySalesNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.LotterySales, NotificationMethod.Both)" />
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><i class="bi bi-door-open text-secondary"></i> Controller Events</td>
+                                        <td class="text-center">
+                                            <input type="radio" name="controller_@userPref.UserId" 
+                                                   checked="@(userPref.ControllerEventNotifyEmail && !userPref.ControllerEventNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.ControllerEvent, NotificationMethod.Email)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="controller_@userPref.UserId" 
+                                                   checked="@(!userPref.ControllerEventNotifyEmail && userPref.ControllerEventNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.ControllerEvent, NotificationMethod.SMS)" />
+                                        </td>
+                                        <td class="text-center">
+                                            <input type="radio" name="controller_@userPref.UserId" 
+                                                   checked="@(userPref.ControllerEventNotifyEmail && userPref.ControllerEventNotifySMS)"
+                                                   @onchange="() => SetNotification(userPref, NotificationType.ControllerEvent, NotificationMethod.Both)" />
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="btn btn-primary btn-sm" @onclick="() => SaveUserPreferences(userPref)" disabled="@_isSaving">
+                                <span class="spinner-border spinner-border-sm me-1" hidden="@(!_isSaving)"></span>
+                                <i class="bi bi-save"></i> Save Preferences
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    <!-- Save All Button -->
+    @if (_filteredUsers.Any())
+    {
+        <div class="card shadow-sm mt-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>Save all changes</strong>
+                        <div class="small text-muted">Save notification preferences for all users</div>
+                    </div>
+                    <button class="btn btn-success" @onclick="SaveAllPreferences" disabled="@_isSaving">
+                        <span class="spinner-border spinner-border-sm me-1" hidden="@(!_isSaving)"></span>
+                        <i class="bi bi-save-fill"></i> Save All
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _isLoading = true;
+    private bool _isSaving = false;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private string _roleFilter = "directors";
+    private string _searchText = "";
+    
+    private List<UserNotificationPreferencesModel> _allUsers = new();
+    private List<UserNotificationPreferencesModel> _filteredUsers = new();
+    private HashSet<int> _expandedUserIds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        try
+        {
+            _isLoading = true;
+            
+            // TODO: Replace with actual repository call
+            // For now, create sample data
+            _allUsers = new List<UserNotificationPreferencesModel>
+            {
+                new() { UserId = 1, UserName = "John Smith", IsDirector = true, IsAdmin = false },
+                new() { UserId = 2, UserName = "Jane Doe", IsDirector = true, IsAdmin = true },
+                new() { UserId = 3, UserName = "Bob Johnson", IsDirector = false, IsAdmin = true }
+            };
+            
+            ApplyFilter();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load users");
+            _errorMessage = "Failed to load users: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        var filtered = _allUsers.AsEnumerable();
+
+        // Role filter
+        filtered = _roleFilter switch
+        {
+            "directors" => filtered.Where(u => u.IsDirector),
+            "admins" => filtered.Where(u => u.IsAdmin),
+            "board" => filtered.Where(u => u.IsDirector || u.IsAdmin),
+            _ => filtered
+        };
+
+        // Search filter
+        if (!string.IsNullOrWhiteSpace(_searchText))
+        {
+            filtered = filtered.Where(u => u.UserName.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _filteredUsers = filtered.ToList();
+        StateHasChanged();
+    }
+
+    private bool IsExpanded(int userId) => _expandedUserIds.Contains(userId);
+
+    private void ToggleExpanded(int userId)
+    {
+        if (_expandedUserIds.Contains(userId))
+            _expandedUserIds.Remove(userId);
+        else
+            _expandedUserIds.Add(userId);
+    }
+
+    private void SetNotification(UserNotificationPreferencesModel user, NotificationType type, NotificationMethod method)
+    {
+        var (email, sms) = method switch
+        {
+            NotificationMethod.Email => (true, false),
+            NotificationMethod.SMS => (false, true),
+            NotificationMethod.Both => (true, true),
+            _ => (false, false)
+        };
+
+        switch (type)
+        {
+            case NotificationType.Reimbursement:
+                user.ReimbursementNotifyEmail = email;
+                user.ReimbursementNotifySMS = sms;
+                break;
+            case NotificationType.MemberSignup:
+                user.MemberSignupNotifyEmail = email;
+                user.MemberSignupNotifySMS = sms;
+                break;
+            case NotificationType.DuesPayment:
+                user.DuesPaymentNotifyEmail = email;
+                user.DuesPaymentNotifySMS = sms;
+                break;
+            case NotificationType.SystemAlert:
+                user.SystemAlertNotifyEmail = email;
+                user.SystemAlertNotifySMS = sms;
+                break;
+            case NotificationType.LotterySales:
+                user.LotterySalesNotifyEmail = email;
+                user.LotterySalesNotifySMS = sms;
+                break;
+            case NotificationType.ControllerEvent:
+                user.ControllerEventNotifyEmail = email;
+                user.ControllerEventNotifySMS = sms;
+                break;
+        }
+    }
+
+    private async Task SaveUserPreferences(UserNotificationPreferencesModel user)
+    {
+        _isSaving = true;
+        try
+        {
+            // TODO: Save to database
+            await Task.Delay(500); // Simulate save
+            _successMessage = $"Preferences saved for {user.UserName}";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save preferences");
+            _errorMessage = $"Failed to save preferences: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task SaveAllPreferences()
+    {
+        _isSaving = true;
+        try
+        {
+            // TODO: Save all to database
+            await Task.Delay(1000); // Simulate save
+            _successMessage = $"Preferences saved for {_filteredUsers.Count} user(s)";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save all preferences");
+            _errorMessage = $"Failed to save preferences: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private enum NotificationType
+    {
+        Reimbursement,
+        MemberSignup,
+        DuesPayment,
+        SystemAlert,
+        LotterySales,
+        ControllerEvent
+    }
+
+    private enum NotificationMethod
+    {
+        None,
+        Email,
+        SMS,
+        Both
+    }
+
+    private class UserNotificationPreferencesModel
+    {
+        public int UserId { get; set; }
+        public string UserName { get; set; } = "";
+        public bool IsDirector { get; set; }
+        public bool IsAdmin { get; set; }
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        
+        public bool ReimbursementNotifyEmail { get; set; }
+        public bool ReimbursementNotifySMS { get; set; }
+        public bool MemberSignupNotifyEmail { get; set; }
+        public bool MemberSignupNotifySMS { get; set; }
+        public bool DuesPaymentNotifyEmail { get; set; }
+        public bool DuesPaymentNotifySMS { get; set; }
+        public bool SystemAlertNotifyEmail { get; set; }
+        public bool SystemAlertNotifySMS { get; set; }
+        public bool LotterySalesNotifyEmail { get; set; }
+        public bool LotterySalesNotifySMS { get; set; }
+        public bool ControllerEventNotifyEmail { get; set; }
+        public bool ControllerEventNotifySMS { get; set; }
+    }
+}

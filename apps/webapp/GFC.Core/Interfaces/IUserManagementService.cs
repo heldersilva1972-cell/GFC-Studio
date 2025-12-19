@@ -15,5 +15,14 @@ public interface IUserManagementService
     string GenerateUsernameFromMember(int memberId);
     List<LoginHistoryDto> GetUserLoginHistory(int userId, int limit = 50);
     List<LoginHistoryDto> GetAllLoginHistory(int limit = 100);
+    
+    // Page Permission Management
+    List<AppPage> GetAllPages();
+    List<AppPage> GetActivePages();
+    List<UserPagePermission> GetUserPagePermissions(int userId);
+    bool UserHasPageAccess(int userId, string pageRoute);
+    void SetUserPagePermissions(int userId, List<int> pageIds, string grantedBy);
+    void GrantAllPagePermissions(int userId, string grantedBy);
+    void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy);
 }
 

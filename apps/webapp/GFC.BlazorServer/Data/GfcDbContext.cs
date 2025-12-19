@@ -39,6 +39,7 @@ public class GfcDbContext : DbContext
     public DbSet<ReceiptFile> ReceiptFiles => Set<ReceiptFile>();
     public DbSet<ReimbursementChangeLog> ReimbursementChangeLogs => Set<ReimbursementChangeLog>();
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
+    public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
