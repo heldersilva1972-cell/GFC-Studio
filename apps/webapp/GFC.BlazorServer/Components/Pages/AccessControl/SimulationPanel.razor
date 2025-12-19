@@ -1,0 +1,1470 @@
+@page "/access/simulation"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using System.Net.Http.Json
+@using System.Linq
+@using GFC.BlazorServer.Configuration
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Core
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Services.SimulationReplay
+@using Microsoft.Extensions.Options
+@inject ISimulationTraceService TraceService
+@inject IOptions<AccessControlSimulationOptions> SimulationOptions
+@inject NavigationManager NavigationManager
+@inject ILogger<SimulationPanel> Logger
+@inject ICardReaderProfileService CardReaderProfileService
+@inject IAccessSimulationScenarioService SimulationScenarioService
+@inject ControllerRegistryService RegistryService
+@inject HttpClient Http
+
+<PageTitle>Access Control Simulation Panel</PageTitle>
+
+@if (SimulationOptions?.Value?.UseAccessControlSimulation == true)
+{
+    <div class="sim-banner">
+        <div class="sim-banner-pulse"></div>
+        <div class="sim-banner-content">
+            <div class="sim-dot"></div>
+            <div>
+                <div class="sim-pill">Simulation Mode</div>
+                <div class="sim-title">Access Control – Training Environment</div>
+                <div class="sim-subtext">
+                    Controller calls are simulated only. No real doors or keycards are affected.
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="page-header">
+    <div>
+        <h1>Access Control Simulation Panel</h1>
+        <p class="text-muted mb-0">Review access simulation traces and navigate details.</p>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <span class="@ModeBadgeClass">Simulation Mode (Access Control): @ModeText</span>
+        <button class="btn btn-outline-secondary" @onclick="NavigateBack">
+            <i class="bi bi-arrow-left"></i> Back
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+<div class="data-card mb-3">
+    <div class="row g-3">
+        <div class="col-md-3 col-lg-2">
+            <label class="form-label">Operation</label>
+            <InputText class="form-control" @bind-Value="_filters.Operation" />
+        </div>
+        <div class="col-md-3 col-lg-2">
+            <label class="form-label">Result Status</label>
+            <select class="form-select" @bind="_filters.ResultStatus">
+                <option value="">All</option>
+                <option value="OK">OK</option>
+                <option value="Partial">Partial</option>
+                <option value="Failed">Failed</option>
+                <option value="Pending">Pending</option>
+            </select>
+        </div>
+        <div class="col-md-2 col-lg-2">
+            <label class="form-label">Controller Id</label>
+            <InputNumber class="form-control" @bind-Value="_filters.ControllerId" />
+        </div>
+        <div class="col-md-2 col-lg-2">
+            <label class="form-label">Door Id</label>
+            <InputNumber class="form-control" @bind-Value="_filters.DoorId" />
+        </div>
+        <div class="col-md-2 col-lg-2">
+            <label class="form-label">Card Number</label>
+            <InputNumber class="form-control" @bind-Value="_filters.CardNumber" />
+        </div>
+        <div class="col-md-2 col-lg-2">
+            <label class="form-label">Member Id</label>
+            <InputNumber class="form-control" @bind-Value="_filters.MemberId" />
+        </div>
+        <div class="col-md-2 col-lg-1">
+            <label class="form-label">Page</label>
+            <InputNumber class="form-control" @bind-Value="_filters.Page" />
+        </div>
+        <div class="col-md-2 col-lg-1">
+            <label class="form-label">Page Size</label>
+            <InputNumber class="form-control" @bind-Value="_filters.PageSize" />
+        </div>
+    </div>
+    <div class="mt-3 d-flex gap-2">
+        <button class="btn btn-primary" @onclick="ApplyFiltersAsync" disabled="@_isLoading">
+            <i class="bi bi-search"></i> Apply Filters
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="ResetFiltersAsync" disabled="@_isLoading">
+            Reset
+        </button>
+    </div>
+    <div class="mt-2">
+        <button class="btn btn-outline-secondary btn-sm me-2" @onclick='() => ExportSessionAsync("json")'>
+            Export JSON
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick='() => ExportSessionAsync("csv")'>
+            Export CSV
+        </button>
+    </div>
+</div>
+
+<div class="sim-health-row">
+    <div class="sim-health-tile sim-health-ok @(IsStatusFilterActive("OK") ? "active" : "")"
+         @onclick='@(() => ToggleStatusFilter("OK"))'>
+        <div class="sim-health-label">OK</div>
+        <div class="sim-health-count">@_statusOk</div>
+    </div>
+
+    <div class="sim-health-tile sim-health-partial @(IsStatusFilterActive("Partial") ? "active" : "")"
+         @onclick='@(() => ToggleStatusFilter("Partial"))'>
+        <div class="sim-health-label">Partial</div>
+        <div class="sim-health-count">@_statusPartial</div>
+    </div>
+
+    <div class="sim-health-tile sim-health-failed @(IsStatusFilterActive("Failed") ? "active" : "")"
+         @onclick='@(() => ToggleStatusFilter("Failed"))'>
+        <div class="sim-health-label">Failed</div>
+        <div class="sim-health-count">@_statusFailed</div>
+    </div>
+
+    <div class="sim-health-tile sim-health-pending @(IsStatusFilterActive("Pending") ? "active" : "")"
+         @onclick='@(() => ToggleStatusFilter("Pending"))'>
+        <div class="sim-health-label">Pending</div>
+        <div class="sim-health-count">@_statusPending</div>
+    </div>
+</div>
+
+<div class="sim-test-console">
+    <div class="sim-test-console-left">
+        <div>
+            <div class="sim-test-title">Simulation Test Console</div>
+            <div class="sim-test-sub">
+                Use this area to run focused keycard and door tests in Simulation Mode.
+                When you click a test, the action will be executed by the simulation engine and logged as a trace.
+            </div>
+        </div>
+
+        <div class="sim-test-row">
+            <div class="sim-test-label">Controller</div>
+            <select class="form-select form-select-sm sim-test-input"
+                    @bind="_testControllerId"
+                    @bind:after="OnTestControllerChanged">
+                <option value="">(select controller)</option>
+                @if (_controllers != null)
+                {
+                    @foreach (var c in _controllers)
+                    {
+                        <option value="@c.ControllerId">@c.DisplayName</option>
+                    }
+                }
+            </select>
+        </div>
+
+        <div class="sim-test-row">
+            <div class="sim-test-label">Door</div>
+            <select class="form-select form-select-sm sim-test-input"
+                    @bind="_testDoorId">
+                <option value="">(select door)</option>
+                @if (_availableDoorsForTest != null)
+                {
+                    @foreach (var d in _availableDoorsForTest)
+                    {
+                        <option value="@d.DoorId">@d.DisplayName</option>
+                    }
+                }
+            </select>
+        </div>
+
+        <div class="sim-test-actions">
+            <button type="button"
+                    class="sim-test-btn sim-test-btn-secondary"
+                    disabled="@_testBusy"
+                    @onclick="SimulateDoorOpenAsync">
+                🔓 Simulate Door Open
+            </button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_testStatusMessage))
+        {
+            <div class="sim-test-hint">@_testStatusMessage</div>
+        }
+    </div>
+
+    <div class="sim-test-console-right">
+        <div>
+            <div class="sim-test-title">Card Input / Reader</div>
+            <div class="sim-test-sub">
+                Place focus in the card box and present a badge to your keyboard-style reader.
+                The scanned number will be used for Simulation traces.
+            </div>
+        </div>
+
+        <div class="sim-test-row">
+            <div class="sim-test-label">Card #</div>
+            <input class="form-control form-control-sm sim-test-input"
+                   @bind="_testCardNumber"
+                   placeholder="Tap card or type number" />
+        </div>
+
+        <div class="sim-test-actions">
+            <button type="button"
+                    class="sim-test-btn"
+                    disabled="@_testBusy"
+                    @onclick="SimulateCardSwipeAsync">
+                💳 Simulate Card Swipe
+            </button>
+        </div>
+
+        <div class="sim-test-hint">
+            Tip: click in the Card # box, then tap a card on the USB reader. Its digits will appear here.
+        </div>
+    </div>
+</div>
+
+<div class="sim-replay-bar">
+    <div class="sim-replay-controls">
+        <div class="sim-replay-controls-left">
+            <button class="sim-replay-btn"
+                    disabled="@_replayLoading"
+                    @onclick="LoadReplayAsync">
+                @if (_replayLoading)
+                {
+                    <span>Loading…</span>
+                }
+                else
+                {
+                    <span>Load Replay</span>
+                }
+            </button>
+
+            <button class="sim-replay-btn"
+                    disabled="@(!_replaySteps.Any() || _replayPlaying)"
+                    @onclick="StartReplayAsync">
+                ▶ Play
+            </button>
+
+            <button class="sim-replay-btn"
+                    disabled="@(!_replayPlaying)"
+                    @onclick="PauseReplay">
+                ⏸ Pause
+            </button>
+
+            <button class="sim-replay-btn"
+                    disabled="@(!_replaySteps.Any() || _currentReplayIndex <= 0)"
+                    @onclick="StepPrevious">
+                ⏮ Prev
+            </button>
+
+            <button class="sim-replay-btn"
+                    disabled="@(!_replaySteps.Any() || _currentReplayIndex >= _replaySteps.Count - 1)"
+                    @onclick="StepNext">
+                ⏭ Next
+            </button>
+        </div>
+
+        <div class="sim-replay-controls-right">
+            <div>
+                <select class="form-select form-select-sm"
+                        style="width:auto;display:inline-block"
+                        @bind="_replaySpeed">
+                    <option value="1">1x</option>
+                    <option value="2">2x</option>
+                    <option value="4">4x</option>
+                </select>
+            </div>
+            <label class="sim-replay-follow-toggle">
+                <input type="checkbox" @bind="_replayFollowMode" />
+                <span>Follow mode</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="sim-replay-timeline">
+        <div class="sim-replay-timeline-track">
+            @if (_replaySteps.Any())
+            {
+                @for (int i = 0; i < _replaySteps.Count; i++)
+                {
+                    var step = _replaySteps[i];
+                    var statusClass = GetStatusClass(step.ResultStatus);
+                    var isActive = i == _currentReplayIndex;
+                    var hasWarning = step.HasWarning;
+
+                    <div class="sim-replay-step @statusClass @(isActive ? "active" : "") @(hasWarning ? "has-warning" : "")"
+                         title="@($"{step.Operation} — {step.Summary}")"
+                         @onclick="@(() => JumpToStep(i))">
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    <div class="sim-replay-meta">
+        <span>
+            @if (_currentReplayIndex >= 0 && _currentReplayIndex < _replaySteps.Count)
+            {
+                var current = _replaySteps[_currentReplayIndex];
+                @($"Step {_currentReplayIndex + 1} of {_replaySteps.Count} — {current.Operation} — {current.ResultStatus}")
+            }
+            else if (_replaySteps.Any())
+            {
+                @($"{_replaySteps.Count} steps loaded")
+            }
+            else
+            {
+                @("No replay loaded")
+            }
+        </span>
+        <span>
+            @if (_replaySteps.Any())
+            {
+                var first = _replaySteps.First().TimestampUtc;
+                var last = _replaySteps.Last().TimestampUtc;
+                @($"{first:u} → {last:u}")
+            }
+        </span>
+    </div>
+
+    @if (_currentReplayStep is not null)
+    {
+        <div class="sim-replay-detail">
+            <div class="sim-replay-detail-header">
+                <div class="sim-replay-detail-title">
+                    @_currentReplayStep.Operation
+                </div>
+                <div class="sim-replay-detail-sub">
+                    @_currentReplayStep.Summary
+                </div>
+                <div class="sim-replay-detail-sub">
+                    @if (!string.IsNullOrWhiteSpace(_currentReplayStep.OriginPage))
+                    {
+                        <span>Origin: @_currentReplayStep.OriginPage</span>
+                    }
+                </div>
+
+                <div class="sim-replay-detail-badges">
+                    @if (!string.IsNullOrWhiteSpace(_currentReplayStep.ResultStatus))
+                    {
+                        var statusLower = _currentReplayStep.ResultStatus.ToLowerInvariant();
+                        var statusClass = statusLower switch
+                        {
+                            "ok" => "sim-replay-badge-status-ok",
+                            "failed" => "sim-replay-badge-status-failed",
+                            "partial" => "sim-replay-badge-status-partial",
+                            "pending" => "sim-replay-badge-status-pending",
+                            _ => string.Empty
+                        };
+
+                        <span class="sim-replay-badge @statusClass">
+                            Status: @_currentReplayStep.ResultStatus
+                        </span>
+                    }
+
+                    @if (_currentReplayStep.HasWarning)
+                    {
+                        <span class="sim-replay-badge sim-replay-badge-warning">
+                            Warning
+                        </span>
+                    }
+                </div>
+
+                @if (_currentReplayStep.HasWarning && !string.IsNullOrWhiteSpace(_currentReplayStep.WarningMessage))
+                {
+                    <div class="sim-replay-warning-banner">
+                        <span class="sim-replay-warning-icon">⚠</span>
+                        <span>@_currentReplayStep.WarningMessage</span>
+                    </div>
+                }
+
+                <div class="sim-replay-entities">
+                    @if (_currentReplayStep.ControllerId.HasValue)
+                    {
+                        <button type="button"
+                                class="sim-replay-entity-chip"
+                                @onclick="@(() => NavigateToController(_currentReplayStep.ControllerId.Value))">
+                            <span class="sim-kind">CTRL</span>
+                            <span class="sim-value">#@_currentReplayStep.ControllerId.Value</span>
+                        </button>
+                    }
+
+                    @if (_currentReplayStep.ControllerId.HasValue && _currentReplayStep.DoorId.HasValue)
+                    {
+                        <button type="button"
+                                class="sim-replay-entity-chip"
+                                @onclick="@(() => NavigateToDoor(_currentReplayStep.ControllerId.Value, _currentReplayStep.DoorId.Value))">
+                            <span class="sim-kind">DOOR</span>
+                            <span class="sim-value">C@_currentReplayStep.ControllerId.Value-D@_currentReplayStep.DoorId.Value</span>
+                        </button>
+                    }
+
+                    @if (_currentReplayStep.CardNumber.HasValue)
+                    {
+                        <button type="button"
+                                class="sim-replay-entity-chip"
+                                @onclick="@(() => NavigateToCard(_currentReplayStep.CardNumber.Value))">
+                            <span class="sim-kind">CARD</span>
+                            <span class="sim-value">@_currentReplayStep.CardNumber.Value</span>
+                        </button>
+                    }
+
+                    @if (_currentReplayStep.MemberId.HasValue)
+                    {
+                        <button type="button"
+                                class="sim-replay-entity-chip"
+                                @onclick="@(() => NavigateToMember(_currentReplayStep.MemberId.Value))">
+                            <span class="sim-kind">MEMBER</span>
+                            <span class="sim-value">#@_currentReplayStep.MemberId.Value</span>
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div class="sim-replay-detail-body">
+                @if (!string.IsNullOrWhiteSpace(_currentReplayStep.RequestSummary))
+                {
+                    <div>
+                        <div class="sim-replay-detail-section-title">Request</div>
+                        <div>@_currentReplayStep.RequestSummary</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_currentReplayStep.RequestJson))
+                {
+                    <div>
+                        <div class="sim-replay-detail-section-title">Request Payload</div>
+                        <div class="sim-replay-detail-mono">
+                            @_currentReplayStep.RequestJson
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_currentReplayStep.ExpectedResponseJson))
+                {
+                    <div>
+                        <div class="sim-replay-detail-section-title">Expected Response</div>
+                        <div class="sim-replay-detail-mono">
+                            @_currentReplayStep.ExpectedResponseJson
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_currentReplayStep.ActualResultJson))
+                {
+                    <div>
+                        <div class="sim-replay-detail-section-title">Result / Details</div>
+                        <div class="sim-replay-detail-mono">
+                            @_currentReplayStep.ActualResultJson
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<div class="data-card mb-3">
+    <h3 class="h5 mb-2">Scenario Presets</h3>
+    <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-secondary"
+                disabled="@_isRunningScenario"
+                @onclick="RunAssignAndSwipeScenario">
+            Assign -> Swipe Scenario
+        </button>
+
+        <button class="btn btn-secondary"
+                disabled="@_isRunningScenario"
+                @onclick="RunReplaceCardScenario">
+            Replace Card Scenario
+        </button>
+
+        <button class="btn btn-secondary"
+                disabled="@_isRunningScenario"
+                @onclick="RunScheduleAllowDenyScenario">
+            Schedule Allow/Deny Scenario
+        </button>
+    </div>
+</div>
+
+@if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else if (_traces.Count == 0)
+{
+    <div class="data-card">
+        <h4>No simulation traces found</h4>
+        <p class="text-muted mb-0">Adjust filters and try again.</p>
+    </div>
+}
+else
+{
+    <div class="data-card">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                Showing @_traces.Count trace(s)
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Operation</th>
+                        <th>Controller</th>
+                        <th>Door</th>
+                        <th>Card</th>
+                        <th>Member</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (var i = 0; i < _traces.Count; i++)
+                    {
+                        var trace = _traces[i];
+                        <tr class="@($"{GetRowClass(i)} {(trace.Id == (_currentReplayTraceId ?? -1) ? "sim-row-replay-current" : string.Empty)}")" style="cursor: pointer;" @onclick="() => SelectTrace(i)">
+                            <td>@trace.TimestampUtc.ToLocalTime():g</td>
+                            <td>@trace.Operation</td>
+                            <td>@(trace.ControllerId?.ToString() ?? "-")</td>
+                            <td>@(trace.DoorId?.ToString() ?? "-")</td>
+                            <td>@(trace.CardNumber?.ToString() ?? "-")</td>
+                            <td>@(trace.MemberId?.ToString() ?? "-")</td>
+                            <td>
+                                <span class="badge @GetStatusBadge(trace.ResultStatus)">
+                                    @trace.ResultStatus
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (SelectedTrace != null)
+{
+    <div class="data-card mt-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <h4 class="mb-0">Trace Details</h4>
+            <div class="btn-group btn-group-sm" role="group">
+                <button class="btn btn-outline-secondary" @onclick="FirstTrace" disabled="@(_selectedIndex <= 0)">First</button>
+                <button class="btn btn-outline-secondary" @onclick="PrevTrace" disabled="@(_selectedIndex <= 0)">Prev</button>
+                <button class="btn btn-outline-secondary" @onclick="NextTrace" disabled="@(_selectedIndex < 0 || _selectedIndex >= _traces.Count - 1)">Next</button>
+                <button class="btn btn-outline-secondary" @onclick="LastTrace" disabled="@(_selectedIndex < 0 || _traces.Count == 0 || _selectedIndex == _traces.Count - 1)">Last</button>
+                <button class="btn btn-outline-secondary" @onclick="ClearSelection">Back to List</button>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="text-muted small">Id</div>
+                <div>@SelectedTrace.Id</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Timestamp (local)</div>
+                <div>@SelectedTrace.TimestampUtc.ToLocalTime():g</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">User Id</div>
+                <div>@(SelectedTrace.UserId?.ToString() ?? "-")</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Operation</div>
+                <div>@SelectedTrace.Operation</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Controller</div>
+                <div>@(SelectedTrace.ControllerId?.ToString() ?? "-")</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Door</div>
+                <div>@(SelectedTrace.DoorId?.ToString() ?? "-")</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Card Number</div>
+                <div>@(SelectedTrace.CardNumber?.ToString() ?? "-")</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Member Id</div>
+                <div>@(SelectedTrace.MemberId?.ToString() ?? "-")</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Trigger Page</div>
+                <div>@(SelectedTrace.TriggerPage ?? "-")</div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-muted small">Result Status</div>
+                <div>
+                    <span class="badge @GetStatusBadge(SelectedTrace.ResultStatus)">
+                        @SelectedTrace.ResultStatus
+                    </span>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="text-muted small">Result Details</div>
+                <div>@(string.IsNullOrWhiteSpace(SelectedTrace.ResultDetails) ? "-" : SelectedTrace.ResultDetails)</div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <h6>Request</h6>
+            <div class="mb-2">
+                <strong>Summary:</strong> @(SelectedTrace.RequestSummary ?? "-")
+            </div>
+            @if (!string.IsNullOrWhiteSpace(SelectedTrace.RequestPayloadJson))
+            {
+                <div class="mb-2">
+                    <strong>Payload (JSON)</strong>
+                    <pre class="small bg-light p-2 rounded">@SelectedTrace.RequestPayloadJson</pre>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(SelectedTrace.RequestPayloadRaw))
+            {
+                <div class="mb-2">
+                    <strong>Payload (Raw)</strong>
+                    <pre class="small bg-light p-2 rounded">@SelectedTrace.RequestPayloadRaw</pre>
+                </div>
+            }
+        </div>
+
+        <div class="mt-4">
+            <h6>Expected Response</h6>
+            <div class="mb-2">
+                <strong>Summary:</strong> @(SelectedTrace.ExpectedResponseSummary ?? "-")
+            </div>
+            @if (!string.IsNullOrWhiteSpace(SelectedTrace.ExpectedResponsePayloadJson))
+            {
+                <div class="mb-2">
+                    <strong>Payload (JSON)</strong>
+                    <pre class="small bg-light p-2 rounded">@SelectedTrace.ExpectedResponsePayloadJson</pre>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<div class="data-card mt-3">
+    <h3>Card Reader Test (Simulation)</h3>
+
+    @if (_isLoadingProfile)
+    {
+        <p>Loading reader profile...</p>
+    }
+    else
+    {
+        <div class="card-reader-test">
+            <p>Step 1: Click into the box, then scan a card with the reader.</p>
+            <input @bind="_rawScanInput" class="form-control" />
+
+            <button class="btn btn-primary mt-2" @onclick="OnParseScanClicked">Parse Sample</button>
+
+            @if (!string.IsNullOrEmpty(_parsedCard) || !string.IsNullOrEmpty(_parseDebug))
+            {
+                <div class="mt-2">
+                    <p><strong>Parsed Card:</strong> @_parsedCard</p>
+                    <p><strong>Debug:</strong> @_parseDebug</p>
+                </div>
+            }
+
+            <hr />
+
+            <h4>Reader Profile</h4>
+            <div class="row">
+                <div class="col">
+                    <label>
+                        <input type="checkbox" @bind="_profile.DigitsOnly" />
+                        Digits only (strip non-numeric)
+                    </label>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <label>Min Length</label>
+                    <input type="number" class="form-control" @bind="_profile.MinLength" />
+                </div>
+                <div class="col">
+                    <label>Max Length</label>
+                    <input type="number" class="form-control" @bind="_profile.MaxLength" />
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <label>Prefix to trim</label>
+                    <input class="form-control" @bind="_profile.PrefixToTrim" />
+                </div>
+                <div class="col">
+                    <label>Suffix to trim</label>
+                    <input class="form-control" @bind="_profile.SuffixToTrim" />
+                </div>
+            </div>
+
+            <button class="btn btn-success mt-2" @onclick="OnSaveProfileClicked" disabled="@_isSavingProfile">
+                Save Reader Profile
+            </button>
+
+            @if (_profile.LastUpdatedUtc.HasValue)
+            {
+                <p class="text-muted mt-1">
+                    Last updated: @_profile.LastUpdatedUtc.Value.ToLocalTime()
+                </p>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private readonly TraceFilterModel _filters = new() { Page = 1, PageSize = 50 };
+    private readonly List<SimulationControllerTrace> _traces = new();
+    private readonly List<ControllerOption> _controllers = new();
+    private readonly List<DoorOption> _availableDoorsForTest = new();
+    private CardReaderProfile _profile = new();
+    private string? _rawScanInput;
+    private string? _parsedCard;
+    private string? _parseDebug;
+    private bool _isLoading;
+    private bool _isLoadingProfile;
+    private bool _isSavingProfile;
+    private bool _isRunningScenario;
+    private bool _simModeEnabled;
+    private int _selectedIndex = -1;
+    private long? _selectedTraceId;
+    private string? _errorMessage;
+    private int _statusOk;
+    private int _statusPartial;
+    private int _statusFailed;
+    private int _statusPending;
+    private string? _statusFilter;
+    private List<ReplayStep> _replaySteps = new();
+    private int _currentReplayIndex = -1;
+    private ReplayStep _currentReplayStep;
+    private bool _replayLoading;
+    private bool _replayPlaying;
+    private bool _replayFollowMode = true;
+    private double _replaySpeed = 1.0;
+    private CancellationTokenSource? _replayCts;
+    private int? _currentReplayTraceId;
+    private int? _testControllerId;
+    private int? _testDoorId;
+    private string _testCardNumber = string.Empty;
+    private bool _testBusy;
+    private string _testStatusMessage;
+
+    private SimulationControllerTrace? SelectedTrace =>
+        _selectedIndex >= 0 && _selectedIndex < _traces.Count ? _traces[_selectedIndex] : null;
+
+    private string ModeText => _simModeEnabled ? "ON" : "OFF";
+    private string ModeBadgeClass => _simModeEnabled ? "badge bg-success" : "badge bg-secondary";
+
+    private string GetStatusClass(string status)
+    {
+        if (string.IsNullOrWhiteSpace(status)) return string.Empty;
+
+        return status.ToLowerInvariant() switch
+        {
+            "ok" => "ok",
+            "partial" => "partial",
+            "failed" => "failed",
+            "pending" => "pending",
+            _ => string.Empty
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _simModeEnabled = SimulationOptions?.Value?.UseAccessControlSimulation == true;
+        await LoadControllersForTestAsync();
+        _isLoadingProfile = true;
+        _profile = await CardReaderProfileService.GetOrCreateAsync();
+        _isLoadingProfile = false;
+        await ReloadTracesAndStatusAsync();
+    }
+
+    private async Task ReloadTracesAndStatusAsync()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        try
+        {
+            var statusFilter = string.IsNullOrWhiteSpace(_statusFilter) ? null : _statusFilter;
+
+            var results = await TraceService.GetTracesAsync(
+                string.IsNullOrWhiteSpace(_filters.Operation) ? null : _filters.Operation,
+                statusFilter,
+                _filters.ControllerId,
+                _filters.DoorId,
+                _filters.CardNumber,
+                _filters.MemberId,
+                _filters.Page,
+                _filters.PageSize);
+
+            var statusCounts = await TraceService.GetStatusCountsAsync(
+                string.IsNullOrWhiteSpace(_filters.Operation) ? null : _filters.Operation,
+                _filters.ControllerId,
+                _filters.DoorId,
+                _filters.CardNumber,
+                _filters.MemberId);
+
+            if (!string.IsNullOrWhiteSpace(statusFilter))
+            {
+                statusCounts = statusFilter switch
+                {
+                    "OK" => (statusCounts.ok, 0, 0, 0),
+                    "Partial" => (0, statusCounts.partial, 0, 0),
+                    "Failed" => (0, 0, statusCounts.failed, 0),
+                    "Pending" => (0, 0, 0, statusCounts.pending),
+                    _ => statusCounts
+                };
+            }
+
+            _traces.Clear();
+            _traces.AddRange(results);
+
+            _statusOk = statusCounts.ok;
+            _statusPartial = statusCounts.partial;
+            _statusFailed = statusCounts.failed;
+            _statusPending = statusCounts.pending;
+
+            if (_selectedTraceId.HasValue)
+            {
+                var newIndex = _traces.FindIndex(t => t.Id == _selectedTraceId.Value);
+                _selectedIndex = newIndex;
+            }
+
+            if (_selectedIndex < 0 && _traces.Count > 0)
+            {
+                _selectedIndex = 0;
+                _selectedTraceId = _traces[0].Id;
+            }
+
+            if (_traces.Count == 0)
+            {
+                _selectedIndex = -1;
+                _selectedTraceId = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load simulation traces");
+            _errorMessage = "Failed to load simulation traces. Please try again.";
+            _traces.Clear();
+            _selectedIndex = -1;
+            _selectedTraceId = null;
+            _statusOk = 0;
+            _statusPartial = 0;
+            _statusFailed = 0;
+            _statusPending = 0;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private Task ApplyFiltersAsync()
+    {
+        _statusFilter = string.IsNullOrWhiteSpace(_filters.ResultStatus) ? null : _filters.ResultStatus;
+        _filters.Page = 1;
+        _selectedIndex = -1;
+        _selectedTraceId = null;
+        return ReloadTracesAndStatusAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _filters.Operation = null;
+        _filters.ResultStatus = null;
+        _filters.ControllerId = null;
+        _filters.DoorId = null;
+        _filters.CardNumber = null;
+        _filters.MemberId = null;
+        _filters.Page = 1;
+        _filters.PageSize = 50;
+        _selectedIndex = -1;
+        _selectedTraceId = null;
+        _statusFilter = null;
+        await ReloadTracesAndStatusAsync();
+    }
+
+    private Task ExportSessionAsync(string format)
+    {
+        var query = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(_filters.Operation))
+        {
+            query.Add($"operation={Uri.EscapeDataString(_filters.Operation)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_filters.ResultStatus))
+        {
+            query.Add($"resultStatus={Uri.EscapeDataString(_filters.ResultStatus)}");
+        }
+
+        if (_filters.ControllerId.HasValue)
+        {
+            query.Add($"controllerId={Uri.EscapeDataString(_filters.ControllerId.Value.ToString())}");
+        }
+
+        if (_filters.DoorId.HasValue)
+        {
+            query.Add($"doorId={Uri.EscapeDataString(_filters.DoorId.Value.ToString())}");
+        }
+
+        if (_filters.CardNumber.HasValue)
+        {
+            query.Add($"cardNumber={Uri.EscapeDataString(_filters.CardNumber.Value.ToString())}");
+        }
+
+        if (_filters.MemberId.HasValue)
+        {
+            query.Add($"memberId={Uri.EscapeDataString(_filters.MemberId.Value.ToString())}");
+        }
+
+        query.Add($"format={Uri.EscapeDataString(format)}");
+
+        var qs = string.Join("&", query);
+        var url = string.IsNullOrEmpty(qs)
+            ? "/simulation/export"
+            : $"/simulation/export?{qs}";
+
+        NavigationManager.NavigateTo(url, forceLoad: true);
+
+        return Task.CompletedTask;
+    }
+
+    private Task SelectTrace(int index)
+    {
+        if (index < 0 || index >= _traces.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        _selectedIndex = index;
+        _selectedTraceId = _traces[index].Id;
+        return Task.CompletedTask;
+    }
+
+    private Task FirstTrace()
+    {
+        if (_traces.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+        _selectedIndex = 0;
+        _selectedTraceId = _traces[0].Id;
+        return Task.CompletedTask;
+    }
+
+    private Task LastTrace()
+    {
+        if (_traces.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+        _selectedIndex = _traces.Count - 1;
+        _selectedTraceId = _traces[^1].Id;
+        return Task.CompletedTask;
+    }
+
+    private Task PrevTrace()
+    {
+        if (_selectedIndex > 0)
+        {
+            _selectedIndex--;
+            _selectedTraceId = _traces[_selectedIndex].Id;
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task NextTrace()
+    {
+        if (_selectedIndex >= 0 && _selectedIndex < _traces.Count - 1)
+        {
+            _selectedIndex++;
+            _selectedTraceId = _traces[_selectedIndex].Id;
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task ClearSelection()
+    {
+        _selectedIndex = -1;
+        _selectedTraceId = null;
+        return Task.CompletedTask;
+    }
+
+    private string GetRowClass(int index) => index == _selectedIndex ? "table-active" : string.Empty;
+
+    private string GetStatusBadge(string status) => status switch
+    {
+        "OK" => "badge bg-success",
+        "Partial" => "badge bg-warning text-dark",
+        "Failed" => "badge bg-danger",
+        "Pending" => "badge bg-secondary",
+        _ => "badge bg-light text-dark"
+    };
+
+    private bool IsStatusFilterActive(string status)
+        => string.Equals(_statusFilter, status, StringComparison.OrdinalIgnoreCase);
+
+    private async Task ToggleStatusFilter(string status)
+    {
+        if (_isLoading)
+        {
+            return;
+        }
+
+        if (IsStatusFilterActive(status))
+        {
+            _statusFilter = null;
+            _filters.ResultStatus = null;
+        }
+        else
+        {
+            _statusFilter = status;
+            _filters.ResultStatus = status;
+        }
+
+        _filters.Page = 1;
+        _selectedIndex = -1;
+        _selectedTraceId = null;
+
+        await ReloadTracesAndStatusAsync();
+    }
+
+    private async Task LoadControllersForTestAsync()
+    {
+        try
+        {
+            var controllers = await RegistryService.GetControllersAsync(includeDoors: true, cancellationToken: CancellationToken.None);
+
+            _controllers.Clear();
+            foreach (var controller in controllers)
+            {
+                var doorOptions = controller.Doors?
+                    .OrderBy(d => d.DoorIndex)
+                    .Select(d => new DoorOption
+                    {
+                        DoorId = d.Id,
+                        DoorIndex = d.DoorIndex,
+                        DisplayName = $"{d.Name} (Index {d.DoorIndex})"
+                    })
+                    .ToList() ?? new List<DoorOption>();
+
+                _controllers.Add(new ControllerOption
+                {
+                    ControllerId = controller.Id,
+                    DisplayName = $"{controller.Name} (SN: {controller.SerialNumberDisplay}, {controller.IpAddress}:{controller.Port})",
+                    Doors = doorOptions
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load controllers for simulation test console");
+            _testStatusMessage = "Unable to load controllers for Simulation Test Console.";
+        }
+    }
+
+    private Task OnTestControllerChanged()
+    {
+        _availableDoorsForTest.Clear();
+        _testDoorId = null;
+
+        if (_testControllerId.HasValue)
+        {
+            var controller = _controllers.FirstOrDefault(c => c.ControllerId == _testControllerId.Value);
+            if (controller != null && controller.Doors.Any())
+            {
+                _availableDoorsForTest.AddRange(controller.Doors);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task SimulateDoorOpenAsync()
+    {
+        if (!_testControllerId.HasValue || !_testDoorId.HasValue)
+        {
+            _testStatusMessage = "Select a controller and door first.";
+            return;
+        }
+
+        var doorOption = _availableDoorsForTest.FirstOrDefault(d => d.DoorId == _testDoorId.Value);
+        if (doorOption == null)
+        {
+            _testStatusMessage = "Select a controller and door first.";
+            return;
+        }
+
+        _testBusy = true;
+        _testStatusMessage = null;
+
+        try
+        {
+            var response = await Http.PostAsync(
+                $"/api/controller-test/{_testControllerId.Value}/open-door/{doorOption.DoorIndex}", null);
+
+            var result = await response.Content.ReadFromJsonAsync<ApiResult>();
+
+            if (result?.Success == true)
+            {
+                _testStatusMessage = "Door-open simulation request sent. Check the traces and replay timeline.";
+            }
+            else
+            {
+                _testStatusMessage = result?.Message ?? "Simulation door-open failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _testStatusMessage = $"Simulation door-open failed: {ex.Message}";
+        }
+        finally
+        {
+            _testBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SimulateCardSwipeAsync()
+    {
+        if (!_testControllerId.HasValue || !_testDoorId.HasValue)
+        {
+            _testStatusMessage = "Select a controller and door first.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_testCardNumber))
+        {
+            _testStatusMessage = "Enter or scan a card number first.";
+            return;
+        }
+
+        var doorOption = _availableDoorsForTest.FirstOrDefault(d => d.DoorId == _testDoorId.Value);
+        if (doorOption == null)
+        {
+            _testStatusMessage = "Select a controller and door first.";
+            return;
+        }
+
+        _testBusy = true;
+        _testStatusMessage = null;
+
+        try
+        {
+            // There is no dedicated card-swipe simulation endpoint in the controller test API yet.
+            _testStatusMessage = "Card-swipe simulation will be available once controller test endpoints support it.";
+        }
+        catch (Exception ex)
+        {
+            _testStatusMessage = $"Simulation card-swipe failed: {ex.Message}";
+        }
+        finally
+        {
+            _testBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunAssignAndSwipeScenario()
+    {
+        _isRunningScenario = true;
+        try
+        {
+            await SimulationScenarioService.RunAssignAndSwipeScenarioAsync();
+            await ReloadTracesAndStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to run Assign and Swipe scenario");
+            _errorMessage = "Failed to run Assign -> Swipe scenario. Please try again.";
+        }
+        finally
+        {
+            _isRunningScenario = false;
+        }
+    }
+
+    private async Task RunReplaceCardScenario()
+    {
+        _isRunningScenario = true;
+        try
+        {
+            await SimulationScenarioService.RunReplaceCardScenarioAsync();
+            await ReloadTracesAndStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to run Replace Card scenario");
+            _errorMessage = "Failed to run Replace Card scenario. Please try again.";
+        }
+        finally
+        {
+            _isRunningScenario = false;
+        }
+    }
+
+    private async Task RunScheduleAllowDenyScenario()
+    {
+        _isRunningScenario = true;
+        try
+        {
+            await SimulationScenarioService.RunScheduleAllowDenyScenarioAsync();
+            await ReloadTracesAndStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to run Schedule Allow/Deny scenario");
+            _errorMessage = "Failed to run Schedule Allow/Deny scenario. Please try again.";
+        }
+        finally
+        {
+            _isRunningScenario = false;
+        }
+    }
+
+    private Task NavigateBack()
+    {
+        NavigationManager.NavigateTo("/controllers");
+        return Task.CompletedTask;
+    }
+
+    private void NavigateToController(int controllerId)
+    {
+        NavigationManager.NavigateTo($"/controllers/{controllerId}");
+    }
+
+    private void NavigateToDoor(int controllerId, int doorId)
+    {
+        NavigationManager.NavigateTo($"/controllers/{controllerId}/doors/{doorId}");
+    }
+
+    private void NavigateToCard(long cardNumber)
+    {
+        NavigationManager.NavigateTo($"/access/cards/{cardNumber}");
+    }
+
+    private void NavigateToMember(int memberId)
+    {
+        NavigationManager.NavigateTo($"/members/{memberId}");
+    }
+
+    private async Task OnParseScanClicked()
+    {
+        _parsedCard = null;
+        _parseDebug = null;
+
+        if (string.IsNullOrWhiteSpace(_rawScanInput))
+        {
+            _parseDebug = "No raw scan input provided.";
+            return;
+        }
+
+        _parsedCard = CardReaderProfileService.ParseCardFromRaw(_rawScanInput, _profile, out var debug);
+        _parseDebug = debug;
+
+        _profile.LastSampleRaw = _rawScanInput;
+        _profile.LastSampleParsed = _parsedCard;
+
+        await Task.CompletedTask;
+    }
+
+    private async Task OnSaveProfileClicked()
+    {
+        _isSavingProfile = true;
+        try
+        {
+            _profile.LastUpdatedUtc = DateTime.UtcNow;
+            _profile = await CardReaderProfileService.UpdateProfileAsync(_profile);
+        }
+        finally
+        {
+            _isSavingProfile = false;
+        }
+    }
+
+    private async Task LoadReplayAsync()
+    {
+        _replayLoading = true;
+        _replayPlaying = false;
+        _replayCts?.Cancel();
+        _replayCts = null;
+
+        try
+        {
+            var steps = await Http.GetFromJsonAsync<List<ReplayStep>>("/simulation/replay/latest");
+
+            _replaySteps = steps ?? new List<ReplayStep>();
+            _currentReplayIndex = _replaySteps.Count > 0 ? 0 : -1;
+
+            if (_currentReplayIndex >= 0 && _currentReplayIndex < _replaySteps.Count)
+            {
+                _currentReplayStep = _replaySteps[_currentReplayIndex];
+            }
+
+            if (_currentReplayIndex >= 0)
+            {
+                ApplyReplayStep(_replaySteps[_currentReplayIndex], scroll: false);
+            }
+        }
+        finally
+        {
+            _replayLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartReplayAsync()
+    {
+        if (!_replaySteps.Any())
+        {
+            await LoadReplayAsync();
+            if (!_replaySteps.Any())
+                return;
+        }
+
+        _replayPlaying = true;
+        _replayCts?.Cancel();
+        _replayCts = new CancellationTokenSource();
+        var ct = _replayCts.Token;
+
+        if (_currentReplayIndex < 0 && _replaySteps.Any())
+            _currentReplayIndex = 0;
+
+        _ = RunReplayLoopAsync(ct);
+    }
+
+    private async Task RunReplayLoopAsync(CancellationToken ct)
+    {
+        while (_replayPlaying &&
+               !ct.IsCancellationRequested &&
+               _currentReplayIndex >= 0 &&
+               _currentReplayIndex < _replaySteps.Count)
+        {
+            var current = _replaySteps[_currentReplayIndex];
+            ApplyReplayStep(current, scroll: _replayFollowMode);
+            StateHasChanged();
+
+            var delayMs = (int)(1000.0 / Math.Max(1.0, _replaySpeed));
+            try
+            {
+                await Task.Delay(delayMs, ct);
+            }
+            catch (TaskCanceledException)
+            {
+                break;
+            }
+
+            if (_currentReplayIndex >= _replaySteps.Count - 1)
+            {
+                _replayPlaying = false;
+                break;
+            }
+
+            _currentReplayIndex++;
+        }
+
+        _replayPlaying = false;
+        StateHasChanged();
+    }
+
+    private void PauseReplay()
+    {
+        _replayPlaying = false;
+        _replayCts?.Cancel();
+        _replayCts = null;
+    }
+
+    private void StepNext()
+    {
+        PauseReplay();
+
+        if (!_replaySteps.Any())
+            return;
+
+        if (_currentReplayIndex < 0)
+            _currentReplayIndex = 0;
+        else if (_currentReplayIndex < _replaySteps.Count - 1)
+            _currentReplayIndex++;
+
+        ApplyReplayStep(_replaySteps[_currentReplayIndex], scroll: _replayFollowMode);
+    }
+
+    private void StepPrevious()
+    {
+        PauseReplay();
+
+        if (!_replaySteps.Any())
+            return;
+
+        if (_currentReplayIndex > 0)
+            _currentReplayIndex--;
+        else
+            _currentReplayIndex = 0;
+
+        ApplyReplayStep(_replaySteps[_currentReplayIndex], scroll: _replayFollowMode);
+    }
+
+    private void JumpToStep(int index)
+    {
+        PauseReplay();
+
+        if (index < 0 || index >= _replaySteps.Count)
+            return;
+
+        _currentReplayIndex = index;
+        ApplyReplayStep(_replaySteps[_currentReplayIndex], scroll: _replayFollowMode);
+    }
+
+    private void ApplyReplayStep(ReplayStep step, bool scroll)
+    {
+        if (step == null)
+            return;
+
+        _currentReplayStep = step;
+        _currentReplayTraceId = step.Id;
+
+        // Future work: when we add JS interop, we will use `scroll` to auto-scroll
+        // to the affected trace row or panel. For now, it is a no-op.
+    }
+
+    private sealed class ControllerOption
+    {
+        public int ControllerId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public List<DoorOption> Doors { get; set; } = new();
+    }
+
+    private sealed class DoorOption
+    {
+        public int DoorId { get; set; }
+        public int DoorIndex { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+    }
+
+    private class TraceFilterModel
+    {
+        public string? Operation { get; set; }
+        public string? ResultStatus { get; set; }
+        public int? ControllerId { get; set; }
+        public int? DoorId { get; set; }
+        public long? CardNumber { get; set; }
+        public int? MemberId { get; set; }
+        public int Page { get; set; }
+        public int PageSize { get; set; }
+    }
+}

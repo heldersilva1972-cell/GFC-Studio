@@ -1,0 +1,398 @@
+REV: Animation Playground – Phase 6.0D – Editor + Code Viewer (File-Diff Safe Version, 2025-11-28)
+
+CONTEXT
+- Project: Animation Playground (Next.js 15, React, TS, Tailwind, Framer Motion).
+- There is already:
+  - app/AnimationPlaygroundClient.tsx
+  - app/animations/core/AnimationRegistry.ts
+  - Tile grid + category presets
+  - Centered viewer
+  - Fixed-height scrollable tile area (from recent phases)
+- Dart POV animations must be fully removed.
+- Phase 5.xB and 5.xA animations already exist. Do NOT remove or rename any existing animations.
+
+GOAL
+Add a modern animation editor panel + safe code viewer using explicit metadata, using minimal, precise diffs:
+- Extend AnimationConfig with optional `editor` metadata.
+- Add a CodeViewer component.
+- Add an AnimationEditorPanel component.
+- Wire the editor into AnimationPlaygroundClient layout (viewer stays centered, tiles scroll in their own box).
+- DO NOT break existing tiles, filtering, or advanced animations.
+
+GLOBAL RULES
+- Prefer small, localized edits; avoid massive refactors.
+- Do NOT rename/move existing files except where explicitly instructed.
+- Fix all TypeScript errors introduced by this phase.
+- Do NOT touch routing, pages, or animation IDs.
+- Do NOT reintroduce Dart POV.
+- If you cannot find an anchor exactly as described, adapt the steps to the closest equivalent while preserving intent.
+
+===============================================================================
+0) READ-ONLY SCAN (NO CHANGES)
+===============================================================================
+Open and read, WITHOUT editing yet:
+- app/AnimationPlaygroundClient.tsx
+- app/animations/core/AnimationRegistry.ts
+
+Confirm:
+- Where `selectedAnimationId` is stored (state or props).
+- How `getAnimationById` is implemented.
+- How tiles are rendered and selected (what handler is used).
+- That Dart POV is already removed (if not, we will remove in Step 1).
+
+===============================================================================
+1) CLEAN UP ANY LEFTOVER DART POV REFERENCES (SMALL, SAFE DIFF)
+===============================================================================
+If (and only if) you still find any `DartPov`, `DartPov3DToon`, or similar:
+
+1. In app/animations/core/AnimationRegistry.ts
+   - Remove any import lines for Dart POV components.
+   - Remove any AnimationConfig entries referencing Dart POV.
+   - Remove any category arrays that include Dart POV IDs.
+
+2. In the file system:
+   - If a Dart POV folder still exists (e.g. app/animations/core/DartPov3DToon), delete it.
+
+3. In any other file:
+   - Remove remaining Dart POV imports/usages.
+
+If there are no Dart POV references, make NO changes here.
+
+===============================================================================
+2) EXTEND AnimationConfig WITH EDITOR METADATA (PRECISE DIFF)
+===============================================================================
+File: app/animations/core/AnimationRegistry.ts
+
+A) Locate the `AnimationConfig` interface. Just above it, add:
+
+export interface AnimationEditorMeta {
+  sourceCode?: string;
+  filePathHint?: string;
+  notes?: string;
+  suggestedUse?: string;
+}
+
+B) In the existing `AnimationConfig` interface, add one optional property:
+
+editor?: AnimationEditorMeta;
+
+- Do NOT remove or rename any existing properties.
+- Ensure this is the ONLY change in the interface besides adding `editor`.
+
+===============================================================================
+3) ADD MINIMAL editor METADATA TO 2 ANIMATIONS (SAFE, SMALL DIFFS)
+===============================================================================
+In app/animations/core/AnimationRegistry.ts:
+
+A) Pick:
+   - One simple/basic animation entry (e.g. first one in the registry).
+   - One advanced animation entry (any entry with `isAdvanced: true` from Phase 5.xA).
+
+B) For each of those two entries, add an `editor` property with SMALL, valid content:
+
+Example pattern (adapt IDs and names to the actual entry):
+
+editor: {
+  filePathHint: "app/animations/core/SomeFolder/SomeFile.tsx",
+  sourceCode: `// Example snippet — not full source
+import React from "react";
+
+export function SomeAnimation() {
+  return (
+    <div className="flex items-center justify-center">
+      {/* core animation JSX */}
+    </div>
+  );
+}
+
+export default SomeAnimation;`,
+  notes: "Looks best on dark backgrounds.",
+  suggestedUse: "Good for hero sections or featured banners."
+}
+
+RULES:
+- Use realistic `filePathHint` that matches your actual folder/file naming as closely as possible.
+- `sourceCode` may be a trimmed sample (NOT required to match the full file exactly).
+- Keep the snippet short and syntactically valid.
+- Escape backticks or `${}` inside the string if needed, so TS compiles.
+
+===============================================================================
+4) CREATE CodeViewer COMPONENT (NEW FILE, FULL CONTENT)
+===============================================================================
+Create file:
+app/components/editor/CodeViewer.tsx
+
+With EXACT content:
+
+"use client";
+
+import React from "react";
+
+interface CodeViewerProps {
+  sourceCode?: string;
+  filePathHint?: string;
+}
+
+export function CodeViewer({ sourceCode, filePathHint }: CodeViewerProps) {
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopy = async () => {
+    if (!sourceCode) return;
+    try {
+      await navigator.clipboard.writeText(sourceCode);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Fail silently; no runtime crash
+    }
+  };
+
+  const hasCode = Boolean(sourceCode && sourceCode.trim().length > 0);
+
+  return (
+    <div className="flex h-full flex-col rounded-2xl border border-slate-700/70 bg-slate-900/80 shadow-lg">
+      <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2 text-xs md:text-sm">
+        <div className="flex flex-col">
+          <span className="font-medium text-slate-100">Code Viewer</span>
+          {filePathHint && (
+            <span className="text-[0.7rem] text-slate-400 md:text-xs">
+              {filePathHint}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          disabled={!hasCode}
+          className="rounded-full border border-slate-600/80 px-3 py-1 text-xs font-medium text-slate-100 transition hover:bg-slate-700/80 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+      </div>
+
+      <div className="relative flex-1 overflow-hidden rounded-b-2xl bg-slate-950/90">
+        {hasCode ? (
+          <pre className="h-full w-full overflow-auto p-3 text-[0.7rem] leading-relaxed text-slate-100 md:p-4 md:text-xs">
+            <code>{sourceCode}</code>
+          </pre>
+        ) : (
+          <div className="flex h-full items-center justify-center px-4 py-6 text-center text-xs text-slate-400 md:text-sm">
+            <div className="space-y-1">
+              <p>No source code is attached to this animation yet.</p>
+              {filePathHint && (
+                <p className="text-[0.7rem] text-slate-500 md:text-xs">
+                  Open this file in Cursor to view and edit the full implementation.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default CodeViewer;
+
+===============================================================================
+5) CREATE AnimationEditorPanel COMPONENT (NEW FILE, FULL CONTENT)
+===============================================================================
+Create file:
+app/components/editor/AnimationEditorPanel.tsx
+
+With EXACT content:
+
+"use client";
+
+import React from "react";
+import type { AnimationConfig } from "@/app/animations/core/AnimationRegistry";
+import { CodeViewer } from "./CodeViewer";
+
+interface AnimationEditorPanelProps {
+  animation?: AnimationConfig | null;
+}
+
+export function AnimationEditorPanel({ animation }: AnimationEditorPanelProps) {
+  if (!animation) {
+    return (
+      <div className="rounded-2xl border border-slate-700/70 bg-slate-900/80 p-4 text-sm text-slate-300 shadow-lg">
+        Select an animation tile to view details and code.
+      </div>
+    );
+  }
+
+  const { name, category, isAdvanced, tags, description, editor } = animation;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/80 p-3 shadow-xl md:p-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-slate-50 md:text-base">
+              {name}
+            </h2>
+            {isAdvanced && (
+              <span className="rounded-full bg-fuchsia-600/30 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-fuchsia-200">
+                Advanced
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[0.7rem] text-slate-400 md:text-xs">
+            <span className="rounded-full border border-slate-600/70 px-2 py-0.5">
+              Category: {category}
+            </span>
+            {tags && tags.length > 0 && (
+              <span className="flex flex-wrap gap-1">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[0.65rem] text-slate-200"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Description / notes */}
+      {(description || editor?.notes || editor?.suggestedUse) && (
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)]">
+          <div className="space-y-1.5 text-xs text-slate-300 md:text-sm">
+            {description && (
+              <p className="text-slate-200">
+                {description}
+              </p>
+            )}
+            {editor?.notes && (
+              <p className="text-slate-300">
+                <span className="font-semibold text-slate-100">Notes: </span>
+                {editor.notes}
+              </p>
+            )}
+          </div>
+          {editor?.suggestedUse && (
+            <div className="rounded-xl bg-slate-950/80 px-3 py-2 text-[0.7rem] text-slate-200 md:text-xs">
+              <p className="font-semibold text-slate-100">Suggested use</p>
+              <p className="mt-0.5 text-slate-300">
+                {editor.suggestedUse}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Code viewer */}
+      <div className="min-h-[180px] md:min-h-[220px]">
+        <CodeViewer
+          sourceCode={editor?.sourceCode}
+          filePathHint={editor?.filePathHint}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default AnimationEditorPanel;
+
+===============================================================================
+6) WIRE EDITOR INTO AnimationPlaygroundClient (DIFF, NOT FULL REWRITE)
+===============================================================================
+File: app/AnimationPlaygroundClient.tsx
+
+A) IMPORT EDITOR PANEL
+At the top (among imports), add:
+
+import { AnimationEditorPanel } from "@/app/components/editor/AnimationEditorPanel";
+import { getAnimationById } from "@/app/animations/core/AnimationRegistry"; // if not already imported
+
+B) ENSURE SELECTED ANIMATION STATE
+In the main client component (e.g. AnimationPlaygroundClient or similar):
+
+1. Locate the existing state that tracks the selected animation. If it exists and is string-based ID, reuse it.
+2. If it does NOT exist, add:
+
+const [selectedAnimationId, setSelectedAnimationId] = React.useState<string>("" /* replace with a valid default ID from the registry */);
+
+3. Immediately after that, add:
+
+const selectedAnimation = getAnimationById(selectedAnimationId) ?? null;
+
+C) ENSURE TILES UPDATE selectedAnimationId
+Wherever tiles are rendered (in this file OR in a child component):
+
+- If tiles are rendered inline in AnimationPlaygroundClient:
+  - Ensure each tile’s click/select handler calls a function like:
+
+  const handleSelectAnimation = (id: string) => {
+    setSelectedAnimationId(id);
+  };
+
+  - Pass this down or use directly in the tile:
+
+  onClick={() => handleSelectAnimation(animation.id)}
+
+- If tiles are in a child component (e.g. <AnimationGrid ... />):
+  - Add a prop `onSelectAnimation?: (id: string) => void` to that child’s props.
+  - Pass `setSelectedAnimationId` or `handleSelectAnimation` from AnimationPlaygroundClient down to that child.
+  - Inside the child, call `props.onSelectAnimation?.(animation.id)` when a tile is clicked.
+
+Keep the existing visual behavior and styling of tiles; do NOT change colors or hover effects.
+
+D) LAYOUT: TILE COLUMN + VIEWER + EDITOR
+Locate the main layout where:
+- Category/preset buttons
+- Tile grid
+- Viewer
+
+are rendered.
+
+Replace ONLY the immediate surrounding layout (not headers/hero text) with a grid similar to:
+
+<div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,2fr)] xl:grid-cols-[minmax(0,1.4fr)_minmax(0,2.2fr)]">
+  {/* LEFT: presets + tiles */}
+  <div className="flex flex-col gap-3">
+    {/* keep existing preset/category controls EXACTLY as they are now */}
+
+    <div className="max-h-[420px] overflow-y-auto rounded-2xl border border-slate-800/70 bg-slate-900/80 p-3">
+      {/* existing tile grid JSX goes here, unchanged except for calling onSelectAnimation */}
+    </div>
+  </div>
+
+  {/* RIGHT: viewer + editor */}
+  <div className="flex flex-col gap-4">
+    <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-slate-800/80 bg-slate-950/90 p-3 md:min-h-[320px] md:p-4">
+      {/* existing animation viewer JSX, but driven by selectedAnimation */}
+    </div>
+
+    <AnimationEditorPanel animation={selectedAnimation} />
+  </div>
+</div>
+
+RULES:
+- Keep the viewer JSX the same; just ensure it uses `selectedAnimation`/`selectedAnimationId` consistently.
+- Do NOT change the outer page container, header, or hero elements; only wrap the presets/tiles/viewer section in this grid.
+- Do NOT remove existing classes that control dark theme; just add the new container classes to shape the layout.
+
+===============================================================================
+7) FINAL CLEANUP + VALIDATION
+===============================================================================
+1. Ensure no `DartPov` / `DartPov3DToon` imports or usages remain.
+2. Ensure no debug window UI remains from earlier phases.
+3. Ensure all new imports resolve:
+   - AnimationEditorPanel from "@/app/components/editor/AnimationEditorPanel"
+   - CodeViewer from "./CodeViewer" within that folder.
+4. Check that:
+   - Page compiles with no TS errors.
+   - Tiles still filter and select correctly.
+   - Viewer stays centered and visible; page does not jump vertically when switching categories.
+   - Tile list scrolls inside its own box when many tiles exist.
+   - Editor shows:
+     - A helpful empty state if `selectedAnimation` is null.
+     - Full metadata + code viewer for the two animations that have `editor` data.
+   - Copy button works (no crash even if clipboard is blocked).
+
+END OF PHASE 6.0D

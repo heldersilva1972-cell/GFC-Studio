@@ -1,0 +1,868 @@
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using System.Linq
+@using GFC.BlazorServer.Components.Common
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Models.Dashboard
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Services.Dashboard
+@attribute [Authorize]
+@inject IDashboardService DashboardService
+@inject IDashboardMetricsService DashboardMetricsService
+@inject ControllerRegistryService ControllerRegistryService
+@inject ControllerEventService ControllerEventService
+@inject ISystemSettingsService SystemSettingsService
+@inject NavigationManager NavMgr
+@inject IControllerClient ControllerClient
+
+@if (_showSplash)
+{
+    <GfcDashboardSplash />
+}
+else
+{
+    <div class="dash-page">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="mb-0">Dashboard</h1>
+            <div class="d-flex align-items-center gap-2">
+                <span class="small text-muted">Auto-refresh</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           id="dashAutoRefreshToggle"
+                           @bind="IsAutoRefreshEnabled">
+                    <label class="form-check-label small text-muted" for="dashAutoRefreshToggle">
+                        @(IsAutoRefreshEnabled ? "On" : "Off")
+                    </label>
+                </div>
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#dash-settings-panel"
+                        aria-expanded="false"
+                        aria-controls="dash-settings-panel">
+                    Settings
+                </button>
+            </div>
+        </div>
+
+        @if (IsAutoRefreshEnabled)
+        {
+            <div class="alert alert-info py-1 px-2 small mb-2">
+                Live refresh is enabled (visual only - data refresh will be wired in a later phase).
+            </div>
+        }
+
+        <div class="collapse mb-3" id="dash-settings-panel">
+            <div class="card shadow-sm rounded">
+                <div class="card-header">
+                    <h5 class="mb-0">Dashboard Settings</h5>
+                </div>
+                <div class="card-body small">
+                    <p class="text-muted mb-2">
+                        These settings control what you see on the dashboard. They are UI-only for now; behavior will be wired in a future phase.
+                    </p>
+
+                    <div class="row g-2">
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowMembershipCard"
+                                       @bind="ShowMembershipCard">
+                                <label class="form-check-label" for="settingShowMembershipCard">
+                                    Show Membership &amp; Dues card
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowAccessCard"
+                                       @bind="ShowAccessControlCard">
+                                <label class="form-check-label" for="settingShowAccessCard">
+                                    Show Access Control &amp; Doors card
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowEventsCard"
+                                       @bind="ShowEventsCard">
+                                <label class="form-check-label" for="settingShowEventsCard">
+                                    Show Events &amp; Hall Rentals card
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowAlertsCard"
+                                       @bind="ShowAlertsCard">
+                                <label class="form-check-label" for="settingShowAlertsCard">
+                                    Show Alerts &amp; Warnings card
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowQuickActionsCard"
+                                       @bind="ShowQuickActionsCard">
+                                <label class="form-check-label" for="settingShowQuickActionsCard">
+                                    Show Quick Actions card
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowSystemStatusCard"
+                                       @bind="ShowSystemStatusCard">
+                                <label class="form-check-label" for="settingShowSystemStatusCard">
+                                    Show System Status card
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="text-muted mt-3 mb-0">
+                        @* TODO: Persist these settings per user/role in a future phase. Currently, they are session-only UI toggles. *@
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        @if (_isLoading)
+        {
+            <div class="loading-state">
+                <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+                Loading dashboard...
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger">@_errorMessage</div>
+        }
+        else if (_memberSummary is not null && _duesSummary is not null && _alerts is not null && _backupStatus is not null)
+        {
+            var totalMembers = _metrics?.TotalMembers ?? _memberSummary.TotalMembers;
+            var activeMembers = _metrics?.ActiveMembers ?? _memberSummary.RegularMembers + _memberSummary.LifeMembers;
+            var overdueCount = _metrics?.PastDueMembers ?? _duesSummary.UnpaidCount;
+
+            <div class="container-fluid">
+                <div class="row g-3">
+                    <div class="col-12 col-lg-8">
+                        <div style="opacity:0; transition: opacity .25s ease;" onload="this.style.opacity='1'">
+                            @if (ShowMembershipCard)
+                            {
+                                <div class="card mb-3 shadow-sm rounded" role="button" tabindex="0" aria-label="Open member list" style="cursor:pointer; transition: transform .15s ease, box-shadow .15s ease;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 4px 18px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='none'; this.style.boxShadow='';" @onclick="NavigateToSearchMember" @onkeydown:preventDefault @onkeydown:stopPropagation @onkeydown="(e => HandleCardKeyDown(e, NavigateToSearchMember))">
+                                    <div class="card-header d-flex justify-content-between align-items-center" style="border-bottom: 1px solid rgba(0,0,0,0.05); transition: border-color .2s ease;" onmouseover="this.style.borderColor='rgba(0,0,0,0.15)'" onmouseout="this.style.borderColor='rgba(0,0,0,0.05)'">
+                                        <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-membership-card" aria-expanded="true" aria-controls="dash-membership-card" @onclick:stopPropagation="true">
+                                            <h5 class="mb-0">
+                                                <i class="bi bi-people me-2"></i>Membership &amp; Dues Overview
+                                            </h5>
+                                        </button>
+                                        <NavLink href="/members" class="small text-decoration-none" @onclick:stopPropagation="true">
+                                            View members
+                                        </NavLink>
+                                    </div>
+                                    <div class="collapse show" id="dash-membership-card">
+                                        <div class="card-body">
+                                            <p class="text-muted mb-2">
+                                                High-level view of member counts and dues status will appear here.
+                                            </p>
+                                            <ul class="mb-0 small">
+                                                <li>Total Members: <span class="fw-semibold">@totalMembers</span></li>
+                                                <li>Members In Good Standing: <span class="fw-semibold">@activeMembers</span></li>
+                                                <li>
+                                                    Dues Overdue:
+                                                    <span class="badge bg-warning text-dark ms-2" style="transition: background-color .2s ease, transform .15s ease;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">@overdueCount</span>
+                                                </li>
+                                            </ul>
+                                            @* TODO: Bind to real membership and dues metrics *@
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (ShowAccessControlCard)
+                            {
+                                <div class="card mb-3 shadow-sm rounded" role="button" tabindex="0" aria-label="Open controller overview" style="cursor:pointer; transition: transform .15s ease, box-shadow .15s ease;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 4px 18px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='none'; this.style.boxShadow='';" @onclick="NavigateToControllerDiagnostics" @onkeydown:preventDefault @onkeydown:stopPropagation @onkeydown="(e => HandleCardKeyDown(e, NavigateToControllerDiagnostics))">
+                                    <div class="card-header d-flex justify-content-between align-items-center" style="border-bottom: 1px solid rgba(0,0,0,0.05); transition: border-color .2s ease;" onmouseover="this.style.borderColor='rgba(0,0,0,0.15)'" onmouseout="this.style.borderColor='rgba(0,0,0,0.05)'">
+                                        <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-access-card" aria-expanded="true" aria-controls="dash-access-card" @onclick:stopPropagation="true">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <h5 class="mb-0">
+                                                    <i class="bi bi-door-open me-2"></i>Access Control &amp; Doors
+                                                </h5>
+                                                <span class="badge bg-primary" style="transition: background-color .2s ease, transform .15s ease;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">@_controllerSnapshots.Count</span>
+                                            </div>
+                                        </button>
+                                        <NavLink href="/controllers" class="small text-decoration-none" @onclick:stopPropagation="true">
+                                            View controllers
+                                        </NavLink>
+                                    </div>
+                                    <div class="collapse show" id="dash-access-card">
+                                        <div class="card-body">
+                                            <div class="small text-primary fw-semibold mb-2">
+                                                Access System Overview
+                                            </div>
+                                            <p class="text-muted mb-2">
+                                                Door status and access control activity will be summarized here.
+                                            </p>
+                                            @if (!string.IsNullOrWhiteSpace(_controllerConnectivityNote))
+                                            {
+                                                <div class="text-muted small mb-2">
+                                                    Controller connectivity: @_controllerConnectivityNote
+                                                </div>
+                                            }
+                                            <ul class="mb-0 small">
+                                                <li>
+                                                    Online Controllers:
+                                                    <span class="badge bg-primary-subtle text-primary" style="transition: background-color .2s ease, transform .15s ease;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">@_controllerSnapshots.Count</span>
+                                                </li>
+                                                <li>Recent Door Events: <span class="fw-semibold">[placeholder]</span></li>
+                                            </ul>
+                                            @* TODO: Connect to controller status and event summaries *@
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (ShowEventsCard)
+                            {
+                                <div class="card mb-3 shadow-sm rounded" style="transition: transform .15s ease, box-shadow .15s ease;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 4px 18px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='none'; this.style.boxShadow='';">
+                                    <div class="card-header d-flex justify-content-between align-items-center" style="border-bottom: 1px solid rgba(0,0,0,0.05); transition: border-color .2s ease;" onmouseover="this.style.borderColor='rgba(0,0,0,0.15)'" onmouseout="this.style.borderColor='rgba(0,0,0,0.05)'">
+                                        <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-events-card" aria-expanded="true" aria-controls="dash-events-card">
+                                            <h5 class="mb-0">
+                                                <i class="bi bi-calendar-event me-2"></i>Events &amp; Hall Rentals
+                                            </h5>
+                                        </button>
+                                    </div>
+                                    <div class="collapse show" id="dash-events-card">
+                                        <div class="card-body">
+                                            <div class="small text-info fw-semibold mb-2">
+                                                Current Activity
+                                            </div>
+                                            <p class="text-muted mb-2">
+                                                Upcoming events and rental activity will be shown here.
+                                            </p>
+                                            <ul class="mb-0 small">
+                                                <li>Upcoming Events: <span class="fw-semibold">[placeholder]</span></li>
+                                                <li>Hall Rentals This Month: <span class="fw-semibold">[placeholder]</span></li>
+                                            </ul>
+                                            @* TODO: Hook into events and hall rental data when available *@
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-lg-4">
+                        @if (ShowAlertsCard)
+                        {
+                            <div class="card mb-3 border-warning-subtle shadow-sm rounded" role="button" tabindex="0" aria-label="Open alerts center" style="cursor:pointer; transition: transform .15s ease, box-shadow .15s ease;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 4px 18px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='none'; this.style.boxShadow='';" @onclick="NavigateToAlerts" @onkeydown:preventDefault @onkeydown:stopPropagation @onkeydown="(e => HandleCardKeyDown(e, NavigateToAlerts))">
+                                <div class="card-header d-flex justify-content-between align-items-center" style="border-bottom: 1px solid rgba(0,0,0,0.05); transition: border-color .2s ease;" onmouseover="this.style.borderColor='rgba(0,0,0,0.15)'" onmouseout="this.style.borderColor='rgba(0,0,0,0.05)'">
+                                    <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-alerts-card" aria-expanded="true" aria-controls="dash-alerts-card" @onclick:stopPropagation="true">
+                                        <h5 class="mb-0">
+                                            <i class="bi bi-exclamation-triangle me-2"></i>Alerts &amp; Warnings
+                                        </h5>
+                                    </button>
+                                </div>
+                                <div class="collapse show" id="dash-alerts-card">
+                                    <div class="card-body">
+                                        <div class="small text-warning fw-semibold mb-2">
+                                            System Alerts
+                                        </div>
+                                        <p class="text-muted small mb-2">
+                                            Important alerts will appear here when attention is required.
+                                        </p>
+                                        @if (Alerts != null && Alerts.Count > 0)
+                                        {
+                                            <ul class="mb-0 small">
+                                                @foreach (var alert in Alerts)
+                                                {
+                                                    var alertClass = alert.Severity switch
+                                                    {
+                                                        "Danger" => "text-danger",
+                                                        "Warning" => "text-warning",
+                                                        "Info" or _ => "text-info"
+                                                    };
+
+                                                    <li class="@alertClass">
+                                                        <strong>@alert.Source:</strong> @alert.Message
+                                                    </li>
+                                                }
+                                            </ul>
+                                        }
+                                        else
+                                        {
+                                            <ul class="mb-0 small">
+                                                <li class="text-muted">No critical alerts detected.</li>
+                                            </ul>
+                                        }
+                                        @* TODO: Populate Alerts from dues, waiver, controller, and membership logic in a future phase *@
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (ShowQuickActionsCard)
+                        {
+                            <div class="card mb-3 shadow-sm rounded" role="button" tabindex="0" aria-label="Open dues and financials" style="cursor:pointer; transition: transform .15s ease, box-shadow .15s ease;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 4px 18px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='none'; this.style.boxShadow='';" @onclick="NavigateToRecordDues" @onkeydown:preventDefault @onkeydown:stopPropagation @onkeydown="(e => HandleCardKeyDown(e, NavigateToRecordDues))">
+                                <div class="card-header d-flex justify-content-between align-items-center" style="border-bottom: 1px solid rgba(0,0,0,0.05); transition: border-color .2s ease;" onmouseover="this.style.borderColor='rgba(0,0,0,0.15)'" onmouseout="this.style.borderColor='rgba(0,0,0,0.05)'">
+                                    <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-quick-card" aria-expanded="true" aria-controls="dash-quick-card" @onclick:stopPropagation="true">
+                                        <h5 class="mb-0">
+                                            <i class="bi bi-lightning-charge me-2"></i>Quick Actions
+                                        </h5>
+                                    </button>
+                                </div>
+                                <div class="collapse show" id="dash-quick-card">
+                                    <div class="card-body">
+                                        <p class="text-muted small mb-2">
+                                            Frequently used actions for board and office staff.
+                                        </p>
+                                        <div class="p-2 bg-light rounded d-flex flex-wrap gap-2">
+                                            <a href="/members/new" class="btn btn-sm btn-primary" style="transition: transform .12s ease;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" @onclick:stopPropagation="true">Add Member</a>
+                                            <a href="/dues" class="btn btn-sm btn-outline-primary" style="transition: transform .12s ease;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" @onclick:stopPropagation="true">Record Payment</a>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" style="transition: transform .12s ease;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" @onclick:stopPropagation="true">Open Door (Test)</button>
+                                        </div>
+                                        @* TODO: Wire buttons to real navigation/commands *@
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (ShowSystemStatusCard)
+                        {
+                            <div class="card mb-3 shadow-sm rounded" role="button" tabindex="0" aria-label="Open keycard management" style="cursor:pointer; transition: transform .15s ease, box-shadow .15s ease;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 4px 18px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='none'; this.style.boxShadow='';" @onclick="NavigateToReplaceCard" @onkeydown:preventDefault @onkeydown:stopPropagation @onkeydown="(e => HandleCardKeyDown(e, NavigateToReplaceCard))">
+                                <div class="card-header d-flex justify-content-between align-items-center" style="border-bottom: 1px solid rgba(0,0,0,0.05); transition: border-color .2s ease;" onmouseover="this.style.borderColor='rgba(0,0,0,0.15)'" onmouseout="this.style.borderColor='rgba(0,0,0,0.05)'">
+                                    <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-status-card" aria-expanded="true" aria-controls="dash-status-card" @onclick:stopPropagation="true">
+                                        <h5 class="mb-0">
+                                            <i class="bi bi-activity me-2"></i>System Status
+                                        </h5>
+                                    </button>
+                                </div>
+                                <div class="collapse show" id="dash-status-card">
+                                    <div class="card-body">
+                                        <div class="small text-secondary fw-semibold mb-2">
+                                            Current System Health
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(_controllerConnectivityNote))
+                                        {
+                                            <div class="text-muted small mb-2">
+                                                Controller connectivity: @_controllerConnectivityNote
+                                            </div>
+                                        }
+                                        <ul class="mb-0 small">
+                                            <li>
+                                                Controllers:
+                                                <span class="badge bg-secondary-subtle text-dark" style="transition: background-color .2s ease, transform .15s ease;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">@_controllerSnapshots.Count</span>
+                                            </li>
+                                            <li>Database: <span class="fw-semibold">[placeholder]</span></li>
+                                            <li>
+                                                Backups:
+                                                <span class="badge bg-secondary-subtle text-dark" style="transition: background-color .2s ease, transform .15s ease;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">@FormatDate(_backupStatus.LastBackupUtc)</span>
+                                            </li>
+                                        </ul>
+                                        @* TODO: Connect to maintenance/health metrics *@
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _isLoading = true;
+    private bool _showSplash = true;
+    private bool _metricsLoading;
+    private MemberSummaryDto? _memberSummary;
+    private DuesSummaryDto? _duesSummary;
+    private AlertSummaryDto? _alerts;
+    private BackupStatusDto? _backupStatus;
+    private string? _errorMessage;
+    private string? _metricsError;
+    private DashboardMetricsDto? _metrics;
+    private bool _sidebarOpen = true;
+    private DashboardSidebarTab _activeSidebarTab = DashboardSidebarTab.Alerts;
+    private bool _alertsExpanded = true;
+    private bool _alertsLoading;
+    private string? _alertsError;
+    private readonly List<AlertPreviewItem> _importantAlerts = new();
+    private readonly List<AlertPreviewItem> _alertPreview = new();
+    private readonly List<ControllerSnapshot> _controllerSnapshots = new();
+    private bool _controllersLoading = true;
+    private string? _controllersError;
+    private string? _controllerConnectivityNote;
+    private bool _useRealControllers;
+    private bool _isSimulationMode;
+    private bool IsAutoRefreshEnabled { get; set; } = false;
+    private bool ShowMembershipCard { get; set; } = true;
+    private bool ShowAccessControlCard { get; set; } = true;
+    private bool ShowEventsCard { get; set; } = true;
+    private bool ShowAlertsCard { get; set; } = true;
+    private bool ShowQuickActionsCard { get; set; } = true;
+    private bool ShowSystemStatusCard { get; set; } = true;
+    private string? _defaultControllerSerial;
+    private int? _defaultDoorIndex;
+    private sealed class DashboardAlert
+    {
+        public string Severity { get; set; } = "Info";   // e.g., Info, Warning, Danger
+        public string Message { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty; // e.g., "Dues", "Access", "System"
+    }
+
+    private List<DashboardAlert> Alerts { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _showSplash = true;
+        _isLoading = true;
+        _metricsLoading = true;
+        _errorMessage = null;
+        _metricsError = null;
+        _alertsError = null;
+        _alertsLoading = true;
+        
+        var metricsTask = DashboardMetricsService.GetMetricsAsync();
+        var controllerModeTask = LoadControllerModeAsync();
+        
+        // Show splash animation for ~1.8 seconds
+        await Task.Delay(1800);
+        _showSplash = false;
+        
+        try
+        {
+            var memberTask = DashboardService.GetMemberSummaryAsync();
+            var duesTask = DashboardService.GetCurrentYearDuesSummaryAsync();
+            var alertsTask = DashboardService.GetAlertSummaryAsync();
+            var backupTask = DashboardService.GetBackupStatusAsync();
+
+            await Task.WhenAll(memberTask, duesTask, alertsTask, backupTask);
+
+            _memberSummary = memberTask.Result;
+            _duesSummary = duesTask.Result;
+            _alerts = alertsTask.Result;
+            _backupStatus = backupTask.Result;
+
+            _importantAlerts.Clear();
+            _alertPreview.Clear();
+            var important = BuildAlertPreview(_alerts);
+            _alertPreview.AddRange(important);
+            _importantAlerts.AddRange(important);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard] {ex}");
+            _errorMessage = "We couldn't load the dashboard metrics right now. Please try again shortly.";
+            _alertsError = "Alerts could not be loaded. Please refresh.";
+            _importantAlerts.Clear();
+            _alertPreview.Clear();
+        }
+        finally
+        {
+            _isLoading = false;
+            _alertsLoading = false;
+        }
+
+        try
+        {
+            _metrics = await metricsTask;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard:metrics] {ex}");
+            _metricsError = "We couldn't load the key metrics right now.";
+        }
+        finally
+        {
+            _metricsLoading = false;
+        }
+
+        await controllerModeTask;
+        _isSimulationMode = !_useRealControllers;
+        await LoadControllerStatusSafeAsync();
+
+        Alerts ??= new List<DashboardAlert>();
+    }
+
+    private static string FormatDate(DateTime? value)
+    {
+        if (value == null)
+        {
+            return "Not available";
+        }
+
+        return value.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt");
+    }
+
+    private static string FormatShort(DateTime? value)
+    {
+        if (value == null)
+        {
+            return "Never";
+        }
+
+        return value.Value.ToLocalTime().ToString("MMM d, h:mm tt");
+    }
+
+    private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
+
+    private void ToggleAlertsSection() => _alertsExpanded = !_alertsExpanded;
+
+    private void SetTab(DashboardSidebarTab tab) => _activeSidebarTab = tab;
+
+    private int GetOpenAlertsCount()
+    {
+        if (_metrics?.OpenAlerts is { } open)
+        {
+            return open;
+        }
+
+        return _alerts is null ? 0 : CalculateOpenAlerts(_alerts);
+    }
+
+    private IEnumerable<AlertPreviewItem> BuildAlertPreview(AlertSummaryDto summary)
+    {
+        var now = DateTime.UtcNow;
+        var items = new List<AlertPreviewItem>();
+
+        if (summary.LifeEligibleCount > 0)
+        {
+            items.Add(new AlertPreviewItem(
+                "Life eligible",
+                "Members meet Life criteria but are still Regular.",
+                summary.LifeEligibleCount,
+                now,
+                "dash-alert-pill-warn"));
+        }
+
+        if (summary.NpQueueCount > 0)
+        {
+            items.Add(new AlertPreviewItem(
+                "NP queue",
+                "Guests are waiting for promotion to Regular.",
+                summary.NpQueueCount,
+                now,
+                "dash-alert-pill-info"));
+        }
+
+        if (summary.OverdueMembers15Months > 0)
+        {
+            items.Add(new AlertPreviewItem(
+                "Overdue 15+ months",
+                "Members overdue on dues beyond 15 months.",
+                summary.OverdueMembers15Months,
+                now,
+                "dash-alert-pill-danger"));
+        }
+
+        if (summary.PhysicalKeysToReturn > 0)
+        {
+            items.Add(new AlertPreviewItem(
+                "Physical keys to return",
+                "Non-board members hold active physical keys.",
+                summary.PhysicalKeysToReturn,
+                now,
+                "dash-alert-pill-warn"));
+        }
+
+        if (summary.BoardAlertYear > 0 && (!summary.BoardConfirmed || summary.BoardPositionsUnfilled.Count > 0))
+        {
+            items.Add(new AlertPreviewItem(
+                "Board roles open",
+                $"Board {summary.BoardAlertYear} needs: {string.Join(", ", summary.BoardPositionsUnfilled)}",
+                Math.Max(1, summary.BoardPositionsUnfilled.Count),
+                now,
+                "dash-alert-pill-danger"));
+        }
+
+        return items;
+    }
+
+    private async Task LoadControllerSnapshotAsync()
+    {
+        try
+        {
+            _controllersLoading = true;
+            _controllersError = null;
+            _controllerConnectivityNote = null;
+            _controllerSnapshots.Clear();
+
+            if (_isSimulationMode)
+            {
+                await ApplySimulationControllerStateAsync();
+                return;
+            }
+
+            try
+            {
+                await ControllerClient.PingAsync(CancellationToken.None);
+            }
+            catch (SimulationModeBlockedException)
+            {
+                await ApplySimulationControllerStateAsync();
+                return;
+            }
+
+            var controllers = await ControllerRegistryService.GetControllersAsync(cancellationToken: CancellationToken.None);
+            var firstControllerWithDoor = controllers.FirstOrDefault(c => c.Doors.Any());
+            if (firstControllerWithDoor is not null)
+            {
+                _defaultControllerSerial ??= firstControllerWithDoor.SerialNumberDisplay;
+                _defaultDoorIndex ??= firstControllerWithDoor.Doors.OrderBy(d => d.DoorIndex).First().DoorIndex;
+            }
+            var controllerIds = controllers.Select(c => c.Id).ToList();
+            var latestEvents = controllerIds.Count > 0
+                ? await ControllerEventService.GetLatestEventsByControllerAsync(controllerIds)
+                : new Dictionary<int, ControllerEvent>();
+
+            foreach (var controller in controllers)
+            {
+                latestEvents.TryGetValue(controller.Id, out var evt);
+                _controllerSnapshots.Add(new ControllerSnapshot(
+                    controller.Id,
+                    controller.Name,
+                    GetControllerStatusText(evt),
+                    GetControllerStatusClass(evt),
+                    controller.IsEnabled,
+                    evt?.TimestampUtc));
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard:controllers] {ex}");
+            _controllersError = "Unable to load controller status right now.";
+        }
+        finally
+        {
+            _controllersLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadControllerStatusSafeAsync()
+    {
+        try
+        {
+            await LoadControllerSnapshotAsync();
+        }
+        catch (SimulationModeBlockedException)
+        {
+            await ApplySimulationControllerStateAsync();
+            _controllersLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ApplySimulationControllerStateAsync()
+    {
+        _controllerConnectivityNote = "Simulation Mode";
+        _controllersError = null;
+        _controllerSnapshots.Clear();
+
+        var controllers = await ControllerRegistryService.GetControllersAsync(cancellationToken: CancellationToken.None);
+        var firstControllerWithDoor = controllers.FirstOrDefault(c => c.Doors.Any());
+        if (firstControllerWithDoor is not null)
+        {
+            _defaultControllerSerial ??= firstControllerWithDoor.SerialNumberDisplay;
+            _defaultDoorIndex ??= firstControllerWithDoor.Doors.OrderBy(d => d.DoorIndex).First().DoorIndex;
+        }
+
+        foreach (var controller in controllers)
+        {
+            _controllerSnapshots.Add(new ControllerSnapshot(
+                controller.Id,
+                controller.Name,
+                "Simulation Mode",
+                "bg-secondary",
+                controller.IsEnabled,
+                null));
+        }
+    }
+
+    private async Task LoadControllerModeAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard:controllerMode] {ex}");
+            _useRealControllers = false;
+        }
+    }
+
+    private static string GetControllerStatusText(ControllerEvent? lastEvent)
+    {
+        if (lastEvent == null)
+        {
+            return "Never";
+        }
+
+        var age = DateTime.UtcNow - lastEvent.TimestampUtc;
+        if (age.TotalHours < 1)
+        {
+            return "Online";
+        }
+        if (age.TotalHours < 24)
+        {
+            return "Stale";
+        }
+
+        return "Offline";
+    }
+
+    private static string GetControllerStatusClass(ControllerEvent? lastEvent)
+    {
+        if (lastEvent == null)
+        {
+            return "bg-secondary";
+        }
+
+        var age = DateTime.UtcNow - lastEvent.TimestampUtc;
+        if (age.TotalHours < 1)
+        {
+            return "bg-success";
+        }
+        if (age.TotalHours < 24)
+        {
+            return "bg-warning text-dark";
+        }
+
+        return "bg-danger";
+    }
+
+    private static string GetStatusDotClass(string statusClass)
+    {
+        if (statusClass.Contains("success", StringComparison.OrdinalIgnoreCase))
+        {
+            return "text-success";
+        }
+
+        if (statusClass.Contains("warning", StringComparison.OrdinalIgnoreCase))
+        {
+            return "text-warning";
+        }
+
+        if (statusClass.Contains("danger", StringComparison.OrdinalIgnoreCase))
+        {
+            return "text-danger";
+        }
+
+        return "text-secondary";
+    }
+
+    private string GetControllerDetailText(ControllerSnapshot snapshot)
+    {
+        if (snapshot.LastEventUtc == null)
+        {
+            return "Last event: never";
+        }
+
+        return $"Last event: {FormatShort(snapshot.LastEventUtc)}";
+    }
+
+    private static void HandleCardKeyDown(KeyboardEventArgs e, Action navigateAction)
+    {
+        if (e.Key == "Enter" || e.Key == " ")
+        {
+            navigateAction();
+        }
+    }
+
+    private void NavigateToAlerts() => NavMgr.NavigateTo("/alerts");
+
+    private void NavigateToControllerDiagnostics() => NavMgr.NavigateTo("/controllers");
+
+    private void NavigateToNewMember() => NavMgr.NavigateTo("/members");
+
+    private void NavigateToRecordDues() => NavMgr.NavigateTo("/dues");
+
+    private void NavigateToReplaceCard() => NavMgr.NavigateTo("/keycards");
+
+    private void NavigateToSearchMember() => NavMgr.NavigateTo("/members");
+
+    private async Task TestSimulatedDoorOpen()
+    {
+        if (!_isSimulationMode || string.IsNullOrWhiteSpace(_defaultControllerSerial) || !_defaultDoorIndex.HasValue)
+        {
+            return;
+        }
+
+        try
+        {
+            await ControllerClient.OpenDoorAsync(_defaultControllerSerial, _defaultDoorIndex.Value);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard:simOpenDoor] {ex}");
+        }
+    }
+
+    private static int CalculateOpenAlerts(AlertSummaryDto alert)
+    {
+        var boardPositions = alert.BoardPositionsUnfilled?.Count ?? 0;
+        var boardOpen = alert.BoardAlertYear > 0 && (!alert.BoardConfirmed || boardPositions > 0)
+            ? Math.Max(1, boardPositions)
+            : 0;
+
+        return Math.Max(0, alert.PhysicalKeysToReturn)
+             + Math.Max(0, alert.NpQueueCount)
+             + Math.Max(0, alert.OverdueMembers15Months)
+             + Math.Max(0, alert.LifeEligibleCount)
+             + boardOpen;
+    }
+
+    private static string GetSeverityLabel(AlertPreviewItem alert) => alert.SeverityClass switch
+    {
+        "dash-alert-pill-danger" => "Critical",
+        "dash-alert-pill-warn" => "Warning",
+        "dash-alert-pill-info" => "Info",
+        _ => "Info"
+    };
+
+    private static string GetSeverityClass(AlertPreviewItem alert) => alert.SeverityClass switch
+    {
+        "dash-alert-pill-danger" => "alert-severity alert-severity-critical",
+        "dash-alert-pill-warn" => "alert-severity alert-severity-warning",
+        "dash-alert-pill-info" => "alert-severity alert-severity-info",
+        _ => "alert-severity alert-severity-info"
+    };
+
+    private string GetTabClass(DashboardSidebarTab tab)
+        => _activeSidebarTab == tab ? "is-active" : string.Empty;
+
+    private enum DashboardSidebarTab
+    {
+        Alerts,
+        Controllers,
+        QuickActions
+    }
+
+    private sealed record AlertPreviewItem(string Title, string Message, int Count, DateTime Timestamp, string SeverityClass);
+
+    private sealed record ControllerSnapshot(int Id, string Name, string StatusText, string StatusClass, bool IsEnabled, DateTime? LastEventUtc);
+}
+

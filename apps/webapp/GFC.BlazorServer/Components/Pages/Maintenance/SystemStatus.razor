@@ -1,0 +1,287 @@
+@page "/maintenance/system-status"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Maintenance
+@using GFC.Core.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@inject IMaintenanceService MaintenanceService
+@inject ControllerRegistryService ControllerRegistry
+@inject Microsoft.Extensions.Options.IOptionsMonitor<GFC.BlazorServer.Configuration.AgentApiOptions> AgentApiOptions
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<SystemStatus> Logger
+
+<PageTitle>System Status - GFC Maintenance</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>System Status</h1>
+        <p class="text-muted mb-0">Monitor application health and system metrics.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="Refresh" disabled="@_refreshing">
+        <i class="bi bi-arrow-repeat"></i> Refresh
+    </button>
+</div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_refreshing)
+{
+    <div class="text-center my-3">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Refreshing...</span>
+        </div>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="data-card">
+            <h3>Application Version</h3>
+            <p class="mb-0">
+                <strong>@_appVersion</strong>
+            </p>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="data-card">
+            <h3>Agent Connection Status</h3>
+            @if (_agentOnline.HasValue)
+            {
+                @if (_agentOnline.Value)
+                {
+                    <span class="badge bg-success">Online</span>
+                }
+                else
+                {
+                    <span class="badge bg-danger">Offline</span>
+                    <p class="text-danger small mt-2 mb-0">
+                        Agent API is not reachable. 
+                        @if (string.IsNullOrWhiteSpace(_agentConfigStatus))
+                        {
+                            <span>Check Agent API configuration in appsettings.json.</span>
+                        }
+                        else
+                        {
+                            <span>@_agentConfigStatus</span>
+                        }
+                    </p>
+                }
+            }
+            else
+            {
+                <span class="text-muted">Not checked</span>
+            }
+        </div>
+    </div>
+
+    <div class="col-md-12">
+        <div class="data-card">
+            <h3>Database Migration Status</h3>
+            @if (_migrations.Count == 0)
+            {
+                <p class="text-muted mb-0">No migrations found.</p>
+            }
+            else
+            {
+                <p class="text-muted small mb-2">@_migrations.Count migration(s) applied</p>
+                <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                    <table class="table table-sm table-compact">
+                        <thead>
+                            <tr>
+                                <th>Migration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var migration in _migrations)
+                            {
+                                <tr>
+                                    <td>@migration</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="col-md-12">
+        <div class="data-card">
+            <h3>Controller Connectivity</h3>
+            @if (_controllers.Count == 0)
+            {
+                <p class="text-muted mb-0">No controllers configured.</p>
+            }
+            else
+            {
+                <table class="data-table table-compact">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Serial Number</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var controller in _controllers)
+                        {
+                            var isOnline = _controllerStatus.ContainsKey(controller.Id) && _controllerStatus[controller.Id];
+                            <tr>
+                                <td>@controller.Name</td>
+                                <td>@controller.SerialNumber</td>
+                                <td>
+                                    @if (isOnline)
+                                    {
+                                        <span class="badge bg-success">Online</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">Offline</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    <div class="col-md-12">
+        <div class="data-card">
+            <h3>Data Counts</h3>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="h4 mb-0">@_counts.Members</div>
+                        <div class="text-muted small">Total Members</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="h4 mb-0">@_counts.ActiveMembers</div>
+                        <div class="text-muted small">Active Members</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="h4 mb-0">@_counts.Cards</div>
+                        <div class="text-muted small">Key Cards</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="h4 mb-0">@_counts.Reimbursements</div>
+                        <div class="text-muted small">Reimbursements</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center">
+                        <div class="h4 mb-0">@_counts.ControllerEvents</div>
+                        <div class="text-muted small">Controller Events</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _appVersion = "Loading...";
+    private List<string> _migrations = new();
+    private bool? _agentOnline;
+    private Dictionary<int, bool> _controllerStatus = new();
+    private List<ControllerDevice> _controllers = new();
+    private MaintenanceCountsDto _counts = new();
+    private bool _refreshing;
+    private string? _errorMessage;
+    private string? _agentConfigStatus;
+    private bool _isUnauthorized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var isAdmin = await CheckAdminAccess();
+        if (!isAdmin)
+        {
+            _isUnauthorized = true;
+            return;
+        }
+        await LoadData();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isUnauthorized)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task<bool> CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            isAdmin = currentUser?.IsAdmin == true;
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access System Status page");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task LoadData()
+    {
+        _refreshing = true;
+        _errorMessage = null;
+
+        try
+        {
+            _appVersion = MaintenanceService.GetAppVersion();
+            _migrations = MaintenanceService.GetDbMigrationStatus();
+            _counts = await MaintenanceService.GetCountsAsync();
+            _controllers = (await ControllerRegistry.GetControllersAsync(includeDoors: false)).ToList();
+            
+            var agentOptions = AgentApiOptions.CurrentValue;
+            if (string.IsNullOrWhiteSpace(agentOptions.BaseUrl))
+            {
+                _agentConfigStatus = "Agent API URL not configured in appsettings.json.";
+                _agentOnline = false;
+            }
+            else
+            {
+                _agentOnline = await MaintenanceService.PingAgentAsync();
+                _agentConfigStatus = null;
+            }
+            
+            _controllerStatus = await MaintenanceService.PingControllersAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load system status");
+            _errorMessage = "Failed to load system status: " + ex.Message;
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private async Task Refresh()
+    {
+        await LoadData();
+    }
+}

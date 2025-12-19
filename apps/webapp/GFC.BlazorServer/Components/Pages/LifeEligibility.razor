@@ -1,0 +1,226 @@
+@page "/life-eligibility"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ILifeEligibilityService LifeService
+@inject IMemberRepository MemberRepository
+@inject MemberService MemberService
+@inject IMemberHistoryService HistoryService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<LifeEligibility> Logger
+
+<h1 class="page-title">Life Eligibility</h1>
+
+<div class="toolbar">
+    <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="upcomingSwitch" @bind="_includeUpcoming" @bind:after="OnFilterChanged" />
+        <label class="form-check-label" for="upcomingSwitch">Include next 12 months</label>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_operationMessage))
+{
+    <div class="alert @( _operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
+}
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Checking eligibility...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    <div class="table-container">
+        <table class="data-table table-compact table-sticky">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Age</th>
+                    <th>Regular Since</th>
+                    <th>Eligibility Date</th>
+                    <th>Status</th>
+                    <th style="width:150px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_members.Count == 0)
+                {
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">No members meet the criteria.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var member in _members)
+                    {
+                        <tr>
+                            <td>@member.FullName</td>
+                            <td>@member.Age</td>
+                            <td>@FormatDate(member.RegularSince)</td>
+                            <td>@FormatDate(member.EligibilityDate)</td>
+                            <td>
+                                @if (member.EligibleNow)
+                                {
+                                    <span class="badge badge-success">Eligible</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-warning">Upcoming</span>
+                                }
+                            </td>
+                            <td>
+                                @if (member.EligibleNow)
+                                {
+                                    <button class="btn btn-success btn-sm"
+                                            disabled="@_operationInProgress"
+                                            @onclick="() => BeginConversion(member)">
+                                        Convert to Life
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">Not yet eligible</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_pendingMember is not null)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Confirm conversion</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelConversion">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <p>
+            Convert <strong>@_pendingMember.FullName</strong> from Regular to Life? Dues will no longer be assessed and the change will be logged.
+        </p>
+        <div class="modal-card__actions">
+            <button class="btn btn-primary"
+                    disabled="@_operationInProgress"
+                    @onclick="ConfirmConversionAsync">
+                <span class="spinner-border spinner-border-sm me-1"
+                      role="status"
+                      hidden="@(!_operationInProgress)"></span>
+                Confirm
+            </button>
+            <button class="btn btn-outline" type="button" @onclick="CancelConversion">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _includeUpcoming;
+    private List<LifeEligibilityDto> _members = new();
+    private string? _errorMessage;
+    private string? _operationMessage;
+    private bool _operationError;
+    private bool _operationInProgress;
+    private LifeEligibilityDto? _pendingMember;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            _members = (await LifeService.GetEligibleMembersAsync(_includeUpcoming)).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[LifeEligibility] {ex}");
+            _errorMessage = "Unable to load life eligibility data.";
+            _members = new List<LifeEligibilityDto>();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnFilterChanged()
+    {
+        _operationMessage = null;
+        await LoadData();
+    }
+
+    private void BeginConversion(LifeEligibilityDto member)
+    {
+        if (!member.EligibleNow || _operationInProgress)
+        {
+            return;
+        }
+
+        _pendingMember = member;
+        _operationMessage = null;
+        _operationError = false;
+    }
+
+    private void CancelConversion()
+    {
+        _pendingMember = null;
+        _operationInProgress = false;
+    }
+
+    private async Task ConfirmConversionAsync()
+    {
+        if (_pendingMember is null || _operationInProgress)
+        {
+            return;
+        }
+
+        _operationInProgress = true;
+
+        try
+        {
+            var entity = await Task.Run(() => MemberRepository.GetMemberById(_pendingMember.MemberId));
+            if (entity is null)
+            {
+                _operationError = true;
+                _operationMessage = "The selected member could not be found.";
+                return;
+            }
+
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var username = currentUser?.Username ?? "Unknown";
+            await Task.Run(() => MemberService.UpdateMemberStatus(entity, "LIFE", username));
+            _operationError = false;
+            _operationMessage = $"{_pendingMember.FullName} converted to Life.";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[LifeEligibility] Failed to convert member {MemberId} to Life", _pendingMember.MemberId);
+            _operationError = true;
+            _operationMessage = "Unable to convert the member to Life status.";
+        }
+        finally
+        {
+            _operationInProgress = false;
+            _pendingMember = null;
+        }
+    }
+
+    private static string FormatDate(DateTime? value)
+        => value?.ToString("MMM d, yyyy") ?? "--";
+}
+

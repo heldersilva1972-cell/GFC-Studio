@@ -1,0 +1,325 @@
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@inject AutoOpenAndAdvancedModesService AutoOpenService
+@inject IScheduleService ScheduleService
+@inject ControllerRegistryService RegistryService
+@inject IControllerClient ControllerClient
+@inject CommandInfoService CommandInfoService
+@inject NavigationManager Navigation
+@inject ILogger<ControllerAutoOpenTab> Logger
+@inject IJSRuntime JSRuntime
+
+<div class="data-card mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h3>Auto-Open Schedules</h3>
+            <p class="text-muted small mb-0">Configure automatic door unlock/lock based on time profiles.</p>
+        </div>
+        <div>
+            <span class="badge bg-info" title="@_syncTooltip">Risk Level: @_riskLevel</span>
+        </div>
+    </div>
+
+    @if (_errorMessage != null)
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+
+    @if (_successMessage != null)
+    {
+        <div class="alert alert-success">@_successMessage</div>
+    }
+
+    @if (_isLoading)
+    {
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <table class="data-table table-compact">
+            <thead>
+                <tr>
+                    <th>Door</th>
+                    <th>Time Profile</th>
+                    <th>Active</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_autoOpenModels.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">No doors configured for this controller.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var model in _autoOpenModels)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@model.DoorName</strong>
+                                <br /><small class="text-muted">Index: @model.DoorIndex</small>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" 
+                                        value="@(model.TimeProfileId?.ToString() ?? "")" 
+                                        @onchange="@((ChangeEventArgs e) => UpdateTimeProfile(model, e.Value?.ToString()))">
+                                    <option value="">(None - no auto-open)</option>
+                                    @foreach (var profile in _timeProfiles)
+                                    {
+                                        <option value="@profile.Id">@profile.Name</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <input type="checkbox" class="form-check-input" 
+                                       checked="@model.IsActive" 
+                                       @onchange="@((ChangeEventArgs e) => UpdateActive(model, e.Value?.ToString() == "True"))" />
+                            </td>
+                            <td>
+                                <span class="badge @GetStatusBadgeClass(model.ControllerStatusState)">
+                                    @GetStatusText(model.ControllerStatusState)
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            <button class="btn btn-outline-primary" @onclick="SaveToDb" disabled="@(_isSaving || _isSyncing)">
+                <i class="bi bi-save"></i> Save (DB only)
+            </button>
+            <button class="btn btn-outline-secondary" @onclick="RefreshFromController" disabled="@(_isLoading || _isSyncing)">
+                <i class="bi bi-arrow-down-circle"></i> Refresh from Controller
+            </button>
+            <button class="btn btn-primary" @onclick="SyncToController" disabled="@(_isLoading || _isSaving || _isSyncing)" title="@_syncTooltip">
+                <i class="bi bi-cloud-upload"></i> Sync DB to Controller
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ControllerId { get; set; }
+
+    private List<DoorAutoOpenViewModel> _autoOpenModels = new();
+    private List<TimeProfile> _timeProfiles = new();
+    private bool _isLoading = true;
+    private bool _isSaving;
+    private bool _isSyncing;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private string _syncTooltip = "Sync auto-open configuration to controller";
+    private int _riskLevel = 2;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        await LoadCommandInfo();
+    }
+
+    private async Task LoadCommandInfo()
+    {
+        try
+        {
+            var cmd = await CommandInfoService.GetByKeyAsync("SyncAutoOpen");
+            if (cmd != null)
+            {
+                _syncTooltip = $"{cmd.DisplayName} (Risk Level {cmd.RiskLevel}): {cmd.ShortDescription}";
+                _riskLevel = cmd.RiskLevel;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load command info");
+        }
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            _autoOpenModels = await AutoOpenService.GetDoorAutoOpenForControllerAsync(ControllerId);
+            _timeProfiles = await ScheduleService.GetProfilesAsync(activeOnly: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load auto-open data");
+            _errorMessage = "Failed to load auto-open configuration: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void UpdateTimeProfile(DoorAutoOpenViewModel model, string? profileIdStr)
+    {
+        if (int.TryParse(profileIdStr, out var profileId))
+        {
+            model.TimeProfileId = profileId;
+            var profile = _timeProfiles.FirstOrDefault(p => p.Id == profileId);
+            model.TimeProfileName = profile?.Name;
+        }
+        else
+        {
+            model.TimeProfileId = null;
+            model.TimeProfileName = null;
+        }
+    }
+
+    private void UpdateActive(DoorAutoOpenViewModel model, bool isActive)
+    {
+        model.IsActive = isActive;
+    }
+
+    private string GetStatusBadgeClass(ControllerStatusState state)
+    {
+        return state switch
+        {
+            ControllerStatusState.InSync => "bg-success",
+            ControllerStatusState.OutOfSync => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetStatusText(ControllerStatusState state)
+    {
+        return state switch
+        {
+            ControllerStatusState.InSync => "In Sync",
+            ControllerStatusState.OutOfSync => "Differs from controller",
+            _ => "Unknown"
+        };
+    }
+
+    private async Task SaveToDb()
+    {
+        _isSaving = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            await AutoOpenService.SaveDoorAutoOpenAsync(ControllerId, _autoOpenModels);
+            _successMessage = "Auto-open configuration saved to database.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save auto-open config");
+            _errorMessage = "Failed to save configuration: " + ex.Message;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task RefreshFromController()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var report = await AutoOpenService.RefreshFromControllerAsync(ControllerId, ControllerClient);
+            if (report.Success)
+            {
+                _successMessage = report.Message ?? "Configuration refreshed from controller.";
+                await LoadData();
+            }
+            else
+            {
+                if (report.Message?.Contains("501") == true || report.Message?.Contains("NotImplemented") == true)
+                {
+                    _errorMessage = "Auto-open configuration read is not implemented in Agent/firmware.";
+                }
+                else
+                {
+                    _errorMessage = report.Message ?? "Failed to refresh from controller.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to refresh from controller");
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _errorMessage = "Auto-open configuration read is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _errorMessage = "Failed to refresh from controller: " + ex.Message;
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SyncToController()
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Sync auto-open configuration to controller?\n\nThis will overwrite the controller's auto-open configuration."))
+        {
+            return;
+        }
+
+        _isSyncing = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var report = await AutoOpenService.SyncDbToControllerAsync(ControllerId, ControllerClient);
+            if (report.Success)
+            {
+                _successMessage = report.Message ?? "Auto-open configuration synced successfully to controller.";
+                Logger.LogInformation("Auto-open config synced to controller {ControllerId}", ControllerId);
+            }
+            else
+            {
+                if (report.Message?.Contains("501") == true || report.Message?.Contains("NotImplemented") == true)
+                {
+                    _errorMessage = "Auto-open configuration sync is not implemented in Agent/firmware.";
+                }
+                else
+                {
+                    _errorMessage = report.Message ?? "Sync failed.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to sync auto-open config to controller");
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _errorMessage = "Auto-open configuration sync is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _errorMessage = "Failed to sync configuration: " + ex.Message;
+            }
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
+    }
+}
+

@@ -1,0 +1,281 @@
+REV: Animation Playground – Phase 6.0A – Modern Editor & Code Viewer (Option B, 2025-11-28)
+
+GOAL: Add a modern animation editor panel + metadata system + safe code viewer to the existing Animation Playground without breaking tiles, categories, registry, advanced animations, or layout. Viewer stays centered. Tiles scroll in fixed window. No Dart POV remains. Everything must compile cleanly.
+
+RULES:
+- Do not refactor large existing structures. Only extend what's required.
+- Do not rename existing files unless instructed.
+- Fix all TS errors introduced.
+- NEVER auto-import nonexistent files. Only import new components you create.
+- Do not add or change animation IDs.
+- Keep Phase 5.xA advanced animations intact.
+- Tile list must scroll independently from viewer/editor column.
+- No debug window. No color glitches.
+
+==================================================
+1) VERIFY CURRENT STRUCTURE (READ-ONLY)
+==================================================
+Read (NO CHANGES):
+- app/AnimationPlaygroundClient.tsx
+- app/animations/core/AnimationRegistry.ts
+Confirm selectedAnimationId, getAnimationById, tile selection flow, category buttons, that Dart POV is removed.
+
+==================================================
+2) REMOVE ANY REMAINING DART POV REFERENCES
+==================================================
+If any remain:
+- Remove DartPov* imports/entries from AnimationRegistry
+- Remove DartPov* files/components
+- Remove DartPov* category references
+If none exist, skip silently.
+
+==================================================
+3) EXTEND AnimationConfig WITH EDITOR METADATA
+==================================================
+In AnimationRegistry.ts add:
+
+export interface AnimationEditorMeta {
+  sourceCode?: string;
+  filePathHint?: string;
+  notes?: string;
+  suggestedUse?: string;
+}
+
+Extend AnimationConfig to include:
+
+editor?: AnimationEditorMeta;
+
+Ensure optional-safe usage across all animations.
+
+==================================================
+4) ADD BASIC editor METADATA TO AT LEAST TWO ANIMATIONS
+==================================================
+Add editor metadata to:
+- One basic/simple animation
+- One advanced animation from Phase 5.xA
+
+Example:
+
+editor: {
+  filePathHint: "app/animations/core/MorphILoveYou/MorphILoveYouVariant1.tsx",
+  sourceCode: `// minimal component code sample...`,
+  notes: "Looks best on dark backgrounds.",
+  suggestedUse: "Hero sections, banners."
+}
+
+Escape backticks and ${} as needed so TS compiles.
+
+==================================================
+5) CREATE CodeViewer COMPONENT
+==================================================
+Create file:
+app/components/editor/CodeViewer.tsx
+
+Content:
+
+"use client";
+import React from "react";
+
+interface CodeViewerProps {
+  sourceCode?: string;
+  filePathHint?: string;
+}
+
+export function CodeViewer({ sourceCode, filePathHint }: CodeViewerProps) {
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopy = async () => {
+    if (!sourceCode) return;
+    try {
+      await navigator.clipboard.writeText(sourceCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  const hasCode = Boolean(sourceCode && sourceCode.trim().length > 0);
+
+  return (
+    <div className="flex h-full flex-col rounded-2xl border border-slate-700/70 bg-slate-900/80 shadow-lg">
+      <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2 text-xs md:text-sm">
+        <div className="flex flex-col">
+          <span className="font-medium text-slate-100">Code Viewer</span>
+          {filePathHint && (
+            <span className="text-[0.7rem] text-slate-400 md:text-xs">{filePathHint}</span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          disabled={!hasCode}
+          className="rounded-full border border-slate-600/80 px-3 py-1 text-xs font-medium text-slate-100 transition hover:bg-slate-700/80 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+      </div>
+      <div className="relative flex-1 overflow-hidden rounded-b-2xl bg-slate-950/90">
+        {hasCode ? (
+          <pre className="h-full w-full overflow-auto p-3 text-[0.7rem] leading-relaxed text-slate-100 md:p-4 md:text-xs">
+            <code>{sourceCode}</code>
+          </pre>
+        ) : (
+          <div className="flex h-full items-center justify-center px-4 py-6 text-center text-xs text-slate-400 md:text-sm">
+            <div className="space-y-1">
+              <p>No source code is attached to this animation yet.</p>
+              {filePathHint && (
+                <p className="text-[0.7rem] text-slate-500 md:text-xs">
+                  Open this file in Cursor to edit the full version.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default CodeViewer;
+
+==================================================
+6) CREATE AnimationEditorPanel COMPONENT
+==================================================
+Create file:
+app/components/editor/AnimationEditorPanel.tsx
+
+Content:
+
+"use client";
+import React from "react";
+import type { AnimationConfig } from "@/app/animations/core/AnimationRegistry";
+import { CodeViewer } from "./CodeViewer";
+
+interface Props {
+  animation?: AnimationConfig | null;
+}
+
+export function AnimationEditorPanel({ animation }: Props) {
+  if (!animation) {
+    return (
+      <div className="rounded-2xl border border-slate-700/70 bg-slate-900/80 p-4 text-sm text-slate-300 shadow-lg">
+        Select an animation tile to view details and code.
+      </div>
+    );
+  }
+
+  const { name, category, isAdvanced, tags, description, editor } = animation;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/80 p-3 shadow-xl md:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-slate-50 md:text-base">{name}</h2>
+            {isAdvanced && (
+              <span className="rounded-full bg-fuchsia-600/30 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-fuchsia-200">
+                Advanced
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[0.7rem] text-slate-400 md:text-xs">
+            <span className="rounded-full border border-slate-600/70 px-2 py-0.5">
+              Category: {category}
+            </span>
+            {tags && tags.length > 0 && (
+              <span className="flex flex-wrap gap-1">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[0.65rem] text-slate-200"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {(description || editor?.notes || editor?.suggestedUse) && (
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)]">
+          <div className="space-y-1.5 text-xs text-slate-300 md:text-sm">
+            {description && <p className="text-slate-200">{description}</p>}
+            {editor?.notes && (
+              <p className="text-slate-300">
+                <span className="font-semibold text-slate-100">Notes: </span>
+                {editor.notes}
+              </p>
+            )}
+          </div>
+          {editor?.suggestedUse && (
+            <div className="rounded-xl bg-slate-950/80 px-3 py-2 text-[0.7rem] text-slate-200 md:text-xs">
+              <p className="font-semibold text-slate-100">Suggested use</p>
+              <p className="mt-0.5 text-slate-300">{editor.suggestedUse}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="min-h-[180px] md:min-h-[220px]">
+        <CodeViewer
+          sourceCode={editor?.sourceCode}
+          filePathHint={editor?.filePathHint}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default AnimationEditorPanel;
+
+==================================================
+7) INTEGRATE EDITOR INTO AnimationPlaygroundClient
+==================================================
+In AnimationPlaygroundClient.tsx:
+
+- Ensure:
+const [selectedAnimationId, setSelectedAnimationId] = useState<string>(defaultAnimationId);
+const selectedAnimation = getAnimationById(selectedAnimationId);
+
+- Tiles must call setSelectedAnimationId(id).
+- Ensure tile window scrolls: wrap tile grid with:
+<div className="max-h-[420px] overflow-y-auto rounded-2xl border border-slate-800/70 bg-slate-900/80 p-3">
+
+- Add editor panel next to viewer:
+
+<AnimationEditorPanel animation={selectedAnimation ?? null} />
+
+- Full layout structure (adapt classNames only, do NOT remove viewer):
+
+<div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,2fr)] xl:grid-cols-[minmax(0,1.4fr)_minmax(0,2.2fr)]">
+  <div className="flex flex-col gap-3">
+    {/* category buttons */}
+    <div className="max-h-[420px] overflow-y-auto rounded-2xl border border-slate-800/70 bg-slate-900/80 p-3">
+      {/* tile grid */}
+    </div>
+  </div>
+
+  <div className="flex flex-col gap-4">
+    <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-slate-800/80 bg-slate-950/90 p-3 md:min-h-[320px] md:p-4">
+      {/* animation viewer */}
+    </div>
+
+    <AnimationEditorPanel animation={selectedAnimation ?? null} />
+  </div>
+</div>
+
+==================================================
+8) FINAL VALIDATION
+==================================================
+- No Dart POV remains.
+- No debug windows remain.
+- Viewer stays centered.
+- Tile colors consistent.
+- All imports valid.
+- Phase 5.xA advanced animations remain unchanged.
+- Page loads without errors.
+- Editor shows metadata and code where provided.
+- For animations without editor metadata, a friendly empty state appears.
+
+END OF PHASE 6.0A

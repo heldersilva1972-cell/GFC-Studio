@@ -1,0 +1,850 @@
+@page "/controllers/test"
+@page "/controllers/{ControllerId:int}/test"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject ControllerRegistryService RegistryService
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<ControllerTest> Logger
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Controller Test - GFC Controllers</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Controller Test</h1>
+        <p class="text-muted mb-0">Test Mengqi controller operations (safe, read-only and door control only).</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary" @onclick="NavigateBackToDashboard">
+            <i class="bi bi-arrow-left"></i> Back to dashboard
+        </button>
+    </div>
+</div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_successMessage != null)
+{
+    <div class="alert alert-success">@_successMessage</div>
+}
+
+@if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="data-card mb-3">
+        <h3>Controller Selection</h3>
+        <div class="mb-3">
+            <label class="form-label">Controller</label>
+            <select class="form-select" @bind="_selectedControllerId" @bind:after="OnControllerChanged">
+                <option value="0">Select a controller...</option>
+                @foreach (var controller in _controllers)
+                {
+                    <option value="@controller.Id">@controller.Name (SN: @controller.SerialNumberDisplay, @controller.IpAddress:@controller.Port)</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @if (_selectedController != null)
+    {
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <div class="data-card h-100">
+                    <h4>Run Info</h4>
+                    @if (_runInfo != null)
+                    {
+                        <dl class="row small mb-0">
+                            <dt class="col-5">Online</dt>
+                            <dd class="col-7">
+                                <span class="badge @(_runInfo.IsOnline ? "bg-success" : "bg-danger")">
+                                    @(_runInfo.IsOnline ? "Yes" : "No")
+                                </span>
+                            </dd>
+                            @if (_runInfo.ControllerTime.HasValue)
+                            {
+                                <dt class="col-5">Controller Time</dt>
+                                <dd class="col-7">@_runInfo.ControllerTime.Value.ToLocalTime():g</dd>
+                            }
+                            @if (_runInfo.LastRecordIndex.HasValue)
+                            {
+                                <dt class="col-5">Last Record Index</dt>
+                                <dd class="col-7">@_runInfo.LastRecordIndex.Value</dd>
+                            }
+                            @if (_runInfo.FireAlarmActive.HasValue)
+                            {
+                                <dt class="col-5">Fire Alarm</dt>
+                                <dd class="col-7">
+                                    <span class="badge @(_runInfo.FireAlarmActive.Value ? "bg-danger" : "bg-success")">
+                                        @(_runInfo.FireAlarmActive.Value ? "Active" : "Normal")
+                                    </span>
+                                </dd>
+                            }
+                            @if (_runInfo.TamperActive.HasValue)
+                            {
+                                <dt class="col-5">Tamper</dt>
+                                <dd class="col-7">
+                                    <span class="badge @(_runInfo.TamperActive.Value ? "bg-danger" : "bg-success")">
+                                        @(_runInfo.TamperActive.Value ? "Active" : "Normal")
+                                    </span>
+                                </dd>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_runInfo.FirmwareVersion))
+                            {
+                                <dt class="col-5">Firmware</dt>
+                                <dd class="col-7">@_runInfo.FirmwareVersion</dd>
+                            }
+                        </dl>
+                    }
+                    <button class="btn btn-outline-primary btn-sm mt-2" @onclick="RefreshRunInfo" disabled="@_isLoadingRunInfo">
+                        <i class="bi bi-arrow-repeat"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="data-card h-100">
+                    <h4>Controller Time</h4>
+                    @if (_controllerTime.HasValue)
+                    {
+                        <p class="mb-2"><strong>@_controllerTime.Value.ToLocalTime():g</strong></p>
+                    }
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-primary btn-sm" @onclick="ReadTime" disabled="@_isLoadingTime">
+                            <i class="bi bi-clock"></i> Read Time
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="ShowSetTimeModal" disabled="@_isLoadingTime">
+                            <i class="bi bi-clock-history"></i> Set Time
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="data-card mb-3">
+            <h4>Door Control</h4>
+            <div class="row g-2">
+                @foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
+                {
+                    <div class="col-md-3">
+                        <div class="border rounded p-2">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong>@door.Name</strong>
+                                <small class="text-muted">Index @door.DoorIndex</small>
+                            </div>
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-success btn-sm flex-fill" @onclick="() => OpenDoor(door.DoorIndex)" disabled="@_isOperatingDoor">
+                                    <i class="bi bi-door-open"></i> Open
+                                </button>
+                                <button class="btn btn-warning btn-sm flex-fill" @onclick="() => HoldDoor(door.DoorIndex)" disabled="@_isOperatingDoor">
+                                    <i class="bi bi-lock"></i> Hold
+                                </button>
+                                <button class="btn btn-secondary btn-sm flex-fill" @onclick="() => CloseDoor(door.DoorIndex)" disabled="@_isOperatingDoor">
+                                    <i class="bi bi-door-closed"></i> Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="data-card mb-3">
+            <h4>Swipe Records</h4>
+            <div class="d-flex gap-2 mb-3">
+                <button class="btn btn-outline-primary btn-sm" @onclick="RefreshPreview" disabled="@_isLoadingPreview">
+                    <i class="bi bi-arrow-repeat"></i> Refresh Preview
+                </button>
+                @if (_preview != null && _preview.LastRecordIndex > 0)
+                {
+                    <div class="input-group" style="max-width: 300px;">
+                        <input type="number" class="form-control form-control-sm" 
+                               placeholder="Record index" 
+                               @bind="_recordIndexToRead" 
+                               min="1" 
+                               disabled="@_isLoadingSwipe"
+                               @onkeypress="OnRecordIndexKeyPress" />
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="ReadSwipeRecord" disabled="@_isLoadingSwipe">
+                            <i class="bi bi-search"></i> Read
+                        </button>
+                    </div>
+                    <button class="btn btn-outline-info btn-sm" @onclick="ShowCardReaderModal" title="Use USB keyboard-wedge card reader">
+                        <i class="bi bi-credit-card"></i> Card Reader
+                    </button>
+                }
+            </div>
+            @if (_preview != null)
+            {
+                <dl class="row small mb-0">
+                    <dt class="col-3">Last Record Index</dt>
+                    <dd class="col-9">@_preview.LastRecordIndex</dd>
+                    @if (_preview.LastRecordTime.HasValue)
+                    {
+                        <dt class="col-3">Last Record Time</dt>
+                        <dd class="col-9">@_preview.LastRecordTime.Value.ToLocalTime():g</dd>
+                    }
+                    @if (_preview.LastRecordDoorIndex.HasValue)
+                    {
+                        <dt class="col-3">Last Door</dt>
+                        <dd class="col-9">@_preview.LastRecordDoorIndex.Value</dd>
+                    }
+                    @if (_preview.LastRecordCardNumber.HasValue)
+                    {
+                        <dt class="col-3">Last Card</dt>
+                        <dd class="col-9">@_preview.LastRecordCardNumber.Value.ToString("D")</dd>
+                    }
+                </dl>
+            }
+            @if (_swipeRecord != null)
+            {
+                <div class="mt-3 border-top pt-3">
+                    <h5>Record @_swipeRecord.RecordIndex</h5>
+                    <dl class="row small mb-0">
+                        <dt class="col-3">Timestamp</dt>
+                        <dd class="col-9">@_swipeRecord.Timestamp.ToLocalTime():g</dd>
+                        <dt class="col-3">Door</dt>
+                        <dd class="col-9">@_swipeRecord.DoorIndex</dd>
+                        <dt class="col-3">Card Number</dt>
+                        <dd class="col-9">@_swipeRecord.CardNumber.ToString("D")</dd>
+                        <dt class="col-3">Event Type</dt>
+                        <dd class="col-9">@_swipeRecord.EventType</dd>
+                        @if (_swipeRecord.ReasonCode.HasValue)
+                        {
+                            <dt class="col-3">Reason Code</dt>
+                            <dd class="col-9">@_swipeRecord.ReasonCode.Value</dd>
+                        }
+                        <dt class="col-3">Source</dt>
+                        <dd class="col-9">
+                            @if (_swipeRecord.IsByCard)
+                            {
+                                <span class="badge bg-primary">Card</span>
+                            }
+                            else if (_swipeRecord.IsByButton)
+                            {
+                                <span class="badge bg-info text-dark">Button</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">Other</span>
+                            }
+                        </dd>
+                    </dl>
+                </div>
+            }
+        </div>
+
+        <div class="data-card mb-3">
+            <h4>All Doors Status</h4>
+            <button class="btn btn-outline-primary btn-sm mb-2" @onclick="RefreshAllDoors" disabled="@_isLoadingDoors">
+                <i class="bi bi-arrow-repeat"></i> Refresh
+            </button>
+            @if (_doorStatuses != null && _doorStatuses.Length > 0)
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Door Index</th>
+                                <th>Door Open</th>
+                                <th>Relay On</th>
+                                <th>Sensor Active</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var door in _doorStatuses)
+                            {
+                                <tr>
+                                    <td>@door.DoorIndex</td>
+                                    <td>
+                                        <span class="badge @(door.IsDoorOpen ? "bg-danger" : "bg-success")">
+                                            @(door.IsDoorOpen ? "Open" : "Closed")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(door.IsRelayOn ? "bg-primary" : "bg-secondary")">
+                                            @(door.IsRelayOn ? "On" : "Off")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(door.IsSensorActive ? "bg-warning text-dark" : "bg-success")">
+                                            @(door.IsSensorActive ? "Active" : "Normal")
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+}
+
+@if (_showSetTimeModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Set Controller Time</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSetTimeModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Time</label>
+                        <input type="datetime-local" class="form-control" @bind="_timeToSet" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseSetTimeModal" disabled="@_isLoadingTime">Cancel</button>
+                    <button class="btn btn-primary" @onclick="SetTime" disabled="@_isLoadingTime">
+                        @(_isLoadingTime ? "Setting..." : "Set Time")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showCardReaderModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Card Reader</h5>
+                    <button type="button" class="btn-close" @onclick="CloseCardReaderModal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">Tap a card on the USB keyboard-wedge reader. The card number will be automatically filled in the record index field.</p>
+                    <div class="mb-3">
+                        <label class="form-label">Card Number (auto-filled)</label>
+                        <input type="text" 
+                               class="form-control" 
+                               @bind="_cardReaderInput" 
+                               @onkeypress="OnCardReaderKeyPress"
+                               @ref="_cardReaderInputRef"
+                               autofocus
+                               placeholder="Tap card here..." />
+                    </div>
+                    <div class="alert alert-info small">
+                        <i class="bi bi-info-circle"></i> The card number will be used to search for the corresponding record index.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseCardReaderModal">Close</button>
+                    <button class="btn btn-primary" @onclick="UseCardNumber" disabled="@string.IsNullOrWhiteSpace(_cardReaderInput)">
+                        Use Card Number
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int ControllerId { get; set; }
+
+    private List<ControllerDevice> _controllers = new();
+    private int _selectedControllerId;
+    private ControllerDevice? _selectedController;
+    private bool _isLoading = true;
+    private bool _isLoadingRunInfo;
+    private bool _isLoadingTime;
+    private bool _isOperatingDoor;
+    private bool _isLoadingPreview;
+    private bool _isLoadingSwipe;
+    private bool _isLoadingDoors;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private ControllerRunInfoDto? _runInfo;
+    private DateTime? _controllerTime;
+    private LastRecordPreviewDto? _preview;
+    private SwipeRecordDto? _swipeRecord;
+    private DoorStatusDto[]? _doorStatuses;
+    private uint _recordIndexToRead;
+    private bool _showSetTimeModal;
+    private DateTime _timeToSet = DateTime.Now;
+    private bool _showCardReaderModal;
+    private string _cardReaderInput = string.Empty;
+    private Microsoft.AspNetCore.Components.ElementReference? _cardReaderInputRef;
+
+    private HttpClient? _httpClient;
+
+    private bool _isUnauthorized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var isAdmin = await CheckAdminAccess();
+        if (!isAdmin)
+        {
+            _isUnauthorized = true;
+            _isLoading = false;
+            return;
+        }
+        _httpClient = HttpClientFactory.CreateClient();
+        _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
+        await LoadControllers();
+        if (ControllerId > 0)
+        {
+            _selectedControllerId = ControllerId;
+            await OnControllerChanged();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isUnauthorized)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task<bool> CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser != null)
+            {
+                isAdmin = currentUser.IsAdmin;
+            }
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Controller Test page");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task LoadControllers()
+    {
+        try
+        {
+            _controllers = (await RegistryService.GetControllersAsync(cancellationToken: CancellationToken.None)).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load controllers");
+            _errorMessage = "Failed to load controllers: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnControllerChanged()
+    {
+        _selectedController = _controllers.FirstOrDefault(c => c.Id == _selectedControllerId);
+        _runInfo = null;
+        _controllerTime = null;
+        _preview = null;
+        _swipeRecord = null;
+        _doorStatuses = null;
+        _errorMessage = null;
+        _successMessage = null;
+
+        if (_selectedController != null)
+        {
+            await RefreshRunInfo();
+        }
+    }
+
+    private async Task RefreshRunInfo()
+    {
+        if (_selectedController == null) return;
+
+        _isLoadingRunInfo = true;
+        _errorMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.GetFromJsonAsync<ApiResult<ControllerRunInfoDto>>(
+                $"/api/controller-test/{_selectedController.Id}/run-info");
+            
+            if (response?.Success == true && response.Data != null)
+            {
+                _runInfo = response.Data;
+            }
+            else
+            {
+                _errorMessage = response?.Message ?? "Failed to get run info";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to get run info");
+            _errorMessage = "Failed to get run info: " + ex.Message;
+        }
+        finally
+        {
+            _isLoadingRunInfo = false;
+        }
+    }
+
+    private async Task ReadTime()
+    {
+        if (_selectedController == null) return;
+
+        _isLoadingTime = true;
+        _errorMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.GetFromJsonAsync<ApiResult<DateTime>>(
+                $"/api/controller-test/{_selectedController.Id}/get-time");
+            
+            if (response?.Success == true && response.Data != default(DateTime))
+            {
+                _controllerTime = response.Data;
+                _successMessage = "Time read successfully";
+            }
+            else
+            {
+                _errorMessage = response?.Message ?? "Failed to read time";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to read time");
+            _errorMessage = "Failed to read time: " + ex.Message;
+        }
+        finally
+        {
+            _isLoadingTime = false;
+        }
+    }
+
+    private void ShowSetTimeModal()
+    {
+        _timeToSet = DateTime.Now;
+        _showSetTimeModal = true;
+    }
+
+    private void CloseSetTimeModal()
+    {
+        _showSetTimeModal = false;
+    }
+
+    private async Task SetTime()
+    {
+        if (_selectedController == null) return;
+
+        _isLoadingTime = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var request = new { Time = _timeToSet };
+            var response = await _httpClient!.PostAsJsonAsync(
+                $"/api/controller-test/{_selectedController.Id}/set-time", request);
+            
+            var result = await response.Content.ReadFromJsonAsync<ApiResult>();
+            
+            if (result?.Success == true)
+            {
+                _successMessage = "Time set successfully";
+                _controllerTime = _timeToSet;
+                CloseSetTimeModal();
+            }
+            else
+            {
+                _errorMessage = result?.Message ?? "Failed to set time";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to set time");
+            _errorMessage = "Failed to set time: " + ex.Message;
+        }
+        finally
+        {
+            _isLoadingTime = false;
+        }
+    }
+
+    private async Task OpenDoor(int doorIndex)
+    {
+        if (_selectedController == null) return;
+
+        _isOperatingDoor = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.PostAsync(
+                $"/api/controller-test/{_selectedController.Id}/open-door/{doorIndex}", null);
+            
+            var result = await response.Content.ReadFromJsonAsync<ApiResult>();
+            
+            if (result?.Success == true)
+            {
+                _successMessage = $"Door {doorIndex} opened successfully";
+            }
+            else
+            {
+                _errorMessage = result?.Message ?? "Failed to open door";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to open door");
+            _errorMessage = "Failed to open door: " + ex.Message;
+        }
+        finally
+        {
+            _isOperatingDoor = false;
+        }
+    }
+
+    private async Task CloseDoor(int doorIndex)
+    {
+        if (_selectedController == null) return;
+
+        _isOperatingDoor = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.PostAsync(
+                $"/api/controller-test/{_selectedController.Id}/close-door/{doorIndex}", null);
+            
+            var result = await response.Content.ReadFromJsonAsync<ApiResult>();
+            
+            if (result?.Success == true)
+            {
+                _successMessage = $"Door {doorIndex} closed successfully";
+            }
+            else
+            {
+                _errorMessage = result?.Message ?? "Failed to close door";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to close door");
+            _errorMessage = "Failed to close door: " + ex.Message;
+        }
+        finally
+        {
+            _isOperatingDoor = false;
+        }
+    }
+
+    private async Task HoldDoor(int doorIndex)
+    {
+        if (_selectedController == null) return;
+
+        _isOperatingDoor = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.PostAsync(
+                $"/api/controller-test/{_selectedController.Id}/hold-door/{doorIndex}", null);
+            
+            var result = await response.Content.ReadFromJsonAsync<ApiResult>();
+            
+            if (result?.Success == true)
+            {
+                _successMessage = $"Door {doorIndex} held open successfully";
+            }
+            else
+            {
+                _errorMessage = result?.Message ?? "Failed to hold door";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to hold door");
+            _errorMessage = "Failed to hold door: " + ex.Message;
+        }
+        finally
+        {
+            _isOperatingDoor = false;
+        }
+    }
+
+    private async Task RefreshPreview()
+    {
+        if (_selectedController == null) return;
+
+        _isLoadingPreview = true;
+        _errorMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.GetFromJsonAsync<ApiResult<LastRecordPreviewDto>>(
+                $"/api/controller-test/{_selectedController.Id}/swipes/preview");
+            
+            if (response?.Success == true && response.Data != null)
+            {
+                _preview = response.Data;
+                if (_preview.LastRecordIndex > 0)
+                {
+                    _recordIndexToRead = _preview.LastRecordIndex;
+                }
+            }
+            else
+            {
+                _errorMessage = response?.Message ?? "Failed to get preview";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to get preview");
+            _errorMessage = "Failed to get preview: " + ex.Message;
+        }
+        finally
+        {
+            _isLoadingPreview = false;
+        }
+    }
+
+    private async Task ReadSwipeRecord()
+    {
+        if (_selectedController == null || _recordIndexToRead == 0) return;
+
+        _isLoadingSwipe = true;
+        _errorMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.GetFromJsonAsync<ApiResult<SwipeRecordDto>>(
+                $"/api/controller-test/{_selectedController.Id}/swipes/{_recordIndexToRead}");
+            
+            if (response?.Success == true && response.Data != null)
+            {
+                _swipeRecord = response.Data;
+            }
+            else
+            {
+                _errorMessage = response?.Message ?? "Failed to read swipe record";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to read swipe record");
+            _errorMessage = "Failed to read swipe record: " + ex.Message;
+        }
+        finally
+        {
+            _isLoadingSwipe = false;
+        }
+    }
+
+    private async Task RefreshAllDoors()
+    {
+        if (_selectedController == null) return;
+
+        _isLoadingDoors = true;
+        _errorMessage = null;
+
+        try
+        {
+            var response = await _httpClient!.GetFromJsonAsync<ApiResult<DoorStatusDto[]>>(
+                $"/api/controller-test/{_selectedController.Id}/get-doors");
+            
+            if (response?.Success == true && response.Data != null)
+            {
+                _doorStatuses = response.Data;
+            }
+            else
+            {
+                _errorMessage = response?.Message ?? "Failed to get door statuses";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to get door statuses");
+            _errorMessage = "Failed to get door statuses: " + ex.Message;
+        }
+        finally
+        {
+            _isLoadingDoors = false;
+        }
+    }
+
+    private void NavigateBackToDashboard()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    private void ShowCardReaderModal()
+    {
+        _cardReaderInput = string.Empty;
+        _showCardReaderModal = true;
+    }
+
+    private void CloseCardReaderModal()
+    {
+        _showCardReaderModal = false;
+        _cardReaderInput = string.Empty;
+    }
+
+    private async Task OnCardReaderKeyPress(KeyboardEventArgs e)
+    {
+        // USB keyboard-wedge readers typically send Enter after the card number
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_cardReaderInput))
+        {
+            await UseCardNumber();
+        }
+    }
+
+    private async Task UseCardNumber()
+    {
+        if (string.IsNullOrWhiteSpace(_cardReaderInput)) return;
+
+        // Try to parse as card number and find matching record
+        // For now, we'll just use it as a search hint - in a real implementation,
+        // you might want to search the event log for this card number
+        if (long.TryParse(_cardReaderInput.Trim(), out var cardNumber))
+        {
+            // In a real implementation, you might search for the record index that contains this card number
+            // For now, we'll just close the modal and show a message
+            _successMessage = $"Card number {cardNumber} detected. Use the record index field to search for records with this card.";
+            CloseCardReaderModal();
+        }
+        else
+        {
+            _errorMessage = "Invalid card number format";
+        }
+    }
+
+    private async Task OnRecordIndexKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ReadSwipeRecord();
+        }
+    }
+}
+

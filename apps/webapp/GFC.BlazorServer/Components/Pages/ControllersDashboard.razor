@@ -1,0 +1,505 @@
+@page "/controllers"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Components.Controllers
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject ControllerRegistryService RegistryService
+@inject ControllerEventService EventService
+@inject CommandInfoService CommandInfoService
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<ControllersDashboard> Logger
+@inject ISystemSettingsService SystemSettingsService
+
+<div class="page-header">
+    <div>
+        <h1>Controllers</h1>
+        <p class="text-muted mb-0">Monitor controller metadata, open doors, and jump to detailed status.</p>
+        @if (_useRealControllers)
+        {
+            <span class="badge bg-success mt-2">
+                <i class="bi bi-hdd-network"></i> Real Controller Mode
+            </span>
+        }
+        else
+        {
+            <span class="badge bg-warning text-dark mt-2">
+                <i class="bi bi-cpu"></i> Simulation Mode (NO real hardware writes)
+            </span>
+        }
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="LoadControllersAsync" disabled="@_isLoading">
+            <i class="bi bi-arrow-repeat"></i> Refresh
+        </button>
+        <button class="btn btn-primary" @onclick="NavigateToEventsPage">
+            <i class="bi bi-list-ul"></i> Event Viewer
+        </button>
+    </div>
+</div>
+
+@if (_errorMessage is not null)
+{
+    <div class="state-card state-card--error">
+        <div class="state-card__icon">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+        </div>
+        <div class="state-card__content">
+            <h4 class="mb-1">Unable to load controllers</h4>
+            <p class="text-muted mb-3 mb-md-2">@_errorMessage</p>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-danger" @onclick="LoadControllersAsync" disabled="@_isLoading">
+                    <i class="bi bi-arrow-repeat"></i> Retry
+                </button>
+            </div>
+        </div>
+    </div>
+}
+else if (_isLoading)
+{
+    <div class="state-card state-card--loading">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div>
+            <h4 class="mb-1">Loading controllers</h4>
+            <p class="text-muted mb-0">Fetching latest connectivity and metadata.</p>
+        </div>
+    </div>
+}
+else if (_controllers.Count == 0)
+{
+    <div class="state-card state-card--empty data-card">
+        <div class="state-card__icon">
+            <i class="bi bi-hdd-network"></i>
+        </div>
+        <div class="state-card__content">
+            <h4 class="mb-1">No controllers configured</h4>
+            <p class="text-muted mb-0">Add controllers in the registry to begin monitoring access control hardware.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="controllers-list">
+        @foreach (var controller in _controllers)
+        {
+            var lastEvent = _latestEvents.TryGetValue(controller.Id, out var evt) ? evt : null;
+            var statusColor = GetControllerStatusColor(lastEvent);
+            var statusText = GetControllerStatusText(lastEvent);
+            var connectivityLabel = !_useRealControllers
+                ? "Simulated"
+                : statusText == "Never" ? "Offline" : statusText;
+            var connectivityColor = !_useRealControllers
+                ? "bg-warning text-dark"
+                : statusColor;
+            <div class="controller-row data-card @(controller.Id == _selectedControllerId ? "controller-row--selected" : string.Empty)"
+                 role="button"
+                 tabindex="0"
+                 @onclick="@(() => OnControllerRowClick(controller.Id))">
+                <div class="controller-main">
+                    <div class="controller-header">
+                        <div class="controller-title">
+                            <h4 class="gfc-control-center-card-title mb-0 controller-name">@controller.Name</h4>
+                            <span class="badge badge-pill muted-pill">SN @controller.SerialNumberDisplay</span>
+                        </div>
+                        <div class="controller-primary-status">
+                            <span class="badge @connectivityColor">
+                                @connectivityLabel
+                            </span>
+                        </div>
+                    </div>
+                    <div class="controller-line">
+                        <div class="controller-meta">
+                            <i class="bi bi-hdd-network"></i> @controller.IpAddress:@controller.Port
+                        </div>
+                        <div class="controller-meta">
+                            <i class="bi bi-clock-history"></i>
+                            @if (lastEvent is null)
+                            {
+                                <span>Last contact: never</span>
+                            }
+                            else
+                            {
+                                <span>Last contact: @lastEvent.TimestampUtc.ToLocalTime():g</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="controller-status">
+                    <span class="badge @(controller.IsEnabled ? "bg-success" : "bg-secondary")">
+                        @(controller.IsEnabled ? "Enabled" : "Disabled")
+                    </span>
+                    @if (!_useRealControllers)
+                    {
+                        <span class="badge bg-warning text-dark" title="Simulation Mode">
+                            <i class="bi bi-cpu"></i> Simulated
+                        </span>
+                    }
+                </div>
+
+                <div class="controller-actions">
+                    <button class="btn btn-outline-primary btn-sm"
+                            @onclick="@(() => NavigateToStatusPage(controller.Id))"
+                            @onclick:stopPropagation="true">
+                        <i class="bi bi-activity"></i> View status
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm"
+                            @onclick="@(() => NavigateToDoorConfig(controller.Id))"
+                            @onclick:stopPropagation="true">
+                        <i class="bi bi-gear"></i> Door Config
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm"
+                            @onclick="@(() => NavigateToNetworkConfig(controller.Id))"
+                            @onclick:stopPropagation="true">
+                        <i class="bi bi-router"></i> Network
+                    </button>
+                    @if (_isAdmin)
+                    {
+                        <button class="btn btn-primary btn-sm"
+                                @onclick="@(() => ShowOpenDoorDialog(controller))"
+                                @onclick:stopPropagation="true"
+                                disabled="@(!_useRealControllers)"
+                                title="@(!_useRealControllers ? "Disabled — Simulation Mode" : null)">
+                            <i class="bi bi-door-open"></i> Open Door
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<style>
+    .controllers-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .controller-row {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        align-items: stretch;
+        cursor: pointer;
+        transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .controller-row:hover {
+        background-color: rgba(13, 110, 253, 0.04);
+        border-color: var(--bs-primary-border-subtle, #cfe2ff);
+    }
+
+    .controller-row:focus-visible {
+        outline: 2px solid var(--bs-primary, #0d6efd);
+        outline-offset: 2px;
+        background-color: rgba(13, 110, 253, 0.06);
+        box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
+    }
+
+    .controller-row--selected {
+        border-color: var(--bs-primary, #0d6efd);
+        background-color: rgba(13, 110, 253, 0.08);
+        box-shadow: 0 0.35rem 1rem rgba(13, 110, 253, 0.12);
+    }
+
+    .controller-row--selected:focus-visible {
+        outline-color: var(--bs-primary, #0d6efd);
+        box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.18);
+    }
+
+    .controller-main {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .controller-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .controller-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .controller-name {
+        font-size: 1.1rem;
+        word-break: break-word;
+    }
+
+    .controller-primary-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .controller-line {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .controller-meta {
+        color: var(--bs-secondary-color, #6c757d);
+        font-size: 0.95rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .controller-status {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .controller-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .muted-pill {
+        background-color: var(--bs-light, #f8f9fa);
+        color: var(--bs-secondary-color, #6c757d);
+        border: 1px solid var(--bs-border-color, #dee2e6);
+    }
+
+    .state-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-radius: 0.75rem;
+        border: 1px solid var(--bs-border-color, #dee2e6);
+        background: var(--bs-body-bg, #fff);
+    }
+
+    .state-card__icon {
+        font-size: 1.75rem;
+        color: var(--bs-primary, #0d6efd);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+    }
+
+    .state-card--error {
+        border-color: #f1c2c6;
+        background: #fff5f5;
+    }
+
+    .state-card--error .state-card__icon {
+        color: #c1121f;
+    }
+
+    .state-card--loading {
+        border-style: dashed;
+    }
+
+    .state-card--empty {
+        align-items: flex-start;
+    }
+
+    @@media (min-width: 768px) {
+        .controller-row {
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .controller-main {
+            flex: 1 1 320px;
+        }
+
+        .controller-status {
+            min-width: 200px;
+        }
+
+        .controller-actions {
+            margin-left: auto;
+            width: auto;
+            justify-content: flex-end;
+        }
+    }
+
+    @@media (min-width: 992px) {
+        .controller-row {
+            align-items: center;
+        }
+
+        .controller-main {
+            min-width: 340px;
+        }
+    }
+</style>
+
+<OpenDoorDialog Controller="@_selectedController" OnClosed="OnDoorDialogClosed" />
+
+@code {
+    private readonly List<ControllerDevice> _controllers = new();
+    private readonly Dictionary<int, ControllerEvent> _latestEvents = new();
+    private readonly Dictionary<int, ControllerLastIndex?> _lastIndexes = new();
+    private bool _isLoading = true;
+    private string? _errorMessage;
+    private int? _selectedControllerId;
+    private ControllerDevice? _selectedController;
+    private bool _isAdmin;
+    private bool _useRealControllers = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckAdminAccess();
+        await LoadControllerModeAsync();
+        await LoadControllersAsync();
+    }
+
+    private async Task CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            isAdmin = currentUser?.IsAdmin == true;
+        }
+        _isAdmin = isAdmin;
+    }
+
+    private async Task LoadControllersAsync()
+    {
+        try
+        {
+            _isLoading = true;
+            _errorMessage = null;
+            _controllers.Clear();
+            var controllers = await RegistryService.GetControllersAsync(cancellationToken: CancellationToken.None);
+            _controllers.AddRange(controllers);
+
+            var latest = await EventService.GetLatestEventsByControllerAsync(_controllers.Select(c => c.Id));
+            _latestEvents.Clear();
+            foreach (var kvp in latest)
+            {
+                _latestEvents[kvp.Key] = kvp.Value;
+            }
+
+            // Load last indexes for sync history
+            await LoadLastIndexesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load controllers");
+            _errorMessage = "Unable to load controllers right now. If you are in Simulation Mode only, this message is expected.";
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task LoadLastIndexesAsync()
+    {
+        // This would require adding a method to ControllerEventService or accessing DbContext directly
+        // For now, we'll use the latest event timestamp as a proxy for last contact
+        return Task.CompletedTask;
+    }
+
+    private void NavigateToEventsPage() => Navigation.NavigateTo("/controllers/events");
+
+    private void NavigateToStatusPage(int controllerId) => Navigation.NavigateTo($"/controllers/{controllerId}/status");
+
+    private void OnControllerRowClick(int controllerId)
+    {
+        _selectedControllerId = controllerId;
+        NavigateToStatusPage(controllerId);
+    }
+
+    private void NavigateToDoorConfig(int controllerId) => Navigation.NavigateTo($"/controllers/{controllerId}/door-config");
+
+    private void NavigateToNetworkConfig(int controllerId) => Navigation.NavigateTo($"/controllers/{controllerId}/network-config");
+
+    private void ShowOpenDoorDialog(ControllerDevice controller)
+    {
+        _selectedController = controller;
+    }
+
+    private void OnDoorDialogClosed()
+    {
+        _selectedController = null;
+    }
+
+    private string GetControllerStatusColor(ControllerEvent? lastEvent)
+    {
+        if (lastEvent == null)
+        {
+            return "bg-secondary"; // Never contacted
+        }
+
+        var age = DateTime.UtcNow - lastEvent.TimestampUtc;
+        if (age.TotalHours < 1)
+        {
+            return "bg-success"; // Green - recent contact
+        }
+        else if (age.TotalHours < 24)
+        {
+            return "bg-warning text-dark"; // Orange - stale
+        }
+        else
+        {
+            return "bg-danger"; // Red - offline
+        }
+    }
+
+    private string GetControllerStatusText(ControllerEvent? lastEvent)
+    {
+        if (lastEvent == null)
+        {
+            return "Never";
+        }
+
+        var age = DateTime.UtcNow - lastEvent.TimestampUtc;
+        if (age.TotalHours < 1)
+        {
+            return "Online";
+        }
+        else if (age.TotalHours < 24)
+        {
+            return "Stale";
+        }
+        else
+        {
+            return "Offline";
+        }
+    }
+
+    private async Task LoadControllerModeAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
+            _useRealControllers = false;
+        }
+    }
+}
+

@@ -1,0 +1,3475 @@
+GFC ECOSYSTEM — SECTION 01 — GFC WEB APP
+DOCUMENT: FULL DETAIL MASTER REPORT (NO DROPS) — TRUE COMPOSITE
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R4_TRUE_FULL
+GENERATED: 2025-12-18 17:36:00 (local)
+====================================================================================================
+
+0) What is CERTAINLY completed (based ONLY on prior authored docs)
+- This list is copied from the R1 document’s “SECTION B – VERIFIED COMPLETED IMPLEMENTATION (CERTAIN)”.
+- Anything not listed there is treated as NOT CERTAINLY completed, even if it appears elsewhere.
+
+================================================================================
+
+B1. Core Architecture (COMPLETED)
+- Blazor Server Web App (.NET 8 server-interactive)
+- SQL Server backend
+- Separation of concerns:
+  - Web App: business logic + eligibility + UI + audit
+  - Agent PC: transport/protocol only
+  - Controllers: smart locks only
+- Controller client abstraction exists:
+  - IControllerClient
+  - SimulationControllerClient
+  - RealControllerClient
+
+B2. Membership Model (COMPLETED)
+- Member entity with lifecycle statuses:
+  Guest, Regular, Life, Inactive, Deceased (and related operational flags)
+- Guest→Regular transition is tracked
+- RegularSince date exists and is used for eligibility
+- NP flag exists
+
+B3. Life Eligibility (COMPLETED)
+- Age ≥ 65
+- ≥ 15 years as Regular only (Guest years excluded)
+- Guest→Regular change date is authoritative for Regular tenure
+
+B4. NP Queue (COMPLETED)
+- NP Queue exists
+- Only NP-flagged Guests eligible
+- Queue ordering exists
+- Promotion logic exists
+
+B5. Cards/Privileges (PARTIAL)
+Implemented:
+- Card tied to member
+- Privileges derived from membership + dues
+- Auto-disable when not eligible
+- Replacement/revoke logic exists
+Clarified rule that must be enforced consistently:
+- ONE member = ONE active card at a time
+
+B6. Simulation Infrastructure (COMPLETED)
+- Simulation mode exists
+- No real packets sent
+- Same code paths used for validations/workflows
+
+B7. Auditing (COMPLETED)
+- SQL audit logging exists for sensitive actions
+- Membership/dues/controller-related operations audited
+
+================================================================================
+
+====================================================================================================
+1) Gaps / Missing source material (so we do NOT guess)
+- The following expected inputs were NOT found in your uploads folder at generation time:
+
+If you want a zero-guess completion status for Section C and Section H expansion, upload the missing corrected-expanded files (or ask me to regenerate them).
+
+====================================================================================================
+2) Full authoritative content (all prior details preserved + newer add-ins)
+Rule: NOTHING below is summarized; entire source texts are embedded in full.
+
+INDEX OF EMBEDDED SOURCES (in order):
+01. 01_GFC_WEB_APP_v1.0.0_R1.txt
+02. 01_GFC_WEB_APP_v1.0.0_R2_FULL.txt
+03. 01_GFC_WEB_APP_v1.0.0_R2.txt
+04. SECTION_A_WEB_APP_R3A_CORRECTED_EXPANDED.txt
+05. SECTION_B_WEB_APP_R3B_CORRECTED_EXPANDED.txt
+06. SECTION_D_WEB_APP_R3D2_CORRECTED_EXPANDED.txt
+07. SECTION_E_WEB_APP_R3E2_CORRECTED_EXPANDED.txt
+08. SECTION_F_WEB_APP_R3F2_CORRECTED_EXPANDED.txt
+09. SECTION_G_WEB_APP_R3G2_CORRECTED_EXPANDED.txt
+10. SECTION_I_WEB_APP_R3I2_CORRECTED_EXPANDED.txt
+11. SECTION_J_WEB_APP_R3J2_CORRECTED_EXPANDED.txt
+12. SECTION_K_WEB_APP_R3K2_CORRECTED_EXPANDED.txt
+13. SECTION_L_WEB_APP_R3L2_CORRECTED_EXPANDED.txt
+14. SECTION_M_WEB_APP_R3M2_CORRECTED_EXPANDED.txt
+15. SECTION_N_WEB_APP_R3N2_CORRECTED_EXPANDED.txt
+16. SECTION_A_WEB_APP_CODE_GUIDE.txt
+17. SECTION_B_WEB_APP_CODE_GUIDE.txt
+18. SECTION_C_WEB_APP_CODE_GUIDE.txt
+19. SECTION_D_WEB_APP_CODE_GUIDE.txt
+20. SECTION_E_WEB_APP_CODE_GUIDE.txt
+21. SECTION_F_WEB_APP_CODE_GUIDE.txt
+22. SECTION_G_WEB_APP_CODE_GUIDE.txt
+23. SECTION_H_WEB_APP_CODE_GUIDE_.txt
+24. SECTION_I_WEB_APP_CODE_GUIDE.txt
+25. SECTION_J_WEB_APP_CODE_GUIDE_.txt
+26. SECTION_L_WEB_APP_CODE_GUIDE.txt
+27. SECTION_M_WEB_APP_CODE_GUIDE.txt
+28. SECTION_N_WEB_APP_CODE_GUIDE.txt
+
+====================================================================================================
+
+####################################################################################################
+BEGIN SOURCE FILE: 01_GFC_WEB_APP_v1.0.0_R1.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP (CORE SYSTEM)
+ECOSYSTEM VERSION: v1.0.0
+SECTION REVISION: R1
+GENERATED: 2025-12-13
+
+================================================================================
+PURPOSE OF THIS DOCUMENT
+================================================================================
+This is a handoff-grade continuation report for the GFC Web App. It is written so
+you can upload this file into any new chat and continue development without
+guessing what was intended, what exists now, and what must be done next.
+
+SCOPE RULES (LOCKED BY USER):
+- Include ONLY explicitly discussed items PLUS clearly marked REQUIRED GAPS needed
+  to complete the system.
+- No speculation, no invented features.
+- Provide an execution blueprint broken into correct steps with enough detail to
+  generate Cursor prompts reliably.
+
+IMPORTANT: This report describes WHAT to do and HOW to validate it. It does NOT
+embed actual Cursor prompts yet. Instead it provides a “Prompt Path” for each
+step: the exact prompt inputs, scope boundaries, file targets, and acceptance
+tests a future chat must use to generate safe, correct Cursor prompts.
+
+================================================================================
+SECTION A – ORIGINAL PROJECT INTENT (HISTORICAL TRUTH)
+================================================================================
+The GFC Web App is the single system of record for club operations and access
+decisions. The system intent is:
+- Centralize membership, dues, waivers, life eligibility, NP Queue logic
+- Own access control eligibility decisions
+- Treat controllers as smart locks; never store club logic in controllers
+- Provide simulation mode for safe testing/development
+- Be auditable, deterministic, admin-safe, and maintainable
+
+NON-GOALS:
+- No business rules in controller firmware or Agent PC
+- No manual “override” switches that bypass eligibility rules
+- No controller-side filtering (controller events are index-based only)
+
+================================================================================
+SECTION B – VERIFIED COMPLETED IMPLEMENTATION (CERTAIN)
+================================================================================
+
+B1. Core Architecture (COMPLETED)
+- Blazor Server Web App (.NET 8 server-interactive)
+- SQL Server backend
+- Separation of concerns:
+  - Web App: business logic + eligibility + UI + audit
+  - Agent PC: transport/protocol only
+  - Controllers: smart locks only
+- Controller client abstraction exists:
+  - IControllerClient
+  - SimulationControllerClient
+  - RealControllerClient
+
+B2. Membership Model (COMPLETED)
+- Member entity with lifecycle statuses:
+  Guest, Regular, Life, Inactive, Deceased (and related operational flags)
+- Guest→Regular transition is tracked
+- RegularSince date exists and is used for eligibility
+- NP flag exists
+
+B3. Life Eligibility (COMPLETED)
+- Age ≥ 65
+- ≥ 15 years as Regular only (Guest years excluded)
+- Guest→Regular change date is authoritative for Regular tenure
+
+B4. NP Queue (COMPLETED)
+- NP Queue exists
+- Only NP-flagged Guests eligible
+- Queue ordering exists
+- Promotion logic exists
+
+B5. Cards/Privileges (PARTIAL)
+Implemented:
+- Card tied to member
+- Privileges derived from membership + dues
+- Auto-disable when not eligible
+- Replacement/revoke logic exists
+Clarified rule that must be enforced consistently:
+- ONE member = ONE active card at a time
+
+B6. Simulation Infrastructure (COMPLETED)
+- Simulation mode exists
+- No real packets sent
+- Same code paths used for validations/workflows
+
+B7. Auditing (COMPLETED)
+- SQL audit logging exists for sensitive actions
+- Membership/dues/controller-related operations audited
+
+================================================================================
+SECTION C – UI MODERNIZATION STATUS (CERTAIN)
+================================================================================
+
+C1. Status-driven UI visibility (COMPLETED)
+- UI adapts based on member status (hide irrelevant controls)
+
+C2. Role-based admin segmentation (COMPLETED)
+- Admin-only pages/sections exist, permissions enforced
+
+C3. Simulation/Live awareness (PARTIAL)
+- Mode affects behavior
+- Missing consistent global banner and centralized diagnostics entry
+
+C4. Safety UX (COMPLETED)
+- Confirmations/warnings for dangerous actions exist
+
+C5. Layout consistency (PARTIAL)
+- Functional layout exists
+- Missing standardized spacing/hierarchy/action placement
+
+C6. Progress feedback (PARTIAL)
+- Some async flows exist
+- Missing consistent progress indicators for long operations
+
+================================================================================
+SECTION D – NOT YET IMPLEMENTED (EXPLICIT)
+================================================================================
+D1. Controller Health Check UI + Report: NOT IMPLEMENTED
+- No diagnostics page that produces a structured health report
+- No PASS/WARN/FAIL summary view
+
+D2. Unified Maintenance Dashboard: NOT IMPLEMENTED
+- No single consolidated status view (mode, controllers, backups, etc.)
+
+D3. Advanced Admin UX for rare/dangerous tasks: NOT IMPLEMENTED
+- No guided workflows / contextual help for seldom-used operations
+
+================================================================================
+SECTION E – REQUIRED GAPS (MUST BE RESOLVED TO FINISH)
+================================================================================
+[REQUIRED GAP – SPEC REQUIRED]
+E1. Single-card-per-member enforcement must be defined precisely at DB + domain + UI:
+- Is the “one card” rule enforced via unique DB constraint, or via application
+  enforcement only, or both? (Recommended: both, but must be decided explicitly)
+- Define what “active” means (status flag? date range? revoked timestamp?)
+
+[REQUIRED GAP – FEATURE REQUIRED]
+E2. Controller Health Check workflow + report format:
+- Which live read-only calls are allowed during Simulation (manual-only)?
+- Report fields and severity scoring rules must be declared.
+
+[REQUIRED GAP – FEATURE REQUIRED]
+E3. Unified Maintenance Dashboard requirements:
+- Which tiles/metrics are required for “system health at a glance”?
+- Where backup status is sourced from and how it’s verified.
+
+================================================================================
+SECTION F – EXECUTION BLUEPRINT (REMAINING WORK, DETAILED)
+================================================================================
+This blueprint is written in correct dependency order. Each step includes:
+- Purpose
+- Preconditions
+- Detailed substeps
+- Acceptance tests (objective “done” criteria)
+- Prompt Path (how to generate Cursor prompts safely)
+
+--------------------------------------------------------------------------------
+STEP 1 — Enforce ONE Active Card per Member (Domain + DB + UI)
+--------------------------------------------------------------------------------
+Purpose:
+Ensure the clarified rule is true everywhere: one member can have only one active
+card at a time. Prevent drift where UI allows multiple cards or backend logic
+silently tolerates multiple actives.
+
+Preconditions:
+- Identify current card schema: MemberCards table (or equivalent), fields that
+  indicate active vs revoked.
+- Identify current services/flows used to assign/replace cards.
+- Confirm current UI path where admins manage cards.
+
+Substeps:
+1.1 Inventory current behavior
+- Locate code paths:
+  - “Assign Card” flow
+  - “Replace Card” flow
+  - “Disable/Enable Card” flow
+- Identify if system currently supports multiple cards historically; determine if
+  “old cards” are retained as history or hard-deleted.
+
+1.2 Define “Active Card” semantics (SPEC CLARIFICATION)
+- Choose one approach (must be consistent):
+  A) Active = boolean IsActive flag
+  B) Active = RevokedAt is null (active when not revoked)
+  C) Active = EffectiveStart/End window contains now
+- Decide how historical cards are represented (recommended: retain history).
+
+1.3 Domain enforcement
+- Update domain/service layer so that any attempt to set a second card active:
+  - automatically revokes existing active card OR rejects with a clear error
+  - writes an audit entry for the change
+- Ensure replacement is atomic in business logic:
+  - revoke old (set RevokedAt / IsActive false)
+  - activate new
+  - audit “CardReplaced” with old/new identifiers
+
+1.4 Database enforcement (OPTIONAL BUT STRONGLY RECOMMENDED)
+- Add a uniqueness rule to prevent multiple actives for the same member.
+  Example patterns:
+  - Unique filtered index: (MemberId) WHERE RevokedAt IS NULL
+  - Unique filtered index: (MemberId) WHERE IsActive = 1
+- Add migration and update EF model accordingly.
+
+1.5 UI enforcement
+- Card management UI:
+  - prevent selecting/creating a second active card
+  - provide explicit “Replace Card” action
+  - show historical cards in a “History” list (read-only) if present
+- Ensure UI respects eligibility rules (paid/waived/life) and blocks activation if not eligible.
+
+Acceptance Tests (must be true):
+- Attempt to assign a second active card results in:
+  - Either automatic revoke of prior active OR clear rejection (as specified)
+- Database prevents multiple active records for same member (if DB constraint chosen)
+- UI shows exactly one active card at any time
+- Audit log records:
+  - who changed the card
+  - old card id
+  - new card id
+  - timestamp
+- Regression: existing members with one card continue to work; historical cards (if any) remain viewable.
+
+PROMPT PATH (for future Cursor prompts):
+- Prompt Set: “STEP1-CARDS”
+- Required prompt inputs:
+  - Current entity/table names for cards (exact)
+  - Current UI page/component responsible for card management (exact file paths)
+  - Current service class used for card assignment/replacement (exact file paths)
+- Prompt Scope Rules:
+  - One issue per prompt:
+    (a) domain enforcement, (b) DB constraint/migration, (c) UI changes, (d) tests
+  - Each prompt lists specific files only (no project-wide edits)
+- Suggested prompt breakdown:
+  1) Add domain-level single-active enforcement + audit
+  2) Add DB filtered unique index via migration (if chosen)
+  3) Update UI: replace flow + history display + validation messaging
+  4) Add minimal tests (unit/integration as appropriate)
+- “Done” validation command(s) to include in prompts:
+  - Build succeeds
+  - Migrations apply
+  - Manual UI test plan steps executed
+
+--------------------------------------------------------------------------------
+STEP 2 — Controller Health Check (Manual, Read-only, Report Output)
+--------------------------------------------------------------------------------
+Purpose:
+Provide a safe, explicit “Controller Health Check” that only runs when an admin
+clicks it. It may contact real controllers in READ-ONLY mode even while the app
+is in Simulation mode, but must never perform writes.
+
+Preconditions:
+- Determine available read-only operations exposed by Agent PC API
+  (examples: GetRunStatus, GetEventsByIndex, time read/compare).
+- Identify where controller list/config is stored (Controller table/config).
+- Determine existing logging/audit mechanism for maintenance actions.
+
+Substeps:
+2.1 Define allowed operations in health check (SPEC REQUIRED)
+- Explicit allowlist of read-only calls:
+  - Agent connectivity check
+  - Controller connectivity check
+  - Run status read
+  - Event read smoke test (last N indices)
+  - Time drift check (read-only compare)
+- Explicit denylist (hard-block):
+  - OpenDoor, privilege writes, bulk upload, clear cards, config writes, reboot.
+
+2.2 Create Health Check UI entry point
+- Admin-only page (recommended: Maintenance → Access Control → Health Check)
+- User must click “Run Health Check” (nothing auto-runs)
+- Show last run time + last result summary
+
+2.3 Implement health check runner/service
+- Service composes per-controller checks:
+  - Ping Agent (API call)
+  - Read controller run status
+  - Read events (index-based) with wrap awareness
+  - Read controller time (if available) and compute drift
+- Capture latency, retries, failures per step
+- Provide a normalized result model:
+  - ControllerId, Name, IP
+  - Status: PASS/WARN/FAIL
+  - Details: list of checks with outcomes and timings
+
+2.4 Implement report output
+- At minimum: render as structured table UI with expandable details
+- Optionally: export to text/CSV in-app (must be decided explicitly)
+- Persist last result (optional; if stored, define retention policy)
+
+2.5 Audit logging
+- Record “HealthCheckRun”:
+  - who ran it
+  - when
+  - scope (which controllers)
+  - high-level result counts (PASS/WARN/FAIL)
+
+Acceptance Tests:
+- In Simulation mode: no controller calls occur unless admin clicks “Run Health Check”
+- Health check never triggers writes (verified by denylist and service design)
+- Report shows deterministic results and error messages
+- Audit entry exists for each run
+- Failure modes handled:
+  - Agent unreachable
+  - Controller unreachable
+  - Partial read failures (WARN vs FAIL)
+
+PROMPT PATH (for future Cursor prompts):
+- Prompt Set: “STEP2-HEALTHCHECK”
+- Required prompt inputs:
+  - Current controller config storage (table/entity) and its file paths
+  - Current Agent API client interface + implementation file paths
+  - Current admin/maintenance UI routing conventions
+- Prompt Scope Rules:
+  - One issue per prompt:
+    (a) result model + service runner, (b) UI page, (c) audit logging, (d) polish/export
+  - Each prompt names exact files to edit/create
+- Suggested prompt breakdown:
+  1) Add HealthCheck result model + service runner (read-only allowlist/denylist)
+  2) Add admin UI page + display of report
+  3) Add audit event + persistence (if chosen)
+  4) Add edge-case handling + minimal tests
+
+--------------------------------------------------------------------------------
+STEP 3 — Unified Maintenance Dashboard (System-at-a-Glance)
+--------------------------------------------------------------------------------
+Purpose:
+Create a single admin dashboard that shows operational health without hunting
+through pages: mode state, controller connectivity, backups, errors, versions.
+
+Preconditions:
+- Define where version info is stored (app version, agent version)
+- Define how backup status is detected (see REQUIRED GAP E3)
+- Confirm admin roles and routing
+
+Substeps:
+3.1 Define dashboard tiles (SPEC REQUIRED)
+- Minimum tiles commonly required (must be confirmed explicitly):
+  - App Version + DB Migration level
+  - Mode: Simulation vs Live
+  - Agent status (reachable/unreachable)
+  - Controllers: Online count / Offline count
+  - Last Health Check summary (from Step 2)
+  - Backup status (last successful backup timestamp)
+  - Recent critical errors count (last 24h/7d)
+
+3.2 Implement backend aggregation service
+- Gather status from:
+  - DB (counts, timestamps, migrations)
+  - Agent PC (reachable)
+  - Controllers (optional read-only status; do not auto-run in simulation unless explicitly allowed)
+  - Backup signals (file timestamp/log record—must be decided)
+
+3.3 Implement UI dashboard
+- Admin-only
+- Compact, readable tiles
+- Links to deeper pages (health check, logs, controller list)
+
+3.4 Add safe refresh strategy
+- Avoid aggressive polling by default
+- Manual refresh + optional timed refresh for admins
+
+Acceptance Tests:
+- Dashboard loads without requiring controller actions
+- Shows correct mode state
+- Shows controller connectivity at least at an aggregate level
+- Links navigate correctly
+- No dangerous operations available from dashboard
+
+PROMPT PATH:
+- Prompt Set: “STEP3-MAINTENANCE”
+- Prompt inputs required:
+  - Existing admin layout/components file paths
+  - Where logs/errors are recorded
+  - Backup status source (decision)
+- Prompt breakdown:
+  1) Add status aggregation service + DTO
+  2) Add dashboard UI page + tiles
+  3) Add refresh controls + links
+
+--------------------------------------------------------------------------------
+STEP 4 — UI Modernization Refinement Pass (Consistency + Feedback)
+--------------------------------------------------------------------------------
+Purpose:
+Improve usability by standardizing layout, spacing, headings, action placement,
+and adding consistent progress indicators—without redesigning the architecture.
+
+Preconditions:
+- Identify top 3 densest admin pages (members, NP queue, controller privileges, etc.)
+- Identify long-running operations that need progress feedback
+
+Substeps:
+4.1 Define UI standards (SPEC REQUIRED)
+- Standard page header layout
+- Standard action button placement (Save green, Exit red)
+- Standard spacing/padding scale
+- Standard “status badge” style across pages
+- Standard table styles
+
+4.2 Apply standards to priority pages
+- Update markup/components consistently
+- Ensure accessibility (labels, focus, keyboard input for card readers)
+
+4.3 Add progress feedback
+- Standard component for “working…” state
+- Spinner/progress on operations known to take time (uploads, bulk changes, controller calls)
+
+4.4 Regression checks
+- Verify no functional behavior changed unintentionally
+- Verify permission gates still work
+- Verify status-driven visibility still correct
+
+Acceptance Tests:
+- Priority pages match common style rules
+- Long operations show progress
+- No broken layouts on desktop/tablet/mobile widths (as applicable)
+
+PROMPT PATH:
+- Prompt Set: “STEP4-UIMOD”
+- Prompt scope rules:
+  - One page per prompt (do not mass-edit)
+  - Each prompt lists exact files
+  - Each prompt includes before/after acceptance checks
+
+================================================================================
+SECTION G – SAFETY CONSTRAINTS (DO NOT VIOLATE)
+================================================================================
+- Business logic stays in Web App only
+- Agent PC is transport only; no club decisions
+- Controllers are smart locks only; no club logic
+- No automatic live diagnostics in Simulation mode (manual-only)
+- Dangerous operations require explicit confirmation + audit
+- Do not redesign core UI architecture during modernization
+
+================================================================================
+END OF SECTION 01 – GFC WEB APP (CORE SYSTEM)
+================================================================================
+
+####################################################################################################
+END SOURCE FILE: 01_GFC_WEB_APP_v1.0.0_R1.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: 01_GFC_WEB_APP_v1.0.0_R2_FULL.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP (CORE ADMIN SYSTEM)
+ECOSYSTEM VERSION: v1.0.0
+SECTION REVISION: R2 (FULL SNAPSHOT)
+GENERATED: 2025-12-13
+
+================================================================================
+PURPOSE OF THIS DOCUMENT
+================================================================================
+This document is the complete, standalone, authoritative specification for the
+GFC Web App. It may be uploaded into any future chat and used to continue
+development with zero ambiguity.
+
+This R2 revision is a FULL SNAPSHOT. It includes:
+- All R1 content
+- All approved R2 additions
+- Reorganized structure for clarity
+- No deltas, no dependencies on prior files
+
+================================================================================
+SECTION A – CORE INTENT & BOUNDARIES
+================================================================================
+The GFC Web App is the central administrative system of the GFC Ecosystem.
+
+It is responsible for:
+- Identity, authentication, and roles
+- Permissions and governance
+- Audit logging and safety controls
+- System configuration and lifecycle
+- Launching and coordinating Studio
+
+It is NOT:
+- The public website
+- A content editor for public pages (editing is done in Studio)
+- A place where public users interact
+
+================================================================================
+SECTION B – ROLES & PERMISSIONS
+================================================================================
+Explicit roles discussed:
+- SuperAdmin
+- HallManager
+- ContentEditor
+- Finance
+- ReadOnly
+
+Rules:
+- Permissions are enforced centrally by the Web App
+- Studio inherits permissions from the Web App
+- No role may bypass Web App authorization via Studio
+
+================================================================================
+SECTION C – SINGLE SOURCE OF TRUTH (GOVERNANCE RULE)
+================================================================================
+- Studio is the single source of truth for public website content
+- Web App is the system of record for:
+  - permissions
+  - publish authority
+  - audit logs
+  - feature flags
+- Public Website is read-only and renders output only
+
+================================================================================
+SECTION D – STUDIO LAUNCH & INTEGRATION
+================================================================================
+The Web App provides a first-class Studio Launcher.
+
+Capabilities:
+- Persistent “Studio” entry point (sidebar/header/FAB)
+- Launches Studio with inherited identity and permissions
+- Context-aware launch (page, nav, rentals, etc.)
+
+Rules:
+- Hidden for unauthorized roles
+- Disabled with reason if Studio is unavailable
+- Warns on unsaved Web App changes before launch
+
+================================================================================
+SECTION E – WEBSITE MANAGEMENT MODULES (OWNED BY WEB APP)
+================================================================================
+The Web App owns lifecycle, rules, and publishing for website-facing modules.
+
+Modules include:
+1. Page registry (draft/published/scheduled/archived)
+2. Navigation & footer configuration
+3. Announcement / banner system
+4. Events publishing controls
+5. Hall rentals public rules & content
+6. Media & documents classification
+7. Contact form routing rules
+8. SEO / metadata governance
+9. Feature flags for website capabilities
+
+Rules:
+- Explicit publish or scheduling required
+- Validation enforced before publish
+- All actions audited
+
+================================================================================
+SECTION F – CHANGE IMPACT AWARENESS
+================================================================================
+Before applying website-affecting changes, the Web App must:
+- Display impacted pages/areas
+- Warn on sitewide or destructive actions
+- Require confirmation for irreversible changes
+
+================================================================================
+SECTION G – FEATURE FLAGS (WEBSITE)
+================================================================================
+Website-facing features may be enabled/disabled without redeploy:
+- Announcement banners
+- Events calendar
+- Rentals apply form
+- Experimental animations
+
+Purpose:
+- Safe rollout
+- Emergency disable
+- Controlled experimentation
+
+================================================================================
+SECTION H – WEBSITE HEALTH VISIBILITY
+================================================================================
+The Web App may display:
+- Last publish timestamp
+- Last successful website build/render
+- Last rollback action (if any)
+
+This is status visibility only, not active monitoring.
+
+================================================================================
+SECTION I – AUDIT & SAFETY
+================================================================================
+All sensitive actions are logged:
+- Who
+- What changed
+- Before/after revision IDs
+- Timestamp
+
+Rollback is supported where applicable via revision history.
+
+================================================================================
+END OF SECTION 01 – GFC WEB APP (R2 FULL)
+================================================================================
+
+####################################################################################################
+END SOURCE FILE: 01_GFC_WEB_APP_v1.0.0_R2_FULL.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: 01_GFC_WEB_APP_v1.0.0_R2.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+ECOSYSTEM VERSION: v1.0.0
+SECTION REVISION: R2
+GENERATED: 2025-12-13
+
+================================================================================
+NEW ADDITIONS (R2)
+================================================================================
+
+This revision adds governance, safety, and integration clarity related to
+public website management and Studio integration.
+
+================================================================================
+A. SINGLE SOURCE OF TRUTH (SHARED RULE)
+================================================================================
+- Studio is the single source of truth for public website content.
+- The Web App is the system of record for:
+  - permissions
+  - audit logs
+  - publish lifecycle
+  - feature enablement
+- The Public Website is strictly read-only.
+
+================================================================================
+B. STUDIO LAUNCHER (WEB APP)
+================================================================================
+The Web App provides a first-class Studio entry point.
+
+Capabilities:
+- Launch Studio from a persistent UI element (sidebar/header/FAB).
+- Launch respects current user permissions.
+- Studio opens with inherited identity (no separate login assumed).
+
+Rules:
+- Hidden for unauthorized roles.
+- Disabled with explanation if Studio is unavailable.
+- Warn on unsaved Web App changes before launch.
+
+================================================================================
+C. WEBSITE MANAGEMENT MODULES (WEB APP OWNED)
+================================================================================
+The Web App owns configuration and lifecycle for website-related modules.
+
+Modules include:
+- Page list & status (draft/published/scheduled)
+- Navigation & footer configuration
+- Announcement/banner system
+- Events publishing controls
+- Hall rentals public rules & content
+- Media/documents classification
+- Contact form routing
+
+Rules:
+- Changes require explicit publish or schedule.
+- Validation enforced before publish.
+- All changes audited.
+
+================================================================================
+D. CHANGE IMPACT AWARENESS
+================================================================================
+Before applying website-affecting changes, the Web App must:
+- Show impacted pages/areas.
+- Warn on sitewide or destructive actions.
+- Require confirmation for irreversible changes.
+
+================================================================================
+E. FEATURE FLAGS (WEBSITE)
+================================================================================
+Website-facing features may be enabled/disabled via feature flags:
+- Announcement banners
+- Events calendar
+- Rentals apply form
+- Experimental animations
+
+Purpose:
+- Safe rollout
+- Emergency disable without redeploy
+
+================================================================================
+F. WEBSITE HEALTH VISIBILITY
+================================================================================
+The Web App may display:
+- Last publish timestamp
+- Last successful website build/render
+- Last rollback action (if any)
+
+This is status visibility only, not active monitoring.
+
+================================================================================
+END OF SECTION 01 – GFC WEB APP (R2)
+================================================================================
+
+####################################################################################################
+END SOURCE FILE: 01_GFC_WEB_APP_v1.0.0_R2.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_A_WEB_APP_R3A_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION A – CORE ARCHITECTURE, MODES, AND SYSTEM SAFETY
+REVISION: R3-A (CORRECTED & EXPANDED)
+STATUS: MIXED (SEE PER-STEP STATUS)
+SCOPE: GFC WEB APP ONLY
+DATE: 2025-12-13
+
+================================================================================
+A.1 PURPOSE AND NON-NEGOTIABLE ARCHITECTURAL INTENT
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+A.1.1 Purpose
+The purpose of Section A is to define the non-negotiable architectural rules,
+operational safety guarantees, and global execution constraints for the GFC Web App.
+
+This section establishes:
+• Where business logic is allowed to exist
+• How the system behaves under failure
+• How global execution modes are enforced
+• How unsafe or ambiguous states are prevented
+
+This section is authoritative. Any feature or prompt that violates Section A
+is invalid by definition.
+
+A.1.2 Architectural Authority
+The GFC Web App is the sole owner of:
+• Membership logic
+• Dues, waiver, and life eligibility logic
+• Card enable/disable decisions
+• Audit history
+• Business rules and validations
+
+No other system may make or infer business decisions.
+
+IMPLEMENTATION NOTE:
+No runtime enforcement mechanisms have yet been confirmed as implemented.
+This section defines rules only at this stage.
+
+================================================================================
+A.2 OWNERSHIP BOUNDARIES AND MODE CONTROL
+================================================================================
+
+A.2.1 Ownership Boundaries (RULE-FINALIZED)
+STATUS: COMPLETED (RULE-FINALIZED)
+
+Description:
+The system is divided into strictly enforced responsibility domains:
+
+• Web App:
+  - All business logic
+  - All validations
+  - All eligibility decisions
+  - All audit logging
+  - All UI and operator workflows
+
+• Agent PC:
+  - Transport only
+  - No business logic
+  - No decision-making
+  - Executes only explicit commands issued by Web App
+
+• Controllers:
+  - Act only as smart locks
+  - Execute only documented firmware operations
+  - Never infer or store business meaning
+
+This rule has been explicitly finalized and corrected multiple times.
+
+This rule MUST be enforced at:
+• API boundaries
+• Service interfaces
+• Code reviews
+• Prompt generation
+
+No exceptions.
+
+--------------------------------------------------------------------------------
+
+A.2.2 Simulation vs Live Mode – Global & Exclusive (RULE-FINALIZED)
+STATUS: COMPLETED (RULE-FINALIZED)
+
+Description:
+The system operates in exactly one of two modes at any time:
+
+• Simulation Mode
+• Live (Real Controller) Mode
+
+Rules:
+• Mode is global
+• Mode is exclusive
+• Mixed-mode operation is forbidden
+• Mode must be explicitly set
+• Mode changes must be audited
+
+Simulation Mode:
+• No packets are sent to controllers
+• All logic paths are exercised
+• Simulated events are generated
+
+Live Mode:
+• Real packets are sent
+• Agent PC is required
+• Controllers are assumed authoritative
+
+IMPLEMENTATION REQUIREMENTS (NOT YET IMPLEMENTED):
+• Single global configuration source
+• Central enforcement point (e.g., IControllerClient resolver)
+• UI indication of active mode
+• Hard block if Agent PC unreachable in Live Mode
+
+--------------------------------------------------------------------------------
+
+A.2.3 Fail-Closed Behavior (RULE-FINALIZED)
+STATUS: COMPLETED (RULE-FINALIZED)
+
+Description:
+Under no circumstances may the system:
+• Guess
+• Assume
+• Auto-correct silently
+• Proceed with partial information
+
+Failure conditions must result in:
+• Operation blocked
+• User-visible error
+• Audit log entry
+
+Examples:
+• Unknown controller state → block
+• Invalid membership state → block
+• Ambiguous eligibility → block
+• Missing configuration → block
+
+This rule applies system-wide and is final.
+
+================================================================================
+A.3 ENVIRONMENT MODEL (DEV / TEST / PROD)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+
+A.3.1 Environment Definitions
+The system must support explicit environments:
+• Development
+• Test / Staging
+• Production
+
+Each environment must have:
+• Explicit configuration
+• Visual identification
+• Safety constraints
+
+A.3.2 Required Environment Behaviors
+• Environment name displayed in UI header
+• Production requires additional confirmations
+• Dangerous operations disabled or double-confirmed outside PROD
+
+A.3.3 Configuration Safety
+• Environment value must be immutable at runtime
+• Environment mismatch must block startup
+• Config drift must be detectable
+
+No implementation has been confirmed.
+
+================================================================================
+A.4 LONG-RUNNING OPERATIONS FRAMEWORK
+STATUS: PLANNED – NOT IMPLEMENTED
+================================================================================
+
+A.4.1 Definition
+A long-running operation is any action that:
+• Takes more than a few seconds
+• Communicates with external systems
+• Modifies large data sets
+• Requires retries or progress reporting
+
+Examples:
+• Bulk card uploads
+• Clear all cards
+• Event log imports
+• Backup / restore
+
+A.4.2 Required Framework Capabilities
+• Central operation registry
+• Progress reporting
+• Cancellation support
+• Retry handling
+• Final success/failure state
+• Audit linkage
+
+A.4.3 UI Requirements
+• Progress bar or indicator
+• Operation status page
+• Non-blocking UI
+
+No shared framework has been implemented yet.
+
+================================================================================
+A.5 MISSING BUT REQUIRED ITEMS (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+
+A.5.1 Global Mode Enforcement Point
+Single authoritative resolver that prevents mixed simulation/live execution.
+
+A.5.2 Startup Integrity Validation
+• Config validation order
+• Required services present
+• Environment sanity checks
+
+A.5.3 Degraded Read-Only Mode
+Conditions that force system into read-only mode:
+• Agent PC unreachable in Live Mode
+• Controller desync
+• Corrupt configuration
+
+A.5.4 Architecture Violation Detection
+Hooks to detect:
+• Business logic in Agent PC
+• Unauthorized controller assumptions
+
+================================================================================
+END OF SECTION A
+
+####################################################################################################
+END SOURCE FILE: SECTION_A_WEB_APP_R3A_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_B_WEB_APP_R3B_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION B – AUTHENTICATION, AUTHORIZATION, ROLES, AND PERMISSIONS
+REVISION: R3-B (CORRECTED & EXPANDED)
+STATUS: MIXED (SEE PER-STEP STATUS)
+SCOPE: GFC WEB APP ONLY
+DATE: 2025-12-13
+
+================================================================================
+B.1 PURPOSE AND SECURITY INTENT
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+B.1.1 Purpose
+Define and enforce who may perform which actions within the GFC Web App, under
+what conditions, and with what mandatory audit and justification requirements.
+
+This section governs:
+- Identity boundaries
+- Role definitions
+- Atomic permission enforcement
+- Governance controls for sensitive actions
+- Failure behavior when authorization is unclear
+
+This section is authoritative for all security-related execution paths.
+
+B.1.2 Non-Negotiable Principles
+- All authorization is enforced server-side
+- UI restrictions are secondary and never authoritative
+- Missing or ambiguous authorization must fail closed
+- Every sensitive action must be auditable
+
+No implementation has been confirmed for this section yet.
+
+================================================================================
+B.2 ROLE DEFINITIONS
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+B.2.1 Role Model
+Roles define high-level responsibility domains. Roles do not implicitly grant
+permissions beyond those explicitly assigned.
+
+Minimum required roles:
+- SuperAdmin
+- Admin
+- Finance
+- HallManager
+- ContentEditor
+- ReadOnly
+- AccessControlAdmin
+
+B.2.2 Role Characteristics
+- Roles are explicit and enumerable
+- No hidden inheritance chains
+- A user may hold multiple roles
+- Effective permissions are the union of assigned roles
+
+B.2.3 Enforcement Requirements
+- Roles must be resolved at authentication time
+- Role resolution failures must block access
+- Role changes must be audited with before/after state
+
+================================================================================
+B.3 PERMISSION MODEL (ATOMIC PERMISSIONS)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+B.3.1 Permission Philosophy
+Permissions represent the smallest unit of allowed action. Roles aggregate
+permissions but never replace permission checks.
+
+B.3.2 Permission Key Structure
+Permissions must be string-keyed and stable, for example:
+- Members.View
+- Members.Edit
+- Dues.Override
+- Cards.Issue
+- Cards.Revoke
+- Controllers.OpenDoor
+- Controllers.ClearAllCards
+- Controllers.BulkUpload
+- Backups.Create
+- Backups.Restore
+- Studio.Launch
+
+B.3.3 Enforcement Rules
+- Every server endpoint must assert required permissions
+- Permission checks must occur before side effects
+- UI may hide or disable features but must never bypass checks
+
+================================================================================
+B.4 GOVERNANCE – “REASON REQUIRED” POLICY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+B.4.1 Purpose
+Certain actions require explicit human justification to prevent silent abuse,
+mistakes, or automation errors.
+
+B.4.2 Actions Requiring Reasons
+- Dues overrides or waivers
+- Membership status changes affecting access
+- Dangerous controller operations
+- Backup restores
+- Data deletions
+
+B.4.3 Enforcement
+- Reason must be typed, not selected
+- Empty or generic reasons are rejected
+- Reason is persisted with audit entry
+- Reason is immutable after submission
+
+================================================================================
+B.5 PERMISSION BOUNDARY TESTING
+STATUS: PLANNED – NOT IMPLEMENTED
+================================================================================
+B.5.1 Test Philosophy
+Authorization correctness is proven by ensuring forbidden actions always fail.
+
+B.5.2 Required Test Coverage
+- Each role attempting each sensitive action
+- Simulation mode vs Live mode restrictions
+- Degraded read-only mode enforcement
+- Missing permission scenarios
+
+B.5.3 Failure Expectations
+- Action blocked
+- Clear error returned
+- Audit entry recorded
+
+================================================================================
+B.6 MISSING BUT REQUIRED ITEMS (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+B.6.1 Permission Drift Detection
+Detect mismatches between UI-exposed actions and backend permissions.
+
+B.6.2 Emergency Lockdown Role
+A role or flag that temporarily disables all dangerous actions system-wide.
+
+B.6.3 Permission Change Auditing
+Every permission or role assignment change must be logged with actor, reason,
+and timestamp.
+
+================================================================================
+END OF SECTION B
+
+####################################################################################################
+END SOURCE FILE: SECTION_B_WEB_APP_R3B_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_D_WEB_APP_R3D2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION D – DUES, WAIVERS, PAYMENTS, AND LIFE ELIGIBILITY
+REVISION: R3-D2 (CORRECTED, EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP ONLY
+DATE: 2025-12-13
+
+================================================================================
+D.1 PURPOSE AND FINANCIAL AUTHORITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+D.1.1 Purpose
+This section defines how membership dues, waivers, grace periods, and Life
+eligibility are calculated, enforced, audited, and propagated throughout the
+GFC Web App.
+
+This section governs:
+- When dues are owed
+- How payments are recorded
+- How and when waivers apply
+- How grace periods affect access
+- How Life eligibility is enforced financially
+
+This section is authoritative for all dues-related behavior.
+
+D.1.2 Non-Negotiable Principles
+- Dues enforcement is derived from membership status
+- Waivers are explicit, justified, and auditable
+- Grace periods are finite and enforced automatically
+- Life eligibility rules override dues requirements
+- No silent overrides or implied payments are permitted
+
+================================================================================
+D.2 DUES SCHEDULE MODEL
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+D.2.1 Dues Definition
+The system must support a configurable dues schedule defining:
+- Annual dues amount
+- Billing period (annual by default)
+- Due date
+- Grace period duration
+- Proration rules (if enabled)
+
+D.2.2 Schedule Authority
+- Dues schedules are centrally defined
+- Changes require elevated permission
+- Historical schedules must be preserved
+- Members are evaluated against the schedule active at the time
+
+D.2.3 Proration Rules
+If proration is enabled:
+- Rules must be explicit
+- Proration must be deterministic
+- Calculations must be auditable
+
+================================================================================
+D.3 PAYMENT RECORDING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+D.3.1 Manual Payment Recording
+The system must allow authorized users to:
+- Record cash or check payments
+- Specify payment date and amount
+- Attach optional notes or receipt references
+
+D.3.2 External Payment Integration (Future)
+- Stripe or equivalent integration planned
+- External payments must reconcile to internal records
+- Failed or partial payments must not auto-enable access
+
+D.3.3 Audit Requirements
+Each payment record must include:
+- Member ID
+- Amount
+- Payment method
+- Date recorded
+- Actor
+- Correlation to dues cycle
+
+================================================================================
+D.4 WAIVERS AND OVERRIDES
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+D.4.1 Waiver Definition
+A waiver explicitly exempts a member from dues for a defined period.
+
+D.4.2 Automatic Waivers
+- Board or Director roles may auto-waive dues
+- Waiver scope and duration must be explicit
+- Role removal must trigger waiver reevaluation
+
+D.4.3 Manual Waivers and Overrides
+- Require elevated permission
+- Require typed reason
+- Must be audited
+- Are time-bounded
+
+================================================================================
+D.5 GRACE PERIOD ENFORCEMENT
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+D.5.1 Grace Period Rules
+- Grace period begins after dues due date
+- Access remains enabled during grace period
+- Grace expiration is deterministic
+
+D.5.2 Enforcement Behavior
+- Upon grace expiration:
+  - Access is automatically disabled
+  - Card privileges are revoked (Section E)
+  - Member remains active but restricted
+
+D.5.3 Reinstatement
+- Payment or waiver restores access
+- Restoration must be immediate and audited
+
+================================================================================
+D.6 LIFE ELIGIBILITY FINANCIAL INTERACTION
+STATUS: COMPLETED (RULE-FINALIZED FOR RULES)
+================================================================================
+D.6.1 Eligibility Rules
+A member qualifies for Life status only if:
+- Age ≥ 65 years
+- Regular membership ≥ 15 years
+- RegularSince is the authoritative date
+- Guest years are excluded
+
+D.6.2 Financial Effect
+- Life members owe no dues
+- Life status overrides all dues enforcement
+- Life status change triggers access recalculation
+
+These rules are finalized, though the execution engine is not yet implemented.
+
+================================================================================
+D.7 HISTORY, AUDIT, AND REPORTING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+D.7.1 Audit Requirements
+All dues-related actions must generate audit entries:
+- Payment recorded
+- Waiver applied or removed
+- Grace expiration enforced
+- Life status applied
+
+D.7.2 Reporting
+The system must support reports for:
+- Outstanding dues
+- Waived members
+- Grace-period members
+- Life members
+
+================================================================================
+D.8 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+D.8.1 Dues Evaluation Engine
+Central service responsible for:
+- Calculating dues state
+- Applying waivers
+- Enforcing grace periods
+- Triggering access changes
+
+D.8.2 Scheduled Enforcement Jobs
+- Periodic job to evaluate grace expiration
+- Deterministic execution time
+- Idempotent behavior
+
+D.8.3 Financial Safeguards
+- Prevent duplicate payments
+- Prevent overlapping waivers
+- Prevent contradictory states
+
+================================================================================
+END OF SECTION D
+
+####################################################################################################
+END SOURCE FILE: SECTION_D_WEB_APP_R3D2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_E_WEB_APP_R3E2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION E – KEYCARDS, ACCESS, AND ENTITLEMENT ENGINE
+REVISION: R3-E2 (CORRECTED, EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP ONLY
+DATE: 2025-12-13
+
+================================================================================
+E.1 PURPOSE AND ACCESS AUTHORITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+E.1.1 Purpose
+This section defines the complete lifecycle of physical keycards and the access
+entitlements derived from them. It establishes how cards are issued, replaced,
+revoked, and synchronized with controller privileges.
+
+This section governs:
+- Card identity and ownership
+- Card lifecycle transitions
+- Access enable/disable decisions
+- Privilege derivation and propagation
+- Simulation vs Live command application
+
+E.1.2 Non-Negotiable Principles
+- One member may have at most one active card
+- Card access is derived, never manually overridden
+- Access decisions are computed by the Web App only
+- Controllers never decide eligibility
+- All access changes must be auditable
+
+================================================================================
+E.2 ONE MEMBER → ONE CARD RULE
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+E.2.1 Rule Definition
+Each member may have:
+- Zero active cards, or
+- Exactly one active card
+
+Multiple active cards for a single member are forbidden.
+
+E.2.2 Enforcement Requirements
+- Database-level uniqueness constraint
+- Service-layer guard rejecting duplicates
+- Replacement must be atomic
+
+E.2.3 Replacement Semantics
+- Replacing a card must:
+  - Revoke the old card
+  - Activate the new card
+  - Propagate privilege changes as a single transaction
+- Partial replacement states are forbidden
+
+This rule is explicitly finalized.
+
+================================================================================
+E.3 CARD LIFECYCLE MANAGEMENT
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+E.3.1 Card Issuance
+Cards may be issued only if:
+- Member status permits access (Regular, Life)
+- Dues are Paid or Waived, or member is Life
+- Member is not Suspended, Inactive, or Deceased
+
+Issuance must:
+- Require explicit action
+- Record card identifier permanently
+- Generate an audit entry
+
+E.3.2 Card Replacement
+Replacement is required when:
+- Card is lost or damaged
+- Security compromise occurs
+- Administrative reset is required
+
+Replacement must:
+- Disable the old card immediately
+- Enable the new card
+- Preserve card history
+- Trigger entitlement recalculation
+
+E.3.3 Card Revocation
+Revocation occurs when:
+- Membership status changes
+- Dues lapse beyond grace
+- Suspension or inactivation occurs
+
+Revocation must:
+- Disable privileges
+- Retain historical record
+- Be auditable
+
+================================================================================
+E.4 ENTITLEMENT COMPUTATION ENGINE (SOURCE OF TRUTH)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+E.4.1 Inputs
+The entitlement engine must derive access from:
+- Membership status (Section C)
+- Dues standing and grace state (Section D)
+- Waivers and board roles (Section B/D)
+- System mode (Simulation vs Live)
+
+E.4.2 Outputs
+Computed outputs include:
+- Card enabled/disabled state
+- Desired controller privilege state per door/schedule
+
+E.4.3 Rules
+- Manual override of privileges is forbidden
+- Entitlements are recomputed on every relevant change
+- Derived state must be deterministic
+
+================================================================================
+E.5 PRIVILEGE SYNCHRONIZATION STRATEGY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+E.5.1 Simulation Mode
+- No real controller commands are sent
+- Simulated privilege writes occur
+- Simulated events are generated
+- Full audit trail is recorded
+
+E.5.2 Live Mode
+- Desired privileges are sent to Agent PC
+- Commands are queued, retried, and confirmed
+- Timeouts and failures are handled explicitly
+- Outcomes are recorded
+
+================================================================================
+E.6 FAILURE AND SAFETY HANDLING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+E.6.1 Fail-Closed Rules
+- If entitlement state is unknown, access is disabled
+- If controller sync fails, access is disabled
+- Partial updates are forbidden
+
+E.6.2 Recovery
+- Successful reconciliation restores access
+- All recovery actions are audited
+
+================================================================================
+E.7 HISTORY AND AUDIT
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+E.7.1 Required Audit Events
+- Card issued
+- Card replaced
+- Card revoked
+- Privileges applied or removed
+
+E.7.2 Audit Contents
+Each audit entry must include:
+- Member ID
+- Card identifier
+- Action taken
+- Actor
+- Timestamp
+- Reason
+
+================================================================================
+E.8 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+E.8.1 Entitlement Evaluation Service
+Central service responsible for:
+- Computing access state
+- Triggering controller updates
+- Enforcing rules
+
+E.8.2 Reconciliation Job
+- Periodic verification of desired vs actual controller state
+- Detection of drift or failure
+
+E.8.3 Safeguards
+- Prevent duplicate card activation
+- Prevent conflicting privilege states
+- Prevent silent failures
+
+================================================================================
+END OF SECTION E
+
+####################################################################################################
+END SOURCE FILE: SECTION_E_WEB_APP_R3E2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_F_WEB_APP_R3F2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION F – ACCESS CONTROLLER INTEGRATION (WG3000 + AGENT PC)
+REVISION: R3-F2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP + AGENT PC (STRICT SEPARATION OF RESPONSIBILITIES)
+DATE: 2025-12-13
+
+================================================================================
+F.1 PURPOSE, BOUNDARIES, AND NON-NEGOTIABLE ARCHITECTURE
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- This section defines how the GFC Web App integrates with physical access
+  controllers exclusively through the Agent PC.
+- Controllers are treated strictly as smart locks.
+- All business logic lives in the Web App.
+- The Agent PC is a transport and protocol executor only.
+- Controllers must never contain club rules, eligibility logic, or schedules
+  beyond what firmware natively supports.
+
+These architectural boundaries are finalized and must never be violated.
+
+================================================================================
+F.2 SUPPORTED CONTROLLER OPERATIONS (AUTHORITATIVE LIST)
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+The Web App may expose UI and services ONLY for the following documented
+WG3000/Mengqi controller operations:
+- OpenDoor
+- Privilege Add
+- Privilege Update
+- Privilege Delete
+- BulkUpload (overwrite or merge as firmware supports)
+- ClearAllCards
+- GetRunStatus
+- GetEventsByIndex
+- SyncTime
+- ReadFlash / WriteFlash
+- ReadFRAM / WriteFRAM
+- NetworkConfig (IP, gateway, mask)
+- AllowedPCIP configuration
+- Communication password changes
+- RebootController
+
+No other operations may be invented, implied, or simulated.
+
+================================================================================
+F.3 DANGEROUS OPERATIONS GATING AND SAFETY CONTROLS
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The following operations are classified as DANGEROUS:
+- ClearAllCards
+- BulkUpload (overwrite mode)
+- WriteFlash / WriteFRAM
+- NetworkConfig changes
+- AllowedPCIP changes
+- Communication password changes
+- RebootController
+
+Mandatory safeguards:
+- Elevated permission required
+- Typed confirmation phrase
+- Mandatory reason entry
+- Explicit target controller selection
+- Dry-run preview where possible
+- Full audit logging (intent, payload, outcome)
+
+UI must visually warn and prevent accidental execution.
+
+================================================================================
+F.4 COMMAND EXECUTION FLOW AND IDENTITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+F.4.1 Command Origination
+- Commands originate only from the Web App.
+- Each command must include:
+  - Operation type
+  - Target controller(s)
+  - Operation-specific payload
+  - Unique operation key (idempotency token)
+
+F.4.2 Agent PC Responsibilities
+- Validate packet structure
+- Apply retries and timeouts
+- Handle TCP/UDP transport
+- Apply optional encryption (n3k_comm.dll)
+- Return definitive success/failure responses
+
+The Agent PC must not:
+- Decide eligibility
+- Modify payload semantics
+- Retry indefinitely
+
+================================================================================
+F.5 IDEMPOTENCY, RETRIES, AND FAILURE HANDLING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- All controller write operations must be treated as idempotent.
+- Replays of the same operation key must not cause duplication.
+- Retry strategy must be bounded and visible.
+- Partial success is forbidden.
+
+Failure handling:
+- Fail-closed behavior applies
+- Access remains disabled if state is uncertain
+- Operator is notified
+- Audit record is written
+
+================================================================================
+F.6 EVENT LOG INGESTION AND LIMITATIONS
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- Controllers expose event logs by index only.
+- Index wraps when capacity is exceeded.
+- Date-range or filtered queries are not supported at firmware level.
+
+Application strategy:
+- Persist events into SQL with timestamps
+- Maintain last-read index per controller
+- Build filters and reports only from SQL cache
+- Never assume completeness without index reconciliation
+
+================================================================================
+F.7 SIMULATION VS LIVE MODE ENFORCEMENT
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- Simulation vs Live mode is a global, exclusive setting.
+- Mixed mode is forbidden.
+
+Simulation mode behavior:
+- No packets sent to real controllers
+- Simulated success/failure responses
+- Simulated event generation
+- Full audit trail identical to Live mode
+
+Live mode behavior:
+- Real commands sent through Agent PC
+- Real controller responses processed
+- Failures propagate back to UI
+
+================================================================================
+F.8 CONTROLLER HEALTH CHECK (ON-DEMAND)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must provide a manual, on-demand Controller Health Check.
+
+Health check must:
+- Run only when explicitly triggered
+- Never auto-run on startup
+- Query run status
+- Verify time sync
+- Test event index readability
+- Validate communication path
+
+Health report output:
+- Controller identity
+- Online/offline status
+- Firmware version
+- Clock drift
+- Last event index
+- Communication latency
+- Pass/fail summary
+
+================================================================================
+F.9 AUDIT AND TRACEABILITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Every controller interaction must generate an audit record containing:
+- Operation type
+- Target controller(s)
+- Initiating user
+- Timestamp
+- Payload summary
+- Result (success/failure)
+- Error details (if any)
+
+Audit logs are immutable.
+
+================================================================================
+F.10 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- ControllerCommandQueue with idempotency enforcement
+- ControllerOperationAudit store
+- HealthCheckService
+- SimulationControllerClient
+- RealControllerClient
+- Reconciliation and drift detection job
+
+================================================================================
+END OF SECTION F
+
+####################################################################################################
+END SOURCE FILE: SECTION_F_WEB_APP_R3F2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_G_WEB_APP_R3G2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION G – SIMULATION MODE (GLOBAL) & LIVE MODE (GLOBAL)
+REVISION: R3-G2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP + AGENT PC (MODE CONTROL ONLY)
+DATE: 2025-12-13
+
+================================================================================
+G.1 PURPOSE AND GLOBAL AUTHORITY
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- This section defines the global execution mode of the entire GFC Ecosystem.
+- The system must operate in exactly one mode at any given time.
+- Modes directly govern whether real hardware is contacted.
+
+================================================================================
+G.2 GLOBAL MODE EXCLUSIVITY
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- Simulation and Live modes are mutually exclusive.
+- Mixed execution is forbidden.
+- All controller operations must resolve the mode at execution time.
+
+================================================================================
+G.3 MODE SWITCHING RULES AND SAFETY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- Admin-only action
+- Typed confirmation required
+- Mandatory reason entry
+- Full audit logging
+- Entitlement recomputation required after switch
+
+================================================================================
+G.4 SIMULATION MODE BEHAVIOR
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- No packets sent to real controllers
+- SimulationControllerClient used
+- Simulated responses and events generated
+- Full audit trail identical to Live
+
+================================================================================
+G.5 LIVE MODE BEHAVIOR
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- RealControllerClient used
+- Real hardware communication
+- Failures propagated explicitly
+
+================================================================================
+G.6 PARITY REQUIREMENTS
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- Identical validation logic
+- Identical entitlement computation
+- Identical audit behavior
+
+================================================================================
+G.7 UI MODE INDICATION
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- Persistent global banner
+- Color-coded indicators
+- Simulation labeling on all results
+
+================================================================================
+G.8 AUDIT AND TRACEABILITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- Mode recorded on every controller-affecting action
+- Mode switch events immutable
+
+================================================================================
+G.9 FAILURE AND SAFETY GUARANTEES
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- Fail closed if mode unknown
+- Abort on mid-operation mode change
+
+================================================================================
+G.10 REQUIRED INFRASTRUCTURE
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- ModeStateService
+- ModeSwitchAuditLog
+- ModeAwareControllerClient factory
+- UI ModeIndicator
+
+================================================================================
+END OF SECTION G
+
+####################################################################################################
+END SOURCE FILE: SECTION_G_WEB_APP_R3G2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_I_WEB_APP_R3I2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION I – UI MODERNIZATION, UX SAFETY, ALERTS, AND OPERATOR FEEDBACK
+REVISION: R3-I2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP (ADMIN + OPERATOR UI)
+DATE: 2025-12-13
+
+================================================================================
+I.1 PURPOSE AND OPERATIONAL GOALS
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- This section defines mandatory UI modernization standards and UX safety rules
+  for the GFC Web App.
+- The goal is to ensure:
+  - Operational clarity
+  - Error prevention
+  - Safe execution of dangerous actions
+  - Consistent visual language
+  - Reduced operator mistakes under stress
+
+UI is not cosmetic. UI is a safety system.
+
+================================================================================
+I.2 MANDATORY UI STANDARDS (GLOBAL)
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+The following standards must be applied consistently across all Web App pages:
+
+- Save / Confirm actions must use GREEN buttons
+- Exit / Cancel / Abort actions must use RED buttons
+- Disabled actions must be visually gray and non-interactive
+- Long-running operations must show progress indicators
+- Pages with frequent actions must use sticky headers
+- Irrelevant UI elements must be hidden based on member status
+
+These are mandatory and non-optional.
+
+================================================================================
+I.3 STATUS COLOR SYSTEM
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+A single, centralized status color palette must be used.
+
+Minimum required statuses:
+- Paid
+- Waived
+- Late
+- Suspended
+- Guest
+- Regular
+- NP Queue
+- Life
+- Inactive
+- Deceased
+
+Rules:
+- Colors must be consistent everywhere
+- Colors must not be the sole indicator (icons + text required)
+- Changes to palette require global update
+
+================================================================================
+I.4 DANGEROUS ACTION UX SAFETY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Dangerous actions include:
+- Controller resets
+- Bulk privilege changes
+- Clear-all operations
+- Mode switching
+- Membership status demotion
+
+UX requirements:
+- Confirmation dialog with typed confirmation phrase
+- Mandatory reason entry
+- Clear explanation of impact
+- Preview of affected entities when possible
+- Final irreversible warning before execution
+
+UX must slow the operator down intentionally.
+
+================================================================================
+I.5 ALERTS AND NOTIFICATIONS
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must generate alerts for:
+- Failed controller operations
+- Access revocation due to dues
+- Grace period expiration
+- Health check failures
+- Mode switches
+- Security-relevant events
+
+Alert channels:
+- In-app alerts
+- Email (configurable)
+- Future SMS support
+
+Rules:
+- Alerts must be actionable
+- Alerts must not be spammy
+- Alerts must link to relevant context
+
+================================================================================
+I.6 OPERATOR FEEDBACK AND CONFIRMATION
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+After every significant operation, the UI must:
+- Confirm what action was taken
+- Indicate success, warning, or failure
+- Provide next-step guidance
+- Show correlation ID when applicable
+
+Silent success or failure is forbidden.
+
+================================================================================
+I.7 ACCESSIBILITY AND USABILITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Minimum accessibility requirements:
+- Keyboard navigation for all actions
+- Clear labels and tooltips
+- Avoid color-only indicators
+- Logical tab order
+- Screen-reader friendly markup
+
+Accessibility is required, not optional.
+
+================================================================================
+I.8 ERROR HANDLING AND RECOVERY UX
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Error UX must:
+- Clearly explain what failed
+- Avoid technical jargon when possible
+- Offer recovery steps
+- Preserve entered data when safe
+
+Errors must never leave the user guessing.
+
+================================================================================
+I.9 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- Central UIStyleGuide enforcement
+- StatusColorService
+- AlertDispatchService
+- ConfirmationDialogComponent (typed-confirm)
+- ProgressIndicatorComponent
+- NotificationPreferences store
+
+================================================================================
+END OF SECTION I
+
+####################################################################################################
+END SOURCE FILE: SECTION_I_WEB_APP_R3I2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_J_WEB_APP_R3J2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION J – NOTIFICATIONS, ALERTS, AND USER PREFERENCES
+REVISION: R3-J2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP (SYSTEM-WIDE)
+DATE: 2025-12-13
+
+================================================================================
+J.1 PURPOSE AND OPERATIONAL INTENT
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- This section defines the complete notification and alerting framework for the
+  GFC Web App.
+- Notifications exist to:
+  - Inform users and administrators of important events
+  - Surface failures and risks promptly
+  - Provide actionable guidance
+  - Preserve an auditable communication trail
+
+Notifications are part of the system’s **operational safety layer**, not a
+convenience feature.
+
+================================================================================
+J.2 NOTIFICATION CHANNELS
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+J.2.1 Supported Channels (Initial)
+- Email via SMTP
+- In-app notification center
+
+J.2.2 Future Channels (Planned)
+- SMS (opt-in, per-user)
+- Push notifications (if mobile app exists)
+
+Rules:
+- Channels must be extensible
+- Channel failures must not block core operations
+- Message content must be channel-appropriate
+
+================================================================================
+J.3 EVENT TYPES AND TRIGGERS
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must generate notifications for the following event categories:
+
+- Controller failures or timeouts
+- Controller health check WARN or FAIL
+- Access revoked due to dues lapse
+- Grace period expiration or near-expiration
+- Membership status changes
+- Card issuance, replacement, or revocation
+- Dangerous operation execution
+- Mode switches (Simulation ↔ Live)
+- Security-relevant actions
+
+Each event type must define:
+- Severity (Info / Warning / Critical)
+- Default recipients
+- Default channels
+- Required payload fields
+
+================================================================================
+J.4 ROUTING AND RECIPIENT RULES
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+J.4.1 Default Routing
+- System determines default recipients based on:
+  - Role (Admin, Board, Operator)
+  - Event severity
+  - Affected entities
+
+J.4.2 Admin Routing Overrides
+- Admins may define routing rules for:
+  - Critical alerts
+  - Security events
+  - Controller failures
+
+Routing rules must be:
+- Deterministic
+- Auditable
+- Validated to prevent loops or drops
+
+================================================================================
+J.5 USER AND MEMBER PREFERENCES
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+J.5.1 Preference Model
+Each user/member may configure:
+- Which event categories they receive
+- Preferred channels per category
+- Opt-in vs opt-out where legally required
+
+J.5.2 Enforcement
+- Preferences must be respected unless overridden by:
+  - Legal requirements
+  - Critical system safety events
+
+================================================================================
+J.6 GLOBAL NOTIFICATION TOGGLES
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must support global toggles:
+- Disable all notifications
+- Disable notifications for non-admin users only
+
+Rules:
+- Toggles must be visible in maintenance dashboard
+- Toggle changes must be audited
+- Critical safety alerts may bypass toggles if configured
+
+================================================================================
+J.7 DELIVERY, RETRIES, AND FAILURE HANDLING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+J.7.1 Delivery Guarantees
+- Notification sending must be asynchronous
+- Core operations must not block on delivery
+
+J.7.2 Retry Strategy
+- Bounded retries with backoff
+- Retry attempts logged
+
+J.7.3 Failure Visibility
+- Failed notifications must be visible to admins
+- Dead-letter queue or equivalent must exist
+
+================================================================================
+J.8 AUDIT AND TRACEABILITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Each notification attempt must generate an audit record:
+- Event type
+- Severity
+- Recipient(s)
+- Channel(s)
+- Timestamp
+- Delivery result
+
+Audit records are immutable.
+
+================================================================================
+J.9 UI COMPONENTS
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Required UI elements:
+- Notification Center (in-app)
+- Preference management page
+- Admin routing rules editor
+- Notification failure dashboard
+
+================================================================================
+J.10 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- NotificationDispatchService
+- NotificationTemplateEngine
+- NotificationAuditStore
+- PreferenceStore
+- RoutingRulesEngine
+- DeadLetterQueue
+
+================================================================================
+END OF SECTION J
+
+####################################################################################################
+END SOURCE FILE: SECTION_J_WEB_APP_R3J2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_K_WEB_APP_R3K2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION K – REPORTING, EXPORTS, DATA GOVERNANCE, AND COMPLIANCE
+REVISION: R3-K2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP (SYSTEM-WIDE DATA)
+DATE: 2025-12-13
+
+================================================================================
+K.1 PURPOSE AND DATA GOVERNANCE AUTHORITY
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- This section defines how data is reported, exported, governed, and retained
+  within the GFC Web App.
+- Reporting is not optional; it is a core operational and compliance function.
+- All reports must be generated from authoritative SQL data, never controllers.
+
+This section is authoritative for:
+- Operational reporting
+- Audit and compliance exports
+- Data retention and lifecycle
+- Privacy and access controls on data
+
+================================================================================
+K.2 REPORT CATEGORIES (AUTHORITATIVE)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must support the following report categories:
+
+- Membership reports
+- Dues and financial reports
+- Access and card reports
+- Controller and system health reports
+- Audit and activity reports
+
+Each category must have a clear purpose and audience.
+
+================================================================================
+K.3 MEMBERSHIP REPORTING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Required membership reports include:
+
+- Active members by status
+- Guest vs Regular vs Life counts
+- NP Queue listing with positions
+- Life-eligible but not promoted members
+- Suspended, inactive, and deceased members
+
+Rules:
+- Reports must reflect real-time authoritative state
+- Historical views must be supported where applicable
+
+================================================================================
+K.4 FINANCIAL AND DUES REPORTING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Required financial reports include:
+
+- Paid members for a dues cycle
+- Outstanding dues
+- Waived members (with reasons)
+- Grace period members
+- Life members exempt from dues
+
+Rules:
+- Reports must reconcile to payment records
+- No inferred or estimated values allowed
+
+================================================================================
+K.5 ACCESS AND CARD REPORTING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Required access-related reports include:
+
+- Members with active cards
+- Members without cards
+- Recently revoked cards
+- Access disabled due to dues
+- Card replacement history
+
+Reports must:
+- Reflect entitlement engine outputs
+- Never read controller state directly
+
+================================================================================
+K.6 CONTROLLER AND SYSTEM REPORTING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Required system reports include:
+
+- Controller connectivity status
+- Last successful communication time
+- Health check summaries
+- Event ingestion status
+- Error and failure trends
+
+These reports support maintenance and troubleshooting.
+
+================================================================================
+K.7 AUDIT AND ACTIVITY REPORTING
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+Audit reports must support:
+
+- Membership changes
+- Dues and waiver changes
+- Card and access changes
+- Controller operations
+- Mode switches
+- Security-relevant actions
+
+Audit data must be immutable and queryable.
+
+================================================================================
+K.8 EXPORT FORMATS AND DELIVERY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Supported export formats must include:
+- CSV
+- PDF (formatted, printable)
+- Plain-text (for diagnostics)
+
+Rules:
+- Exports must respect permissions
+- Sensitive data must be masked where required
+- Large exports must be streamed, not buffered
+
+================================================================================
+K.9 DATA RETENTION AND ARCHIVING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Retention rules must define:
+- How long audit data is kept
+- How long financial data is retained
+- When inactive/deceased records are archived
+- What data is never deleted
+
+Archiving must:
+- Preserve referential integrity
+- Allow restoration if required
+
+================================================================================
+K.10 PRIVACY AND COMPLIANCE
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must support:
+- Role-based access to reports
+- Data minimization in exports
+- Audit trails for report access
+- Compliance with applicable privacy regulations
+
+================================================================================
+K.11 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- ReportDefinitionRegistry
+- ReportExecutionService
+- ExportFormatter (CSV/PDF/Text)
+- ReportAccessAuditLog
+- DataRetentionPolicyEngine
+
+================================================================================
+END OF SECTION K
+
+####################################################################################################
+END SOURCE FILE: SECTION_K_WEB_APP_R3K2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_L_WEB_APP_R3L2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION L – SECURITY, HARDENING, BACKUP, AND RECOVERY INTEGRATION
+REVISION: R3-L2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP + AGENT PC + HOST ENVIRONMENT
+DATE: 2025-12-13
+
+================================================================================
+L.1 PURPOSE AND SECURITY AUTHORITY
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- This section defines all security, hardening, backup, and recovery requirements
+  for the GFC Web App ecosystem.
+- Security is treated as a **system-wide operational requirement**, not a feature.
+- Backup and recovery are first-class responsibilities, not afterthoughts.
+
+This section is authoritative for:
+- Preventing data loss
+- Preventing unauthorized access
+- Enabling rapid, safe recovery
+- Preserving audit integrity during failures
+
+================================================================================
+L.2 THREAT MODEL AND ASSUMPTIONS
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+The system must assume the following realistic threats:
+- Accidental admin error
+- Malicious or compromised user account
+- Failed software deployment
+- Hardware failure (disk, power, network)
+- Partial data corruption
+- Controller or Agent PC failure
+
+Security design must assume failure will happen.
+
+================================================================================
+L.3 AUTHENTICATION AND SESSION HARDENING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Required protections:
+- Secure password storage (strong hashing)
+- Session expiration and renewal
+- Protection against session fixation
+- Explicit logout invalidation
+- Idle session timeout
+
+Rules:
+- Authentication logic must never be duplicated
+- All auth events must be auditable
+
+================================================================================
+L.4 AUTHORIZATION AND PERMISSION SAFETY
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- All privileged actions must be role-gated
+- Permissions must be evaluated server-side
+- UI visibility must not be treated as security
+
+Dangerous actions requiring elevated roles include:
+- Mode switching
+- Controller destructive operations
+- Backup and restore
+- Security configuration changes
+
+================================================================================
+L.5 INPUT VALIDATION AND ABUSE PREVENTION
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must protect against:
+- SQL injection
+- XSS
+- CSRF
+- Over-posting and mass assignment
+- Malformed payloads
+
+Rules:
+- Validate all inputs server-side
+- Reject unknown or extra fields
+- Log validation failures when suspicious
+
+================================================================================
+L.6 BACKUP INTEGRATION (WEB APP)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+L.6.1 Manual Backup Trigger
+- Admin-only UI action
+- Clearly labeled as non-destructive
+- Displays progress and logs
+- Records audit entry with outcome
+
+L.6.2 Automated Backup Visibility
+- Web App displays:
+  - Last backup time
+  - Success/failure
+  - Backup size
+  - Storage location status
+- Web App does not silently run backups
+
+================================================================================
+L.7 RESTORE WORKFLOW (ADMIN-ONLY)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Restore operations must:
+- Be explicitly initiated
+- Require typed confirmation phrase
+- Require reason entry
+- Require acknowledgment of pre-restore checklist
+
+Restore workflow steps:
+- Validate backup integrity
+- Pause non-essential services
+- Perform restore
+- Run post-restore validation
+- Re-enable services
+
+================================================================================
+L.8 POST-RESTORE VALIDATION
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+After restore, the system must validate:
+- Database integrity
+- Migration state
+- Membership counts
+- Audit continuity
+- Controller connectivity (read-only)
+
+Failures must:
+- Be reported clearly
+- Block normal operation until acknowledged
+
+================================================================================
+L.9 AUDIT PRESERVATION DURING FAILURES
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- Audit logs must never be deleted during restore
+- Restores must preserve historical continuity
+- Restore events themselves must be audited
+
+================================================================================
+L.10 HOST AND INFRASTRUCTURE HARDENING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+Minimum requirements:
+- HTTPS only
+- Firewall rules restricting access
+- SQL Server not publicly exposed
+- Agent PC isolated from internet
+- Optional WireGuard for secure remote access
+
+================================================================================
+L.11 MONITORING AND ALERTING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+The system must surface alerts for:
+- Backup failures
+- Restore failures
+- Repeated auth failures
+- Suspicious access patterns
+- Disk space exhaustion
+
+Alerts must integrate with Section J.
+
+================================================================================
+L.12 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- BackupExecutionService
+- RestoreExecutionService
+- PreRestoreChecklistEngine
+- PostRestoreValidationService
+- SecurityAuditLog
+- IntrusionDetectionHooks
+
+================================================================================
+END OF SECTION L
+
+####################################################################################################
+END SOURCE FILE: SECTION_L_WEB_APP_R3L2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_M_WEB_APP_R3M2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION M – SECURITY, HARDENING, RATE LIMITING, AND EXTERNAL EXPOSURE
+REVISION: R3-M2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: MIXED (SEE PER-SUBSECTION STATUS)
+SCOPE: GFC WEB APP + HOSTING ENVIRONMENT
+DATE: 2025-12-13
+
+================================================================================
+M.1 PURPOSE AND SECURITY SCOPE
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- This section defines application-level security hardening measures that protect
+  the GFC Web App from abuse, exploitation, and misconfiguration.
+- This section applies to both:
+  - Self-hosted deployments (current)
+  - Future cloud-hosted deployments (planned)
+
+Security controls defined here are mandatory regardless of hosting model.
+
+================================================================================
+M.2 AUTHENTICATION AND SESSION SECURITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+M.2.1 Authentication Requirements
+- Strong password policy (length, complexity, reuse prevention)
+- Passwords stored using industry-standard adaptive hashing
+- Protection against credential stuffing and brute force attacks
+
+M.2.2 Session Management
+- Secure, HttpOnly, SameSite cookies
+- Session expiration after inactivity
+- Absolute session lifetime limit
+- Explicit logout invalidates session server-side
+
+M.2.3 CSRF Protection
+- CSRF tokens required for all state-changing requests
+- Tokens validated server-side
+- Token failures logged and monitored
+
+================================================================================
+M.3 INPUT VALIDATION AND SANITIZATION
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+M.3.1 Server-Side Validation
+- All inputs validated server-side regardless of client validation
+- Strict model binding with rejection of unknown fields
+- Length, format, and range validation for all inputs
+
+M.3.2 Rich Text and Content Sanitization
+- Sanitize any rich text or HTML input
+- Strip scripts, event handlers, and unsafe tags
+- Enforce allowlist-based sanitization
+
+M.3.3 Injection Prevention
+- Parameterized queries only
+- No dynamic SQL construction
+- Escaping rules applied consistently
+
+================================================================================
+M.4 RATE LIMITING AND ABUSE DETECTION
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+M.4.1 Rate Limiting Targets
+- Login attempts
+- Password reset requests
+- High-cost report generation
+- Controller-related actions
+
+M.4.2 Rate Limiting Behavior
+- Configurable thresholds per endpoint
+- Progressive backoff on repeated violations
+- Temporary lockouts for severe abuse
+
+M.4.3 Abuse Monitoring
+- Track IP, user, and endpoint patterns
+- Flag suspicious behavior
+- Surface alerts to administrators
+
+================================================================================
+M.5 SECRETS AND CONFIGURATION HANDLING
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- Secrets must never be committed to source control
+- Secrets stored using secure configuration providers
+- Separate secrets per environment
+- Rotation supported without redeployment
+
+================================================================================
+M.6 EXTERNAL EXPOSURE RULES
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- SQL Server must never be publicly exposed
+- Only HTTPS is allowed for external access
+- Admin endpoints must not be publicly discoverable
+- Agent PC must never be internet-exposed
+
+================================================================================
+M.7 LOGGING AND SECURITY VISIBILITY
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- Authentication failures logged
+- Authorization failures logged
+- Rate limit violations logged
+- Suspicious patterns aggregated and surfaced
+
+Logs must support investigation without exposing sensitive data.
+
+================================================================================
+M.8 DEPLOYMENT AND ENVIRONMENT HARDENING
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- Environment-specific configuration validation
+- Secure defaults for new deployments
+- Health checks must not expose internals
+- Error pages must not leak stack traces
+
+================================================================================
+M.9 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- RateLimitingMiddleware
+- AbuseDetectionService
+- SecureConfigProvider
+- CSRFTokenService
+- SecurityEventLog
+- EnvironmentValidationService
+
+================================================================================
+END OF SECTION M
+
+####################################################################################################
+END SOURCE FILE: SECTION_M_WEB_APP_R3M2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_N_WEB_APP_R3N2_CORRECTED_EXPANDED.txt
+####################################################################################################
+SECTION N – FAILURE MODES, TIME RULES, IDEMPOTENCY, AND OPERATIONAL PLAYBOOKS
+REVISION: R3-N2 (CORRECTED, HEAVILY EXPANDED, EXECUTION-GRADE)
+STATUS: PENDING (NO IMPLEMENTATION CLAIMS)
+SCOPE: GFC WEB APP + AGENT PC + CONTROLLERS + OPERATIONS
+DATE: 2025-12-13
+
+================================================================================
+N.1 PURPOSE AND OPERATIONAL INTENT
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+- This section closes systemic gaps that typically cause real-world failures.
+- Focus areas include:
+  - Failure and degradation handling
+  - Time and clock consistency
+  - Idempotency and replay safety
+  - Clear ownership of data
+  - Emergency and disaster recovery playbooks
+  - Governance of versioned documentation
+
+This section is explicitly preventive: it exists to avoid silent corruption,
+unsafe retries, ambiguous authority, and operational chaos.
+
+================================================================================
+N.2 FAILURE AND DEGRADED MODES
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+N.2.1 Degraded Mode Definition
+- Degraded mode is a **read-only safety state** entered when critical dependencies
+  are unavailable or unreliable.
+- Triggers include:
+  - Database unreachable or read-only
+  - Agent PC unreachable
+  - Repeated controller communication failures
+  - Corrupted or inconsistent state detection
+
+N.2.2 Behavior in Degraded Mode
+- All write operations must be disabled
+- Dangerous actions must be hidden or blocked
+- UI must clearly explain:
+  - What is unavailable
+  - Why it is unavailable
+  - What actions remain safe
+
+N.2.3 State Transitions
+- Entry into degraded mode must be logged and audited
+- Exit requires explicit confirmation that conditions are resolved
+- Automatic flapping between states is forbidden
+
+================================================================================
+N.3 TIME, CLOCK, AND TEMPORAL RULES
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+N.3.1 Authoritative Time Source
+- Server time is the single authoritative source
+- Controllers and Agent PC must be treated as non-authoritative
+- All timestamps stored in UTC
+
+N.3.2 Time Zone Handling
+- User-facing displays may localize time
+- Stored values must never depend on local time zones
+- Time zone changes must not affect historical calculations
+
+N.3.3 Clock Drift Detection
+- Controller clock drift must be detected during health checks
+- Drift thresholds must be configurable
+- Excessive drift must generate warnings or alerts
+
+N.3.4 Daylight Saving Time (DST)
+- DST changes must not:
+  - Change stored timestamps
+  - Alter eligibility calculations
+  - Break scheduled jobs
+- All DST handling must be explicit and tested
+
+================================================================================
+N.4 IDEMPOTENCY AND REPLAY SAFETY
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+N.4.1 Operation Keys
+- All dangerous or external operations must include an operation key
+- Replays of the same key must be safely ignored
+- Keys must be unique per logical operation
+
+N.4.2 Duplicate Submission Protection
+- UI must prevent double-submit
+- Server must reject duplicates even if UI fails
+- Bulk operations must be resumable without duplication
+
+N.4.3 Retry Rules
+- Retries must be bounded
+- Retries must be visible to operators
+- Blind retries are forbidden
+
+================================================================================
+N.5 DATA OWNERSHIP AND SOURCE-OF-TRUTH MAP
+STATUS: COMPLETED (RULE-FINALIZED)
+================================================================================
+The system must define and enforce the following ownership:
+
+- Membership, dues, access rules → Web App (authoritative)
+- Controller state → Derived mirror only
+- Event history → SQL cache (authoritative after ingestion)
+- Configuration → Versioned configuration store
+
+Conflict resolution rules:
+- Web App state always overrides controller state
+- Manual controller changes are treated as drift
+
+================================================================================
+N.6 EMERGENCY AND DISASTER PLAYBOOKS
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+N.6.1 Controller Lockout Recovery
+- Steps to regain access if privileges are wiped
+- Safe use of BulkUpload or ClearAllCards
+- Verification steps after recovery
+
+N.6.2 Agent PC Failure
+- Detection of Agent PC outage
+- Safe fallback behavior
+- Steps to restore service
+
+N.6.3 Partial Restore Handling
+- Detect incomplete restores
+- Prevent system from operating in inconsistent state
+- Escalation procedures
+
+N.6.4 “DO NOT DO” LIST
+- Never manually modify controller firmware data
+- Never bypass the Agent PC
+- Never edit audit logs
+- Never enable access during uncertainty
+
+================================================================================
+N.7 VERSIONED DOCUMENTATION GOVERNANCE
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+N.7.1 Documentation Versioning
+- All documents must have:
+  - Version number
+  - Revision identifier
+  - Generation date
+
+N.7.2 Change Control
+- All changes must be logged
+- Deprecated rules must be marked explicitly
+- Historical versions must remain accessible
+
+N.7.3 Authority
+- Documentation is authoritative
+- Code must conform to documentation, not vice versa
+- Deviations require documented approval
+
+================================================================================
+N.8 MISSING BUT REQUIRED INFRASTRUCTURE (ADDED)
+STATUS: APPROVED – NOT IMPLEMENTED
+================================================================================
+- DegradedModeService
+- TimeAuthorityService
+- OperationKeyRegistry
+- DataOwnershipRegistry
+- EmergencyPlaybookRepository
+- DocumentationVersionIndex
+
+================================================================================
+END OF SECTION N
+
+####################################################################################################
+END SOURCE FILE: SECTION_N_WEB_APP_R3N2_CORRECTED_EXPANDED.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_A_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-A
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION A — CORE ARCHITECTURE, CONFIG, ENVIRONMENTS
+================================================================================
+
+A.1 Purpose
+STATUS: PENDING
+Define and enforce the canonical Web App architecture. Web App owns ALL business logic.
+Controllers are smart-lock endpoints only; Agent PC is transport-only.
+
+A.2 Hard Rules (Non-negotiable)
+STATUS: PENDING
+A.2.1 Ownership boundaries
+- Web App: membership, dues, waivers, NP queue, life eligibility, keycards, access decisions, auditing, UI.
+- Agent PC: executes controller commands; retries/timeouts/CRC; NO business decisions.
+- Controllers: door open, privilege add/update/delete, bulk upload, clear cards, events by index, time sync, run status, flash/FRAM ops, network config, reboot.
+
+A.2.2 Simulation vs Live is global & exclusive
+- Exactly one mode active system-wide at a time.
+- OFF => SimulationControllerClient, ON => RealControllerClient (Agent PC).
+- Mixed mode is forbidden; any attempt must fail closed and log an audit event.
+
+A.2.3 Fail-closed
+- If authorization, configuration, controller connectivity, or time integrity is uncertain: block the action, show a clear error, log it.
+
+A.3 Environment model (Dev/Test/Prod)
+STATUS: PENDING
+A.3.1 Environment identifiers and UI banners
+- Persist environment name in config and show a persistent banner (e.g., “DEV / TEST / PROD”).
+
+A.3.2 Environment-specific safety rails
+- DEV/TEST: destructive operations require typed confirmation AND are disabled by default unless explicitly enabled.
+- PROD: extra confirmation, plus “reason required” for dangerous actions.
+
+A.3.3 Configuration validation at startup
+- Validate required settings: DB connection, Agent endpoint, feature flags, notification toggles, backup paths, encryption/keys.
+- On failure: prevent app start or degrade to read-only admin-safe mode (see Section Z).
+
+A.4 Long-running operations framework (shared)
+STATUS: PENDING
+- Standard pattern for background/long operations: progress, cancellation token, timeout, retries, UI progress indicator, audit start/end.
+- Must be used by BulkUpload, ClearAllCards, large imports, event pulls, backups, health checks, exports.
+
+####################################################################################################
+END SOURCE FILE: SECTION_A_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_B_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-B
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION B — AUTH, AUTHZ, ROLES, PERMISSIONS
+================================================================================
+
+B.1 Purpose
+STATUS: PENDING
+Define authorization boundaries, roles, and permission checks for every sensitive action.
+
+B.2 Roles (minimum)
+STATUS: PENDING
+- SuperAdmin, Admin, Finance, HallManager, ContentEditor, ReadOnly (as applicable), plus AccessControlAdmin.
+- Roles are explicit; no hidden inheritance.
+
+B.3 Permission model (atomic permissions)
+STATUS: PENDING
+- Define permission keys (e.g., Members.Edit, Dues.Override, Cards.Issue, Controllers.ClearAllCards, Backups.Restore, Studio.Launch).
+- Enforce server-side on every request; UI must mirror (hide/disable) but never replace server checks.
+
+B.4 Governance “Reason Required” policy
+STATUS: PENDING
+Require typed reasons for:
+- overrides/waivers
+- dangerous controller operations
+- status changes with access impact
+- restores and deletions
+Persist reasons in audit entries.
+
+B.5 Permission boundary tests
+STATUS: PENDING
+- Add explicit “must fail” scenarios for each role/permission boundary.
+- Include tests for Simulation vs Live constraints and for “read-only degraded mode” constraints.
+
+####################################################################################################
+END SOURCE FILE: SECTION_B_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_C_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-C
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION C — MEMBERSHIP DOMAIN (LIFECYCLE + HISTORY)
+================================================================================
+
+C.1 Purpose
+STATUS: PENDING
+Implement the complete membership lifecycle with immutable history.
+
+C.2 Member statuses (authoritative)
+STATUS: PENDING
+- Guest (default new member)
+- Regular (eligible if Portuguese descendant rule satisfied and promoted per rules)
+- NP Queue (NP-flagged guests and queue rules)
+- Life (age ≥65 AND 15 Regular years; Guest years do not count)
+- Suspended, Inactive, Deceased (excluded from active operations but preserved historically)
+
+C.3 Status transition engine
+STATUS: PENDING
+C.3.1 Transition validation
+- Only allow defined transitions; block invalid transitions; audit failures.
+
+C.3.2 Side effects
+- Guest→Regular MUST set RegularSince (column 31 rule) and recalc eligibility.
+- Any status change must recalc access entitlement (cards/privileges) via Section E.
+
+C.3.3 History tracking
+- Write immutable MemberHistory entries for every change with before/after and reason.
+
+C.4 Portuguese descendant eligibility
+STATUS: PENDING
+- Store eligibility field(s).
+- Enforce in promotions and NP queue handling.
+
+####################################################################################################
+END SOURCE FILE: SECTION_C_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_D_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-D
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION D — DUES, WAIVERS, LIFE ELIGIBILITY
+================================================================================
+
+D.1 Purpose
+STATUS: PENDING
+Define dues rules, grace periods, waivers, and life eligibility enforcement with auditability.
+
+D.2 Dues schedule model
+STATUS: PENDING
+- Amounts, periods, due dates, grace window, proration rules (if applicable).
+
+D.3 Payment & waiver workflows
+STATUS: PENDING
+- Record payments (manual now; Stripe later).
+- Board/Director waiver rules: auto-waive if board role applies.
+- Require reason for manual waiver/override; audit.
+
+D.4 Grace period enforcement
+STATUS: PENDING
+- Access remains enabled through grace end; after expiration auto-disables (Section E).
+
+D.5 Life eligibility engine
+STATUS: PENDING
+- Requires age ≥65 AND 15 years as RegularSince-based tenure.
+- Life status change triggers access recalc and audit.
+
+####################################################################################################
+END SOURCE FILE: SECTION_D_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_E_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-E
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION E — KEYCARDS & ACCESS ENTITLEMENT ENGINE
+================================================================================
+
+E.1 Purpose
+STATUS: PENDING
+Implement card lifecycle and derive access entitlements solely from business rules.
+
+E.2 One member → one card (confirmed)
+STATUS: PENDING
+- Enforce DB uniqueness constraint and service-level guard.
+- Replacement revokes old and activates new atomically.
+
+E.3 Card lifecycle
+STATUS: PENDING
+- Issue: only if member in good standing (Paid/Waived/Life).
+- Replace: revoke old, activate new, propagate privileges.
+- Revoke: disables privileges; audit always.
+
+E.4 Entitlement computation (source of truth)
+STATUS: PENDING
+Inputs:
+- member status (C)
+- dues standing (D)
+- waivers/board roles (D/B)
+- grace period status (D)
+Outputs:
+- card enabled/disabled state
+- controller privilege desired state (for each controller/door schedule)
+Rules:
+- Manual override of privileges is NOT allowed; derived only.
+
+E.5 Command application strategy
+STATUS: PENDING
+- Simulation: write simulated outcomes + simulated events + same audits.
+- Live: enqueue Agent PC commands; handle retries/timeouts; confirm results; record outcomes.
+
+####################################################################################################
+END SOURCE FILE: SECTION_E_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_F_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-F
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION F — ACCESS CONTROLLER INTEGRATION (WG3000 + AGENT PC)
+================================================================================
+
+F.1 Purpose
+STATUS: PENDING
+Provide UI and services for controller operations strictly within documented capabilities.
+
+F.2 Supported operations only
+STATUS: PENDING
+- OpenDoor
+- Privilege Add/Update/Delete
+- BulkUpload
+- ClearAllCards
+- GetRunStatus
+- GetEventsByIndex
+- SyncTime
+- Read/Write Flash/FRAM (dangerous)
+- NetworkConfig/AllowedPCIP/Password changes (dangerous)
+- Reboot (dangerous)
+
+F.3 Dangerous operations gating (mandatory)
+STATUS: PENDING
+- Require typed confirmation + reason + elevated permission.
+- Always audit: intent, scope, target controller(s), outcomes.
+
+F.4 Event log viewing constraints
+STATUS: PENDING
+- Logs are read by index with wraparound. No date-range queries at controller level.
+- App may build an indexed cache in SQL for filtering, but source retrieval is index-only.
+
+F.5 Idempotency rules for controller writes
+STATUS: PENDING
+- All write operations must be treated as retryable and idempotent at the app level.
+- Include “operation key” per command to prevent duplicate submissions.
+
+####################################################################################################
+END SOURCE FILE: SECTION_F_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_G_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-G
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION G — SIMULATION MODE (GLOBAL) & LIVE MODE (GLOBAL)
+================================================================================
+
+G.1 Purpose
+STATUS: PENDING
+Define global exclusive mode behavior and UI enforcement.
+
+G.2 Mode toggle behavior
+STATUS: PENDING
+- Setting stored centrally.
+- Switching modes requires Admin permission, typed confirmation, and reason.
+- Switching triggers a safe reconciling pass (E.4/E.5) to recompute entitlements.
+
+G.3 Simulation parity requirements
+STATUS: PENDING
+- Same validations, same workflows, same audits.
+- Generate simulated controller events and card-change logs.
+
+G.4 UI indicators
+STATUS: PENDING
+- Persistent banner/icon indicating SIMULATION or LIVE.
+- Controller pages must show “SIMULATED” labeling for actions/results in simulation.
+
+####################################################################################################
+END SOURCE FILE: SECTION_G_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_H_WEB_APP_CODE_GUIDE_.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-H
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION H — CONTROLLER HEALTH CHECK & DIAGNOSTICS (MANUAL RUN)
+================================================================================
+
+H.1 Purpose
+STATUS: PENDING
+Implement a manual-only health check system producing a human-readable report.
+
+H.2 Health check command (manual)
+STATUS: PENDING
+- Runs ONLY when user clicks “Run Health Check”.
+- Must be read-only unless explicitly running a safe probe (e.g., RunStatus, time read, event index read).
+
+H.3 Checks to include (minimum)
+STATUS: PENDING
+- Agent PC reachability
+- Controller reachability (UDP/TCP)
+- Run status response time
+- Controller time drift vs server time (AA)
+- Event index sanity (read N entries by index)
+- Last successful command timestamps
+- Error counters since last check
+
+H.4 Report output
+STATUS: PENDING
+- On-screen report + downloadable text.
+- Include correlation id, timestamp, environment, mode, targets.
+- Audit “health check executed” with summary result.
+
+####################################################################################################
+END SOURCE FILE: SECTION_H_WEB_APP_CODE_GUIDE_.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_I_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-I
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION I — UI MODERNIZATION & UX SAFETY (WEB APP)
+================================================================================
+
+I.1 Purpose
+STATUS: PENDING
+Modernize UI while enforcing safety and clarity for admin operations.
+
+I.2 Mandatory UI standards (confirmed preferences)
+STATUS: PENDING
+- Green Save buttons, Red Exit/Cancel.
+- Disabled buttons gray.
+- Progress indicators for long operations.
+- Sticky headers where appropriate.
+- Hide irrelevant UI elements based on member status.
+
+I.3 Status colors consistency
+STATUS: PENDING
+- Standard palette for Paid/Waived/Late/Suspended/NP/Guest/Regular/Life.
+
+I.4 Dangerous action UX
+STATUS: PENDING
+- Confirm dialogs with typed text.
+- Show impact preview where possible (U).
+- Require reason entry and display on review.
+
+I.5 Accessibility
+STATUS: PENDING
+- Keyboard navigation support.
+- Clear labels; avoid color-only meaning.
+
+####################################################################################################
+END SOURCE FILE: SECTION_I_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_J_WEB_APP_CODE_GUIDE_.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-J
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION J — NOTIFICATIONS, ALERTS, AND PREFERENCES
+================================================================================
+
+J.1 Purpose
+STATUS: PENDING
+Implement notifications with routing rules, preferences, suppression, and auditability.
+
+J.2 Channels
+STATUS: PENDING
+- Email via SMTP (initial)
+- SMS optional (future)
+- Admin routing rules for critical alerts
+
+J.3 Preference model
+STATUS: PENDING
+- Per user/member preferences; opt-in/out; channel selection.
+
+J.4 Global toggles
+STATUS: PENDING
+- Disable notifications globally or admin-only (maintenance dashboard requirement).
+
+J.5 Failure handling
+STATUS: PENDING
+- Retries, dead-letter logging, admin visibility.
+
+####################################################################################################
+END SOURCE FILE: SECTION_J_WEB_APP_CODE_GUIDE_.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_L_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-L
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION L — BACKUP/RECOVERY INTEGRATION (WITH R3 EXECUTION)
+================================================================================
+
+L.1 Purpose
+STATUS: PENDING
+Integrate backup and recovery workflows into the Web App admin experience.
+
+L.2 Manual backup trigger
+STATUS: PENDING
+- UI button to run backup scripts safely; show progress; produce logs; audit.
+
+L.3 Restore workflow (admin-only)
+STATUS: PENDING
+- Require typed confirmation + reason.
+- Require “pre-restore checklist” acknowledgment.
+- Run restore, then validation checks.
+
+L.4 Backup status dashboard tile
+STATUS: PENDING
+- Show last backup time, success/failure, storage capacity, next scheduled run.
+
+####################################################################################################
+END SOURCE FILE: SECTION_L_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_M_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-M
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION M — SECURITY, HARDENING, RATE LIMITING
+================================================================================
+
+M.1 Purpose
+STATUS: PENDING
+Harden the Web App for self-hosted now and possible cloud later.
+
+M.2 Auth & session security
+STATUS: PENDING
+- Strong auth; secure cookies; CSRF protection; session timeout policies.
+
+M.3 Input validation and sanitization
+STATUS: PENDING
+- Validate all inputs; sanitize rich text; prevent XSS/SQLi.
+
+M.4 Rate limiting
+STATUS: PENDING
+- Protect login and high-cost endpoints; audit suspicious behavior.
+
+M.5 Secrets handling
+STATUS: PENDING
+- Use secure secret storage patterns; never commit secrets.
+
+M.6 External exposure rules
+STATUS: PENDING
+- SQL Server never exposed.
+- Only HTTPS externally.
+
+####################################################################################################
+END SOURCE FILE: SECTION_M_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+
+
+####################################################################################################
+BEGIN SOURCE FILE: SECTION_N_WEB_APP_CODE_GUIDE.txt
+####################################################################################################
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP
+STATUS: UNDER REVIEW
+DOCUMENT TYPE: R3 EXECUTION SPEC (ADD-IN ONLY; LEGACY PRESERVED)
+ECOSYSTEM VERSION: v1.0.0
+DOCUMENT REVISION: R3-N
+GENERATED: 2025-12-13
+
+================================================================================
+SECTION N — FAILURE MODES, TIME RULES, IDPOTENCY, PLAYBOOKS
+================================================================================
+
+N.1 Purpose
+STATUS: PENDING
+Close remaining operational and governance gaps that commonly break systems.
+
+N.2 Degradation & failure modes (Z)
+STATUS: PENDING
+- Define read-only degraded mode for DB/Agent outages.
+- UI must disable unsafe actions and explain why.
+- Log degraded state transitions and recovery.
+
+N.3 Time and clock rules (AA)
+STATUS: PENDING
+- Define authoritative time source (server).
+- Timezone handling rules.
+- Detect controller drift; include in health check.
+- DST handling guidelines.
+
+N.4 Idempotency & replay safety (AB)
+STATUS: PENDING
+- Operation keys for dangerous actions.
+- Duplicate submission protections.
+- Safe retry policies for controller writes and bulk operations.
+
+N.5 Data ownership map (AD)
+STATUS: PENDING
+- Document sources of truth per domain; conflict resolution rules.
+
+N.6 Emergency & disaster playbooks (AE)
+STATUS: PENDING
+- Controller lockout recovery.
+- Agent PC failure recovery.
+- Partial restore handling.
+- “Do not do” list and escalation paths.
+
+N.7 Versioned documentation governance (AF)
+STATUS: PENDING
+- Versioned docs index.
+- Changelog requirements.
+- Deprecation notices.
+
+####################################################################################################
+END SOURCE FILE: SECTION_N_WEB_APP_CODE_GUIDE.txt
+####################################################################################################

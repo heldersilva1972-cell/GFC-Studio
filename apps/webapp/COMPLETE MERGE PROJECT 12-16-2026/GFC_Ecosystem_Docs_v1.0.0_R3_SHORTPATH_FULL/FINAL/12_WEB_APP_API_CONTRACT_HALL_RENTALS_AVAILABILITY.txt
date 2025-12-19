@@ -1,0 +1,70 @@
+WEB APP API CONTRACT — HALL RENTALS AVAILABILITY (FINAL)
+Version: v1.0.0
+Revision: R1
+Added In Pack: v1.0.0_R3
+Generated: 2025-12-16 09:16 (Asia/Taipei)
+
+GOALS
+- Public-safe read-only availability for Studio website blocks
+- Permission-gated admin endpoints for Web App UI + GFC Mobile
+- Efficient support for Month + Agenda views
+- Strict separation of public vs private data
+
+A) PUBLIC ENDPOINT (ANONYMOUS SAFE)
+GET /api/public/hallrentals/availability
+Query:
+- siteId (required)
+- from (required, YYYY-MM-DD)
+- to (required, YYYY-MM-DD)
+- tz (optional, default site tz)
+- includePending (optional, default true)
+
+Response:
+{
+  "siteId":"GFC",
+  "tz":"America/New_York",
+  "from":"YYYY-MM-DD",
+  "to":"YYYY-MM-DD",
+  "days":[{"date":"YYYY-MM-DD","status":"Available|Pending|Booked|Blocked","publicLabel":"Available|Pending|Booked|Unavailable","publicNote":null}],
+  "legend":{"Available":"Available","Pending":"Pending","Booked":"Booked","Blocked":"Unavailable"}
+}
+
+Public safety:
+- No renter identity
+- No internal notes
+- publicNote only if explicitly public
+
+B) ADMIN ENDPOINTS (AUTH + PERMISSION REQUIRED)
+GET /api/admin/hallrentals/calendar
+Query: siteId, from, to, tz
+Returns AdminCalendarResponse with holds/bookings/blocks (admin-safe)
+
+GET /api/admin/hallrentals/day/{date}
+Query: siteId, tz
+Returns AdminDay detail for drawer
+
+C) WINDOW LIMITS
+- Public max: 180 days
+- Admin max: 365 days
+Violations => 400 with error payload
+
+D) STATUS COMPUTATION
+- Blocked overrides all
+- Booked next
+- Pending next (if includePending true)
+- Otherwise Available
+Blocked maps to publicLabel “Unavailable” by default
+
+E) ERROR PAYLOAD
+{
+  "error":"ValidationError|Forbidden|Conflict|NotFound",
+  "message":"...",
+  "details":{}
+}
+
+F) CACHING
+Public endpoint:
+- IMemoryCache TTL 60–180s (recommend 120s)
+- Invalidate on booking/hold/block changes (coarse invalidation acceptable)
+
+END

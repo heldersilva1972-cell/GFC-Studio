@@ -1,0 +1,509 @@
+GFC ECOSYSTEM – AUTHORITATIVE CONTINUATION REPORT
+SECTION 01 – GFC WEB APP (CORE SYSTEM)
+ECOSYSTEM VERSION: v1.0.0
+SECTION REVISION: R1
+GENERATED: 2025-12-13
+
+================================================================================
+PURPOSE OF THIS DOCUMENT
+================================================================================
+This is a handoff-grade continuation report for the GFC Web App. It is written so
+you can upload this file into any new chat and continue development without
+guessing what was intended, what exists now, and what must be done next.
+
+SCOPE RULES (LOCKED BY USER):
+- Include ONLY explicitly discussed items PLUS clearly marked REQUIRED GAPS needed
+  to complete the system.
+- No speculation, no invented features.
+- Provide an execution blueprint broken into correct steps with enough detail to
+  generate Cursor prompts reliably.
+
+IMPORTANT: This report describes WHAT to do and HOW to validate it. It does NOT
+embed actual Cursor prompts yet. Instead it provides a “Prompt Path” for each
+step: the exact prompt inputs, scope boundaries, file targets, and acceptance
+tests a future chat must use to generate safe, correct Cursor prompts.
+
+================================================================================
+SECTION A – ORIGINAL PROJECT INTENT (HISTORICAL TRUTH)
+================================================================================
+The GFC Web App is the single system of record for club operations and access
+decisions. The system intent is:
+- Centralize membership, dues, waivers, life eligibility, NP Queue logic
+- Own access control eligibility decisions
+- Treat controllers as smart locks; never store club logic in controllers
+- Provide simulation mode for safe testing/development
+- Be auditable, deterministic, admin-safe, and maintainable
+
+NON-GOALS:
+- No business rules in controller firmware or Agent PC
+- No manual “override” switches that bypass eligibility rules
+- No controller-side filtering (controller events are index-based only)
+
+================================================================================
+SECTION B – VERIFIED COMPLETED IMPLEMENTATION (CERTAIN)
+================================================================================
+
+B1. Core Architecture (COMPLETED)
+- Blazor Server Web App (.NET 8 server-interactive)
+- SQL Server backend
+- Separation of concerns:
+  - Web App: business logic + eligibility + UI + audit
+  - Agent PC: transport/protocol only
+  - Controllers: smart locks only
+- Controller client abstraction exists:
+  - IControllerClient
+  - SimulationControllerClient
+  - RealControllerClient
+
+B2. Membership Model (COMPLETED)
+- Member entity with lifecycle statuses:
+  Guest, Regular, Life, Inactive, Deceased (and related operational flags)
+- Guest→Regular transition is tracked
+- RegularSince date exists and is used for eligibility
+- NP flag exists
+
+B3. Life Eligibility (COMPLETED)
+- Age ≥ 65
+- ≥ 15 years as Regular only (Guest years excluded)
+- Guest→Regular change date is authoritative for Regular tenure
+
+B4. NP Queue (COMPLETED)
+- NP Queue exists
+- Only NP-flagged Guests eligible
+- Queue ordering exists
+- Promotion logic exists
+
+B5. Cards/Privileges (PARTIAL)
+Implemented:
+- Card tied to member
+- Privileges derived from membership + dues
+- Auto-disable when not eligible
+- Replacement/revoke logic exists
+Clarified rule that must be enforced consistently:
+- ONE member = ONE active card at a time
+
+B6. Simulation Infrastructure (COMPLETED)
+- Simulation mode exists
+- No real packets sent
+- Same code paths used for validations/workflows
+
+B7. Auditing (COMPLETED)
+- SQL audit logging exists for sensitive actions
+- Membership/dues/controller-related operations audited
+
+================================================================================
+SECTION C – UI MODERNIZATION STATUS (CERTAIN)
+================================================================================
+
+C1. Status-driven UI visibility (COMPLETED)
+- UI adapts based on member status (hide irrelevant controls)
+
+C2. Role-based admin segmentation (COMPLETED)
+- Admin-only pages/sections exist, permissions enforced
+
+C3. Simulation/Live awareness (PARTIAL)
+- Mode affects behavior
+- Missing consistent global banner and centralized diagnostics entry
+
+C4. Safety UX (COMPLETED)
+- Confirmations/warnings for dangerous actions exist
+
+C5. Layout consistency (PARTIAL)
+- Functional layout exists
+- Missing standardized spacing/hierarchy/action placement
+
+C6. Progress feedback (PARTIAL)
+- Some async flows exist
+- Missing consistent progress indicators for long operations
+
+================================================================================
+SECTION D – NOT YET IMPLEMENTED (EXPLICIT)
+================================================================================
+D1. Controller Health Check UI + Report: NOT IMPLEMENTED
+- No diagnostics page that produces a structured health report
+- No PASS/WARN/FAIL summary view
+
+D2. Unified Maintenance Dashboard: NOT IMPLEMENTED
+- No single consolidated status view (mode, controllers, backups, etc.)
+
+D3. Advanced Admin UX for rare/dangerous tasks: NOT IMPLEMENTED
+- No guided workflows / contextual help for seldom-used operations
+
+================================================================================
+SECTION E – REQUIRED GAPS (MUST BE RESOLVED TO FINISH)
+================================================================================
+[REQUIRED GAP – SPEC REQUIRED]
+E1. Single-card-per-member enforcement must be defined precisely at DB + domain + UI:
+- Is the “one card” rule enforced via unique DB constraint, or via application
+  enforcement only, or both? (Recommended: both, but must be decided explicitly)
+- Define what “active” means (status flag? date range? revoked timestamp?)
+
+[REQUIRED GAP – FEATURE REQUIRED]
+E2. Controller Health Check workflow + report format:
+- Which live read-only calls are allowed during Simulation (manual-only)?
+- Report fields and severity scoring rules must be declared.
+
+[REQUIRED GAP – FEATURE REQUIRED]
+E3. Unified Maintenance Dashboard requirements:
+- Which tiles/metrics are required for “system health at a glance”?
+- Where backup status is sourced from and how it’s verified.
+
+================================================================================
+SECTION F – EXECUTION BLUEPRINT (REMAINING WORK, DETAILED)
+================================================================================
+This blueprint is written in correct dependency order. Each step includes:
+- Purpose
+- Preconditions
+- Detailed substeps
+- Acceptance tests (objective “done” criteria)
+- Prompt Path (how to generate Cursor prompts safely)
+
+--------------------------------------------------------------------------------
+STEP 1 — Enforce ONE Active Card per Member (Domain + DB + UI)
+--------------------------------------------------------------------------------
+Purpose:
+Ensure the clarified rule is true everywhere: one member can have only one active
+card at a time. Prevent drift where UI allows multiple cards or backend logic
+silently tolerates multiple actives.
+
+Preconditions:
+- Identify current card schema: MemberCards table (or equivalent), fields that
+  indicate active vs revoked.
+- Identify current services/flows used to assign/replace cards.
+- Confirm current UI path where admins manage cards.
+
+Substeps:
+1.1 Inventory current behavior
+- Locate code paths:
+  - “Assign Card” flow
+  - “Replace Card” flow
+  - “Disable/Enable Card” flow
+- Identify if system currently supports multiple cards historically; determine if
+  “old cards” are retained as history or hard-deleted.
+
+1.2 Define “Active Card” semantics (SPEC CLARIFICATION)
+- Choose one approach (must be consistent):
+  A) Active = boolean IsActive flag
+  B) Active = RevokedAt is null (active when not revoked)
+  C) Active = EffectiveStart/End window contains now
+- Decide how historical cards are represented (recommended: retain history).
+
+1.3 Domain enforcement
+- Update domain/service layer so that any attempt to set a second card active:
+  - automatically revokes existing active card OR rejects with a clear error
+  - writes an audit entry for the change
+- Ensure replacement is atomic in business logic:
+  - revoke old (set RevokedAt / IsActive false)
+  - activate new
+  - audit “CardReplaced” with old/new identifiers
+
+1.4 Database enforcement (OPTIONAL BUT STRONGLY RECOMMENDED)
+- Add a uniqueness rule to prevent multiple actives for the same member.
+  Example patterns:
+  - Unique filtered index: (MemberId) WHERE RevokedAt IS NULL
+  - Unique filtered index: (MemberId) WHERE IsActive = 1
+- Add migration and update EF model accordingly.
+
+1.5 UI enforcement
+- Card management UI:
+  - prevent selecting/creating a second active card
+  - provide explicit “Replace Card” action
+  - show historical cards in a “History” list (read-only) if present
+- Ensure UI respects eligibility rules (paid/waived/life) and blocks activation if not eligible.
+
+Acceptance Tests (must be true):
+- Attempt to assign a second active card results in:
+  - Either automatic revoke of prior active OR clear rejection (as specified)
+- Database prevents multiple active records for same member (if DB constraint chosen)
+- UI shows exactly one active card at any time
+- Audit log records:
+  - who changed the card
+  - old card id
+  - new card id
+  - timestamp
+- Regression: existing members with one card continue to work; historical cards (if any) remain viewable.
+
+PROMPT PATH (for future Cursor prompts):
+- Prompt Set: “STEP1-CARDS”
+- Required prompt inputs:
+  - Current entity/table names for cards (exact)
+  - Current UI page/component responsible for card management (exact file paths)
+  - Current service class used for card assignment/replacement (exact file paths)
+- Prompt Scope Rules:
+  - One issue per prompt:
+    (a) domain enforcement, (b) DB constraint/migration, (c) UI changes, (d) tests
+  - Each prompt lists specific files only (no project-wide edits)
+- Suggested prompt breakdown:
+  1) Add domain-level single-active enforcement + audit
+  2) Add DB filtered unique index via migration (if chosen)
+  3) Update UI: replace flow + history display + validation messaging
+  4) Add minimal tests (unit/integration as appropriate)
+- “Done” validation command(s) to include in prompts:
+  - Build succeeds
+  - Migrations apply
+  - Manual UI test plan steps executed
+
+--------------------------------------------------------------------------------
+STEP 2 — Controller Health Check (Manual, Read-only, Report Output)
+--------------------------------------------------------------------------------
+Purpose:
+Provide a safe, explicit “Controller Health Check” that only runs when an admin
+clicks it. It may contact real controllers in READ-ONLY mode even while the app
+is in Simulation mode, but must never perform writes.
+
+Preconditions:
+- Determine available read-only operations exposed by Agent PC API
+  (examples: GetRunStatus, GetEventsByIndex, time read/compare).
+- Identify where controller list/config is stored (Controller table/config).
+- Determine existing logging/audit mechanism for maintenance actions.
+
+Substeps:
+2.1 Define allowed operations in health check (SPEC REQUIRED)
+- Explicit allowlist of read-only calls:
+  - Agent connectivity check
+  - Controller connectivity check
+  - Run status read
+  - Event read smoke test (last N indices)
+  - Time drift check (read-only compare)
+- Explicit denylist (hard-block):
+  - OpenDoor, privilege writes, bulk upload, clear cards, config writes, reboot.
+
+2.2 Create Health Check UI entry point
+- Admin-only page (recommended: Maintenance → Access Control → Health Check)
+- User must click “Run Health Check” (nothing auto-runs)
+- Show last run time + last result summary
+
+2.3 Implement health check runner/service
+- Service composes per-controller checks:
+  - Ping Agent (API call)
+  - Read controller run status
+  - Read events (index-based) with wrap awareness
+  - Read controller time (if available) and compute drift
+- Capture latency, retries, failures per step
+- Provide a normalized result model:
+  - ControllerId, Name, IP
+  - Status: PASS/WARN/FAIL
+  - Details: list of checks with outcomes and timings
+
+2.4 Implement report output
+- At minimum: render as structured table UI with expandable details
+- Optionally: export to text/CSV in-app (must be decided explicitly)
+- Persist last result (optional; if stored, define retention policy)
+
+2.5 Audit logging
+- Record “HealthCheckRun”:
+  - who ran it
+  - when
+  - scope (which controllers)
+  - high-level result counts (PASS/WARN/FAIL)
+
+Acceptance Tests:
+- In Simulation mode: no controller calls occur unless admin clicks “Run Health Check”
+- Health check never triggers writes (verified by denylist and service design)
+- Report shows deterministic results and error messages
+- Audit entry exists for each run
+- Failure modes handled:
+  - Agent unreachable
+  - Controller unreachable
+  - Partial read failures (WARN vs FAIL)
+
+PROMPT PATH (for future Cursor prompts):
+- Prompt Set: “STEP2-HEALTHCHECK”
+- Required prompt inputs:
+  - Current controller config storage (table/entity) and its file paths
+  - Current Agent API client interface + implementation file paths
+  - Current admin/maintenance UI routing conventions
+- Prompt Scope Rules:
+  - One issue per prompt:
+    (a) result model + service runner, (b) UI page, (c) audit logging, (d) polish/export
+  - Each prompt names exact files to edit/create
+- Suggested prompt breakdown:
+  1) Add HealthCheck result model + service runner (read-only allowlist/denylist)
+  2) Add admin UI page + display of report
+  3) Add audit event + persistence (if chosen)
+  4) Add edge-case handling + minimal tests
+
+--------------------------------------------------------------------------------
+STEP 3 — Unified Maintenance Dashboard (System-at-a-Glance)
+--------------------------------------------------------------------------------
+Purpose:
+Create a single admin dashboard that shows operational health without hunting
+through pages: mode state, controller connectivity, backups, errors, versions.
+
+Preconditions:
+- Define where version info is stored (app version, agent version)
+- Define how backup status is detected (see REQUIRED GAP E3)
+- Confirm admin roles and routing
+
+Substeps:
+3.1 Define dashboard tiles (SPEC REQUIRED)
+- Minimum tiles commonly required (must be confirmed explicitly):
+  - App Version + DB Migration level
+  - Mode: Simulation vs Live
+  - Agent status (reachable/unreachable)
+  - Controllers: Online count / Offline count
+  - Last Health Check summary (from Step 2)
+  - Backup status (last successful backup timestamp)
+  - Recent critical errors count (last 24h/7d)
+
+3.2 Implement backend aggregation service
+- Gather status from:
+  - DB (counts, timestamps, migrations)
+  - Agent PC (reachable)
+  - Controllers (optional read-only status; do not auto-run in simulation unless explicitly allowed)
+  - Backup signals (file timestamp/log record—must be decided)
+
+3.3 Implement UI dashboard
+- Admin-only
+- Compact, readable tiles
+- Links to deeper pages (health check, logs, controller list)
+
+3.4 Add safe refresh strategy
+- Avoid aggressive polling by default
+- Manual refresh + optional timed refresh for admins
+
+Acceptance Tests:
+- Dashboard loads without requiring controller actions
+- Shows correct mode state
+- Shows controller connectivity at least at an aggregate level
+- Links navigate correctly
+- No dangerous operations available from dashboard
+
+PROMPT PATH:
+- Prompt Set: “STEP3-MAINTENANCE”
+- Prompt inputs required:
+  - Existing admin layout/components file paths
+  - Where logs/errors are recorded
+  - Backup status source (decision)
+- Prompt breakdown:
+  1) Add status aggregation service + DTO
+  2) Add dashboard UI page + tiles
+  3) Add refresh controls + links
+
+--------------------------------------------------------------------------------
+STEP 4 — UI Modernization Refinement Pass (Consistency + Feedback)
+--------------------------------------------------------------------------------
+Purpose:
+Improve usability by standardizing layout, spacing, headings, action placement,
+and adding consistent progress indicators—without redesigning the architecture.
+
+Preconditions:
+- Identify top 3 densest admin pages (members, NP queue, controller privileges, etc.)
+- Identify long-running operations that need progress feedback
+
+Substeps:
+4.1 Define UI standards (SPEC REQUIRED)
+- Standard page header layout
+- Standard action button placement (Save green, Exit red)
+- Standard spacing/padding scale
+- Standard “status badge” style across pages
+- Standard table styles
+
+4.2 Apply standards to priority pages
+- Update markup/components consistently
+- Ensure accessibility (labels, focus, keyboard input for card readers)
+
+4.3 Add progress feedback
+- Standard component for “working…” state
+- Spinner/progress on operations known to take time (uploads, bulk changes, controller calls)
+
+4.4 Regression checks
+- Verify no functional behavior changed unintentionally
+- Verify permission gates still work
+- Verify status-driven visibility still correct
+
+Acceptance Tests:
+- Priority pages match common style rules
+- Long operations show progress
+- No broken layouts on desktop/tablet/mobile widths (as applicable)
+
+PROMPT PATH:
+- Prompt Set: “STEP4-UIMOD”
+- Prompt scope rules:
+  - One page per prompt (do not mass-edit)
+  - Each prompt lists exact files
+  - Each prompt includes before/after acceptance checks
+
+================================================================================
+SECTION G – SAFETY CONSTRAINTS (DO NOT VIOLATE)
+================================================================================
+- Business logic stays in Web App only
+- Agent PC is transport only; no club decisions
+- Controllers are smart locks only; no club logic
+- No automatic live diagnostics in Simulation mode (manual-only)
+- Dangerous operations require explicit confirmation + audit
+- Do not redesign core UI architecture during modernization
+
+================================================================================
+END OF SECTION 01 – GFC WEB APP (CORE SYSTEM)
+================================================================================
+
+
+
+================================================================================
+R2 ADDITIONS (APPENDED – NO R1 CONTENT REMOVED)
+REVISION: R2
+DATE: 2025-12-13
+================================================================================
+
+[R2-1] STUDIO LAUNCHER & ENTRY POINTS
+-----------------------------------
+- Add a persistent Studio launcher within the Web App UI.
+- Launcher respects existing role-based permissions.
+- Unauthorized users do not see the launcher.
+- If Studio subsystem is unavailable, launcher is disabled with explanation.
+- Warn user if there are unsaved Web App changes before launch.
+- Launcher may support context-aware entry (e.g., edit page, navigation, rentals).
+
+[R2-2] WEB APP–OWNED WEBSITE MANAGEMENT CAPABILITIES
+---------------------------------------------------
+The Web App must own and expose admin-configurable controls that affect the public website:
+- Page registry (draft / published / scheduled / archived)
+- Navigation & footer configuration
+- Announcement/banner management
+- Events publishing rules
+- Hall rentals public-facing rules and content
+- Media/document classification
+- Contact form routing
+- SEO/metadata governance
+- Feature flags for website capabilities
+
+Rules:
+- Changes require explicit publish or schedule.
+- Validation enforced before publish.
+- All actions audited.
+
+[R2-3] CHANGE IMPACT AWARENESS
+-----------------------------
+Before applying website-affecting changes, the Web App must:
+- Display which pages/sections are impacted.
+- Warn on sitewide or destructive actions.
+- Require explicit confirmation for irreversible changes.
+
+[R2-4] WEBSITE FEATURE FLAGS
+----------------------------
+Website-facing features may be enabled/disabled without redeploy:
+- Announcement banners
+- Events calendar
+- Rentals apply form
+- Experimental animations
+
+Purpose:
+- Safe rollout
+- Emergency disable
+- Controlled experimentation
+
+[R2-5] WEBSITE HEALTH VISIBILITY
+--------------------------------
+The Web App may display:
+- Last publish timestamp
+- Last successful website build/render
+- Last rollback action (if any)
+
+This is status visibility only; no automatic monitoring.
+
+[R2-6] SINGLE SOURCE OF TRUTH (GOVERNANCE RULE)
+----------------------------------------------
+- Studio is the single source of truth for public website content.
+- Web App is the system of record for permissions, audit, publishing authority, and feature flags.
+- Public website is strictly read-only.

@@ -1,0 +1,496 @@
+@using GFC.BlazorServer.Configuration
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Services
+@using GFC.Core.Services
+@using GFC.BlazorServer.Data.Entities
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@inject IMemberAccessService MemberAccessService
+@inject CommandInfoService CommandInfoService
+@inject ControllerRegistryService ControllerRegistryService
+@inject ISystemSettingsService SystemSettingsService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<MemberAccessControl> Logger
+@inject IOptions<AccessControlSimulationOptions> AccessSimOptions
+
+<AuthorizeView>
+    <Authorized>
+        @if (_isAdmin)
+        {
+            <section class="detail-history">
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                    <h5 class="mb-0">Access Control</h5>
+                    @if (AccessSimOptions?.Value?.UseAccessControlSimulation == true)
+                    {
+                        <span class="sim-chip">
+                            <span class="sim-chip-dot"></span>
+                            Sim mode active
+                        </span>
+                    }
+                </div>
+                
+                <div class="alert alert-info mb-3" hidden="@_useRealControllers">
+                    <strong>Simulation Mode enabled:</strong> Controller operations will be simulated only (no hardware traffic).
+                </div>
+
+            @if (!_loading && !MemberIsEligible)
+            {
+                <div class="alert alert-warning mb-3">
+                    <strong>Card access disabled:</strong> @GetEligibilityWarning()
+                </div>
+            }
+
+                @if (_loading)
+                {
+                    <div class="loading-state">
+                        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+                        Loading access control data...
+                    </div>
+                }
+                else if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+                else
+                {
+                    @if (_accessData.Count == 0)
+                    {
+                        <p class="text-muted mb-3">No doors configured.</p>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <div class="d-flex gap-2 flex-wrap align-items-center">
+                                <button class="btn btn-primary btn-sm" 
+                                        type="button" 
+                                        disabled="@(_saving || _syncing)"
+                                        @onclick="SaveAccessChanges">
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_saving)"></span>
+                                    Save Changes
+                                </button>
+                                <button class="btn btn-success btn-sm" 
+                                        type="button" 
+                                        disabled="@(_saving || _syncing)"
+                                        title="@(!_useRealControllers ? "Simulation mode: hardware writes are virtual only." : null)"
+                                        @onclick="SyncPrivileges">
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_syncing)"></span>
+                                    Sync Privileges to Controllers
+                                </button>
+                                @if (_hasActiveCard)
+                                {
+                                    <button class="btn btn-warning btn-sm" 
+                                            type="button" 
+                                            disabled="@(_saving || _syncing || _removingCard)"
+                                            title="@(!_useRealControllers ? "Simulation mode: removal uses virtual controllers." : null)"
+                                            @onclick="ShowRemoveCardConfirm">
+                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_removingCard)"></span>
+                                        Remove Card from Controllers
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="table-container">
+                            <table class="data-table table-compact">
+                                <thead>
+                                    <tr>
+                                        <th>Controller</th>
+                                        <th>Door</th>
+                                        <th>Card Number</th>
+                                        <th>Eligibility</th>
+                                        <th>Access</th>
+                                        <th>Time Profile</th>
+                                        <th>Last Sync</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var access in _accessData)
+                                    {
+                                        <tr>
+                                            <td>@access.ControllerName</td>
+                                            <td>@access.DoorName</td>
+                                            <td>@access.CardNumber</td>
+                                            <td>
+                                                <span class="badge @(access.IsEligible ? "bg-success" : "bg-danger")">
+                                                    @(access.IsEligible ? "Eligible" : "Not Eligible")
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <input type="checkbox" 
+                                                       checked="@access.IsEnabled" 
+                                                       disabled="@(!access.IsEligible || _saving)"
+                                                       @onchange="@((ChangeEventArgs e) => OnAccessChanged(access, (bool)(e.Value ?? false)))" />
+                                            </td>
+                                            <td>
+                                                @(access.TimeProfileName ?? "Default")
+                                            </td>
+                                            <td>
+                                                @if (access.LastSyncedAt.HasValue)
+                                                {
+                                                    <div>@access.LastSyncedAt.Value.ToString("g")</div>
+                                                    @if (!string.IsNullOrWhiteSpace(access.LastSyncResult))
+                                                    {
+                                                        <small class="text-muted">@access.LastSyncResult</small>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">Never</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-4 border-top pt-3">
+                            <h6 class="text-danger">Dangerous Operations</h6>
+                            <p class="text-muted small">These operations cannot be undone. Use with extreme caution.</p>
+                            <div class="d-flex gap-2 flex-wrap">
+                                @foreach (var controller in _controllers)
+                                {
+                                    <button class="btn btn-danger btn-sm" 
+                                            type="button" 
+                                            disabled="@(_saving || _syncing || _clearingAll)"
+                                            title="@(!_useRealControllers ? "Simulation mode: clears privileges in simulation only." : null)"
+                                            @onclick="() => ShowClearAllConfirm(controller.Id, controller.Name)">
+                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_clearingAll || _clearingControllerId != controller.Id)"></span>
+                                        Clear All: @controller.Name
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </section>
+
+            @* Remove Card Confirmation Modal *@
+            @if (_showRemoveCardModal)
+            {
+                <div class="modal show d-block" style="background-color: rgba(0,0,0,0.5);" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Remove Card from Controllers</h5>
+                                <button type="button" class="btn-close" @onclick="CancelRemoveCard"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>Are you sure you want to remove card <strong>@_cardToRemove</strong> from all controllers?</p>
+                                <p class="text-muted small">This will disable access for this card on all doors.</p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" @onclick="CancelRemoveCard">Cancel</button>
+                                <button type="button" class="btn btn-danger" @onclick="ConfirmRemoveCard" disabled="@_removingCard">
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_removingCard)"></span>
+                                    Remove Card
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* Clear All Confirmation Modal *@
+            @if (_showClearAllModal)
+            {
+                <div class="modal show d-block" style="background-color: rgba(0,0,0,0.5);" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header bg-danger text-white">
+                                <h5 class="modal-title">⚠️ Clear All Privileges</h5>
+                                <button type="button" class="btn-close btn-close-white" @onclick="CancelClearAll"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="alert alert-warning" hidden="@_useRealControllers">
+                                    <strong>Simulation Mode is active.</strong> Clearing privileges will be simulated only (no hardware writes).
+                                </div>
+                                <div class="alert alert-danger">
+                                    <strong>DANGEROUS OPERATION</strong>
+                                    <p class="mb-0">This will erase ALL card privileges from controller <strong>@_clearingControllerName</strong>.</p>
+                                    <p class="mb-0 mt-2">This action cannot be undone. All members will lose access to all doors on this controller.</p>
+                                </div>
+                                @if (_clearAllCommandInfo != null)
+                                {
+                                    <div class="mt-3">
+                                        <p><strong>Risk Level:</strong> @_clearAllCommandInfo.RiskLevel / 3</p>
+                                        <p><strong>Description:</strong> @_clearAllCommandInfo.LongDescription</p>
+                                    </div>
+                                }
+                                <p class="mt-3">Type <strong>CONFIRM</strong> to proceed:</p>
+                                <input type="text" class="form-control" @bind="_clearAllConfirmText" />
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" @onclick="CancelClearAll">Cancel</button>
+                                <button type="button" class="btn btn-danger" @onclick="ConfirmClearAll" disabled="@(_clearingAll || _clearAllConfirmText != "CONFIRM")">
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_clearingAll)"></span>
+                                    Clear All Privileges
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    [Parameter] public int MemberId { get; set; }
+
+    private List<MemberDoorAccessDto> _accessData = new();
+    private List<ControllerDevice> _controllers = new();
+    private bool _loading = true;
+    private bool _saving = false;
+    private bool _syncing = false;
+    private bool _removingCard = false;
+    private bool _clearingAll = false;
+    private int? _clearingControllerId = null;
+    private string _error = string.Empty;
+    private bool _isAdmin = false;
+    private bool _useRealControllers = false;
+    private bool _hasActiveCard = false;
+    private KeyCardEligibilityResult? _memberEligibility;
+    private bool _showRemoveCardModal = false;
+    private string _cardToRemove = string.Empty;
+    private bool _showClearAllModal = false;
+    private string _clearingControllerName = string.Empty;
+    private string _clearAllConfirmText = string.Empty;
+    private ControllerCommandInfo? _clearAllCommandInfo = null;
+
+    private bool MemberIsEligible => _memberEligibility?.Eligible == true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = string.Empty;
+        try
+        {
+            await LoadControllerModeAsync();
+            _controllers = (await ControllerRegistryService.GetControllersAsync(includeDoors: true)).ToList();
+            var accessResponse = await MemberAccessService.GetMemberDoorAccessAsync(MemberId);
+            _accessData = accessResponse.Access.ToList();
+            _memberEligibility = accessResponse.Eligibility;
+            _hasActiveCard = _accessData.Any(a => !string.IsNullOrWhiteSpace(a.CardNumber));
+            
+            // Check if user is admin
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            _isAdmin = currentUser?.IsAdmin ?? false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading access control data for member {MemberId}", MemberId);
+            _error = "Failed to load access control data: " + ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OnAccessChanged(MemberDoorAccessDto access, bool isEnabled)
+    {
+        access.IsEnabled = isEnabled;
+    }
+
+    private async Task SaveAccessChanges()
+    {
+        if (!MemberIsEligible)
+        {
+            _error = "This member is not eligible for card privileges.";
+            return;
+        }
+        _saving = true;
+        _error = string.Empty;
+        try
+        {
+            var updates = _accessData.Select(a => new MemberDoorAccessUpdateDto
+            {
+                DoorId = a.DoorId,
+                CardNumber = a.CardNumber,
+                IsEnabled = a.IsEnabled,
+                TimeProfileId = a.TimeProfileId
+            });
+
+            await MemberAccessService.UpdateMemberDoorAccessAsync(MemberId, updates);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving access changes for member {MemberId}", MemberId);
+            _error = "Failed to save changes: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task SyncPrivileges()
+    {
+        if (!MemberIsEligible)
+        {
+            _error = "This member is not eligible for card privileges.";
+            return;
+        }
+        _syncing = true;
+        _error = string.Empty;
+        try
+        {
+            // Note: SyncMemberPrivileges uses AddOrUpdateCard internally, which has risk level 1
+            await MemberAccessService.SyncMemberPrivilegesAsync(MemberId);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error syncing privileges for member {MemberId}", MemberId);
+            _error = "Failed to sync privileges: " + ex.Message;
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    private void ShowRemoveCardConfirm()
+    {
+        var cardNumber = _accessData.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.CardNumber))?.CardNumber ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(cardNumber))
+        {
+            _error = "No active card found for this member.";
+            return;
+        }
+        _cardToRemove = cardNumber;
+        _showRemoveCardModal = true;
+    }
+
+    private void CancelRemoveCard()
+    {
+        _showRemoveCardModal = false;
+        _cardToRemove = string.Empty;
+    }
+
+    private async Task ConfirmRemoveCard()
+    {
+        _removingCard = true;
+        _error = string.Empty;
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var performedBy = currentUser?.Username ?? "Unknown";
+            var userId = currentUser?.UserId;
+            await MemberAccessService.RemoveCardAsync(MemberId, _cardToRemove, performedBy, userId);
+            _showRemoveCardModal = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error removing card {CardNumber} for member {MemberId}", _cardToRemove, MemberId);
+            _error = "Failed to remove card: " + ex.Message;
+        }
+        finally
+        {
+            _removingCard = false;
+        }
+    }
+
+    private async Task ShowClearAllConfirm(int controllerId, string controllerName)
+    {
+        _clearingControllerId = controllerId;
+        _clearingControllerName = controllerName;
+        _clearAllConfirmText = string.Empty;
+        _clearAllCommandInfo = await CommandInfoService.GetByKeyAsync("ClearAllCards");
+        _showClearAllModal = true;
+    }
+
+    private void CancelClearAll()
+    {
+        _showClearAllModal = false;
+        _clearingControllerId = null;
+        _clearingControllerName = string.Empty;
+        _clearAllConfirmText = string.Empty;
+        _clearAllCommandInfo = null;
+    }
+
+    private async Task ConfirmClearAll()
+    {
+        if (_clearAllConfirmText != "CONFIRM" || !_clearingControllerId.HasValue)
+        {
+            return;
+        }
+
+        _clearingAll = true;
+        _error = string.Empty;
+        try
+        {
+            await MemberAccessService.ClearAllPrivilegesAsync(_clearingControllerId.Value);
+            _showClearAllModal = false;
+            await LoadData();
+        }
+        catch (SimulationModeBlockedException ex)
+        {
+            Logger.LogWarning(ex, "Blocked clear all privileges request for controller {ControllerId}", _clearingControllerId);
+            _error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error clearing all privileges for controller {ControllerId}", _clearingControllerId);
+            _error = "Failed to clear all privileges: " + ex.Message;
+        }
+        finally
+        {
+            _clearingAll = false;
+            _clearingControllerId = null;
+        }
+    }
+
+    private string GetEligibilityWarning()
+    {
+        if (_memberEligibility is not KeyCardEligibilityResult eligibility)
+        {
+            return "This member is not eligible for key card privileges.";
+        }
+
+        var reasons = new List<string>();
+
+        if (!eligibility.StatusAllowed)
+        {
+            reasons.Add("Member status must be Regular/Life or approved Guest.");
+        }
+
+        if (!eligibility.CurrentYearSatisfied)
+        {
+            reasons.Add("Current-year dues must be paid or waived.");
+        }
+        else if (!eligibility.PreviousYearSatisfied && !eligibility.GracePeriodActive)
+        {
+            reasons.Add("Previous-year dues must be satisfied outside the grace period.");
+        }
+
+        if (reasons.Count == 0)
+        {
+            reasons.Add("Member is not in good standing for key card access.");
+        }
+
+        return string.Join(" ", reasons);
+    }
+
+    private async Task LoadControllerModeAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
+            _useRealControllers = false;
+        }
+    }
+}

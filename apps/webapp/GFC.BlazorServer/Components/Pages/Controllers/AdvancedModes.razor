@@ -1,0 +1,598 @@
+@page "/controllers/advanced-modes"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject ControllerRegistryService RegistryService
+@inject AutoOpenAndAdvancedModesService AdvancedModesService
+@inject GFC.BlazorServer.Services.Controllers.IControllerClient ControllerClient
+@inject CommandInfoService CommandInfoService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ISystemSettingsService SystemSettingsService
+@inject NavigationManager Navigation
+@inject ILogger<AdvancedModes> Logger
+@inject GfcDbContext DbContext
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Advanced Door Modes - GFC Controllers</PageTitle>
+
+<h1 class="page-title">Advanced Door Modes</h1>
+
+@if (_useRealControllers)
+{
+    <span class="badge bg-success mb-3">
+        <i class="bi bi-hdd-network"></i> Real Controller Mode
+    </span>
+}
+else
+{
+    <span class="badge bg-warning text-dark mb-3">
+        <i class="bi bi-cpu"></i> Simulation Mode (NO real hardware writes)
+    </span>
+}
+
+@if (!_useRealControllers)
+{
+    <div class="alert alert-info mb-3">
+        <strong>Simulation Mode (NO real hardware writes):</strong> No real controller changes will be sent. All operations will only affect the database.
+    </div>
+}
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_successMessage != null)
+{
+    <div class="alert alert-success">@_successMessage</div>
+}
+
+@if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="data-card">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3>Controllers</h3>
+            <div>
+                <select class="form-select form-select-sm" style="width: auto; display: inline-block;" @bind="_selectedControllerId" @bind:after="OnControllerSelected">
+                    <option value="0">Select a controller...</option>
+                    @foreach (var controller in _controllers)
+                    {
+                        <option value="@controller.Id">@controller.Name</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        @if (_selectedController == null)
+        {
+            <div class="alert alert-info">
+                <p class="mb-0">No controller selected. Please select a controller from the dropdown above to configure advanced door modes.</p>
+            </div>
+        }
+        else
+        {
+            <div class="mb-3">
+                <h4>@_selectedController.Name</h4>
+                <p class="text-muted small mb-3">
+                    Serial: @_selectedController.SerialNumber | IP: @_selectedController.IpAddress
+                </p>
+            </div>
+
+            @if (_commandInfo != null)
+            {
+                <div class="alert alert-@(_commandInfo.RiskLevel >= 2 ? "warning" : "info") mb-3">
+                    <strong>@_commandInfo.DisplayName</strong> (Risk Level: @_commandInfo.RiskLevel / 3)
+                    <br />
+                    <small>@_commandInfo.ShortDescription</small>
+                </div>
+            }
+
+            <div class="data-card mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5>Controller Options</h5>
+                </div>
+                <p class="text-muted small mb-3">Global controller behavior settings.</p>
+
+                @if (_controllerBehavior != null)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Valid Swipe Gap (seconds)</label>
+                        <input type="number" class="form-control" 
+                               style="width:150px;" 
+                               min="0" max="60"
+                               @bind="_controllerBehavior.ValidSwipeGapSeconds" 
+                               @bind:event="oninput" />
+                        <small class="text-muted">Time window between valid card swipes (0-60 seconds).</small>
+                    </div>
+                    <div class="mb-3">
+                        <span class="badge @GetStatusBadgeClass(_controllerBehavior.ControllerStatusState)">
+                            @GetStatusText(_controllerBehavior.ControllerStatusState)
+                        </span>
+                    </div>
+                }
+            </div>
+
+            <div class="data-card mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5>Door Advanced Modes & Warnings</h5>
+                </div>
+                <p class="text-muted small mb-3">Per-door behavior options and warning settings.</p>
+
+                <table class="data-table table-compact">
+                    <thead>
+                        <tr>
+                            <th>Door</th>
+                            <th>First Card Open</th>
+                            <th>Door as Switch</th>
+                            <th>Open Too Long Warn</th>
+                            <th>Invalid 3 Cards Warn</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_doorModes.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">No doors configured for this controller.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var model in _doorModes)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@model.DoorName</strong>
+                                        <br /><small class="text-muted">Index: @model.DoorIndex</small>
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" class="form-check-input" @bind="model.FirstCardOpenEnabled" />
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" class="form-check-input" @bind="model.DoorAsSwitchEnabled" />
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" class="form-check-input" @bind="model.OpenTooLongWarnEnabled" />
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" class="form-check-input" @bind="model.Invalid3CardsWarnEnabled" />
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetStatusBadgeClass(model.ControllerStatusState)">
+                                            @GetStatusText(model.ControllerStatusState)
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <button class="btn btn-outline-primary" @onclick="SaveToDb" disabled="@(_isSaving || _isSyncing)">
+                    <i class="bi bi-save"></i> Save (DB only)
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="RefreshFromController" disabled="@(_isLoading || _isSyncing)">
+                    <i class="bi bi-arrow-down-circle"></i> Refresh from Controller
+                </button>
+                <button class="btn btn-primary"
+                        @onclick="ShowSyncConfirmationModal"
+                        disabled="@(_isLoading || _isSaving || _isSyncing || _selectedController?.IsEnabled != true || !_useRealControllers)"
+                        title="@(!_useRealControllers ? "Disabled while in Simulation Mode. Enable 'Use real controllers' in Settings to sync hardware." : _syncTooltip)">
+                    <i class="bi bi-cloud-upload"></i> Sync DB to Controller
+                </button>
+            </div>
+            @if (!_useRealControllers)
+            {
+                <small class="text-muted d-block mt-2">Syncing to hardware stays disabled while Simulation Mode is active.</small>
+            }
+        }
+    </div>
+}
+
+@* Sync Confirmation Modal *@
+@if (_showSyncConfirmation)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Sync Advanced Door Modes</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSyncConfirmation"></button>
+                </div>
+                <div class="modal-body">
+                    @if (_commandInfo != null)
+                    {
+                        <div class="alert alert-info">
+                            <strong>@_commandInfo.DisplayName</strong> (Risk Level: @_commandInfo.RiskLevel)<br />
+                            <small>@_commandInfo.ShortDescription</small>
+                        </div>
+                    }
+                    <p>
+                        This will sync advanced door modes and controller behavior to controller <strong>@(_selectedController?.Name ?? "Unknown")</strong>.
+                    </p>
+                    <p class="text-muted small">
+                        Doors configured: @_doorModes.Count<br />
+                        Valid Swipe Gap: @(_controllerBehavior?.ValidSwipeGapSeconds ?? 3) seconds
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseSyncConfirmation" disabled="@_isSyncing">Cancel</button>
+                    <button class="btn btn-primary" @onclick="ConfirmSyncToController" disabled="@_isSyncing">
+                        @(_isSyncing ? "Syncing..." : "Confirm Sync")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ControllerDevice> _controllers = new();
+    private ControllerDevice? _selectedController;
+    private int _selectedControllerId = 0;
+    private List<DoorAdvancedModeViewModel> _doorModes = new();
+    private ControllerBehaviorViewModel? _controllerBehavior;
+    private bool _isLoading = false;
+    private bool _isSaving = false;
+    private bool _isSyncing = false;
+    private bool _useRealControllers = false;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private string _syncTooltip = "Sync advanced door modes to controller";
+    private ControllerCommandInfo? _commandInfo;
+    private bool _isUnauthorized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            var isAdmin = await CheckAdminAccess();
+            if (!isAdmin)
+            {
+                _isUnauthorized = true;
+                _isLoading = false;
+                return;
+            }
+            await LoadControllerModeAsync();
+            await LoadControllers();
+            await LoadCommandInfo();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isUnauthorized)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task<bool> CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            isAdmin = currentUser?.IsAdmin == true;
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Advanced Modes page");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task LoadControllers()
+    {
+        try
+        {
+            _controllers = (await RegistryService.GetControllersAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load controllers");
+            _errorMessage = "Failed to load controllers: " + ex.Message;
+        }
+    }
+
+    private async Task LoadCommandInfo()
+    {
+        try
+        {
+            _commandInfo = await CommandInfoService.GetByKeyAsync("SyncAdvancedDoorModes");
+            if (_commandInfo != null)
+            {
+                _syncTooltip = $"{_commandInfo.DisplayName} (Risk Level {_commandInfo.RiskLevel}): {_commandInfo.ShortDescription}";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load command info");
+        }
+    }
+
+    private async Task OnControllerSelected()
+    {
+        if (_selectedControllerId == 0)
+        {
+            _selectedController = null;
+            _doorModes = new();
+            _controllerBehavior = null;
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            _selectedController = await RegistryService.GetControllerByIdAsync(_selectedControllerId);
+            if (_selectedController == null)
+            {
+                _errorMessage = "Controller not found.";
+                return;
+            }
+
+            _doorModes = await AdvancedModesService.GetDoorAdvancedModesForControllerAsync(_selectedControllerId);
+            _controllerBehavior = await AdvancedModesService.GetControllerBehaviorAsync(_selectedControllerId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load advanced modes data");
+            _errorMessage = "Failed to load advanced modes configuration: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string GetStatusBadgeClass(ControllerStatusState state)
+    {
+        return state switch
+        {
+            ControllerStatusState.InSync => "bg-success",
+            ControllerStatusState.OutOfSync => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetStatusText(ControllerStatusState state)
+    {
+        return state switch
+        {
+            ControllerStatusState.InSync => "In Sync",
+            ControllerStatusState.OutOfSync => "Differs from controller",
+            _ => "Unknown"
+        };
+    }
+
+    private async Task SaveToDb()
+    {
+        if (_selectedController == null) return;
+
+        _isSaving = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            await AdvancedModesService.SaveDoorAdvancedModesAsync(_selectedController.Id, _doorModes);
+            if (_controllerBehavior != null)
+            {
+                await AdvancedModesService.SaveControllerBehaviorAsync(_controllerBehavior);
+            }
+            _successMessage = "Advanced modes configuration saved to database.";
+            
+            // Audit log
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var userName = currentUser?.Username ?? Environment.UserName ?? "System";
+            DbContext.ControllerCommandLogs.Add(new ControllerCommandLog
+            {
+                ControllerId = _selectedController.Id,
+                Action = "SaveAdvancedModesConfig",
+                Success = true,
+                TimestampUtc = DateTime.UtcNow
+            });
+            await DbContext.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save advanced modes config");
+            _errorMessage = "Failed to save configuration: " + ex.Message;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task RefreshFromController()
+    {
+        if (_selectedController == null) return;
+
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Refresh advanced door modes from controller '{_selectedController.Name}'?\n\nThis will overwrite the database with the controller's current configuration."))
+        {
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var report = await AdvancedModesService.RefreshFromControllerAsync(_selectedController.Id, ControllerClient);
+            if (report.Success)
+            {
+                _successMessage = $"Configuration refreshed from controller '{_selectedController.Name}'.";
+                await OnControllerSelected();
+                
+                // Audit log
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                var userName = currentUser?.Username ?? Environment.UserName ?? "System";
+                DbContext.ControllerCommandLogs.Add(new ControllerCommandLog
+                {
+                    ControllerId = _selectedController.Id,
+                    Action = "RefreshAdvancedModesFromController",
+                    Success = true,
+                    TimestampUtc = DateTime.UtcNow
+                });
+                await DbContext.SaveChangesAsync();
+            }
+            else
+            {
+                if (report.Message?.Contains("501") == true || report.Message?.Contains("NotImplemented") == true)
+                {
+                    _errorMessage = "Advanced door modes configuration read is not implemented in Agent/firmware.";
+                }
+                else
+                {
+                    _errorMessage = $"Refresh failed for '{_selectedController.Name}': {report.Message ?? "Unknown error"}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to refresh from controller");
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _errorMessage = "Advanced door modes configuration read is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _errorMessage = $"Failed to refresh from controller '{_selectedController.Name}': {ex.Message}";
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private bool _showSyncConfirmation;
+
+    private void ShowSyncConfirmationModal()
+    {
+        if (_selectedController == null || !_selectedController.IsEnabled)
+        {
+            _errorMessage = "Controller must be enabled before syncing.";
+            return;
+        }
+        if (!_useRealControllers)
+        {
+            _errorMessage = "Sync is disabled while Simulation Mode is enabled.";
+            return;
+        }
+        _showSyncConfirmation = true;
+    }
+
+    private void CloseSyncConfirmation()
+    {
+        _showSyncConfirmation = false;
+    }
+
+    private async Task SyncToController()
+    {
+        ShowSyncConfirmationModal();
+    }
+
+    private async Task ConfirmSyncToController()
+    {
+        if (_selectedController == null || !_selectedController.IsEnabled || !_useRealControllers) return;
+
+        _isSyncing = true;
+        _errorMessage = null;
+        _successMessage = null;
+        CloseSyncConfirmation();
+
+        try
+        {
+            var report = await AdvancedModesService.SyncAdvancedModesToControllerAsync(_selectedController.Id, ControllerClient);
+            if (report.Success)
+            {
+                _successMessage = $"Advanced door modes configuration synced successfully to controller '{_selectedController.Name}'.";
+                Logger.LogInformation("Advanced door modes config synced to controller {ControllerId}", _selectedController.Id);
+                
+                // Audit log
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                var userName = currentUser?.Username ?? Environment.UserName ?? "System";
+                DbContext.ControllerCommandLogs.Add(new ControllerCommandLog
+                {
+                    ControllerId = _selectedController.Id,
+                    Action = "SyncAdvancedModesToController",
+                    Success = true,
+                    TimestampUtc = DateTime.UtcNow
+                });
+                await DbContext.SaveChangesAsync();
+            }
+            else
+            {
+                if (report.Message?.Contains("501") == true || report.Message?.Contains("NotImplemented") == true)
+                {
+                    _errorMessage = "Advanced door modes configuration sync is not implemented in Agent/firmware.";
+                }
+                else
+                {
+                    _errorMessage = $"Sync failed for '{_selectedController.Name}': {report.Message ?? "Unknown error"}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to sync advanced door modes config to controller");
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _errorMessage = "Advanced door modes configuration sync is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _errorMessage = $"Failed to sync configuration to '{_selectedController.Name}': {ex.Message}";
+            }
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
+    }
+
+    private async Task LoadControllerModeAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
+            _useRealControllers = false;
+        }
+    }
+}

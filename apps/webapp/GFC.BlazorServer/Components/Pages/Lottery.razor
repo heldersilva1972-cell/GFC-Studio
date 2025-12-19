@@ -1,0 +1,433 @@
+@page "/lottery"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using System.ComponentModel.DataAnnotations
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.DTOs
+
+<style>
+    /* Hide number input spinners */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    input[type="number"] {
+        -moz-appearance: textfield;
+    }
+</style>
+
+<h1 class="page-title">Lottery Sales Management</h1>
+
+<div class="toolbar gap-2 flex-wrap mb-3">
+    <button class="btn btn-success btn-sm" @onclick="StartAddShift">
+        <i class="bi bi-plus-circle"></i> Add Shift
+    </button>
+    <div class="d-flex gap-2 align-items-center">
+        <label class="form-label mb-0">From:</label>
+        <input type="date" class="form-control form-control-sm" style="width: 150px;" @bind="_filterStartDate" @bind:after="OnFilterChanged" />
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+        <label class="form-label mb-0">To:</label>
+        <input type="date" class="form-control form-control-sm" style="width: 150px;" @bind="_filterEndDate" @bind:after="OnFilterChanged" />
+    </div>
+    <select class="form-select form-select-sm" style="width: 150px;" @bind="_filterEmployee" @bind:after="OnFilterChanged">
+        <option value="">All Employees</option>
+        @foreach (var emp in _employeeNames)
+        {
+            <option value="@emp">@emp</option>
+        }
+    </select>
+    <div class="pill-tabs">
+        <button class="@(_showReconciled == null ? "active" : null)" @onclick="() => ChangeReconciledFilter(null)">All</button>
+        <button class="@(_showReconciled == false ? "active" : null)" @onclick="() => ChangeReconciledFilter(false)">Unreconciled</button>
+        <button class="@(_showReconciled == true ? "active" : null)" @onclick="() => ChangeReconciledFilter(true)">Reconciled</button>
+    </div>
+    <div class="pill-tabs">
+        <button class="@(_viewMode == "shifts" ? "active" : null)" @onclick='() => ChangeViewMode("shifts")'>Shifts</button>
+        <button class="@(_viewMode == "daily" ? "active" : null)" @onclick='() => ChangeViewMode("daily")'>Daily</button>
+        <button class="@(_viewMode == "weekly" ? "active" : null)" @onclick='() => ChangeViewMode("weekly")'>Weekly</button>
+        <button class="@(_viewMode == "monthly" ? "active" : null)" @onclick='() => ChangeViewMode("monthly")'>Monthly</button>
+    </div>
+</div>
+
+@* Summary Statistics *@
+@if (_viewMode == "shifts" && _shifts.Any())
+{
+    <div class="row mb-3">
+        <div class="col-md-3">
+            <div class="data-card">
+                <div class="text-muted small">Total Sales</div>
+                <div class="h4 mb-0">@TotalSales.ToString("C")</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="data-card">
+                <div class="text-muted small">Total Payouts</div>
+                <div class="h4 mb-0">@TotalPayouts.ToString("C")</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="data-card">
+                <div class="text-muted small">Net Sales</div>
+                <div class="h4 mb-0">@TotalNetSales.ToString("C")</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="data-card">
+                <div class="text-muted small">Total Variance</div>
+                <div class="h4 mb-0 @(TotalVariance < 0 ? "text-danger" : TotalVariance > 0 ? "text-success" : "")">
+                    @TotalVariance.ToString("C")
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading lottery data...
+    </div>
+}
+
+@if (!_loading && !string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger">
+        @_error
+        @if (IsTableError)
+        {
+            <br /><br />
+            <strong>Database Setup Required:</strong> @("Please run the") <code>CreateLotteryTables.sql</code> @("script to create the necessary database tables.")
+            <br />
+            <small class="text-muted">Location: <code>WebApp/DatabaseScripts/CreateLotteryTables.sql</code></small>
+        }
+    </div>
+}
+
+@if (ShowContent && _viewMode == "shifts")
+{
+    @* Shifts List View *@
+    <div class="data-card">
+            <div class="table-container">
+            <table class="data-table table-compact table-sticky-header">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Employee</th>
+                        <th>Starting Cash</th>
+                        <th>Ending Cash</th>
+                        <th>Total Sales</th>
+                        <th>Total Payouts</th>
+                        <th>Total Cancels</th>
+                        <th>Net Sales</th>
+                        <th>Expected Cash</th>
+                        <th>Variance</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var shift in _shifts)
+                    {
+                        <tr class="@(shift.IsReconciled ? "table-success" : shift.Variance != 0 ? "table-warning" : "")">
+                            <td>@shift.ShiftDate.ToLocalTime().ToString("ddd, MMM d, yyyy h:mm tt")</td>
+                            <td>@shift.EmployeeName</td>
+                            <td>@shift.StartingCash.ToString("C")</td>
+                            <td>@shift.EndingCash.ToString("C")</td>
+                            <td>@shift.TotalSales.ToString("C")</td>
+                            <td>@shift.TotalPayouts.ToString("C")</td>
+                            <td>@shift.TotalCancels.ToString("C")</td>
+                            <td>@shift.NetSales.ToString("C")</td>
+                            <td>@shift.ExpectedCash.ToString("C")</td>
+                            <td class="@(shift.Variance < 0 ? "text-danger" : shift.Variance > 0 ? "text-success" : "")">
+                                @shift.Variance.ToString("C")
+                            </td>
+                            <td>
+                                @if (shift.IsReconciled)
+                                {
+                                    <span class="badge bg-success">Reconciled</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning">Unreconciled</span>
+                                }
+                            </td>
+                            <td>
+                                <div class="table-actions">
+                                    <button class="btn btn-outline btn-sm" @onclick="() => EditShift(shift.ShiftId)" title="Edit">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    @if (!shift.IsReconciled)
+                                    {
+                                        <button class="btn btn-outline-success btn-sm" @onclick="() => MarkReconciled(shift.ShiftId)" title="Mark Reconciled">
+                                            <i class="bi bi-check-circle"></i>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-outline-warning btn-sm" @onclick="() => MarkUnreconciled(shift.ShiftId)" title="Mark Unreconciled">
+                                            <i class="bi bi-x-circle"></i>
+                                        </button>
+                                    }
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDelete(shift.ShiftId)" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (ShowContent && _viewMode == "daily")
+{
+        @* Daily Summary View *@
+        <div class="data-card">
+            <h4>Daily Summaries</h4>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Shifts</th>
+                            <th>Total Sales</th>
+                            <th>Total Payouts</th>
+                            <th>Total Cancels</th>
+                            <th>Net Sales</th>
+                            <th>Total Variance</th>
+                            <th>Avg Variance</th>
+                            <th>Variance Count</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var summary in _dailySummaries)
+                        {
+                            <tr>
+                                <td>@summary.PeriodLabel</td>
+                                <td>@summary.ShiftCount</td>
+                                <td>@summary.TotalSales.ToString("C")</td>
+                                <td>@summary.TotalPayouts.ToString("C")</td>
+                                <td>@summary.TotalCancels.ToString("C")</td>
+                                <td>@summary.TotalNetSales.ToString("C")</td>
+                                <td class="@(summary.TotalVariance < 0 ? "text-danger" : summary.TotalVariance > 0 ? "text-success" : "")">
+                                    @summary.TotalVariance.ToString("C")
+                                </td>
+                                <td>@summary.AverageVariance.ToString("C")</td>
+                                <td>@summary.VarianceCount</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+        </div>
+    </div>
+}
+
+@if (ShowContent && _viewMode == "weekly")
+{
+        @* Weekly Summary View *@
+        <div class="data-card">
+            <h4>Weekly Summaries</h4>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Week</th>
+                            <th>Shifts</th>
+                            <th>Total Sales</th>
+                            <th>Total Payouts</th>
+                            <th>Net Sales</th>
+                            <th>Total Variance</th>
+                            <th>Avg Variance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var summary in _weeklySummaries)
+                        {
+                            <tr>
+                                <td>@summary.PeriodLabel</td>
+                                <td>@summary.ShiftCount</td>
+                                <td>@summary.TotalSales.ToString("C")</td>
+                                <td>@summary.TotalPayouts.ToString("C")</td>
+                                <td>@summary.TotalNetSales.ToString("C")</td>
+                                <td class="@(summary.TotalVariance < 0 ? "text-danger" : summary.TotalVariance > 0 ? "text-success" : "")">
+                                    @summary.TotalVariance.ToString("C")
+                                </td>
+                                <td>@summary.AverageVariance.ToString("C")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+        </div>
+    </div>
+}
+
+@if (ShowContent && _viewMode == "monthly")
+{
+        @* Monthly Summary View *@
+        <div class="data-card">
+            <h4>Monthly Summaries for @_selectedYear</h4>
+            <div class="d-flex gap-2 mb-3">
+                <button class="btn btn-sm btn-outline" @onclick="() => ChangeYear(_selectedYear - 1)">Previous Year</button>
+                <button class="btn btn-sm btn-outline" @onclick="() => ChangeYear(_selectedYear + 1)">Next Year</button>
+            </div>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Month</th>
+                            <th>Shifts</th>
+                            <th>Total Sales</th>
+                            <th>Total Payouts</th>
+                            <th>Net Sales</th>
+                            <th>Total Variance</th>
+                            <th>Avg Variance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var summary in _monthlySummaries)
+                        {
+                            <tr>
+                                <td>@summary.PeriodLabel</td>
+                                <td>@summary.ShiftCount</td>
+                                <td>@summary.TotalSales.ToString("C")</td>
+                                <td>@summary.TotalPayouts.ToString("C")</td>
+                                <td>@summary.TotalNetSales.ToString("C")</td>
+                                <td class="@(summary.TotalVariance < 0 ? "text-danger" : summary.TotalVariance > 0 ? "text-success" : "")">
+                                    @summary.TotalVariance.ToString("C")
+                                </td>
+                                <td>@summary.AverageVariance.ToString("C")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+}
+
+@* Add/Edit Shift Modal *@
+@if (_showShiftModal)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 700px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">@(_editingShiftId.HasValue ? "Edit Shift" : "Add Shift")</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelShiftModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_modalError))
+        {
+            <div class="alert alert-danger mb-3">
+                <strong>Error:</strong> @_modalError
+            </div>
+        }
+
+        <EditForm Model="@_shiftForm" OnValidSubmit="SaveShift">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="alert alert-danger" />
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Shift Date <span class="text-danger">*</span></label>
+                    <InputDate class="form-control" @bind-Value="_shiftForm.ShiftDate" />
+                    <ValidationMessage For="@(() => _shiftForm.ShiftDate)" />
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Employee Name <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="_shiftForm.EmployeeName" />
+                    <ValidationMessage For="@(() => _shiftForm.EmployeeName)" />
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Starting Cash <span class="text-danger">*</span></label>
+                    <InputNumber class="form-control" @bind-Value="_shiftForm.StartingCash" step="0.01" />
+                    <ValidationMessage For="@(() => _shiftForm.StartingCash)" />
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Ending Cash <span class="text-danger">*</span></label>
+                    <InputNumber class="form-control" @bind-Value="_shiftForm.EndingCash" step="0.01" />
+                    <ValidationMessage For="@(() => _shiftForm.EndingCash)" />
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Total Sales (from machine) <span class="text-danger">*</span></label>
+                    <InputNumber class="form-control" @bind-Value="_shiftForm.TotalSales" step="0.01" />
+                    <ValidationMessage For="@(() => _shiftForm.TotalSales)" />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Total Payouts (from machine) <span class="text-danger">*</span></label>
+                    <InputNumber class="form-control" @bind-Value="_shiftForm.TotalPayouts" step="0.01" />
+                    <ValidationMessage For="@(() => _shiftForm.TotalPayouts)" />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Total Cancels (from machine) <span class="text-danger">*</span></label>
+                    <InputNumber class="form-control" @bind-Value="_shiftForm.TotalCancels" step="0.01" />
+                    <ValidationMessage For="@(() => _shiftForm.TotalCancels)" />
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Calculated Values</label>
+                <div class="bg-light p-2 rounded">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div><strong>Net Sales:</strong></div>
+                            <div>@_shiftForm.NetSales.ToString("C")</div>
+                        </div>
+                        <div class="col-md-4">
+                            <div><strong>Expected Cash:</strong></div>
+                            <div>@_shiftForm.ExpectedCash.ToString("C")</div>
+                        </div>
+                        <div class="col-md-4">
+                            <div><strong>Variance:</strong></div>
+                            <div class="@(_shiftForm.Variance < 0 ? "text-danger" : _shiftForm.Variance > 0 ? "text-success" : "")">
+                                @_shiftForm.Variance.ToString("C")
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Notes</label>
+                <InputTextArea class="form-control" rows="3" @bind-Value="_shiftForm.Notes" />
+            </div>
+            <div class="modal-card__actions">
+                <button type="submit" class="btn btn-primary" disabled="@_savingShift">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_savingShift)"></span>
+                    Save
+                </button>
+                <button type="button" class="btn btn-outline" @onclick="CancelShiftModal">Cancel</button>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (_showDeleteModal)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 400px;">
+        <div class="modal-card__header">
+            <h4>Confirm Delete</h4>
+        </div>
+        <div class="modal-card__body">
+            <p>Are you sure you want to delete this shift record? This action cannot be undone.</p>
+        </div>
+        <div class="modal-card__actions">
+            <button class="btn btn-danger" disabled="@_deletingShift" @onclick="DeleteShiftConfirmed">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_deletingShift)"></span>
+                Delete
+            </button>
+            <button class="btn btn-outline" @onclick="CancelDelete" disabled="@_deletingShift">Cancel</button>
+        </div>
+    </div>
+}
+
+

@@ -1,0 +1,449 @@
+@page "/reimbursements/manage"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@inject ReimbursementService ReimbursementService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<Manage> Logger
+
+<h1 class="page-title">Manage Reimbursements</h1>
+
+<div class="data-card mb-3">
+    <h3>Filters</h3>
+    <div class="row">
+        <div class="col-md-3">
+            <label class="form-label">Status</label>
+            <select class="form-select" @bind="_filterStatus" @bind:after="LoadRequests">
+                <option value="">All</option>
+                <option value="Draft">Draft</option>
+                <option value="Submitted">Submitted</option>
+                <option value="Approved">Approved</option>
+                <option value="Rejected">Rejected</option>
+                <option value="Paid">Paid</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Start Date</label>
+            <InputDate class="form-control" @bind-Value="_filterStartDate" @bind:after="LoadRequests" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">End Date</label>
+            <InputDate class="form-control" @bind-Value="_filterEndDate" @bind:after="LoadRequests" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Member</label>
+            <input type="text" class="form-control" placeholder="Member ID" @bind="_filterMemberIdText" @bind:after="LoadRequests" />
+        </div>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading requests...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="alert @(_operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
+    }
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Request #</th>
+                            <th>Requestor</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Amount</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_requests.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">No requests found.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var request in _requests)
+                            {
+                                <tr class="@(_selectedRequest?.Id == request.Id ? "table-active" : "")" style="cursor: pointer;" @onclick="() => SelectRequest(request.Id)">
+                                    <td>@request.Id</td>
+                                    <td>@GetMemberName(request.RequestorMemberId)</td>
+                                    <td>@request.RequestDate.ToString("MMM d, yyyy")</td>
+                                    <td>
+                                        <span class="badge @GetStatusBadgeClass(request.Status)">@request.Status</span>
+                                    </td>
+                                    <td>@request.TotalAmount.ToString("C2")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => SelectRequest(request.Id)" @onclick:stopPropagation="true">View</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="col-md-4">
+            @if (_selectedRequest != null)
+            {
+                <div class="data-card">
+                    <h3>Request #@_selectedRequest.Id</h3>
+                    <div class="mb-3">
+                        <strong>Requestor:</strong> @GetMemberName(_selectedRequest.RequestorMemberId)<br />
+                        <strong>Date:</strong> @_selectedRequest.RequestDate.ToString("MMM d, yyyy")<br />
+                        <strong>Status:</strong> <span class="badge @GetStatusBadgeClass(_selectedRequest.Status)">@_selectedRequest.Status</span><br />
+                        <strong>Total:</strong> @_selectedRequest.TotalAmount.ToString("C2")
+                    </div>
+
+                    <h5>Items</h5>
+                    <div class="table-container">
+                        <table class="data-table table-compact">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Category</th>
+                                    <th>Amount</th>
+                                    <th>Receipts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in _selectedRequest.Items)
+                                {
+                                    <tr>
+                                        <td>@item.ExpenseDate.ToString("MMM d")</td>
+                                        <td>@item.Category.Name</td>
+                                        <td>@item.Amount.ToString("C2")</td>
+                                        <td>@item.ReceiptFiles.Count</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_selectedRequest.Notes))
+                    {
+                        <div class="mt-3">
+                            <strong>Notes:</strong>
+                            <p>@_selectedRequest.Notes</p>
+                        </div>
+                    }
+
+                    @if (_selectedRequest.Status == "Submitted")
+                    {
+                        <div class="mt-3 d-flex gap-2">
+                            <button class="btn btn-success" @onclick="ApproveRequest" disabled="@_saving">
+                                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                                Approve
+                            </button>
+                            <button class="btn btn-danger" @onclick="ShowRejectModal" disabled="@_saving">Reject</button>
+                        </div>
+                    }
+                    else if (_selectedRequest.Status == "Approved")
+                    {
+                        <div class="mt-3">
+                            <button class="btn btn-primary" @onclick="MarkPaid" disabled="@_saving">
+                                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                                Mark as Paid
+                            </button>
+                        </div>
+                    }
+
+                    <h5 class="mt-4">Change History</h5>
+                    <div class="table-container">
+                        <table class="data-table table-compact">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Changed By</th>
+                                    <th>Field</th>
+                                    <th>Change</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var log in _changeHistory)
+                                {
+                                    <tr>
+                                        <td>@log.ChangeUtc.ToString("MMM d, yyyy HH:mm")</td>
+                                        <td>@GetMemberName(log.ChangedByMemberId)</td>
+                                        <td>@log.FieldName</td>
+                                        <td>
+                                            @if (!string.IsNullOrWhiteSpace(log.OldValue))
+                                            {
+                                                <span class="text-muted">@log.OldValue</span> <i class="bi bi-arrow-right"></i>
+                                            }
+                                            <strong>@log.NewValue</strong>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* Reject Modal *@
+@if (_showRejectModal)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Reject Request</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CloseRejectModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Rejection Reason <span class="text-danger">*</span></label>
+            <textarea class="form-control" rows="4" @bind="_rejectReason"></textarea>
+        </div>
+        <div class="modal-card__actions">
+            <button class="btn btn-danger" @onclick="ConfirmReject" disabled="@(_saving || string.IsNullOrWhiteSpace(_rejectReason))">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                Confirm Reject
+            </button>
+            <button class="btn btn-outline" type="button" @onclick="CloseRejectModal" disabled="@_saving">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _saving = false;
+    private string? _errorMessage;
+    private string? _operationMessage;
+    private bool _operationError;
+    private List<ReimbursementRequest> _requests = new();
+    private ReimbursementRequest? _selectedRequest;
+    private List<ReimbursementChangeLog> _changeHistory = new();
+    private string? _filterStatus;
+    private DateTime? _filterStartDate;
+    private DateTime? _filterEndDate;
+    private string _filterMemberIdText = string.Empty;
+    private bool _showRejectModal = false;
+    private string _rejectReason = string.Empty;
+    private int? _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            _currentUserId = user?.MemberId;
+            await LoadRequests();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize manage page");
+            _errorMessage = "There was a problem loading reimbursements. Please check logs.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadRequests()
+    {
+        _loading = true;
+        _errorMessage = null;
+
+        try
+        {
+            int? memberId = null;
+            if (!string.IsNullOrWhiteSpace(_filterMemberIdText) && int.TryParse(_filterMemberIdText, out var parsedId))
+            {
+                memberId = parsedId;
+            }
+
+            _requests = await ReimbursementService.GetRequestsAsync(
+                status: _filterStatus,
+                startDate: _filterStartDate,
+                endDate: _filterEndDate,
+                memberId: memberId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load requests");
+            _errorMessage = "Failed to load reimbursement requests.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SelectRequest(int requestId)
+    {
+        try
+        {
+            _selectedRequest = await ReimbursementService.GetRequestAsync(requestId);
+            if (_selectedRequest != null)
+            {
+                _changeHistory = await ReimbursementService.GetHistoryAsync(requestId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load request {RequestId}", requestId);
+            _operationError = true;
+            _operationMessage = "Failed to load request details.";
+        }
+    }
+
+    private async Task ApproveRequest()
+    {
+        if (_selectedRequest == null || _currentUserId == null) return;
+
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Approve reimbursement request #{_selectedRequest.Id}?"))
+        {
+            return;
+        }
+
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            await ReimbursementService.ApproveAsync(_selectedRequest.Id, _currentUserId.Value);
+            await SelectRequest(_selectedRequest.Id);
+            await LoadRequests();
+            _operationError = false;
+            _operationMessage = "Request approved successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to approve request");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void ShowRejectModal()
+    {
+        _rejectReason = string.Empty;
+        _showRejectModal = true;
+    }
+
+    private void CloseRejectModal()
+    {
+        _showRejectModal = false;
+        _rejectReason = string.Empty;
+    }
+
+    private async Task ConfirmReject()
+    {
+        if (_selectedRequest == null || _currentUserId == null || string.IsNullOrWhiteSpace(_rejectReason)) return;
+
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            await ReimbursementService.RejectAsync(_selectedRequest.Id, _currentUserId.Value, _rejectReason);
+            CloseRejectModal();
+            await SelectRequest(_selectedRequest.Id);
+            await LoadRequests();
+            _operationError = false;
+            _operationMessage = "Request rejected successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reject request");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task MarkPaid()
+    {
+        if (_selectedRequest == null || _currentUserId == null) return;
+
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Mark reimbursement request #{_selectedRequest.Id} as paid?"))
+        {
+            return;
+        }
+
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            await ReimbursementService.MarkPaidAsync(_selectedRequest.Id, _currentUserId.Value);
+            await SelectRequest(_selectedRequest.Id);
+            await LoadRequests();
+            _operationError = false;
+            _operationMessage = "Request marked as paid successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to mark request as paid");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private string GetMemberName(int memberId)
+    {
+        try
+        {
+            var member = MemberRepository.GetMemberById(memberId);
+            return member != null ? $"{member.FirstName} {member.LastName}" : $"Member #{memberId}";
+        }
+        catch
+        {
+            return $"Member #{memberId}";
+        }
+    }
+
+    private static string GetStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Draft" => "bg-secondary",
+            "Submitted" => "bg-info",
+            "Approved" => "bg-success",
+            "Rejected" => "bg-danger",
+            "Paid" => "bg-primary",
+            _ => "bg-secondary"
+        };
+    }
+}
+

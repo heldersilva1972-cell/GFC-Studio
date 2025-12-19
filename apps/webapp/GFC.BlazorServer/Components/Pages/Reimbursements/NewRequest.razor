@@ -1,0 +1,624 @@
+@page "/reimbursements/new"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@attribute [Authorize]
+@using System.Security.Claims
+@using System.ComponentModel.DataAnnotations
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@inject ReimbursementService ReimbursementService
+@inject ReceiptStorageService ReceiptStorageService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<NewRequest> Logger
+
+<h1 class="page-title">New Reimbursement Request</h1>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="alert @(_operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
+    }
+
+    <div class="data-card">
+        <h3>Request Information</h3>
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Requestor</label>
+                <input type="text" class="form-control" value="@_requestorName" readonly />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Request Date</label>
+                <input type="date" class="form-control" value="@_request.RequestDate.ToString("yyyy-MM-dd")" readonly />
+            </div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" rows="3" @bind="_request.Notes" disabled="@(_request.Status != "Draft")"></textarea>
+        </div>
+    </div>
+
+    <div class="data-card mt-3">
+        <h3>Expense Items</h3>
+        
+        @if (_request.Items.Count == 0)
+        {
+            <p class="text-muted">No items added yet. Click "Add Item" to start.</p>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="data-table table-compact">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Category</th>
+                            <th>Vendor</th>
+                            <th>Amount</th>
+                            <th>Notes</th>
+                            <th>Receipts</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _request.Items.OrderBy(i => i.ExpenseDate))
+                        {
+                            <tr>
+                                <td>@item.ExpenseDate.ToString("MMM d, yyyy")</td>
+                                <td>@item.Category.Name</td>
+                                <td>@(item.Vendor ?? "—")</td>
+                                <td>@item.Amount.ToString("C2")</td>
+                                <td>@(string.IsNullOrWhiteSpace(item.Notes) ? "—" : item.Notes)</td>
+                                <td>
+                                    @if (item.ReceiptFiles.Count > 0)
+                                    {
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @foreach (var receipt in item.ReceiptFiles)
+                                            {
+                                                <a href="/@receipt.RelativePath" target="_blank" class="badge bg-info text-decoration-none" title="@receipt.FileName">
+                                                    @if (IsImageFile(receipt.FileName))
+                                                    {
+                                                        <i class="bi bi-image"></i>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-file-earmark"></i>
+                                                    }
+                                                    @receipt.FileName
+                                                </a>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">None</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (_request.Status == "Draft")
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteItem(item.Id)" disabled="@_saving">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="3" class="text-end"><strong>Total:</strong></td>
+                            <td><strong>@_request.TotalAmount.ToString("C2")</strong></td>
+                            <td colspan="3"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        }
+
+        @if (_request.Status == "Draft")
+        {
+            <div class="mt-3">
+                <button class="btn btn-primary" @onclick="ShowAddItemModal" disabled="@_saving">
+                    <i class="bi bi-plus-circle"></i> Add Item
+                </button>
+            </div>
+        }
+    </div>
+
+    <div class="mt-3 d-flex gap-2">
+        @if (_request.Status == "Draft")
+        {
+            <button class="btn btn-secondary" @onclick="SaveDraft" disabled="@_saving">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                Save Draft
+            </button>
+            <button class="btn btn-success" @onclick="SubmitRequest" disabled="@(_saving || _request.Items.Count == 0)">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                Submit Request
+            </button>
+        }
+        else
+        {
+            <div class="alert alert-info">
+                <strong>Status:</strong> @_request.Status
+                <br />
+                This request has been submitted and cannot be edited.
+            </div>
+        }
+        <button class="btn btn-outline" @onclick="Cancel" disabled="@_saving">Cancel</button>
+    </div>
+}
+
+@* Add Item Modal *@
+@if (_showAddItemModal)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Add Expense Item</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CloseAddItemModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <EditForm Model="_newItem" OnValidSubmit="AddItem">
+            <DataAnnotationsValidator />
+            <div class="mb-3">
+                <label class="form-label">Expense Date <span class="text-danger">*</span></label>
+                <InputDate class="form-control" @bind-Value="_newItem.ExpenseDate" />
+                <ValidationMessage For="@(() => _newItem.ExpenseDate)" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Category <span class="text-danger">*</span></label>
+                <InputSelect class="form-select" @bind-Value="_newItem.CategoryId">
+                    <option value="">Select a category...</option>
+                    @foreach (var category in _categories)
+                    {
+                        <option value="@category.Id">@category.Name</option>
+                    }
+                </InputSelect>
+                <ValidationMessage For="@(() => _newItem.CategoryId)" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Vendor</label>
+                <InputText class="form-control" @bind-Value="_newItem.Vendor" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Amount <span class="text-danger">*</span></label>
+                <InputNumber class="form-control" @bind-Value="_newItem.Amount" step="0.01" />
+                <ValidationMessage For="@(() => _newItem.Amount)" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Notes</label>
+                <InputTextArea class="form-control" rows="3" @bind-Value="_newItem.Notes" />
+            </div>
+            <div class="modal-card__actions">
+                <button class="btn btn-primary" type="submit" disabled="@_saving">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                    Add Item
+                </button>
+                <button class="btn btn-outline" type="button" @onclick="CloseAddItemModal" disabled="@_saving">Cancel</button>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@* Attach Receipt Modal *@
+@if (_showReceiptModal && _selectedItemId.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Attach Receipt</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CloseReceiptModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Upload File</label>
+            <InputFile class="form-control" OnChange="HandleFileSelected" accept="image/*,.pdf" />
+        </div>
+        @if (_cameraSupported)
+        {
+            <div class="mb-3">
+                <label class="form-label">Or Capture Photo</label>
+                <button class="btn btn-outline-primary" @onclick="CapturePhoto" disabled="@_capturing">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_capturing)"></span>
+                    <i class="bi bi-camera"></i> Take Photo
+                </button>
+            </div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_receiptPreview))
+        {
+            <div class="mb-3">
+                <img src="@_receiptPreview" alt="Receipt preview" class="img-thumbnail" style="max-width: 300px;" />
+            </div>
+        }
+        <div class="modal-card__actions">
+            <button class="btn btn-primary" @onclick="UploadReceipt" disabled="@(_saving || string.IsNullOrWhiteSpace(_receiptPreview))">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                Upload Receipt
+            </button>
+            <button class="btn btn-outline" type="button" @onclick="CloseReceiptModal" disabled="@_saving">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private ReimbursementRequest _request = new();
+    private List<ReimbursementCategory> _categories = new();
+    private bool _loading = true;
+    private bool _saving = false;
+    private string? _errorMessage;
+    private string? _operationMessage;
+    private bool _operationError;
+    private int? _requestorMemberId;
+    private string _requestorName = string.Empty;
+    private bool _showAddItemModal = false;
+    private bool _showReceiptModal = false;
+    private int? _selectedItemId;
+    private ReimbursementItemDto _newItem = new();
+    private IBrowserFile? _selectedFile;
+    private string? _receiptPreview;
+    private bool _cameraSupported = false;
+    private bool _capturing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = AuthStateProvider.GetCurrentUser();
+            
+            if (user?.MemberId == null)
+            {
+                _errorMessage = "You must be associated with a member to create reimbursement requests.";
+                _loading = false;
+                return;
+            }
+
+            _requestorMemberId = user.MemberId.Value;
+            var member = MemberRepository.GetMemberById(_requestorMemberId.Value);
+            _requestorName = member != null ? $"{member.FirstName} {member.LastName}" : "Unknown";
+
+            _categories = await ReimbursementService.GetCategoriesAsync();
+
+            // Check camera support
+            _cameraSupported = await JSRuntime.InvokeAsync<bool>("eval", "!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)");
+
+            // Create new draft request
+            _request = await ReimbursementService.CreateDraftAsync(_requestorMemberId.Value);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize new reimbursement request");
+            _errorMessage = "Failed to initialize the request form.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ShowAddItemModal()
+    {
+        _newItem = new ReimbursementItemDto
+        {
+            ExpenseDate = DateTime.Today
+        };
+        _showAddItemModal = true;
+    }
+
+    private void CloseAddItemModal()
+    {
+        _showAddItemModal = false;
+        _newItem = new ReimbursementItemDto();
+    }
+
+    private async Task AddItem()
+    {
+        if (_request.Id == 0)
+        {
+            _operationError = true;
+            _operationMessage = "Request not initialized. Please refresh the page.";
+            return;
+        }
+
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            var item = await ReimbursementService.AddItemAsync(_request.Id, _newItem);
+            await ReloadRequest();
+            CloseAddItemModal();
+            _operationError = false;
+            _operationMessage = "Item added successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to add item");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteItem(int itemId)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this item?"))
+        {
+            return;
+        }
+
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            await ReimbursementService.DeleteItemAsync(itemId);
+            await ReloadRequest();
+            _operationError = false;
+            _operationMessage = "Item deleted successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete item");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task SaveDraft()
+    {
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            var dto = new ReimbursementRequestDto
+            {
+                Notes = _request.Notes
+            };
+            await ReimbursementService.UpdateDraftAsync(_request.Id, dto);
+            await ReloadRequest();
+            _operationError = false;
+            _operationMessage = "Draft saved successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save draft");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task SubmitRequest()
+    {
+        if (_request.Items.Count == 0)
+        {
+            _operationError = true;
+            _operationMessage = "Please add at least one expense item before submitting.";
+            return;
+        }
+
+        // Check receipt requirement
+        try
+        {
+            var settings = await ReimbursementService.GetSettingsAsync();
+            if (settings.ReceiptRequired)
+            {
+                var itemsWithoutReceipts = _request.Items.Where(i => !i.ReceiptFiles.Any()).ToList();
+                if (itemsWithoutReceipts.Any())
+                {
+                    _operationError = true;
+                    _operationMessage = $"Receipts are required for all items. Please attach receipts to all items before submitting.";
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to check receipt requirement");
+        }
+
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to submit this request? You will not be able to edit it after submission."))
+        {
+            return;
+        }
+
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            await ReimbursementService.SubmitAsync(_request.Id);
+            await ReloadRequest();
+            _operationError = false;
+            _operationMessage = "Request submitted successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to submit request");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ReloadRequest()
+    {
+        if (_request.Id > 0)
+        {
+            var reloaded = await ReimbursementService.GetRequestAsync(_request.Id);
+            if (reloaded != null)
+            {
+                _request = reloaded;
+            }
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/reimbursements");
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _selectedFile = e.File;
+        _receiptPreview = null;
+
+        if (_selectedFile != null)
+        {
+            var buffer = new byte[_selectedFile.Size];
+            await _selectedFile.OpenReadStream().ReadAsync(buffer);
+            _receiptPreview = $"data:{_selectedFile.ContentType};base64,{Convert.ToBase64String(buffer)}";
+        }
+    }
+
+    private async Task CapturePhoto()
+    {
+        _capturing = true;
+        try
+        {
+            var result = await JSRuntime.InvokeAsync<CameraCaptureResult>("cameraCapture.capturePhoto");
+            if (result.Success && !string.IsNullOrWhiteSpace(result.Data))
+            {
+                _receiptPreview = result.Data;
+                _selectedFile = null; // Clear file selection since we're using camera
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", result.Error ?? "Failed to capture photo");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to capture photo");
+            await JSRuntime.InvokeVoidAsync("alert", "Failed to capture photo: " + ex.Message);
+        }
+        finally
+        {
+            _capturing = false;
+        }
+    }
+
+    private void ShowReceiptModal(int itemId)
+    {
+        _selectedItemId = itemId;
+        _showReceiptModal = true;
+        _selectedFile = null;
+        _receiptPreview = null;
+    }
+
+    private void CloseReceiptModal()
+    {
+        _showReceiptModal = false;
+        _selectedItemId = null;
+        _selectedFile = null;
+        _receiptPreview = null;
+    }
+
+    private async Task UploadReceipt()
+    {
+        if (!_selectedItemId.HasValue)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_receiptPreview))
+        {
+            _operationError = true;
+            _operationMessage = "Please select a file or capture a photo.";
+            return;
+        }
+
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            string fileName;
+            string relativePath;
+
+            if (_selectedFile != null)
+            {
+                // Upload from file
+                (fileName, relativePath) = await ReceiptStorageService.SaveFileAsync(_selectedFile, _request.Id);
+            }
+            else if (!string.IsNullOrWhiteSpace(_receiptPreview) && _receiptPreview.StartsWith("data:"))
+            {
+                // Upload from camera (base64)
+                var base64Data = _receiptPreview.Split(',')[1];
+                var bytes = Convert.FromBase64String(base64Data);
+                var mimeType = _receiptPreview.Split(';')[0].Split(':')[1];
+                var extension = mimeType == "image/jpeg" ? ".jpg" : ".png";
+                fileName = $"receipt_{DateTime.UtcNow:yyyyMMddHHmmss}{extension}";
+                (fileName, relativePath) = await ReceiptStorageService.SaveFileFromBytesAsync(bytes, fileName, _request.Id);
+            }
+            else
+            {
+                throw new InvalidOperationException("No file or photo data available.");
+            }
+
+            await ReimbursementService.AddReceiptAsync(_selectedItemId.Value, fileName, relativePath, _requestorMemberId!.Value);
+            await ReloadRequest();
+            CloseReceiptModal();
+            _operationError = false;
+            _operationMessage = "Receipt uploaded successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to upload receipt");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static bool IsImageFile(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".gif" || extension == ".bmp";
+    }
+
+    private class CameraCaptureResult
+    {
+        public bool Success { get; set; }
+        public string? Data { get; set; }
+        public string? FileName { get; set; }
+        public string? MimeType { get; set; }
+        public string? Error { get; set; }
+    }
+}

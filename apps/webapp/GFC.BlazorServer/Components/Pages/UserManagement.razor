@@ -1,0 +1,776 @@
+@page "/users"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Services
+@using GFC.Core.DTOs
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@inject IUserManagementService UserService
+@inject IAuthenticationService AuthService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<UserManagement> Logger
+@inject IPasswordPolicy PasswordPolicy
+
+<PageTitle>User Management - GFC Membership</PageTitle>
+
+<h1 class="page-title">User Management</h1>
+
+@* Bypass Authentication Toggle - DISABLED FOR SECURITY *@
+<div class="data-card mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h3 class="mb-1">Authentication Bypass</h3>
+            <p class="text-muted mb-0 small">
+                <span class="text-danger"><strong>DISABLED</strong></span> - Authentication bypass has been permanently disabled for security. 
+                All logins require valid username and password credentials.
+            </p>
+        </div>
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" 
+                   checked="false" 
+                   disabled="true" />
+        </div>
+    </div>
+</div>
+
+@* User List *@
+<div class="data-card">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>Users</h3>
+        <button class="btn btn-success btn-sm" @onclick="async () => await StartAddUser()">
+            <i class="bi bi-plus-circle"></i> Add User
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <div class="spinner-border spinner-border-sm text-info" role="status"></div> Loading users...
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(_error))
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @_error
+            <br />
+            <small class="text-muted">If this persists, check the server logs for more details.</small>
+        </div>
+    }
+    else
+    {
+        <div class="table-container">
+            <table class="data-table table-compact table-sticky-header">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Member</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Last Login</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in _users)
+                    {
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">@user.Username</div>
+                                @if (!string.IsNullOrEmpty(user.Notes))
+                                {
+                                    <div class="text-muted small">@user.Notes</div>
+                                }
+                            </td>
+                            <td>@(user.MemberName ?? "--")</td>
+                            <td>
+                                @if (user.IsAdmin)
+                                {
+                                    <span class="badge bg-primary">Admin</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">User</span>
+                                }
+                            </td>
+                            <td>
+                                @if (user.IsActive)
+                                {
+                                    <span class="badge badge-success">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-danger">Inactive</span>
+                                }
+                            </td>
+                            <td>
+                                @if (user.LastLoginDate.HasValue)
+                                {
+                                    @user.LastLoginDate.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt")
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Never</span>
+                                }
+                            </td>
+                            <td>
+                                <div class="table-actions">
+                                    <button class="btn btn-outline-primary btn-sm" @onclick="() => ViewHistory(user.UserId)">
+                                        History
+                                    </button>
+                                    <button class="btn btn-outline btn-sm" @onclick="() => EditUser(user.UserId)">
+                                        Edit
+                                    </button>
+                                    @if (!user.IsAdmin)
+                                    {
+                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ToggleUserStatus(user.UserId, !user.IsActive)">
+                                            @(user.IsActive ? "Deactivate" : "Activate")
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteUser(user.UserId, user.Username)">
+                                            Deactivate
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@* Add/Edit User Modal *@
+@if (_showUserModal)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 600px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">@(_editingUserId.HasValue ? "Edit User" : "Add User")</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="async () => await CancelUserModal()">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_modalError))
+        {
+            <div class="alert alert-danger mb-3">
+                <strong>Error:</strong> @_modalError
+            </div>
+        }
+
+        <EditForm Model="@_userForm" OnValidSubmit="SaveUser" OnInvalidSubmit="HandleInvalidSubmit">
+            <DataAnnotationsValidator />
+            @if (!IsEditingAdminUser)
+            {
+                <div class="mb-3">
+                    <label class="form-label">Select Member (optional)</label>
+                    <select class="form-select" @onchange="OnMemberSelected">
+                        <option value="">-- Select a member --</option>
+                        @foreach (var member in _activeMembers)
+                        {
+                            <option value="@member.MemberId">@member.DisplayName</option>
+                        }
+                    </select>
+                    <small class="text-muted">Selecting a member will auto-fill the username</small>
+                </div>
+            }
+            <div class="mb-3">
+                <label class="form-label">Username <span class="text-danger">*</span></label>
+                <InputText class="form-control" @bind-Value="_userForm.Username" disabled="@IsEditingAdminUser" />
+                <ValidationMessage For="@(() => _userForm.Username)" />
+                @if (IsEditingAdminUser)
+                {
+                    <small class="text-muted d-block">The admin username cannot be changed.</small>
+                }
+            </div>
+            <div class="mb-3">
+                <label class="form-label">@(_editingUserId.HasValue ? "New Password (leave blank to keep current)" : "Password") <span class="text-danger">*</span></label>
+                <InputText type="password" class="form-control" @bind-Value="_userForm.Password" />
+                <ValidationMessage For="@(() => _userForm.Password)" />
+                <small class="text-muted d-block">Password must be at least @PasswordPolicy.MinimumLength characters, include upper and lower case letters, and contain a number or symbol. It cannot include the username or common passwords.</small>
+            </div>
+            <div class="mb-3">
+                <div class="form-check">
+                    <InputCheckbox class="form-check-input" @bind-Value="_userForm.IsAdmin" disabled="@IsEditingAdminUser" />
+                    <label class="form-check-label">Admin</label>
+                    @if (IsEditingAdminUser)
+                    {
+                        <small class="text-muted d-block">The admin user must remain an administrator.</small>
+                    }
+                </div>
+            </div>
+            <div class="mb-3">
+                <div class="form-check">
+                    <InputCheckbox class="form-check-input" @bind-Value="_userForm.IsActive" disabled="@IsEditingAdminUser" />
+                    <label class="form-check-label">Active</label>
+                    @if (IsEditingAdminUser)
+                    {
+                        <small class="text-muted d-block">The admin user must remain active.</small>
+                    }
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Notes</label>
+                <InputTextArea class="form-control" rows="3" @bind-Value="_userForm.Notes" />
+            </div>
+            <div class="modal-card__actions">
+                <button type="submit" class="btn btn-primary" disabled="@_savingUser">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_savingUser)"></span>
+                    Save
+                </button>
+                <button type="button" class="btn btn-outline" @onclick="CancelUserModal">Cancel</button>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@* Login History Modal *@
+@if (_showHistoryModal && _selectedUserId.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 800px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Login History</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CloseHistoryModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        @if (_historyLoading)
+        {
+            <div class="loading-state">
+                <div class="spinner-border spinner-border-sm text-info" role="status"></div> Loading history...
+            </div>
+        }
+        else
+        {
+            <div class="table-container">
+                <table class="data-table table-compact">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>IP Address</th>
+                            <th>Result</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in _loginHistory)
+                        {
+                            <tr>
+                                <td>@entry.LoginDate.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</td>
+                                <td>@(entry.IpAddress ?? "--")</td>
+                                <td>
+                                    @if (entry.LoginSuccessful)
+                                    {
+                                        <span class="badge badge-success">Success</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-danger">Failed</span>
+                                    }
+                                </td>
+                                <td>@(entry.FailureReason ?? "--")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (_showDeleteModal && _userToDelete.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Deactivate User</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelDeleteUser">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="mb-3">
+            <p>Are you sure you want to deactivate user <strong>@_userToDeleteUsername</strong>?</p>
+            <p class="text-muted small">The user will be marked as inactive and will not be able to log in. Login history will be preserved.</p>
+        </div>
+        <div class="modal-card__actions">
+            <button type="button" class="btn btn-danger" disabled="@_deletingUser" @onclick="DeleteUserConfirmed">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_deletingUser)"></span>
+                Deactivate
+            </button>
+            <button type="button" class="btn btn-outline" @onclick="CancelDeleteUser" disabled="@_deletingUser">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<UserListItemDto> _users = new();
+    private List<ActiveMemberDto> _activeMembers = new();
+    private bool _loading = true;
+    private string _error = string.Empty;
+    private bool _showUserModal = false;
+    private int? _editingUserId = null;
+    private bool _savingUser = false;
+    private bool _showHistoryModal = false;
+    private int? _selectedUserId = null;
+    private bool _historyLoading = false;
+    private List<LoginHistoryDto> _loginHistory = new();
+    private bool _showDeleteModal = false;
+    private int? _userToDelete = null;
+    private string _userToDeleteUsername = string.Empty;
+    private bool _deletingUser = false;
+    private string _modalError = string.Empty;
+    private string? _originalUsername = null; // Store the original username when editing
+    private bool _originalUserIsAdmin = false;
+
+    private UserFormModel _userForm = new();
+    
+    private bool IsEditingAdminUser => _editingUserId.HasValue && _originalUserIsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Verify we're authorized
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (!authState.User.Identity?.IsAuthenticated == true)
+            {
+                Logger.LogWarning("Unauthenticated user attempted to access User Management");
+                Navigation.NavigateTo("/login");
+                return;
+            }
+            
+            // Check if user has Admin role
+            var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+            
+            // If not admin by role, check the user object directly
+            if (!isAdmin)
+            {
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                if (currentUser != null && currentUser.IsAdmin)
+                {
+                    isAdmin = true;
+                }
+            }
+            
+            if (!isAdmin)
+            {
+                Logger.LogWarning("Non-admin user {Username} attempted to access User Management", authState.User.Identity?.Name);
+                Navigation.NavigateTo("/");
+                return;
+            }
+            
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in UserManagement OnInitializedAsync");
+            _error = "Error initializing page: " + ex.Message;
+        }
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _error = string.Empty;
+        try
+        {
+            _users = await Task.Run(() => UserService.GetAllUsers());
+            _activeMembers = await Task.Run(() => UserService.GetActiveMembersForUserCreation());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading user data");
+            _error = "Failed to load user data: " + ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task StartAddUser()
+    {
+        _editingUserId = null;
+        _originalUsername = null; // Clear original username when adding
+        _originalUserIsAdmin = false;
+        _userForm = new UserFormModel { IsActive = true };
+        _modalError = string.Empty;
+        
+        // Filter out members who already have user accounts
+        await LoadFilteredActiveMembers();
+        
+        _showUserModal = true;
+    }
+
+    private async Task LoadFilteredActiveMembers()
+    {
+        try
+        {
+            // Get all active members
+            var allActiveMembers = await Task.Run(() => UserService.GetActiveMembersForUserCreation());
+            
+            // Get all existing users with MemberId
+            var existingUsers = await Task.Run(() => UserService.GetAllUsers());
+            var existingMemberIds = existingUsers
+                .Where(u => u.MemberId.HasValue)
+                .Select(u => u.MemberId.Value)
+                .ToHashSet();
+            
+            // Filter out members who already have user accounts
+            _activeMembers = allActiveMembers
+                .Where(m => !existingMemberIds.Contains(m.MemberId))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading filtered active members");
+            // Fallback to loading all active members if filtering fails
+            _activeMembers = await Task.Run(() => UserService.GetActiveMembersForUserCreation());
+        }
+    }
+
+    private async Task EditUser(int userId)
+    {
+        var user = await Task.Run(() => UserService.GetUser(userId));
+        if (user == null) return;
+
+        _editingUserId = userId;
+        _originalUsername = user.Username; // Store the original username
+        _originalUserIsAdmin = user.IsAdmin;
+        _userForm = new UserFormModel
+        {
+            Username = user.Username,
+            Password = string.Empty, // Don't pre-fill password
+            IsAdmin = user.IsAdmin,
+            IsActive = user.IsActive,
+            MemberId = user.MemberId,
+            Notes = user.Notes ?? string.Empty
+        };
+        _modalError = string.Empty;
+        
+        // Load all active members for editing (including the current member)
+        _activeMembers = await Task.Run(() => UserService.GetActiveMembersForUserCreation());
+        
+        _showUserModal = true;
+    }
+
+    private void OnMemberSelected(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var memberId))
+        {
+            var member = _activeMembers.FirstOrDefault(m => m.MemberId == memberId);
+            if (member != null)
+            {
+                _userForm.MemberId = memberId;
+                _userForm.Username = UserService.GenerateUsernameFromMember(memberId);
+            }
+        }
+    }
+
+    private async Task SaveUser()
+    {
+        _savingUser = true;
+        _modalError = string.Empty;
+        var currentUser = AuthStateProvider.GetCurrentUser();
+        var currentUserId = currentUser?.UserId;
+        var currentUsername = currentUser?.Username;
+        try
+        {
+            if (_editingUserId.HasValue)
+            {
+                // Get the original user to check if it's the admin user
+                var originalUser = await Task.Run(() => UserService.GetUser(_editingUserId.Value));
+                var isAdminUser = originalUser?.IsAdmin == true;
+                
+                // Prevent changing username, admin status, or active status for admin user
+                if (isAdminUser)
+                {
+                    if (!string.Equals(_userForm.Username, originalUser!.Username, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _modalError = "The admin username cannot be changed.";
+                        _savingUser = false;
+                        return;
+                    }
+                    if (!_userForm.IsAdmin)
+                    {
+                        _modalError = "The admin user must remain an administrator.";
+                        _savingUser = false;
+                        return;
+                    }
+                    if (!_userForm.IsActive)
+                    {
+                        _modalError = "The admin user must remain active.";
+                        _savingUser = false;
+                        return;
+                    }
+                }
+                
+                // Check if username already exists (excluding current user)
+                var existingUsers = await Task.Run(() => UserService.GetAllUsers());
+                if (existingUsers.Any(u => u.UserId != _editingUserId.Value && 
+                    u.Username.Equals(_userForm.Username, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _modalError = $"Username '{_userForm.Username}' already exists. Please choose a different username.";
+                    _savingUser = false;
+                    return;
+                }
+                
+                // Check if member already has a user account (excluding current user)
+                if (_userForm.MemberId.HasValue)
+                {
+                    if (existingUsers.Any(u => u.UserId != _editingUserId.Value && u.MemberId == _userForm.MemberId.Value))
+                    {
+                        _modalError = "This member already has a user account.";
+                        _savingUser = false;
+                        return;
+                    }
+                }
+                
+                if (!string.IsNullOrWhiteSpace(_userForm.Password) && !ValidatePasswordField())
+                {
+                    _savingUser = false;
+                    return;
+                }
+
+                var passwordArgument = string.IsNullOrWhiteSpace(_userForm.Password) ? null : _userForm.Password;
+                
+                await Task.Run(() => UserService.UpdateUser(
+                    _editingUserId.Value,
+                    _userForm.Username,
+                    passwordArgument,
+                    _userForm.MemberId,
+                    _userForm.Notes,
+                    updatedByUserId: currentUserId,
+                    isAdmin: _userForm.IsAdmin,
+                    isActive: _userForm.IsActive));
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(_userForm.Password))
+                {
+                    _modalError = "Password is required for new users.";
+                    _savingUser = false;
+                    return;
+                }
+
+                if (!ValidatePasswordField())
+                {
+                    _savingUser = false;
+                    return;
+                }
+                
+                // Check if username already exists
+                var existingUsers = await Task.Run(() => UserService.GetAllUsers());
+                if (existingUsers.Any(u => u.Username.Equals(_userForm.Username, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _modalError = $"Username '{_userForm.Username}' already exists. Please choose a different username.";
+                    _savingUser = false;
+                    return;
+                }
+                
+                // Check if member already has a user account
+                if (_userForm.MemberId.HasValue)
+                {
+                    if (existingUsers.Any(u => u.MemberId == _userForm.MemberId.Value))
+                    {
+                        _modalError = "This member already has a user account.";
+                        _savingUser = false;
+                        return;
+                    }
+                }
+                
+                await Task.Run(() => UserService.CreateUser(
+                    _userForm.Username,
+                    _userForm.Password,
+                    _userForm.IsAdmin,
+                    _userForm.MemberId,
+                    _userForm.Notes,
+                    currentUsername,
+                    passwordChangeRequired: false,
+                    createdByUserId: currentUserId));
+            }
+            _showUserModal = false;
+            _modalError = string.Empty;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving user");
+            _modalError = "Failed to save user: " + ex.Message;
+        }
+        finally
+        {
+            _savingUser = false;
+        }
+    }
+
+    private async Task CancelUserModal()
+    {
+        _showUserModal = false;
+        _editingUserId = null;
+        _originalUsername = null; // Clear original username
+        _originalUserIsAdmin = false;
+        _userForm = new UserFormModel();
+        _modalError = string.Empty;
+        // Ensure user list is displayed by reloading data
+        if (_users.Count == 0)
+        {
+            await LoadData();
+        }
+    }
+
+    private void HandleInvalidSubmit()
+    {
+        _modalError = "Please fill in all required fields correctly.";
+    }
+
+    private async Task ToggleUserStatus(int userId, bool newStatus)
+    {
+        try
+        {
+            var currentUserId = AuthStateProvider.GetCurrentUser()?.UserId;
+            var user = await Task.Run(() => UserService.GetUser(userId));
+            if (user == null) return;
+
+            // Prevent deactivating admin users
+            if (user.IsAdmin && !newStatus)
+            {
+                _error = "Cannot deactivate admin user.";
+                await LoadData(); // Reload to show the error
+                return;
+            }
+
+            _error = string.Empty; // Clear any previous errors
+            await Task.Run(() => UserService.UpdateUser(
+                userId,
+                user.Username,
+                null, // Don't change password
+                user.MemberId,
+                user.Notes,
+                updatedByUserId: currentUserId,
+                isAdmin: user.IsAdmin,
+                isActive: newStatus));
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling user status");
+            _error = "Failed to update user status: " + ex.Message;
+            await LoadData(); // Reload to show the error
+        }
+    }
+
+    private async Task ViewHistory(int userId)
+    {
+        _selectedUserId = userId;
+        _showHistoryModal = true;
+        _historyLoading = true;
+        try
+        {
+            _loginHistory = await Task.Run(() => UserService.GetUserLoginHistory(userId, 50));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading login history");
+            _error = "Failed to load login history: " + ex.Message;
+        }
+        finally
+        {
+            _historyLoading = false;
+        }
+    }
+
+    private void CloseHistoryModal()
+    {
+        _showHistoryModal = false;
+        _selectedUserId = null;
+        _loginHistory.Clear();
+    }
+
+    private void ConfirmDeleteUser(int userId, string username)
+    {
+        _userToDelete = userId;
+        _userToDeleteUsername = username;
+        _showDeleteModal = true;
+    }
+
+    private void CancelDeleteUser()
+    {
+        _showDeleteModal = false;
+        _userToDelete = null;
+        _userToDeleteUsername = string.Empty;
+    }
+
+    private bool ValidatePasswordField()
+    {
+        var result = PasswordPolicy.Validate(_userForm.Username ?? string.Empty, _userForm.Password ?? string.Empty);
+        if (result.IsValid)
+        {
+            _modalError = string.Empty;
+            return true;
+        }
+
+        _modalError = string.IsNullOrWhiteSpace(result.ErrorMessage)
+            ? PasswordPolicy.RequirementSummary
+            : result.ErrorMessage;
+        return false;
+    }
+
+    private async Task DeleteUserConfirmed()
+    {
+        if (!_userToDelete.HasValue) return;
+
+        _deletingUser = true;
+        _error = string.Empty;
+        try
+        {
+            var user = await Task.Run(() => UserService.GetUser(_userToDelete.Value));
+            if (user != null && user.IsAdmin)
+            {
+                _error = "Cannot deactivate admin user.";
+                _deletingUser = false;
+                _showDeleteModal = false;
+                _userToDelete = null;
+                _userToDeleteUsername = string.Empty;
+                await LoadData();
+                return;
+            }
+
+            await Task.Run(() => UserService.DeleteUser(_userToDelete.Value));
+            _showDeleteModal = false;
+            _userToDelete = null;
+            _userToDeleteUsername = string.Empty;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deactivating user");
+            _error = "Failed to deactivate user: " + ex.Message;
+            await LoadData(); // Reload to show the error
+        }
+        finally
+        {
+            _deletingUser = false;
+        }
+    }
+
+    private class UserFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Username is required")]
+        public string Username { get; set; } = string.Empty;
+
+        public string Password { get; set; } = string.Empty;
+
+        public bool IsAdmin { get; set; }
+
+        public bool IsActive { get; set; } = true;
+
+        public int? MemberId { get; set; }
+
+        public string Notes { get; set; } = string.Empty;
+    }
+}
+

@@ -1,0 +1,208 @@
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@inject IControllerClient ControllerClient
+@inject CommandInfoService CommandInfoService
+@inject ISystemSettingsService SystemSettingsService
+@inject ILogger<OpenDoorDialog> Logger
+@inject IJSRuntime JSRuntime
+
+@if (_showDialog && _controller != null)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Open Door - @_controller.Name</h5>
+                    <button type="button" class="btn-close" @onclick="CloseDialog"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrWhiteSpace(_message))
+                    {
+                        <div class="alert @(_success ? "alert-success" : "alert-danger")">
+                            @_message
+                        </div>
+                    }
+                    @if (_commandInfo != null)
+                    {
+                        <div class="alert alert-info small mb-3">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge @GetRiskBadgeClass(_commandInfo.RiskLevel)">Risk Level @_commandInfo.RiskLevel</span>
+                                <span><strong>@_commandInfo.DisplayName</strong> - @_commandInfo.ShortDescription</span>
+                            </div>
+                        </div>
+                    }
+                    @if (!_useRealControllers)
+                    {
+                        <div class="alert alert-warning small">
+                            Simulation Mode: Door open is simulated only. No real doors will open.
+                        </div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label">Door <span class="text-danger">*</span></label>
+                        <select class="form-select" @bind="_selectedDoorId" disabled="@_isLoading">
+                            <option value="">Select door</option>
+                            @foreach (var door in _controller.Doors.OrderBy(d => d.DoorIndex))
+                            {
+                                <option value="@door.Id">@door.Name (Index @door.DoorIndex)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Duration (seconds, optional)</label>
+                        <input type="number" class="form-control" min="0" max="120" @bind="_durationSec" disabled="@_isLoading" />
+                        <small class="text-muted">Leave blank to use controller default unlock duration.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseDialog" disabled="@_isLoading">Close</button>
+                    <button class="btn btn-primary"
+                            @onclick="OpenDoorAsync"
+                            disabled="@(!_selectedDoorId.HasValue || _isLoading)"
+                            title="@(!_useRealControllers ? "Simulation only — no hardware writes" : _tooltip)">
+                        @if (_isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        Open Door
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public ControllerDevice? Controller { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private bool _showDialog;
+    private ControllerDevice? _controller;
+    private int? _selectedDoorId;
+    private int? _durationSec;
+    private bool _isLoading;
+    private string? _message;
+    private bool _success;
+    private string _tooltip = "Send controller OpenDoor command.";
+    private ControllerCommandInfo? _commandInfo;
+    private bool _useRealControllers = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Controller != null && Controller != _controller)
+        {
+            _controller = Controller;
+            _selectedDoorId = _controller.Doors.OrderBy(d => d.DoorIndex).FirstOrDefault()?.Id;
+            _durationSec = null;
+            _message = null;
+            _showDialog = true;
+            await LoadCommandInfo();
+            await LoadControllerModeAsync();
+        }
+    }
+
+    private async Task LoadCommandInfo()
+    {
+        try
+        {
+            _commandInfo = await CommandInfoService.GetByKeyAsync("OpenDoor");
+            if (_commandInfo != null)
+            {
+                _tooltip = $"{_commandInfo.DisplayName} (Risk Level {_commandInfo.RiskLevel}): {_commandInfo.ShortDescription}";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load command info");
+        }
+    }
+
+    private async Task LoadControllerModeAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch
+        {
+            _useRealControllers = false;
+        }
+    }
+
+    private string GetRiskBadgeClass(int riskLevel)
+    {
+        return riskLevel switch
+        {
+            0 => "bg-secondary",
+            1 => "bg-warning text-dark",
+            2 => "bg-warning text-dark",
+            3 => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private void CloseDialog()
+    {
+        _showDialog = false;
+        _controller = null;
+        _selectedDoorId = null;
+        _message = null;
+        OnClosed.InvokeAsync();
+    }
+
+    private async Task OpenDoorAsync()
+    {
+        if (_controller == null || !_selectedDoorId.HasValue)
+        {
+            _message = "Select a door.";
+            _success = false;
+            return;
+        }
+
+        var door = _controller.Doors.FirstOrDefault(d => d.Id == _selectedDoorId.Value);
+        if (door == null)
+        {
+            _message = "Invalid door selection.";
+            _success = false;
+            return;
+        }
+
+        _isLoading = true;
+        _message = null;
+
+        try
+        {
+            var isSimulation = !_useRealControllers || _controller.IsSimulated;
+            await ControllerClient.OpenDoorAsync(_controller.SerialNumberDisplay, door.DoorIndex, _durationSec);
+            _message = isSimulation
+                ? $"[Simulated] Door '{door.Name}' opened successfully."
+                : $"Door '{door.Name}' opened successfully.";
+            _success = true;
+            Logger.LogInformation("Door {DoorName} opened on controller {ControllerName} (SN {Serial})", door.Name, _controller.Name, _controller.SerialNumberDisplay);
+            
+            // Auto-close after 2 seconds on success
+            await Task.Delay(2000);
+            CloseDialog();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Open door failed for controller {Controller}", _controller.Name);
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _message = "Door open command is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _message = "Unable to open door. Check controller connectivity.";
+            }
+            _success = false;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+}
+

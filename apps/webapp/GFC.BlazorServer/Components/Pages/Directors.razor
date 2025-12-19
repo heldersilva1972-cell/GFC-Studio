@@ -1,0 +1,755 @@
+@page "/directors"
+@page "/board"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using System.Linq
+@using System.Security.Cryptography
+@using GFC.Core.BusinessRules
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.Services
+@inject IBoardRepository BoardRepository
+@inject IMemberRepository MemberRepository
+@inject IHistoryRepository HistoryRepository
+@inject IBoardTermConfirmationService BoardTermConfirmationService
+@inject IUserManagementService UserManagementService
+@inject IUserRepository UserRepository
+@inject IAuditLogger AuditLogger
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<Directors> Logger
+@inject IPasswordPolicy PasswordPolicy
+
+<h1 class="page-title">Board Assignments</h1>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading board data...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    <div class="data-card board-summary mb-3">
+        <div class="board-summary__copy">
+            <h3 class="mb-1">Manage the @_selectedTermYear Board</h3>
+            <p class="text-muted mb-0">
+                Assign only active Regular or Life members to officer and director roles. Saving updates the database and records a history entry.
+            </p>
+        </div>
+        <div class="board-summary__controls">
+            <label class="form-label text-muted mb-1">Term year</label>
+            <select class="form-select board-term-select" value="@_selectedTermYear" @onchange="OnTermYearChanged">
+                @foreach (var year in _termYears)
+                {
+                    <option value="@year">@year</option>
+                }
+            </select>
+            <button class="btn btn-outline btn-sm mt-2 mt-md-0"
+                    type="button"
+                    disabled="@(_selectedTermYear == _currentYear)"
+                    @onclick="UseCurrentYear">
+                Jump to @_currentYear term
+            </button>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        @if (_termConfirmation is null)
+        {
+            <div class="alert alert-warning mb-2">
+                The @_selectedTermYear board has not been confirmed yet. Confirm once positions are finalized (or intentionally left vacant) to clear dashboard reminders.
+            </div>
+            <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenConfirmationModal">
+                Confirm @_selectedTermYear board is ready
+            </button>
+        }
+        else
+        {
+            <div class="alert alert-success mb-2">
+                Confirmed @_termConfirmation.ConfirmedOnUtc.ToLocalTime().ToString("MMM d, yyyy") by @_termConfirmation.ConfirmedBy.
+                @if (!string.IsNullOrWhiteSpace(_termConfirmation.Notes))
+                {
+                    <span class="d-block text-muted small">Notes: @_termConfirmation.Notes</span>
+                }
+            </div>
+            <button class="btn btn-outline btn-sm" type="button" @onclick="OpenConfirmationModal">
+                Update confirmation / notes
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @_statusMessage
+            <button type="button" class="btn-close" aria-label="Close" @onclick="() => _statusMessage = null"></button>
+        </div>
+    }
+
+    @if (_memberOptions.Count == 0)
+    {
+        <div class="alert alert-warning">
+            No eligible members found. Only active Regular or Life members can be assigned to the board.
+        </div>
+    }
+
+    @if (_loadingAssignments)
+    {
+        <div class="loading-state">
+            <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+            Refreshing assignments...
+        </div>
+    }
+    else
+    {
+        <div class="board-grid">
+            @foreach (var seat in _seats)
+            {
+                <div class="data-card board-card">
+                    <div class="board-card__header">
+                        <div>
+                            <h4 class="mb-0">@seat.PositionLabel</h4>
+                            <p class="text-muted mb-0">@seat.CurrentSummary</p>
+                        </div>
+                        <span class="badge @seat.BadgeClass">@seat.BadgeLabel</span>
+                    </div>
+                    <div class="board-card__body">
+                        <label class="form-label">Assigned member</label>
+                        <select class="form-select"
+                                value="@FormatSelectValue(seat.SelectedMemberId)"
+                                disabled="@(_savingTerm || seat.IsSaving || _memberOptions.Count == 0)"
+                                @onchange="args => OnSelectionChanged(seat, args)">
+                            <option value="">Unassigned</option>
+                            @foreach (var option in _memberOptions)
+                            {
+                                var isSelected = seat.SelectedMemberId == option.MemberId;
+                                var alreadySelected = _seats.Any(other => !ReferenceEquals(other, seat) && other.SelectedMemberId == option.MemberId);
+                                if (alreadySelected && !isSelected)
+                                {
+                                    continue;
+                                }
+                                <option value="@option.MemberId">@option.DisplayLabel</option>
+                            }
+                        </select>
+                        @if (!string.IsNullOrWhiteSpace(seat.Error))
+                        {
+                            <div class="text-danger small mt-2">@seat.Error</div>
+                        }
+                    </div>
+                    <div class="board-card__footer">
+                        <button class="btn btn-primary btn-sm"
+                                disabled="@(!seat.CanSave || _savingTerm)"
+                                @onclick="() => SaveSeatAsync(seat)">
+                            <span class="spinner-border spinner-border-sm me-1" hidden="@(!seat.IsSaving)" role="status"></span>
+                            Save
+                        </button>
+                        <button class="btn btn-link btn-sm text-danger"
+                                type="button"
+                                hidden="@(seat.AssignmentId is null)"
+                                disabled="@(seat.IsSaving || _savingTerm)"
+                                @onclick="() => ClearSeatAsync(seat)">
+                            Remove
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@if (_confirmationModalOpen)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Confirm @_selectedTermYear board</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelConfirmationModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <p>
+            Confirm that the @_selectedTermYear board lineup is complete (or intentionally finalized). This acknowledgement will stop the dashboard alert for that term.
+        </p>
+        <div class="mb-3">
+            <label class="form-label">Notes (optional)</label>
+            <textarea class="form-control" rows="3" @bind="_confirmationNotes"></textarea>
+        </div>
+        <div class="modal-card__actions">
+            <button class="btn btn-primary" disabled="@_confirmationSaving" @onclick="ConfirmBoardAsync">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_confirmationSaving)"></span>
+                Confirm
+            </button>
+            <button class="btn btn-outline" type="button" @onclick="CancelConfirmationModal">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly int _currentYear = DateTime.Today.Year;
+    private static readonly string[] PositionOrder =
+    {
+        "President",
+        "Vice President",
+        "Treasurer",
+        "Collector of Dues",
+        "Recording Secretary",
+        "Director"
+    };
+
+    private bool _loading = true;
+    private bool _loadingAssignments;
+    private bool _savingTerm;
+    private string? _errorMessage;
+    private string? _statusMessage;
+
+    private int _selectedTermYear;
+    private List<int> _termYears = new();
+    private List<MemberOption> _memberOptions = new();
+    private Dictionary<int, MemberOption> _memberLookup = new();
+    private List<BoardSeatModel> _seats = new();
+    private BoardTermConfirmation? _termConfirmation;
+    private bool _confirmationModalOpen;
+    private string? _confirmationNotes;
+    private bool _confirmationSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadEligibleMembersAsync();
+            await LoadTermYearsAsync();
+            await LoadAssignmentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize board page");
+            _errorMessage = "We couldn't load the board at this time.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadEligibleMembersAsync()
+    {
+        var members = await Task.Run(() => MemberRepository.GetAllMembers());
+        var eligible = members
+            .Where(IsEligibleForBoard)
+            .OrderBy(m => m.LastName)
+            .ThenBy(m => m.FirstName)
+            .Select(m => new MemberOption(
+                m.MemberID,
+                FormatMemberName(m),
+                MemberStatusHelper.NormalizeStatus(m.Status)))
+            .ToList();
+
+        _memberOptions = eligible;
+        _memberLookup = eligible.ToDictionary(m => m.MemberId);
+    }
+
+    private async Task LoadTermYearsAsync()
+    {
+        var years = await Task.Run(() => BoardRepository.GetAllTermYears());
+        if (!years.Contains(_currentYear))
+        {
+            years.Add(_currentYear);
+        }
+
+        var nextYear = _currentYear + 1;
+        if (!years.Contains(nextYear))
+        {
+            years.Add(nextYear);
+        }
+
+        if (years.Count == 0)
+        {
+            years.Add(_currentYear);
+        }
+
+        _termYears = years.Distinct().OrderByDescending(y => y).ToList();
+        _selectedTermYear = _termYears.Contains(_currentYear) ? _currentYear : _termYears.First();
+    }
+
+    private async Task LoadAssignmentsAsync()
+    {
+        _loadingAssignments = true;
+        StateHasChanged();
+
+        try
+        {
+            var positions = await Task.Run(() => BoardRepository.GetAllPositions());
+            var assignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(_selectedTermYear));
+            _seats = BuildSeatModels(positions, assignments);
+            await LoadTermConfirmationAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load assignments for term {Term}", _selectedTermYear);
+            _errorMessage = "We couldn't load assignments for this term.";
+        }
+        finally
+        {
+            _loadingAssignments = false;
+            StateHasChanged();
+        }
+    }
+
+    private List<BoardSeatModel> BuildSeatModels(IEnumerable<BoardPosition> positions, List<BoardAssignment> assignments)
+    {
+        var orderedPositions = positions
+            .OrderBy(p => Array.IndexOf(PositionOrder, p.PositionName) switch
+            {
+                -1 => int.MaxValue,
+                var index => index
+            })
+            .ThenBy(p => p.PositionName)
+            .ToList();
+
+        var seats = new List<BoardSeatModel>();
+
+        foreach (var position in orderedPositions)
+        {
+            var seatCount = Math.Max(1, position.MaxSeats);
+            var positionAssignments = assignments
+                .Where(a => a.PositionID == position.PositionID)
+                .OrderBy(a => a.AssignmentID)
+                .ToList();
+
+            for (var seatIndex = 0; seatIndex < seatCount; seatIndex++)
+            {
+                var assignment = positionAssignments.ElementAtOrDefault(seatIndex);
+                seats.Add(new BoardSeatModel
+                {
+                    PositionId = position.PositionID,
+                    BasePositionName = position.PositionName,
+                    PositionLabel = seatCount > 1 ? $"{position.PositionName} #{seatIndex + 1}" : position.PositionName,
+                    AssignmentId = assignment?.AssignmentID,
+                    Assignment = assignment,
+                    OriginalMemberId = assignment?.MemberID,
+                    SelectedMemberId = assignment?.MemberID,
+                    CurrentSummary = assignment?.MemberID is int memberId
+                        ? $"Currently: {FormatMemberDisplay(memberId)}"
+                        : "Currently: Unassigned"
+                });
+            }
+        }
+
+        return seats;
+    }
+
+    private async Task SaveSeatAsync(BoardSeatModel seat)
+    {
+        if (!seat.CanSave)
+        {
+            return;
+        }
+
+        seat.Error = null;
+        seat.IsSaving = true;
+        _statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var performedByUserId = currentUser?.UserId;
+            var performedByUserName = currentUser?.Username ?? "Unknown";
+
+            await Task.Run(() => PersistSeatChange(seat, performedByUserName, performedByUserId));
+            await LoadAssignmentsAsync();
+            _statusMessage = $"{seat.PositionLabel} updated for {_selectedTermYear}.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save assignment for {Position}", seat.PositionLabel);
+            seat.Error = "Unable to save this assignment.";
+        }
+        finally
+        {
+            seat.IsSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearSeatAsync(BoardSeatModel seat)
+    {
+        seat.SelectedMemberId = null;
+        await SaveSeatAsync(seat);
+    }
+
+    private void PersistSeatChange(BoardSeatModel seat, string performedByUserName, int? performedByUserId)
+    {
+        var desiredMemberId = seat.SelectedMemberId;
+        var originalMemberId = seat.OriginalMemberId;
+
+        if (desiredMemberId == originalMemberId)
+        {
+            return;
+        }
+
+        if (!desiredMemberId.HasValue)
+        {
+            if (seat.AssignmentId.HasValue)
+            {
+                BoardRepository.RemoveAssignment(seat.AssignmentId.Value);
+                if (originalMemberId.HasValue)
+                {
+                    LogBoardHistory(originalMemberId.Value, seat.BasePositionName, $"{seat.BasePositionName} ({_selectedTermYear})", "Removed");
+                    AuditLogger.Log(
+                        AuditLogActions.DirectorRoleChanged,
+                        performedByUserId,
+                        originalMemberId.Value,
+                        BuildDirectorAuditDetails(seat.BasePositionName, _selectedTermYear, "Removed", performedByUserName));
+                }
+            }
+
+            return;
+        }
+
+        if (!_memberLookup.ContainsKey(desiredMemberId.Value))
+        {
+            throw new InvalidOperationException("Selected member is not eligible for board service.");
+        }
+
+        if (seat.AssignmentId is null)
+        {
+            EnsureMemberNotAlreadyAssigned(desiredMemberId.Value, seat.AssignmentId);
+            var assignment = new BoardAssignment
+            {
+                MemberID = desiredMemberId.Value,
+                PositionID = seat.PositionId,
+                TermYear = _selectedTermYear,
+                StartDate = GetDefaultTermStart(_selectedTermYear)
+            };
+
+            BoardRepository.InsertAssignment(assignment);
+            LogBoardHistory(desiredMemberId.Value, seat.BasePositionName, "Unassigned", $"{seat.BasePositionName} ({_selectedTermYear})");
+            AuditLogger.Log(
+                AuditLogActions.DirectorRoleChanged,
+                performedByUserId,
+                desiredMemberId.Value,
+                BuildDirectorAuditDetails(seat.BasePositionName, _selectedTermYear, "Added", performedByUserName));
+            
+            // Create user account for the director if it doesn't exist
+            CreateDirectorUserIfNeeded(desiredMemberId.Value);
+            
+            return;
+        }
+
+        if (originalMemberId.HasValue && originalMemberId.Value == desiredMemberId.Value)
+        {
+            return;
+        }
+
+        EnsureMemberNotAlreadyAssigned(desiredMemberId.Value, seat.AssignmentId);
+
+        var updatedAssignment = new BoardAssignment
+        {
+            AssignmentID = seat.AssignmentId.Value,
+            MemberID = desiredMemberId.Value,
+            PositionID = seat.PositionId,
+            TermYear = _selectedTermYear,
+            StartDate = seat.Assignment?.StartDate ?? GetDefaultTermStart(_selectedTermYear),
+            EndDate = seat.Assignment?.EndDate,
+            Notes = seat.Assignment?.Notes
+        };
+
+        BoardRepository.UpdateAssignment(updatedAssignment);
+
+        if (originalMemberId.HasValue)
+        {
+            LogBoardHistory(originalMemberId.Value, seat.BasePositionName, $"{seat.BasePositionName} ({_selectedTermYear})", "Removed");
+            AuditLogger.Log(
+                AuditLogActions.DirectorRoleChanged,
+                performedByUserId,
+                originalMemberId.Value,
+                BuildDirectorAuditDetails(seat.BasePositionName, _selectedTermYear, "Removed", performedByUserName));
+        }
+
+        LogBoardHistory(desiredMemberId.Value, seat.BasePositionName, "Unassigned", $"{seat.BasePositionName} ({_selectedTermYear})");
+        AuditLogger.Log(
+            AuditLogActions.DirectorRoleChanged,
+            performedByUserId,
+            desiredMemberId.Value,
+            BuildDirectorAuditDetails(seat.BasePositionName, _selectedTermYear, "Added", performedByUserName, originalMemberId));
+        
+        // Create user account for the director if it doesn't exist
+        CreateDirectorUserIfNeeded(desiredMemberId.Value);
+    }
+
+    private void CreateDirectorUserIfNeeded(int memberId)
+    {
+        try
+        {
+            // Check if user already exists for this member using repository directly
+            var existingUser = UserRepository.GetByMemberId(memberId);
+            
+            if (existingUser != null)
+            {
+                // User already exists, don't create another one
+                return;
+            }
+
+            // Generate username from member
+            var username = UserManagementService.GenerateUsernameFromMember(memberId);
+            
+            // Get current user for CreatedBy
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var createdBy = currentUser?.Username ?? "System";
+            
+            // Create user with default password and password change required
+            var tempPassword = BuildDefaultDirectorPassword(memberId, username);
+            UserManagementService.CreateUser(
+                username: username,
+                password: tempPassword,
+                isAdmin: false,
+                memberId: memberId,
+                notes: "Auto-created when assigned as director",
+                createdBy: createdBy,
+                passwordChangeRequired: true,
+                createdByUserId: currentUser?.UserId
+            );
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail the director assignment if user creation fails
+            Logger.LogWarning(ex, "Failed to create user account for director member {MemberId}", memberId);
+        }
+    }
+
+    private static string BuildDirectorAuditDetails(string position, int termYear, string change, string performedBy, int? previousMemberId = null)
+    {
+        var details = $"{position} ({termYear}) {change} by {performedBy}";
+        if (previousMemberId.HasValue)
+        {
+            details += $"; previousMemberId={previousMemberId.Value}";
+        }
+        return details;
+    }
+
+    private string BuildDefaultDirectorPassword(int memberId, string username)
+    {
+        var candidate = $"Gfc{memberId}#{DateTime.UtcNow.Year}!";
+        if (PasswordPolicy.Validate(username, candidate).IsValid)
+        {
+            return candidate;
+        }
+
+        const string fallback = "GfcDirectors!2025";
+        var fallbackResult = PasswordPolicy.Validate(username, fallback);
+        if (!fallbackResult.IsValid)
+        {
+            throw new InvalidOperationException(fallbackResult.ErrorMessage ?? PasswordPolicy.RequirementSummary);
+        }
+        return fallback;
+    }
+
+    private void LogBoardHistory(int memberId, string positionName, string? oldValue, string? newValue)
+    {
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var username = currentUser?.Username ?? "Unknown";
+            HistoryRepository.LogMemberChange(memberId, $"Board:{positionName}", oldValue, newValue, username);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to log history for member {Member}", memberId);
+        }
+    }
+
+    private void EnsureMemberNotAlreadyAssigned(int memberId, int? currentAssignmentId)
+    {
+        var assignments = BoardRepository.GetAssignmentsByYear(_selectedTermYear);
+        var alreadyAssigned = assignments.Any(a =>
+            a.MemberID == memberId &&
+            (!currentAssignmentId.HasValue || a.AssignmentID != currentAssignmentId.Value));
+
+        if (alreadyAssigned)
+        {
+            throw new InvalidOperationException("This member already holds another board position for the selected term.");
+        }
+    }
+
+    private void OnSelectionChanged(BoardSeatModel seat, ChangeEventArgs args)
+    {
+        seat.Error = null;
+        var raw = args.Value?.ToString();
+        if (int.TryParse(raw, out var parsed))
+        {
+            var alreadySelected = _seats.Any(other => !ReferenceEquals(other, seat) && other.SelectedMemberId == parsed);
+            if (alreadySelected)
+            {
+                seat.Error = "This member is already assigned to a different position.";
+                StateHasChanged();
+                return;
+            }
+
+            seat.SelectedMemberId = parsed;
+        }
+        else
+        {
+            seat.SelectedMemberId = null;
+        }
+    }
+
+    private async Task OnTermYearChanged(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var year))
+        {
+            return;
+        }
+
+        if (year == _selectedTermYear)
+        {
+            return;
+        }
+
+        _selectedTermYear = year;
+        _savingTerm = true;
+        await LoadAssignmentsAsync();
+        _savingTerm = false;
+    }
+
+    private async Task UseCurrentYear()
+    {
+        if (_selectedTermYear == _currentYear)
+        {
+            return;
+        }
+
+        if (!_termYears.Contains(_currentYear))
+        {
+            _termYears.Insert(0, _currentYear);
+        }
+
+        _selectedTermYear = _currentYear;
+        _savingTerm = true;
+        await LoadAssignmentsAsync();
+        _savingTerm = false;
+    }
+
+    private static DateTime GetDefaultTermStart(int year) =>
+        new(year, 1, 1);
+
+    private bool IsEligibleForBoard(Member member)
+    {
+        var normalized = MemberStatusHelper.NormalizeStatus(member.Status);
+        return normalized is "REGULAR" or "REGULAR-NP" or "LIFE";
+    }
+
+    private string FormatMemberDisplay(int memberId) =>
+        _memberLookup.TryGetValue(memberId, out var option)
+            ? option.DisplayLabel
+            : "Unknown member";
+
+    private static string FormatMemberName(Member member)
+    {
+        return string.IsNullOrWhiteSpace(member.LastName)
+            ? member.FirstName
+            : $"{member.LastName}, {member.FirstName}";
+    }
+
+    private static string FormatSelectValue(int? value) => value?.ToString() ?? string.Empty;
+
+    private async Task LoadTermConfirmationAsync()
+    {
+        try
+        {
+            _termConfirmation = await Task.Run(() => BoardTermConfirmationService.GetConfirmation(_selectedTermYear));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load board confirmation for term {Term}", _selectedTermYear);
+            _termConfirmation = null;
+        }
+    }
+
+    private void OpenConfirmationModal()
+    {
+        _confirmationModalOpen = true;
+        _confirmationNotes = _termConfirmation?.Notes;
+        _confirmationSaving = false;
+    }
+
+    private void CancelConfirmationModal()
+    {
+        _confirmationModalOpen = false;
+        _confirmationNotes = null;
+        _confirmationSaving = false;
+    }
+
+    private async Task ConfirmBoardAsync()
+    {
+        if (_confirmationSaving)
+        {
+            return;
+        }
+
+        _confirmationSaving = true;
+        try
+        {
+            await Task.Run(() => BoardTermConfirmationService.Confirm(
+                _selectedTermYear,
+                Environment.UserName,
+                _confirmationNotes));
+
+            _termConfirmation = new BoardTermConfirmation(
+                _selectedTermYear,
+                DateTime.UtcNow,
+                Environment.UserName,
+                _confirmationNotes);
+
+            _statusMessage = $"Board for {_selectedTermYear} confirmed.";
+            _confirmationModalOpen = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to confirm board term {Term}", _selectedTermYear);
+            _errorMessage = "We couldn't record the confirmation. Please try again.";
+        }
+        finally
+        {
+            _confirmationSaving = false;
+        }
+    }
+
+    private sealed record MemberOption(int MemberId, string DisplayName, string NormalizedStatus)
+    {
+        public string DisplayLabel => $"{DisplayName} ({GetStatusLabel(NormalizedStatus)})";
+
+        private static string GetStatusLabel(string normalizedStatus) => normalizedStatus switch
+        {
+            "REGULAR" => "Regular",
+            "REGULAR-NP" => "Regular-NP",
+            "LIFE" => "Life",
+            _ => normalizedStatus
+        };
+    }
+
+    private sealed class BoardSeatModel
+    {
+        public int PositionId { get; set; }
+        public string BasePositionName { get; set; } = string.Empty;
+        public string PositionLabel { get; set; } = string.Empty;
+        public int? AssignmentId { get; set; }
+        public BoardAssignment? Assignment { get; set; }
+        public int? OriginalMemberId { get; set; }
+        public int? SelectedMemberId { get; set; }
+        public string CurrentSummary { get; set; } = "Currently: Unassigned";
+        public bool IsSaving { get; set; }
+        public string? Error { get; set; }
+
+        public bool IsDirty => (OriginalMemberId ?? -1) != (SelectedMemberId ?? -1);
+        public bool CanSave => IsDirty && !IsSaving;
+
+        public string BadgeLabel => AssignmentId.HasValue ? "Assigned" : "Open";
+        public string BadgeClass => AssignmentId.HasValue ? "badge-success" : "badge bg-secondary";
+    }
+}

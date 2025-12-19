@@ -1,0 +1,578 @@
+@page "/simulation"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Services.Simulation
+@using GFC.BlazorServer.Services.SimulationReplay
+@using GFC.BlazorServer.Configuration
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@inject ISystemSettingsService SystemSettingsService
+@inject SimulationPresetService PresetService
+@inject ISimulationEngineControlService EngineService
+@inject SimControllerStateStore StateStore
+@inject ControllerRegistryService RegistryService
+@inject ISimulationTraceService TraceService
+@inject ICardReaderProfileService CardReaderProfileService
+@inject IOptions<AccessControlSimulationOptions> SimulationOptions
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<Dashboard> Logger
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Simulation Control Panel</PageTitle>
+
+@if (SimulationOptions?.Value?.UseAccessControlSimulation == true)
+{
+    <div class="sim-banner">
+        <div class="sim-banner-pulse"></div>
+        <div class="sim-banner-content">
+            <div class="sim-dot"></div>
+            <div>
+                <div class="sim-pill">Simulation Mode</div>
+                <div class="sim-title">GFC Studio V2 – Simulation Environment</div>
+                <div class="sim-subtext">
+                    System is running in comprehensive simulation mode. No real hardware is affected.
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="container-fluid mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">Simulation Control Panel</h1>
+            <p class="text-muted mb-0">Unified interface for Simulation State, Event Injection, and Traces.</p>
+        </div>
+        <div class="d-flex gap-2">
+            @if (_useRealControllers)
+            {
+                <span class="badge bg-danger align-self-center p-2">LIVE MODE ACTIVE</span>
+            }
+            else
+            {
+                <span class="badge bg-success align-self-center p-2">SIMULATION MODE ACTIVE</span>
+            }
+            <button class="btn btn-outline-secondary" @onclick="NavigateToSettings">
+                <i class="bi bi-gear"></i> Settings
+            </button>
+        </div>
+    </div>
+
+    @if (_errorMessage != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+
+    @if (_successMessage != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @_successMessage
+            <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+        </div>
+    }
+
+    @if (_useRealControllers)
+    {
+        <div class="alert alert-warning">
+            <h5><i class="bi bi-exclamation-triangle"></i> Simulation Disabled</h5>
+            <p class="mb-0">
+                The system is configured to use <strong>Real Controllers</strong>. Simulation features are disabled. 
+                Go to Settings to enable Simulation Mode.
+            </p>
+        </div>
+    }
+    else
+    {
+        <!-- Main Dashboard Layout -->
+        <div class="row g-3">
+            
+            <!-- Left Column: Controls & State -->
+            <div class="col-lg-5">
+                <!-- Time Control -->
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0"><i class="bi bi-clock"></i> Simulation Time</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <div class="h4 mb-0">@_currentSimTime.ToString("HH:mm:ss") <small class="text-muted fs-6">UTC</small></div>
+                                <small class="text-muted">Offset: @(_currentSimTime - DateTime.UtcNow).ToString(@"dd\.hh\:mm\:ss")</small>
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="AdvanceTimeToNow" disabled="@_isProcessing">
+                                <i class="bi bi-arrow-counterclockwise"></i> Sync Now
+                            </button>
+                        </div>
+                        <div class="btn-group w-100">
+                            <button class="btn btn-outline-secondary" @onclick="@(() => AdvanceTime(TimeSpan.FromMinutes(10)))" disabled="@_isProcessing">+10m</button>
+                            <button class="btn btn-outline-secondary" @onclick="@(() => AdvanceTime(TimeSpan.FromHours(1)))" disabled="@_isProcessing">+1h</button>
+                            <button class="btn btn-outline-secondary" @onclick="@(() => AdvanceTime(TimeSpan.FromHours(6)))" disabled="@_isProcessing">+6h</button>
+                            <button class="btn btn-outline-secondary" @onclick="@(() => AdvanceTime(TimeSpan.FromDays(1)))" disabled="@_isProcessing">+1d</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controller State -->
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0"><i class="bi bi-cpu"></i> Controller State</h5>
+                    </div>
+                    <div class="card-body">
+                         <select class="form-select mb-3" @bind="_selectedControllerId" @bind:after="OnControllerSelected">
+                            <option value="0">Select Controller to Inspect...</option>
+                            @foreach (var controller in _controllers)
+                            {
+                                <option value="@controller.Id">@controller.Name</option>
+                            }
+                        </select>
+
+                        @if (_selectedController != null && _doorStates.Any())
+                        {
+                            <div class="table-responsive" style="max-height: 200px;">
+                                <table class="table table-sm table-borderless">
+                                    <thead>
+                                        <tr>
+                                            <th>Door</th>
+                                            <th>Lock</th>
+                                            <th>State</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var doorState in _doorStates)
+                                        {
+                                            <tr>
+                                                <td>@doorState.DoorName</td>
+                                                <td>
+                                                    <span class="badge @(doorState.IsLocked ? "bg-danger" : "bg-success")">
+                                                        @(doorState.IsLocked ? "Locked" : "Unlocked")
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span class="badge @(doorState.IsDoorOpen ? "bg-warning text-dark" : "bg-secondary")">
+                                                        @(doorState.IsDoorOpen ? "Open" : "Closed")
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="d-grid mt-2">
+                                <button class="btn btn-sm btn-outline-danger" @onclick="ResetControllerState" disabled="@_isProcessing">
+                                    <i class="bi bi-trash"></i> Reset This Controller
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Event Injector -->
+                 <div class="card shadow-sm mb-3">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0"><i class="bi bi-lightning-charge"></i> Inject Event</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <label class="form-label small">Controller & Door</label>
+                            <div class="input-group input-group-sm">
+                                <select class="form-select" @bind="_eventControllerId">
+                                    <option value="0">Controller...</option>
+                                    @foreach (var controller in _controllers) { <option value="@controller.Id">@controller.Name</option> }
+                                </select>
+                                <input type="number" class="form-control" @bind="_eventDoorIndex" placeholder="Door Idx" min="0" max="15" style="max-width: 80px;" />
+                            </div>
+                        </div>
+                         <div class="mb-2">
+                            <div class="row g-2">
+                                <div class="col-7">
+                                     <label class="form-label small">Event Type</label>
+                                    <select class="form-select form-select-sm" @bind="_eventType">
+                                        <option value="1">Door Open</option>
+                                        <option value="2">Door Closed</option>
+                                        <option value="3">Access Granted</option>
+                                        <option value="4">Access Denied</option>
+                                        <option value="5">Forced Open</option>
+                                        <option value="6">Held Open</option>
+                                    </select>
+                                </div>
+                                <div class="col-5">
+                                    <label class="form-label small">Card #</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="_eventCardNumber" placeholder="Opt." />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-grid">
+                            <button class="btn btn-primary btn-sm" @onclick="InjectEvent" disabled="@(_eventControllerId == 0 || _isProcessing)">
+                                Inject Sim Event
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Traces & Replay -->
+            <div class="col-lg-7">
+                <!-- Test Console (Quick Actions) -->
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header bg-light">
+                        <h5 class="card-title mb-0"><i class="bi bi-joystick"></i> Quick Test Console</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6 border-end">
+                                <h6 class="small text-muted text-uppercase">Presets</h6>
+                                <div class="d-flex flex-wrap gap-2">
+                                    @foreach (var preset in _presets)
+                                    {
+                                         <button class="btn btn-sm btn-outline-secondary" 
+                                                @onclick="@(() => ApplyPreset(preset.Key))"
+                                                disabled="@(_selectedControllerId == 0 || _isProcessing)"
+                                                title="@preset.Description">
+                                            @preset.Name
+                                        </button>
+                                    }
+                                    @if(_selectedControllerId == 0) { <small class="text-danger d-block w-100 mt-1">* Select controller first</small> }
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="small text-muted text-uppercase">Card Reader Emulation</h6>
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" @bind="_testCardNumber" placeholder="Card Number..." />
+                                    <button class="btn btn-outline-primary" @onclick="SimulateCardSwipeAsync" disabled="@_isProcessing">Swipe</button>
+                                </div>
+                                <small class="text-muted">Simulates a physical swipe at the selected controller's reader.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Traces Table -->
+                 <div class="card shadow-sm">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0"><i class="bi bi-list-columns"></i> Recent Traces</h5>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="ReloadTracesAsync" disabled="@_isLoadingTraces">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        @if (_isLoadingTraces)
+                        {
+                            <div class="text-center p-4"><div class="spinner-border text-primary spinner-border-sm"></div> Loading traces...</div>
+                        }
+                        else if (!_traces.Any())
+                        {
+                            <div class="text-center p-4 text-muted">No traces recorded yet.</div>
+                        }
+                        else
+                        {
+                           <div class="table-responsive">
+                                <table class="table table-hover table-striped mb-0 small">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Operation</th>
+                                            <th>Controller</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var trace in _traces.Take(10))
+                                        {
+                                            <tr @onclick="() => SelectTrace(trace)" style="cursor: pointer;" class="@(_selectedTrace?.Id == trace.Id ? "table-active border-start border-4 border-primary" : "")">
+                                                <td>@trace.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</td>
+                                                <td>@trace.Operation</td>
+                                                <td>@(trace.ControllerName ?? trace.ControllerId?.ToString() ?? "-")</td>
+                                                <td>
+                                                     <span class="badge @GetStatusBadge(trace.ResultStatus)">@trace.ResultStatus</span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div> 
+                            <div class="card-footer bg-white border-top-0 d-flex justify-content-between align-items-center">
+                                <small class="text-muted">Showing last 10 traces</small>
+                                <a href="/simulation/traces" class="btn btn-sm btn-link text-decoration-none">View Full Log &rarr;</a>
+                            </div>
+                        }
+                    </div>
+                </div>
+                
+                 <!-- Trace Details Panel (Conditional) -->
+                @if (_selectedTrace != null)
+                {
+                    <div class="card shadow-sm mt-3 border-primary">
+                        <div class="card-header bg-primary text-white d-flex justify-content-between py-1">
+                            <small>Trace Details #@_selectedTrace.Id</small>
+                            <button type="button" class="btn-close btn-close-white small" @onclick="() => _selectedTrace = null"></button>
+                        </div>
+                        <div class="card-body py-2">
+                             <div class="row g-2 mb-2">
+                                <div class="col-6"><small class="fw-bold">Op:</small> <small>@_selectedTrace.Operation</small></div>
+                                <div class="col-6"><small class="fw-bold">Member:</small> <small>@(_selectedTrace.MemberId?.ToString() ?? "-")</small></div>
+                                <div class="col-12"><small class="fw-bold">Summary:</small> <small class="d-block text-truncate">@_selectedTrace.RequestSummary</small></div>
+                            </div>
+                            <div class="bg-light p-2 rounded small font-monospace overflow-auto" style="max-height: 100px;">
+                                @(_selectedTrace.RequestPayloadJson ?? _selectedTrace.RequestPayloadRaw ?? "No payload")
+                            </div>
+                        </div>
+                    </div>
+                }
+
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // --- State & Dependencies ---
+    private DateTime _currentSimTime = DateTime.UtcNow;
+    private List<ControllerDevice> _controllers = new();
+    private List<SimulationPreset> _presets = new();
+    private List<SimTraceViewModel> _traces = new();
+    private ControllerDevice? _selectedController;
+    private int _selectedControllerId = 0;
+    private int _eventControllerId = 0;
+    private int _eventDoorIndex = 0;
+    private int _eventType = 1;
+    private long? _eventCardNumber;
+    private List<DoorStateViewModel> _doorStates = new();
+    private string? _testCardNumber;
+    private SimTraceViewModel? _selectedTrace;
+
+    private bool _useRealControllers = false;
+    private bool _isProcessing = false;
+    private bool _isLoadingTraces = false;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private CancellationTokenSource? _refreshCts;
+
+    // --- OnInitialized ---
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettingsAsync();
+        if (!_useRealControllers)
+        {
+            await LoadDataAsync();
+            StartRefreshTimer();
+        }
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        var settings = await SystemSettingsService.GetAsync();
+        _useRealControllers = settings.UseRealControllers;
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _controllers = (await RegistryService.GetControllersAsync(includeDoors: true)).ToList();
+        _presets = PresetService.GetPresets().ToList();
+        await RefreshDiagnostics();
+        await ReloadTracesAsync();
+    }
+
+    // --- Core Actions ---
+
+    private async Task RefreshDiagnostics()
+    {
+        try 
+        {
+            // Sync time from first available controller mock state
+            var firstCtl = _controllers.FirstOrDefault();
+            if (firstCtl != null)
+            {
+                var state = StateStore.Get(firstCtl.SerialNumberDisplay);
+                if (state != null) _currentSimTime = state.SimNowUtc;
+            }
+        }
+        catch (Exception) { /* Ignored in polling loop */ }
+    }
+
+    private async Task AdvanceTime(TimeSpan delta)
+    {
+        await ExecuteSafeAsync(async () => {
+            await EngineService.AdvanceTimeAsync(delta);
+            await RefreshDiagnostics();
+            _successMessage = $"Time advanced by {delta}";
+        });
+    }
+
+    private async Task AdvanceTimeToNow()
+    {
+        await ExecuteSafeAsync(async () => {
+             var delta = DateTime.UtcNow - _currentSimTime;
+             if(delta.TotalSeconds > 0) await EngineService.AdvanceTimeAsync(delta);
+             await RefreshDiagnostics();
+        });
+    }
+
+    private async Task InjectEvent()
+    {
+        await ExecuteSafeAsync(async () => {
+             await EngineService.InjectEventAsync(_eventControllerId, _eventDoorIndex, _eventCardNumber, _eventType, DateTime.UtcNow);
+             _successMessage = "Event injected.";
+             await ReloadTracesAsync();
+        });
+    }
+
+    private async Task SimulateCardSwipeAsync()
+    {
+        if(_selectedControllerId == 0) { _errorMessage = "Select a controller first."; return; }
+        if(string.IsNullOrWhiteSpace(_testCardNumber)) { _errorMessage = "Enter card number."; return; }
+        
+        // This is a simplified "Swipe" using direct event injection for now 
+        // In full impl it would call client.SimulateCardRead
+        await ExecuteSafeAsync(async () => {
+            long cardNum;
+            long.TryParse(_testCardNumber, out cardNum);
+            // Type 3 = Granted ?? Actually depends on access, but for test we inject Read
+             await EngineService.InjectEventAsync(_selectedControllerId, 0, cardNum, 3, DateTime.UtcNow); 
+             _successMessage = "Swipe simulated (Event Injected).";
+             await ReloadTracesAsync();
+        });
+    }
+
+    private async Task ApplyPreset(string key)
+    {
+        await ExecuteSafeAsync(async () => {
+             await PresetService.ApplyPresetAsync(_selectedControllerId, key);
+             _successMessage = "Preset applied.";
+             await OnControllerSelected(); // Refresh state
+        });
+    }
+
+    private async Task ResetControllerState()
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Reset this controller state?")) return;
+        await ExecuteSafeAsync(async () => {
+             await EngineService.ResetControllerStateAsync(_selectedControllerId);
+             _successMessage = "Controller reset.";
+             await OnControllerSelected();
+        });
+    }
+
+    // --- UI Helpers ---
+
+    private async Task OnControllerSelected()
+    {
+        _selectedController = _controllers.FirstOrDefault(c => c.Id == _selectedControllerId);
+        _doorStates.Clear();
+        if (_selectedController != null)
+        {
+            var state = StateStore.Get(_selectedController.SerialNumberDisplay);
+            if(state != null)
+            {
+                 foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
+                 {
+                     var ds = state.Doors.GetValueOrDefault(door.DoorIndex);
+                     if(ds != null)
+                     {
+                         _doorStates.Add(new DoorStateViewModel { 
+                             DoorName = door.Name, 
+                             IsLocked = ds.IsLocked, 
+                             IsDoorOpen = ds.IsDoorOpen 
+                         });
+                     }
+                 }
+            }
+        }
+    }
+
+    private async Task ReloadTracesAsync()
+    {
+        _isLoadingTraces = true;
+        try {
+             var raw = await TraceService.GetRecentTracesAsync(10);
+             _traces = raw.Select(t => new SimTraceViewModel {
+                 Id = t.Id,
+                 TimestampUtc = t.TimestampUtc,
+                 Operation = t.Operation,
+                 ResultStatus = t.ResultStatus,
+                 ControllerId = t.ControllerId,
+                 ControllerName = _controllers.FirstOrDefault(c => c.Id == t.ControllerId)?.Name,
+                 MemberId = t.MemberId,
+                 RequestSummary = t.RequestSummary,
+                 RequestPayloadJson = t.RequestPayloadJson,
+                 RequestPayloadRaw = t.RequestPayloadRaw
+             }).ToList();
+        }
+        catch(Exception ex) {
+            Logger.LogError(ex, "Trace load failed");
+        }
+        finally { _isLoadingTraces = false; }
+    }
+
+    private void SelectTrace(SimTraceViewModel trace) => _selectedTrace = trace;
+
+    private async Task ExecuteSafeAsync(Func<Task> action)
+    {
+        _isProcessing = true;
+        _errorMessage = null;
+        _successMessage = null;
+        try { await action(); }
+        catch (Exception ex) { _errorMessage = ex.Message; }
+        finally { _isProcessing = false; }
+    }
+
+    private void NavigateToSettings() => Navigation.NavigateTo("/settings");
+
+    private void StartRefreshTimer()
+    {
+        _refreshCts = new CancellationTokenSource();
+        _ = LoopRefresh(_refreshCts.Token);
+    }
+    
+    private async Task LoopRefresh(CancellationToken ct)
+    {
+        while(!ct.IsCancellationRequested)
+        {
+            await Task.Delay(2000, ct);
+            if(_useRealControllers) break;
+            await InvokeAsync(async () => {
+                await RefreshDiagnostics();
+                await OnControllerSelected(); // Refresh active view
+                StateHasChanged();
+            });
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshCts?.Cancel();
+    }
+
+    private string GetStatusBadge(string status) => status?.ToLower() switch {
+        "ok" => "bg-success",
+        "failed" => "bg-danger",
+        "partial" => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    // --- View Models ---
+    public class DoorStateViewModel {
+        public string DoorName { get; set; } = "";
+        public bool IsLocked { get; set; }
+        public bool IsDoorOpen { get; set; }
+    }
+
+    public class SimTraceViewModel {
+        public long Id { get; set; }
+        public DateTime TimestampUtc { get; set; }
+        public string Operation { get; set; } = "";
+        public string ResultStatus { get; set; } = "";
+        public int? ControllerId { get; set; }
+        public string? ControllerName { get; set; }
+        public int? MemberId { get; set; }
+        public string? RequestSummary { get; set; }
+        public string? RequestPayloadJson { get; set; }
+        public string? RequestPayloadRaw { get; set; }
+    }
+}

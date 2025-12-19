@@ -1,0 +1,626 @@
+@page "/settings"
+@using GFC.Core.Services
+@using GFC.Core.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using System.IO
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@inject BackupConfigService BackupConfigService
+@inject IDatabaseBackupService DatabaseBackupService
+@inject ISystemSettingsService SystemSettingsService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<Settings> Logger
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Settings - GFC Membership System</PageTitle>
+
+<div class="settings-page">
+    <h1 class="page-title">Settings</h1>
+
+    <div class="settings-container">
+        <div class="settings-section">
+            <div class="settings-section__header">
+                <h2>
+                    <i class="bi bi-database"></i>
+                    Database Backup Configuration
+                </h2>
+                <p class="settings-section__description">
+                    Configure automatic database backups, including location, frequency, and retention policy.
+                </p>
+            </div>
+
+            <div class="settings-section__body">
+                @if (_showSuccessMessage)
+                {
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="bi bi-check-circle"></i>
+                        Settings saved successfully!
+                        <button type="button" class="btn-close" @onclick="() => _showSuccessMessage = false"></button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-circle"></i>
+                        @_errorMessage
+                        <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
+                    </div>
+                }
+
+                <EditForm Model="_backupConfig" OnValidSubmit="SaveBackupSettings">
+                    <DataAnnotationsValidator />
+
+                    <div class="form-grid two-column">
+                        <div class="form-field full-width-field">
+                            <label class="form-label" for="backup-folder">
+                                Backup Folder Path <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <InputText id="backup-folder" 
+                                           class="form-control" 
+                                           @bind-Value="_backupConfig.BackupFolder" 
+                                           placeholder="C:\GFC_Backups\ClubMembership" />
+                                <button type="button" 
+                                        class="btn btn-outline-secondary" 
+                                        @onclick="SelectBackupFolder"
+                                        disabled="@_selectingFolder"
+                                        title="Browse for folder">
+                                    <i class="bi bi-folder"></i>
+                                    @if (_selectingFolder)
+                                    {
+                                        <span>Selecting...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Browse</span>
+                                    }
+                                </button>
+                            </div>
+                            <small class="form-text text-muted">
+                                <strong>Important:</strong> Enter the full server path (e.g., C:\GFC_Backups\ClubMembership). 
+                                The folder will be created automatically on the server when you save settings. 
+                                Note: Browser folder picker may only provide folder names - you may need to complete the full server path manually.
+                            </small>
+                        </div>
+
+                        <div class="form-field">
+                            <label class="form-label" for="backup-time">
+                                Daily Backup Time <span class="text-danger">*</span>
+                            </label>
+                            <InputSelect id="backup-time" 
+                                         class="form-select" 
+                                         @bind-Value="_selectedBackupHour">
+                                @for (int hour = 0; hour < 24; hour++)
+                                {
+                                    var displayTime = hour == 0 ? "12:00 AM" : hour < 12 ? $"{hour}:00 AM" : hour == 12 ? "12:00 PM" : $"{hour - 12}:00 PM";
+                                    <option value="@hour">@displayTime</option>
+                                }
+                            </InputSelect>
+                            <small class="form-text text-muted">
+                                Hour of day when automatic backups should run.
+                            </small>
+                        </div>
+
+                        <div class="form-field">
+                            <label class="form-label" for="retention-days">
+                                Retention Days <span class="text-danger">*</span>
+                            </label>
+                            <InputSelect id="retention-days" 
+                                         class="form-select" 
+                                         @bind-Value="_selectedRetentionDays">
+                                <option value="7">7 days</option>
+                                <option value="14">14 days</option>
+                                <option value="30">30 days</option>
+                                <option value="60">60 days</option>
+                            </InputSelect>
+                            <small class="form-text text-muted">
+                                Number of days to keep backup files. Older backups will be automatically deleted.
+                            </small>
+                        </div>
+
+                        <div class="form-field">
+                            <label class="form-label" for="server-instance">
+                                SQL Server Instance
+                            </label>
+                            <InputText id="server-instance" 
+                                       class="form-control" 
+                                       @bind-Value="_backupConfig.ServerInstance" 
+                                       placeholder="localhost" />
+                            <small class="form-text text-muted">
+                                SQL Server instance name or server address.
+                            </small>
+                        </div>
+
+                        <div class="form-field">
+                            <label class="form-label" for="database-name">
+                                Database Name
+                            </label>
+                            <InputText id="database-name" 
+                                       class="form-control" 
+                                       @bind-Value="_backupConfig.DatabaseName" 
+                                       placeholder="ClubMembership" />
+                            <small class="form-text text-muted">
+                                Name of the database to backup.
+                            </small>
+                        </div>
+                    </div>
+
+                    @if (_backupConfig.LastBackupTime.HasValue)
+                    {
+                        <div class="backup-status-info">
+                            <div class="backup-status-info__item">
+                                <span class="backup-status-info__label">Last Backup:</span>
+                                <span class="backup-status-info__value">@_backupConfig.LastBackupTime.Value.ToString("MMM d, yyyy h:mm tt")</span>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="settings-actions">
+                        <button type="submit" 
+                                class="btn btn-primary" 
+                                disabled="@_saving">
+                            <i class="bi bi-save"></i>
+                            @if (_saving)
+                            {
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>Save Backup Settings</span>
+                            }
+                        </button>
+                        <button type="button" 
+                                class="btn btn-outline" 
+                                @onclick="ResetToDefaults"
+                                disabled="@_saving">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                            Reset to Defaults
+                        </button>
+                        <button type="button" 
+                                class="btn btn-success" 
+                                @onclick="RunBackupNow"
+                                disabled="@(_saving || _runningBackup)">
+                            <i class="bi bi-database-check"></i>
+                            @if (_runningBackup)
+                            {
+                                <span>Running Backup...</span>
+                            }
+                            else
+                            {
+                                <span>Run Backup Now</span>
+                            }
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-section__header">
+                <h2>
+                    <i class="bi bi-hdd-network"></i>
+                    Controller Settings
+                </h2>
+                <p class="settings-section__description">
+                    Configure controller behavior and simulation mode.
+                </p>
+            </div>
+
+            <div class="settings-section__body">
+                @if (_showControllerSuccessMessage)
+                {
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="bi bi-check-circle"></i>
+                        Controller settings saved successfully!
+                        <button type="button" class="btn-close" @onclick="() => _showControllerSuccessMessage = false"></button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_controllerErrorMessage))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-circle"></i>
+                        @_controllerErrorMessage
+                        <button type="button" class="btn-close" @onclick="() => _controllerErrorMessage = string.Empty"></button>
+                    </div>
+                }
+
+                <div class="form-grid">
+                    <div class="form-field">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" 
+                                   type="checkbox" 
+                                   id="use-real-controllers" 
+                                   @bind="_useRealControllers"
+                                   @bind:after="OnSimulationModeChanged"
+                                   style="width: 3rem; height: 1.5rem; cursor: pointer;" />
+                            <label class="form-check-label" for="use-real-controllers" style="cursor: pointer; margin-left: 0.5rem;">
+                                <strong>Use Real Controllers</strong>
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">
+                            @if (_useRealControllers)
+                            {
+                                <span class="text-success">
+                                    <i class="bi bi-hdd-network"></i> <strong>Real Controller Mode:</strong> All controller operations will communicate with physical hardware via the Agent API.
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="text-warning">
+                                    <i class="bi bi-cpu"></i> <strong>Simulation Mode (NO real hardware writes):</strong> Controller operations will use simulation mode. No physical hardware will be accessed. No network packets will be sent.
+                                </span>
+                            }
+                        </small>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                <strong>Note:</strong> When simulation mode is enabled, all controller-related features (door control, card sync, schedules, event polling) will operate against a simulated controller layer instead of real hardware.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-actions mt-3">
+                    <button type="button" 
+                            class="btn btn-primary" 
+                            @onclick="SaveControllerSettings"
+                            disabled="@_savingControllerSettings">
+                        <i class="bi bi-save"></i>
+                        @if (_savingControllerSettings)
+                        {
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>Save Controller Settings</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private BackupConfig _backupConfig = new();
+    private int _selectedBackupHour = 2; // Default to 2 AM
+    private int _selectedRetentionDays = 30; // Default to 30 days
+    private bool _saving = false;
+    private bool _selectingFolder = false;
+    private bool _runningBackup = false;
+    private bool _showSuccessMessage = false;
+    private string _errorMessage = string.Empty;
+
+    // Controller settings
+    private bool _useRealControllers = false; // Default to false (simulation mode)
+    private bool _savingControllerSettings = false;
+    private bool _showControllerSuccessMessage = false;
+    private string _controllerErrorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        LoadBackupSettings();
+        await LoadControllerSettingsAsync();
+        await Task.CompletedTask; // Suppress async warning
+    }
+
+    private void LoadBackupSettings()
+    {
+        try
+        {
+            _backupConfig = BackupConfigService.Load();
+            if (_backupConfig == null)
+            {
+                _backupConfig = new BackupConfig
+                {
+                    BackupFolder = BackupConfigService.GetDefaultBackupFolder()
+                };
+            }
+            
+            // Convert TimeSpan to selected hour (0-23)
+            _selectedBackupHour = _backupConfig.DailyBackupTime.Hours;
+            
+            // Set retention days, defaulting to 30 if not one of the allowed values
+            if (_backupConfig.RetentionDays == 7 || _backupConfig.RetentionDays == 14 || 
+                _backupConfig.RetentionDays == 30 || _backupConfig.RetentionDays == 60)
+            {
+                _selectedRetentionDays = _backupConfig.RetentionDays;
+            }
+            else
+            {
+                _selectedRetentionDays = 30;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading backup settings");
+            _errorMessage = "Failed to load backup settings. Using defaults.";
+            _backupConfig = new BackupConfig
+            {
+                BackupFolder = BackupConfigService.GetDefaultBackupFolder()
+            };
+            _selectedBackupHour = 2;
+            _selectedRetentionDays = 30;
+        }
+    }
+
+    private async Task SaveBackupSettings()
+    {
+        _saving = true;
+        _errorMessage = string.Empty;
+        _showSuccessMessage = false;
+
+        try
+        {
+            // Validate backup folder path
+            if (string.IsNullOrWhiteSpace(_backupConfig.BackupFolder))
+            {
+                _errorMessage = "Backup folder path is required.";
+                _saving = false;
+                return;
+            }
+
+            // Create backup folder if it doesn't exist
+            try
+            {
+                // Normalize the path (handle any browser-specific path issues)
+                var folderPath = _backupConfig.BackupFolder.Trim();
+                
+                if (string.IsNullOrWhiteSpace(folderPath))
+                {
+                    _errorMessage = "Backup folder path cannot be empty.";
+                    _saving = false;
+                    return;
+                }
+
+                if (!Directory.Exists(folderPath))
+                {
+                    // Create the directory and all parent directories if needed
+                    Directory.CreateDirectory(folderPath);
+                    Logger.LogInformation("Created backup folder: {BackupFolder}", folderPath);
+                    
+                    // Verify the folder was actually created
+                    if (Directory.Exists(folderPath))
+                    {
+                        // Update the config with the normalized path
+                        _backupConfig.BackupFolder = folderPath;
+                    }
+                    else
+                    {
+                        _errorMessage = $"Failed to create backup folder. Please check the path and permissions: {folderPath}";
+                        _saving = false;
+                        return;
+                    }
+                }
+                else
+                {
+                    // Folder already exists, just update the config with normalized path
+                    _backupConfig.BackupFolder = folderPath;
+                }
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Logger.LogError(ex, "Permission denied creating backup folder: {BackupFolder}", _backupConfig.BackupFolder);
+                _errorMessage = $"Permission denied. Unable to create backup folder. Please check folder permissions: {ex.Message}";
+                _saving = false;
+                return;
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                Logger.LogError(ex, "Parent directory not found for backup folder: {BackupFolder}", _backupConfig.BackupFolder);
+                _errorMessage = $"Parent directory not found. Please ensure the parent folder exists: {ex.Message}";
+                _saving = false;
+                return;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to create backup folder: {BackupFolder}", _backupConfig.BackupFolder);
+                _errorMessage = $"Failed to create backup folder: {ex.Message}. Please check the path is valid and you have permissions.";
+                _saving = false;
+                return;
+            }
+
+            // Set backup time from selected hour
+            _backupConfig.DailyBackupTime = new TimeSpan(_selectedBackupHour, 0, 0);
+            
+            // Set retention days from selected value
+            _backupConfig.RetentionDays = _selectedRetentionDays;
+
+            // Mark as configured
+            _backupConfig.IsConfigured = true;
+
+            // Save the configuration
+            BackupConfigService.Save(_backupConfig);
+
+            _showSuccessMessage = true;
+            var folderStatus = Directory.Exists(_backupConfig.BackupFolder) ? "exists" : "created";
+            Logger.LogInformation("Backup settings saved successfully. Backup folder: {BackupFolder} ({Status})", _backupConfig.BackupFolder, folderStatus);
+            
+            // Small delay to show success message
+            await Task.Delay(100);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving backup settings");
+            _errorMessage = "Failed to save backup settings: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+
+    private async Task SelectBackupFolder()
+    {
+        _selectingFolder = true;
+        _errorMessage = string.Empty;
+
+        try
+        {
+            // Try to use File System Access API (Chrome/Edge) or fallback to file input
+            var selectedPath = await JSRuntime.InvokeAsync<string>("selectBackupFolder");
+            
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                // Note: Browser security prevents getting full file system paths
+                // The selectedPath will be just the folder name, not the full path
+                // User will need to enter the full server path manually
+                // We'll use the selected folder name as a starting point
+                if (!selectedPath.Contains(":\\") && !selectedPath.StartsWith("\\\\"))
+                {
+                    // This is just a folder name, not a full path
+                    // Prepend a default server path or let user complete it
+                    var defaultBasePath = "C:\\GFC_Backups\\";
+                    _backupConfig.BackupFolder = defaultBasePath + selectedPath;
+                    _errorMessage = $"Selected folder: {selectedPath}. Please verify and complete the full server path above (e.g., C:\\GFC_Backups\\{selectedPath}).";
+                }
+                else
+                {
+                    _backupConfig.BackupFolder = selectedPath;
+                }
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error selecting backup folder");
+            _errorMessage = "Folder picker is not available in this browser. Please enter the path manually.";
+        }
+        finally
+        {
+            _selectingFolder = false;
+        }
+    }
+
+    private void ResetToDefaults()
+    {
+        _backupConfig = new BackupConfig
+        {
+            BackupFolder = BackupConfigService.GetDefaultBackupFolder(),
+            ServerInstance = "localhost",
+            DatabaseName = "ClubMembership",
+            RetentionDays = 30,
+            DailyBackupTime = new TimeSpan(2, 0, 0),
+            IsConfigured = false,
+            LastBackupTime = null
+        };
+        _selectedBackupHour = 2;
+        _selectedRetentionDays = 30;
+        _errorMessage = string.Empty;
+        _showSuccessMessage = false;
+    }
+
+    private async Task RunBackupNow()
+    {
+        _runningBackup = true;
+        _errorMessage = string.Empty;
+        _showSuccessMessage = false;
+
+        try
+        {
+            // Ensure settings are saved first
+            if (!_backupConfig.IsConfigured)
+            {
+                _errorMessage = "Please configure and save backup settings before running a backup.";
+                _runningBackup = false;
+                return;
+            }
+
+            Logger.LogInformation("Manual backup triggered from Settings page");
+            var success = await DatabaseBackupService.ExecuteBackupAsync();
+
+            if (success)
+            {
+                _showSuccessMessage = true;
+                Logger.LogInformation("Manual backup completed successfully");
+                
+                // Reload settings to get updated LastBackupTime
+                LoadBackupSettings();
+                
+                // Clear success message after 5 seconds
+                await Task.Delay(5000);
+                _showSuccessMessage = false;
+            }
+            else
+            {
+                _errorMessage = "Backup failed. Please check the logs for details.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error running manual backup");
+            _errorMessage = "Error running backup: " + ex.Message;
+        }
+        finally
+        {
+            _runningBackup = false;
+        }
+    }
+
+    private async Task LoadControllerSettingsAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading controller settings");
+            _controllerErrorMessage = "Failed to load controller settings. Using defaults.";
+            _useRealControllers = false; // Default to simulation mode on error
+        }
+    }
+
+    private void OnSimulationModeChanged()
+    {
+        // This is called when the toggle changes, but we don't save until user clicks Save
+        // Just update the UI state
+        StateHasChanged();
+    }
+
+    private async Task SaveControllerSettings()
+    {
+        _savingControllerSettings = true;
+        _controllerErrorMessage = string.Empty;
+        _showControllerSuccessMessage = false;
+
+        try
+        {
+            var oldSettings = await SystemSettingsService.GetAsync();
+            var oldValue = oldSettings.UseRealControllers;
+            
+            await SystemSettingsService.SetUseRealControllersAsync(_useRealControllers);
+
+            // Audit log for mode change
+            if (oldValue != _useRealControllers)
+            {
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                var userName = currentUser?.Username ?? Environment.UserName ?? "System";
+                Logger.LogInformation(
+                    "Controller mode changed by {UserName}: {OldMode} → {NewMode}",
+                    userName,
+                    oldValue ? "Live" : "Simulation",
+                    _useRealControllers ? "Live" : "Simulation");
+            }
+
+            _showControllerSuccessMessage = true;
+            Logger.LogInformation("Controller settings saved: UseRealControllers = {UseRealControllers}", _useRealControllers);
+
+            // Small delay to show success message
+            await Task.Delay(100);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving controller settings");
+            _controllerErrorMessage = "Failed to save controller settings: " + ex.Message;
+        }
+        finally
+        {
+            _savingControllerSettings = false;
+        }
+    }
+}
+

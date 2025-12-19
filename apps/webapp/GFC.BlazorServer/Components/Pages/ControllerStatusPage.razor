@@ -1,0 +1,283 @@
+@page "/controllers/{ControllerId:int}/status"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Components.Pages.Controllers
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject ControllerRegistryService RegistryService
+@inject GFC.BlazorServer.Services.Controllers.IControllerClient ControllerClient
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<ControllerStatusPage> Logger
+
+<div class="page-header">
+    <div>
+        <h1>Controller Status</h1>
+        <p class="text-muted mb-0">@(_controller?.Name ?? "Unknown controller")</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="RefreshAsync" disabled="@_isLoading">
+            <i class="bi bi-arrow-repeat"></i> Refresh
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="NavigateToDoorConfig">
+            <i class="bi bi-gear"></i> Door Config
+        </button>
+        <button class="btn btn-outline-primary" @onclick="NavigateBackToDashboard">
+            <i class="bi bi-arrow-left"></i> Back to dashboard
+        </button>
+    </div>
+</div>
+
+<div class="mb-3">
+    <ul class="nav nav-tabs">
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "status" ? "active" : "")" @onclick='() => SetActiveTab("status")'>
+                Status
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "schedules" ? "active" : "")" @onclick='() => SetActiveTab("schedules")'>
+                Schedules & Holidays
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "doorconfig" ? "active" : "")" @onclick='() => SetActiveTab("doorconfig")'>
+                Door Config
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "autoopen" ? "active" : "")" @onclick='() => SetActiveTab("autoopen")'>
+                Auto-Open
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "advancedmodes" ? "active" : "")" @onclick='() => SetActiveTab("advancedmodes")'>
+                Advanced Modes
+            </button>
+        </li>
+    </ul>
+</div>
+
+@if (_errorMessage is not null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_controller is null)
+{
+    <div class="alert alert-warning">Controller not found.</div>
+}
+else if (_activeTab == "schedules")
+{
+    <a href="/controllers/@ControllerId/schedules" class="btn btn-outline-primary mb-3">
+        <i class="bi bi-arrow-right"></i> Go to Schedules & Holidays
+    </a>
+}
+else if (_activeTab == "doorconfig")
+{
+    <a href="/controllers/@ControllerId/door-config" class="btn btn-outline-primary mb-3">
+        <i class="bi bi-arrow-right"></i> Go to Door Config
+    </a>
+}
+else if (_activeTab == "autoopen")
+{
+    <ControllerAutoOpenTab ControllerId="@ControllerId" />
+}
+else if (_activeTab == "advancedmodes")
+{
+    <ControllerAdvancedModesTab ControllerId="@ControllerId" />
+}
+else if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else if (_runStatus is null)
+{
+    <div class="data-card">
+        <h4>Controller offline</h4>
+        <p class="text-muted mb-0">Agent API did not return run status. Controller might be offline or unreachable.</p>
+    </div>
+}
+else
+{
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="data-card h-100">
+                <h5>Controller info</h5>
+                <dl class="row small mb-0">
+                    <dt class="col-5">Serial</dt>
+                    <dd class="col-7">@_controller.SerialNumber</dd>
+                    <dt class="col-5">IP</dt>
+                    <dd class="col-7">@_controller.IpAddress:@_controller.Port</dd>
+                    <dt class="col-5">Enabled</dt>
+                    <dd class="col-7">@(_controller.IsEnabled ? "Yes" : "No")</dd>
+                </dl>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="data-card h-100">
+                <h5>Inputs</h5>
+                <div class="d-flex flex-column gap-2">
+                    <span class="badge @( _runStatus.IsFireAlarmActive ? "bg-danger" : "bg-success")">
+                        Fire @( _runStatus.IsFireAlarmActive ? "Active" : "Normal")
+                    </span>
+                    <span class="badge @( _runStatus.IsTamperActive ? "bg-danger" : "bg-success")">
+                        Tamper @( _runStatus.IsTamperActive ? "Active" : "Normal")
+                    </span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="data-card h-100">
+                <h5>Relays</h5>
+                <div class="d-flex flex-wrap gap-2">
+                    @if (_runStatus.RelayStates?.Count > 0)
+                    {
+                        @foreach (var relay in _runStatus.RelayStates.Select((state, idx) => (state, idx)))
+                        {
+                            <span class="badge @(relay.state ? "bg-primary" : "bg-secondary")">
+                                Relay @(relay.idx + 1): @(relay.state ? "On" : "Off")
+                            </span>
+                        }
+                    }
+                    else
+                    {
+                        <span class="text-muted small">No relay data.</span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="data-card">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">Door status</h5>
+            @if (_lastRefreshedUtc.HasValue)
+            {
+                <small class="text-muted">Last refreshed @_lastRefreshedUtc.Value.ToLocalTime():T</small>
+            }
+        </div>
+        <div class="row g-3">
+            @foreach (var doorStatus in _runStatus.Doors.OrderBy(d => d.DoorNumber))
+            {
+                var doorMetadata = _controller.Doors.FirstOrDefault(d => d.DoorIndex == doorStatus.DoorNumber);
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="status-tile @(doorStatus.IsDoorOpen ? "status-danger" : "status-success")">
+                        <div class="status-tile__header">
+                            <div>
+                                <strong>@(doorMetadata?.Name ?? $"Door {doorStatus.DoorNumber}")</strong>
+                                <div class="text-muted small">Index @doorStatus.DoorNumber</div>
+                            </div>
+                            <i class="bi @(doorStatus.IsDoorOpen ? "bi-door-open-fill" : "bi-door-closed-fill") status-icon"></i>
+                        </div>
+                        <div class="status-tile__body small">
+                            <div>
+                                <span class="badge @(doorStatus.IsRelayOn ? "bg-primary" : "bg-success")">
+                                    @(doorStatus.IsRelayOn ? "Unlocked" : "Locked")
+                                </span>
+                            </div>
+                            <div class="text-muted mt-1">
+                                <div>Door: @(doorStatus.IsDoorOpen ? "Open" : "Closed")</div>
+                                <div>Relay: @(doorStatus.IsRelayOn ? "Energized" : "Idle")</div>
+                                <div>Sensor: @(doorStatus.IsSensorActive ? "Active" : "Normal")</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int ControllerId { get; set; }
+
+    private ControllerDevice? _controller;
+    private AgentRunStatusDto? _runStatus;
+    private bool _isLoading = true;
+    private string? _errorMessage;
+    private DateTime? _lastRefreshedUtc;
+    private string _activeTab = "status";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await CheckAdminAccess();
+        if (_isLoading)
+        {
+            await LoadControllerAsync();
+            await RefreshAsync();
+        }
+    }
+
+    private async Task CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            isAdmin = currentUser?.IsAdmin == true;
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Controller Status page");
+            Navigation.NavigateTo("/");
+            _isLoading = false;
+        }
+    }
+
+    private async Task LoadControllerAsync()
+    {
+        _controller = await RegistryService.GetControllerByIdAsync(ControllerId);
+        if (_controller is null)
+        {
+            _errorMessage = "Controller not found.";
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_controller is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _isLoading = true;
+            _errorMessage = null;
+            _runStatus = await ControllerClient.GetRunStatusAsync(_controller.SerialNumberDisplay);
+            _lastRefreshedUtc = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to fetch run status");
+            _runStatus = null;
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _errorMessage = "Controller status read is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _errorMessage = "Unable to reach Agent API. Controller may be offline.";
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+    private void NavigateBackToDashboard() => Navigation.NavigateTo("/controllers");
+
+    private void NavigateToDoorConfig() => Navigation.NavigateTo($"/controllers/{ControllerId}/door-config");
+
+    private void SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+    }
+}
+

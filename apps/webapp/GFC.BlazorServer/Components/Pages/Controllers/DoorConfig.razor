@@ -1,0 +1,345 @@
+@page "/controllers/{ControllerId:int}/door-config"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using DoorConfigEntity = GFC.BlazorServer.Data.Entities.DoorConfig
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject ControllerRegistryService RegistryService
+@inject IDoorConfigService DoorConfigService
+@inject GFC.BlazorServer.Services.Controllers.IControllerClient ControllerClient
+@inject CommandInfoService CommandInfoService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<DoorConfigEntity> Logger
+
+<PageTitle>Door Configuration - GFC Controllers</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Door Configuration</h1>
+        <p class="text-muted mb-0">@(_controller?.Name ?? "Unknown controller")</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="ReadFromController" disabled="@(_isLoading || _isSyncing)">
+            <i class="bi bi-arrow-down-circle"></i> Read from Controller
+        </button>
+        <button class="btn btn-outline-primary" @onclick="SaveToDb" disabled="@(_isLoading || _isSaving)">
+            <i class="bi bi-save"></i> Save to DB
+        </button>
+        <button class="btn btn-primary" @onclick="SyncToController" disabled="@(_isLoading || _isSyncing || !HasChanges())" title="@_syncTooltip">
+            <i class="bi bi-cloud-upload"></i> Sync DB to Controller
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="NavigateBackToDashboard">
+            <i class="bi bi-arrow-left"></i> Back
+        </button>
+    </div>
+</div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_successMessage != null)
+{
+    <div class="alert alert-success">@_successMessage</div>
+}
+
+@if (_controller == null)
+{
+    <div class="alert alert-warning">Controller not found.</div>
+}
+else if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="data-card">
+        <h3>Door Settings</h3>
+        <p class="text-muted small mb-3">
+            Configure door timing and alarm settings. Changes are saved to the database only. Use "Sync DB to Controller" to push changes to the controller.
+        </p>
+        <table class="data-table table-compact">
+            <thead>
+                <tr>
+                    <th>Door</th>
+                    <th>Open Time (sec)</th>
+                    <th>Lock Delay (sec)</th>
+                    <th>Alarm Enabled</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_doors.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">No doors configured for this controller.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var door in _doors.OrderBy(d => d.DoorIndex))
+                    {
+                        var config = _configs.FirstOrDefault(c => c.DoorId == door.Id);
+                        if (config == null)
+                        {
+                            config = DoorConfigService.CreateDefaultForDoor(door);
+                            _configs.Add(config);
+                        }
+                        <tr>
+                            <td>
+                                <strong>@door.Name</strong>
+                                <br /><small class="text-muted">Index: @door.DoorIndex</small>
+                            </td>
+                            <td>
+                                <input type="number" class="form-control form-control-sm" 
+                                       style="width:100px;" 
+                                       min="0" max="255"
+                                       @bind="config.OpenTimeSeconds" 
+                                       @bind:event="oninput" />
+                            </td>
+                            <td>
+                                <input type="number" class="form-control form-control-sm" 
+                                       style="width:100px;" 
+                                       min="0" max="255"
+                                       @bind="config.LockDelaySeconds" 
+                                       @bind:event="oninput" />
+                            </td>
+                                    <td>
+                                        <input type="checkbox" class="form-check-input" @bind="config.AlarmEnabled" />
+                                    </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public int ControllerId { get; set; }
+
+    private ControllerDevice? _controller;
+    private IReadOnlyList<Door> _doors = Array.Empty<Door>();
+    private List<DoorConfigEntity> _configs = new();
+    private bool _isLoading = true;
+    private bool _isSaving;
+    private bool _isSyncing;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private string _syncTooltip = "Sync door configuration to controller";
+
+    private bool _isUnauthorized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var isAdmin = await CheckAdminAccess();
+        if (!isAdmin)
+        {
+            _isUnauthorized = true;
+            _isLoading = false;
+            return;
+        }
+        await LoadData();
+        await LoadCommandInfo();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isUnauthorized)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task<bool> CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            isAdmin = currentUser?.IsAdmin == true;
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Door Config page");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task LoadCommandInfo()
+    {
+        try
+        {
+            var syncCmd = await CommandInfoService.GetByKeyAsync("SyncDoorConfig");
+            if (syncCmd != null)
+            {
+                _syncTooltip = $"{syncCmd.DisplayName} (Risk Level {syncCmd.RiskLevel}): {syncCmd.ShortDescription}";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load command info");
+        }
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            _controller = await RegistryService.GetControllerByIdAsync(ControllerId);
+            if (_controller == null)
+            {
+                _errorMessage = "Controller not found.";
+                return;
+            }
+
+            var doorsList = await RegistryService.GetDoorsAsync(ControllerId);
+            _doors = doorsList;
+            var configsFromService = await DoorConfigService.GetConfigsForControllerAsync(ControllerId);
+            _configs = configsFromService.Select(c => (DoorConfigEntity)c).ToList();
+
+            foreach (var door in _doors)
+            {
+                if (!_configs.Any(c => c.DoorId == door.Id))
+                {
+                    _configs.Add((DoorConfigEntity)DoorConfigService.CreateDefaultForDoor(door));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load door config data");
+            _errorMessage = "Failed to load door configuration: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private bool HasChanges()
+    {
+        return _configs.Any();
+    }
+
+    private async Task SaveToDb()
+    {
+        _isSaving = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            await DoorConfigService.SaveConfigsAsync(ControllerId, _configs.Select(c => (GFC.BlazorServer.Data.Entities.DoorConfig)c));
+
+            _successMessage = "Door configuration saved to database.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save door config");
+            _errorMessage = "Failed to save configuration: " + ex.Message;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task ReadFromController()
+    {
+        if (_controller == null) return;
+
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var dto = await ControllerClient.GetDoorConfigAsync(_controller.SerialNumberDisplay);
+            if (dto == null)
+            {
+                _errorMessage = "Failed to read configuration from controller.";
+                return;
+            }
+
+            var newConfigs = DoorConfigService.MapFromReadDto(dto, _doors);
+            foreach (var newConfig in newConfigs)
+            {
+                var existing = _configs.FirstOrDefault(c => c.DoorId == newConfig.DoorId);
+                if (existing != null)
+                {
+                    existing.LockDelaySeconds = newConfig.LockDelaySeconds;
+                }
+                else
+                {
+                    _configs.Add((DoorConfigEntity)newConfig);
+                }
+            }
+
+            _successMessage = "Configuration read from controller and updated in memory. Click 'Save to DB' to persist.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to read from controller");
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _errorMessage = "Door configuration read is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _errorMessage = "Failed to read from controller: " + ex.Message;
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SyncToController()
+    {
+        if (_controller == null) return;
+
+        _isSyncing = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var dto = DoorConfigService.MapToWriteDto(_configs.Select(c => (GFC.BlazorServer.Data.Entities.DoorConfig)c));
+            await ControllerClient.WriteDoorConfigAsync(_controller.SerialNumberDisplay, dto);
+            _successMessage = "Door configuration synced successfully to controller.";
+            Logger.LogInformation("Door config synced to controller {ControllerId}", ControllerId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to sync door config to controller");
+            _errorMessage = "Failed to sync configuration: " + ex.Message;
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
+    }
+
+    private void NavigateBackToDashboard()
+    {
+        Navigation.NavigateTo("/controllers");
+    }
+}
+

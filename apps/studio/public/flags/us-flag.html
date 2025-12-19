@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WebGL Flag Waving Shader Example</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #333; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <canvas id="glcanvas"></canvas>
+
+    <script id="vertex-shader-2d" type="x-shader/x-vertex">
+        attribute vec4 a_position;
+        attribute vec2 a_texCoord;
+
+        uniform mat4 u_matrix;
+        uniform float u_time;
+
+        varying vec2 v_texCoord;
+
+        void main() {
+            vec4 pos = a_position;
+
+            // --- WAVING MATH ---
+            // We modify the Z position based on X, Y, and Time.
+
+            // Constants to control the wave feel
+            float speedX = 2.5;
+            float freqX = 4.0;
+            float ampX = 0.1; // Base amplitude
+
+            float speedY = 1.8;
+            float freqY = 3.0;
+            float ampY = 0.05;
+
+            // Dampening: The flag waves more further down the X axis (away from the pole at x=0)
+            // pos.x ranges from 0.0 to 1.0 in our mesh generation below.
+            float dampener = pos.x; 
+
+            // Primary wave moving along X axis
+            float wave1 = sin(pos.x * freqX - u_time * speedX);
+            
+            // Secondary smaller ripple moving along Y axis for realism
+            float wave2 = cos(pos.y * freqY - u_time * speedY);
+
+            // Combine waves and apply dampener so the "pole" side stays still
+            pos.z += (wave1 * ampX + wave2 * ampY) * dampener;
+
+            // --- END WAVING MATH ---
+
+            gl_Position = u_matrix * pos;
+
+            // Pass texture coordinates to fragment shader
+            v_texCoord = a_texCoord;
+        }
+    </script>
+
+    <script id="fragment-shader-2d" type="x-shader/x-fragment">
+        precision mediump float;
+
+        // Passed in from the vertex shader.
+        varying vec2 v_texCoord;
+
+        // The texture.
+        uniform sampler2D u_texture;
+
+        void main() {
+           gl_FragColor = texture2D(u_texture, v_texCoord);
+        }
+    </script>
+
+
+    <script>
+        "use strict";
+
+        function main() {
+            const canvas = document.querySelector("#glcanvas");
+            // Initialize the GL context
+            const gl = canvas.getContext("webgl");
+
+            if (!gl) {
+                alert("Unable to initialize WebGL.");
+                return;
+            }
+
+            // --- 1. Shader Compilation Helpers ---
+            function createShader(gl, type, source) {
+                const shader = gl.createShader(type);
+                gl.shaderSource(shader, source);
+                gl.compileShader(shader);
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    console.error('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+                    gl.deleteShader(shader);
+                    return null;
+                }
+                return shader;
+            }
+
+            function createProgram(gl, vertexShader, fragmentShader) {
+                const program = gl.createProgram();
+                gl.attachShader(program, vertexShader);
+                gl.attachShader(program, fragmentShader);
+                gl.linkProgram(program);
+                if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                    console.error('Unable to initialize the shader program: ' + gl.getProgramInfoLog(program));
+                    return null;
+                }
+                return program;
+            }
+
+            const vertexShaderSource = document.querySelector("#vertex-shader-2d").text;
+            const fragmentShaderSource = document.querySelector("#fragment-shader-2d").text;
+            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+            const program = createProgram(gl, vertexShader, fragmentShader);
+
+            // --- 2. Look up locations ---
+            const positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+            const texCoordAttributeLocation = gl.getAttribLocation(program, "a_texCoord");
+            const matrixLocation = gl.getUniformLocation(program, "u_matrix");
+            const timeLocation = gl.getUniformLocation(program, "u_time");
+            const textureLocation = gl.getUniformLocation(program, "u_texture");
+
+
+            // --- 3. Generate Geometry (The Plane Mesh) ---
+            // We need a grid of vertices, not just 4 corners, to make it bend smoothly.
+            const positions = [];
+            const texCoords = [];
+            const indices = [];
+
+            const numSegsX = 30; // More segments = smoother wave
+            const numSegsY = 20;
+
+            for (let y = 0; y <= numSegsY; y++) {
+                for (let x = 0; x <= numSegsX; x++) {
+                    const u = x / numSegsX;
+                    const v = y / numSegsY;
+                    
+                    // Positions range: X from 0 to 1. Y from -0.5 to 0.5
+                    positions.push(u, v - 0.5, 0); 
+                    texCoords.push(u, v);
+                }
+            }
+
+            for (let y = 0; y < numSegsY; y++) {
+                for (let x = 0; x < numSegsX; x++) {
+                    const base = y * (numSegsX + 1) + x;
+                    // Create two triangles for each grid square
+                    indices.push(base, base + 1, base + numSegsX + 1);
+                    indices.push(base + numSegsX + 1, base + 1, base + numSegsX + 2);
+                }
+            }
+
+            // --- 4. Create and fill Buffers ---
+            // Position Buffer
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+            // Texture Coordinate Buffer
+            const texCoordBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+
+            // Index Buffer
+            const indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+
+            // --- 5. Load Texture ---
+            const texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            // Fill with placeholder color while loading
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]));
+
+            const image = new Image();
+            // Using a placeholder image service for the example to work immediately.
+            // Replace this URL with your own flag image.
+            image.src = "https://upload.wikimedia.org/wikipedia/en/a/a4/Flag_of_the_United_States.svg";
+            image.crossOrigin = "anonymous"; // Needed if loading from different domain
+            image.onload = function() {
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                gl.generateMipmap(gl.TEXTURE_2D);
+            };
+
+
+            // --- 6. Matrix Math Helpers (Minimal perspective) ---
+            function perspective(fieldOfViewInRadians, aspect, near, far) {
+                var f = Math.tan(Math.PI * 0.5 - 0.5 * fieldOfViewInRadians);
+                var rangeInv = 1.0 / (near - far);
+                return [
+                  f / aspect, 0, 0, 0,
+                  0, f, 0, 0,
+                  0, 0, (near + far) * rangeInv, -1,
+                  0, 0, near * far * rangeInv * 2, 0
+                ];
+            }
+            
+            function multiply(a, b) {
+                var a00 = a[0*4+0]; var a01 = a[0*4+1]; var a02 = a[0*4+2]; var a03 = a[0*4+3];
+                var a10 = a[1*4+0]; var a11 = a[1*4+1]; var a12 = a[1*4+2]; var a13 = a[1*4+3];
+                var a20 = a[2*4+0]; var a21 = a[2*4+1]; var a22 = a[2*4+2]; var a23 = a[2*4+3];
+                var a30 = a[3*4+0]; var a31 = a[3*4+1]; var a32 = a[3*4+2]; var a33 = a[3*4+3];
+                var b00 = b[0*4+0]; var b01 = b[0*4+1]; var b02 = b[0*4+2]; var b03 = b[0*4+3];
+                var b10 = b[1*4+0]; var b11 = b[1*4+1]; var b12 = b[1*4+2]; var b13 = b[1*4+3];
+                var b20 = b[2*4+0]; var b21 = b[2*4+1]; var b22 = b[2*4+2]; var b23 = b[2*4+3];
+                var b30 = b[3*4+0]; var b31 = b[3*4+1]; var b32 = b[3*4+2]; var b33 = b[3*4+3];
+                return [
+                  a00 * b00 + a01 * b10 + a02 * b20 + a03 * b30,
+                  a00 * b01 + a01 * b11 + a02 * b21 + a03 * b31,
+                  a00 * b02 + a01 * b12 + a02 * b22 + a03 * b32,
+                  a00 * b03 + a01 * b13 + a02 * b23 + a03 * b33,
+                  a10 * b00 + a11 * b10 + a12 * b20 + a13 * b30,
+                  a10 * b01 + a11 * b11 + a12 * b21 + a13 * b31,
+                  a10 * b02 + a11 * b12 + a12 * b22 + a13 * b32,
+                  a10 * b03 + a11 * b13 + a12 * b23 + a13 * b33,
+                  a20 * b00 + a21 * b10 + a22 * b20 + a23 * b30,
+                  a20 * b01 + a21 * b11 + a22 * b21 + a23 * b31,
+                  a20 * b02 + a21 * b12 + a22 * b22 + a23 * b32,
+                  a20 * b03 + a21 * b13 + a22 * b23 + a23 * b33,
+                  a30 * b00 + a31 * b10 + a32 * b20 + a33 * b30,
+                  a30 * b01 + a31 * b11 + a32 * b21 + a33 * b31,
+                  a30 * b02 + a31 * b12 + a32 * b22 + a33 * b32,
+                  a30 * b03 + a31 * b13 + a32 * b23 + a33 * b33,
+                ];
+            }
+
+            function translate(m, tx, ty, tz) {
+               var dst = new Float32Array(16);
+               dst.set(m);
+               dst[12] = m[0] * tx + m[4] * ty + m[8] * tz + m[12];
+               dst[13] = m[1] * tx + m[5] * ty + m[9] * tz + m[13];
+               dst[14] = m[2] * tx + m[6] * ty + m[10] * tz + m[14];
+               dst[15] = m[3] * tx + m[7] * ty + m[11] * tz + m[15];
+               return dst;
+            }
+
+            function yRotate(m, angleInRadians) {
+                var dst = new Float32Array(16);
+                dst.set(m);
+                var c = Math.cos(angleInRadians);
+                var s = Math.sin(angleInRadians);
+                var m00 = m[0*4+0]; var m02 = m[0*4+2];
+                var m10 = m[1*4+0]; var m12 = m[1*4+2];
+                var m20 = m[2*4+0]; var m22 = m[2*4+2];
+                var m30 = m[3*4+0]; var m32 = m[3*4+2];
+
+                dst[ 0] = c * m00 - s * m02;
+                dst[ 2] = s * m00 + c * m02;
+                dst[ 4] = c * m10 - s * m12;
+                dst[ 6] = s * m10 + c * m12;
+                dst[ 8] = c * m20 - s * m22;
+                dst[10] = s * m20 + c * m22;
+                dst[12] = c * m30 - s * m32;
+                dst[14] = s * m30 + c * m32;
+                return dst;
+            }
+
+
+            // --- 7. Rendering Loop ---
+            function render(now) {
+                now *= 0.001; // convert to seconds
+
+                // Resizing
+                if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+                    canvas.width = canvas.clientWidth;
+                    canvas.height = canvas.clientHeight;
+                    gl.viewport(0, 0, canvas.width, canvas.height);
+                }
+
+                gl.clearColor(0.2, 0.2, 0.2, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+                gl.enable(gl.DEPTH_TEST);
+
+                gl.useProgram(program);
+
+                // Bind Position attributes
+                gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+                gl.enableVertexAttribArray(positionAttributeLocation);
+                gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+
+                // Bind Texture Coordinate attributes
+                gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+                gl.enableVertexAttribArray(texCoordAttributeLocation);
+                gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+
+                // Compute Matrix
+                var aspect = canvas.clientWidth / canvas.clientHeight;
+                var projectionMatrix = perspective(60 * Math.PI / 180, aspect, 0.1, 100.0);
+                
+                // Move camera back and rotate slightly to see the waves better
+                var viewMatrix = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+                viewMatrix = translate(viewMatrix, -0.5, 0.0, -2.0); 
+                // Slight rotation so it's not dead-on flat
+                viewMatrix = yRotate(viewMatrix, 0.3); 
+
+                var viewProjectionMatrix = multiply(projectionMatrix, viewMatrix);
+
+                // Set Uniforms
+                gl.uniformMatrix4fv(matrixLocation, false, viewProjectionMatrix);
+                gl.uniform1f(timeLocation, now); // Send current time to shader
+                gl.uniform1i(textureLocation, 0); // Texture unit 0
+
+                // Draw
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+                gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+
+                requestAnimationFrame(render);
+            }
+
+            requestAnimationFrame(render);
+        }
+
+        main();
+    </script>
+</body>
+</html>

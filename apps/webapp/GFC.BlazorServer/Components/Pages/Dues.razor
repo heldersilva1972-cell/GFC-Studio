@@ -1,0 +1,518 @@
+@page "/dues"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using System.ComponentModel.DataAnnotations
+@using GFC.Core.Enums
+@using GFC.Core.Models
+@inject IDuesInsightService DuesService
+@inject IDuesRepository DuesRepository
+@inject GFC.BlazorServer.Services.DuesService DuesServiceEF
+@inject GFC.BlazorServer.Services.WaiverService WaiverService
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject IMemberRepository MemberRepository
+@inject MemberService MemberService
+@inject IGlobalNoteRepository GlobalNoteRepository
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<Dues> Logger
+@inject IJSRuntime JSRuntime
+
+<h1 class="page-title">Dues</h1>
+
+<div class="toolbar gap-2 flex-wrap">
+    <select class="form-select" @bind="_selectedYear" @bind:after="OnYearChanged">
+        @foreach (var year in _years)
+        {
+            <option value="@year">@year</option>
+        }
+    </select>
+    <div class="pill-tabs">
+        <button class="@(!_showPaid ? "active" : null)" @onclick="() => ChangeTab(false)">Unpaid</button>
+        <button class="@(_showPaid ? "active" : null)" @onclick="() => ChangeTab(true)">Paid</button>
+    </div>
+    <div class="search-input">
+        <input class="form-control dues-search"
+               placeholder="Search by member name"
+               @bind="_searchText"
+               @bind:event="oninput" />
+        @if (!string.IsNullOrWhiteSpace(_searchText))
+        {
+            <button type="button"
+                    class="btn btn-clear"
+                    title="Clear search"
+                    @onclick="ClearDuesSearch">
+                &times;
+            </button>
+        }
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_operationMessage))
+{
+    <div class="alert @( _operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
+}
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading dues...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    <div class="data-card mb-3">
+        <h3>Summary</h3>
+        @if (_summary is not null)
+        {
+            <p>
+                Paid: <strong>@_summary.PaidCount</strong> · Unpaid: <strong>@_summary.UnpaidCount</strong> · Waived: <strong>@_summary.WaivedCount</strong>
+                <br />
+                Amount collected: <strong>@_summary.AmountCollected.ToString("C0")</strong>
+            </p>
+        }
+    </div>
+
+    <div class="table-container dues-table-container">
+        <table class="data-table table-compact table-sticky-header">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Amount</th>
+                    <th>Paid Date</th>
+                    <th>Overdue</th>
+                    <th style="width:220px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!FilteredItems.Any())
+                {
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">No dues records.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var item in FilteredItems)
+                    {
+                        var overdueClass = !_showPaid && item.MonthsOverdue >= 15 ? "overdue-flag" : string.Empty;
+                        <tr class="@GetRowClass(item)">
+                            <td>@item.FullName</td>
+                            <td>
+                                <div class="table-status">
+                                    <span class="badge @GetStatusBadge(item.Status)">@GetStatusLabel(item.Status)</span>
+                                    @if (item.Status == MemberStatus.Life)
+                                    {
+                                        <span class="status-note text-muted">Life (waived)</span>
+                                    }
+                                    else if (item.IsBoardMember)
+                                    {
+                                        <span class="status-note text-muted">Board (waived)</span>
+                                    }
+                                    else if (item.IsWaived)
+                                    {
+                                        <span class="status-note text-muted">Waived</span>
+                                    }
+                                </div>
+                            </td>
+                            <td>@(item.Amount?.ToString("C") ?? "--")</td>
+                            <td>@(item.PaidDate?.ToString("MMM d, yyyy") ?? (_showPaid ? "--" : "Pending"))</td>
+                            <td>
+                                @if (!_showPaid)
+                                {
+                                    <span class="@overdueClass">@FormatOverdueText(item.MonthsOverdue)</span>
+                                }
+                                else
+                                {
+                                    <span>--</span>
+                                }
+                            </td>
+                            <td>
+                                @if (IsExempt(item))
+                                {
+                                    <span class="text-muted small">No payment required</span>
+                                }
+                                else
+                                {
+                                    <div class="table-actions">
+                                        <button class="btn btn-outline btn-sm"
+                                                disabled="@(!CanRecordPayment(item))"
+                                                @onclick="() => OpenPaymentModal(item)">
+                                            Record Payment
+                                        </button>
+                                        @if (item.MonthsOverdue >= 15)
+                                        {
+                                            <button class="btn btn-primary btn-sm"
+                                                    disabled="@(!CanSetInactive(item))"
+                                                    @onclick="async () => await ConfirmAndSetInactiveAsync(item)">
+                                                Set Inactive
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (_showPaymentModal && _paymentTarget is not null)
+    {
+        <div class="modal-backdrop fade show"></div>
+        <div class="modal-card payment-modal">
+            <div class="modal-card__header d-flex justify-content-between align-items-center">
+                <div>
+                    <h4 class="mb-0">Record payment</h4>
+                    <small class="text-muted">@_paymentTarget.FullName · @_selectedYear</small>
+                </div>
+                <button class="btn btn-link text-decoration-none" type="button" @onclick="ClosePaymentModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <EditForm Model="_paymentForm" OnValidSubmit="SubmitPaymentAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Amount<span class="text-danger">*</span></label>
+                        <InputNumber class="form-control" @bind-Value="_paymentForm.Amount" />
+                        <ValidationMessage For="@(() => _paymentForm.Amount)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Payment date<span class="text-danger">*</span></label>
+                        <InputDate class="form-control" @bind-Value="_paymentForm.PaidDate" />
+                        <ValidationMessage For="@(() => _paymentForm.PaidDate)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Method<span class="text-danger">*</span></label>
+                        <InputSelect class="form-select" @bind-Value="_paymentForm.PaymentType">
+                            @foreach (var method in PaymentMethods)
+                            {
+                                <option value="@method">@method</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="@(() => _paymentForm.PaymentType)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Reference / Notes</label>
+                        <InputText class="form-control" @bind-Value="_paymentForm.Notes" />
+                        <ValidationMessage For="@(() => _paymentForm.Notes)" />
+                    </div>
+                </div>
+                <div class="modal-card__actions mt-4">
+                    <button class="btn btn-primary" type="submit" disabled="@_operationInProgress">
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_operationInProgress)"></span>
+                        Save payment
+                    </button>
+                    <button class="btn btn-outline" type="button" @onclick="ClosePaymentModal">Cancel</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+}
+
+@code {
+    private List<int> _years = new();
+    private int _selectedYear;
+    private bool _showPaid;
+    private bool _loading = true;
+    private List<DuesListItemDto> _items = new();
+    private DuesSummaryDto? _summary;
+    private string? _errorMessage;
+    private string? _operationMessage;
+    private bool _operationError;
+    private bool _operationInProgress;
+    private DuesYearSettings? _currentYearSettings;
+    private string _searchText = string.Empty;
+    private bool _showPaymentModal;
+    private DuesListItemDto? _paymentTarget;
+    private PaymentFormModel _paymentForm = PaymentFormModel.CreateDefault();
+    private static readonly string[] PaymentMethods = { "Cash", "Check", "Card", "Online", "Other" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _years = (await DuesService.GetAvailableYearsAsync()).OrderBy(y => y).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dues:years] {ex}");
+            _errorMessage = "We couldn't load the list of dues years. Please verify the database connection.";
+            _loading = false;
+            return;
+        }
+
+        var currentYear = DateTime.Today.Year;
+        if (!_years.Contains(currentYear))
+        {
+            _years.Add(currentYear);
+            _years = _years.OrderBy(y => y).ToList();
+        }
+        _selectedYear = currentYear;
+        await LoadDataInternal();
+    }
+
+    private async Task OnYearChanged()
+    {
+        _operationMessage = null;
+        await LoadDataInternal();
+    }
+
+    private async Task ChangeTab(bool paid)
+    {
+        if (_showPaid == paid)
+        {
+            return;
+        }
+        _showPaid = paid;
+        _operationMessage = null;
+        await LoadDataInternal();
+    }
+
+    private async Task LoadDataInternal()
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            var duesTask = DuesService.GetDuesAsync(_selectedYear, _showPaid);
+            var summaryTask = DuesService.GetSummaryAsync(_selectedYear);
+            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(_selectedYear));
+
+            await Task.WhenAll(duesTask, summaryTask, settingsTask);
+
+            _items = duesTask.Result.ToList();
+            _summary = summaryTask.Result;
+            _currentYearSettings = settingsTask.Result;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[Dues] Failed to load dues data");
+            _errorMessage = "Unable to load dues details right now.";
+            _items = new List<DuesListItemDto>();
+            _summary = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenPaymentModal(DuesListItemDto item)
+    {
+        if (!CanRecordPayment(item))
+        {
+            return;
+        }
+
+        var suggestedAmount = item.Amount ?? _currentYearSettings?.StandardDues ?? 0m;
+        _paymentTarget = item;
+        _paymentForm = PaymentFormModel.CreateDefault();
+        _paymentForm.Amount = suggestedAmount <= 0 ? 0.01m : suggestedAmount;
+        _paymentForm.PaymentType = string.IsNullOrWhiteSpace(item.PaymentType) ? PaymentMethods.First() : item.PaymentType;
+        _showPaymentModal = true;
+    }
+
+    private void ClosePaymentModal()
+    {
+        _showPaymentModal = false;
+        _paymentTarget = null;
+    }
+
+    private async Task SubmitPaymentAsync()
+    {
+        if (_paymentTarget is null)
+        {
+            return;
+        }
+
+        _operationInProgress = true;
+        _operationMessage = null;
+
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var userId = currentUser?.UserId;
+            await DuesServiceEF.RecordPaymentAsync(
+                _paymentTarget.MemberId,
+                _selectedYear,
+                _paymentForm.Amount,
+                _paymentForm.PaidDate,
+                _paymentForm.Notes,
+                userId);
+            _operationError = false;
+            _operationMessage = $"Recorded a payment for {_paymentTarget.FullName}.";
+            ClosePaymentModal();
+            await LoadDataInternal();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[Dues] Failed to record payment for member {MemberId}", _paymentTarget.MemberId);
+            _operationError = true;
+            _operationMessage = "Unable to record the payment right now.";
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
+    }
+
+    private async Task ConfirmAndSetInactiveAsync(DuesListItemDto item)
+    {
+        if (!CanSetInactive(item))
+        {
+            return;
+        }
+
+        var confirmMessage = $"Set {item.FullName} inactive for unpaid dues? This will record today's date and reason.";
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", confirmMessage);
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        await SetInactiveAsync(item);
+    }
+
+    private async Task SetInactiveAsync(DuesListItemDto item)
+    {
+        if (!CanSetInactive(item))
+        {
+            return;
+        }
+
+        _operationInProgress = true;
+        _operationMessage = null;
+
+        try
+        {
+            var member = await Task.Run(() => MemberRepository.GetMemberById(item.MemberId));
+            if (member is null)
+            {
+                _operationError = true;
+                _operationMessage = "The selected member no longer exists.";
+                return;
+            }
+
+            member.InactiveDate = DateTime.Today;
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var username = currentUser?.Username ?? "Unknown";
+            var userId = currentUser?.UserId;
+            await Task.Run(() => MemberService.UpdateMemberStatus(member, "INACTIVE", username, bypassAutomations: false));
+            await LogInactiveReasonAsync(item, member.InactiveDate.Value);
+            _operationError = false;
+            _operationMessage = $"{item.FullName} marked as Inactive.";
+            await LoadDataInternal();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[Dues] Failed to mark member {MemberId} inactive", item.MemberId);
+            _operationError = true;
+            _operationMessage = "Unable to set the member inactive.";
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
+    }
+
+    private async Task LogInactiveReasonAsync(DuesListItemDto item, DateTime inactiveDate)
+    {
+        try
+        {
+            await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote
+            {
+                NoteDate = DateTime.Now,
+                Category = "STATUS CHANGE",
+                Text = $"{item.FullName} (ID {item.MemberId}) set inactive on {inactiveDate:yyyy-MM-dd} for unpaid dues."
+            }));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[Dues] Failed to log inactive reason for member {MemberId}", item.MemberId);
+        }
+    }
+
+    private bool IsExempt(DuesListItemDto item) =>
+        item.Status == MemberStatus.Life || item.IsBoardMember || item.IsWaived;
+
+    private bool CanRecordPayment(DuesListItemDto item) =>
+        !_showPaid && !IsExempt(item) && !_operationInProgress;
+
+    private bool CanSetInactive(DuesListItemDto item) =>
+        !_showPaid && !IsExempt(item) && item.MonthsOverdue >= 15 && !_operationInProgress;
+
+    private static string FormatOverdueText(int months) =>
+        $"{months} month{(months == 1 ? string.Empty : "s")}";
+
+    private static string GetRowClass(DuesListItemDto item) =>
+        item.Status == MemberStatus.Life || item.IsBoardMember ? "table-row-waived" : string.Empty;
+
+    private static string GetStatusBadge(MemberStatus status) =>
+        status switch
+        {
+            MemberStatus.Regular or MemberStatus.RegularNonPortuguese => "badge badge-success",
+            MemberStatus.Life => "badge badge-success",
+            MemberStatus.Guest => "badge badge-warning",
+            MemberStatus.Inactive => "badge badge-danger",
+            MemberStatus.Deceased => "badge badge-danger",
+            _ => "badge bg-secondary"
+        };
+
+    private static string GetStatusLabel(MemberStatus status) =>
+        status switch
+        {
+            MemberStatus.Regular => "Regular",
+            MemberStatus.RegularNonPortuguese => "Regular-NP",
+            MemberStatus.Guest => "Guest",
+            MemberStatus.Life => "Life",
+            MemberStatus.Inactive => "Inactive",
+            MemberStatus.Deceased => "Deceased",
+            MemberStatus.Rejected => "Rejected",
+            _ => "Unknown"
+        };
+
+    private IEnumerable<DuesListItemDto> FilteredItems =>
+        string.IsNullOrWhiteSpace(_searchText)
+            ? _items
+            : _items.Where(item =>
+                item.FullName.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+
+    private void ClearDuesSearch()
+    {
+        if (string.IsNullOrWhiteSpace(_searchText))
+        {
+            return;
+        }
+
+        _searchText = string.Empty;
+    }
+
+    private sealed class PaymentFormModel
+    {
+        [Required]
+        [Range(typeof(decimal), "0.01", "1000000", ErrorMessage = "Amount must be greater than zero.")]
+        public decimal Amount { get; set; } = 0.01m;
+
+        [Required]
+        public DateTime PaidDate { get; set; } = DateTime.Today;
+
+        [Required]
+        [StringLength(50)]
+        public string PaymentType { get; set; } = PaymentMethods.First();
+
+        [StringLength(200)]
+        public string? Notes { get; set; }
+
+        public static PaymentFormModel CreateDefault() => new();
+    }
+}
+

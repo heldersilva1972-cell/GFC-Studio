@@ -1,0 +1,336 @@
+@inherits LayoutComponentBase
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject IAuthenticationService AuthService
+@inject IVersionService VersionService
+@inject ISystemSettingsService SystemSettingsService
+@inject ILogger<MainLayout> Logger
+
+<div class="app-shell">
+    <header class="app-topbar">
+        <div class="app-topbar-left">
+            <span class="app-logo">GFC</span>
+            <span class="app-title">GFC Membership System</span>
+        </div>
+        <div class="app-topbar-right">
+            <AuthorizeView>
+                <Authorized>
+                    <span class="app-user">@_currentUsername</span>
+                    @if (_isAdmin || IsAdminUser())
+                    {
+                        <span class="app-badge">Admin</span>
+                    }
+                    @if (_isAdmin || IsAdminUser())
+                    {
+                        <button class="btn btn-outline-primary btn-sm me-2" type="button" @onclick="NavigateToSimulationPanel">
+                            🟣 Simulation Panel
+                        </button>
+                    }
+                    <button class="app-link-button" @onclick="HandleLogout" type="button">
+                        Logout
+                    </button>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="app-link-button" href="/login">Login</a>
+                </NotAuthorized>
+            </AuthorizeView>
+            <button class="app-status" @onclick="ShowModeInfoModal" type="button">
+                @ModeLabel
+            </button>
+        </div>
+    </header>
+
+    <div class="app-main">
+        <aside class="app-sidebar">
+            <div class="app-sidebar-inner">
+                <div class="app-sidebar-header">
+                    <div class="app-logo-mark">GFC</div>
+                    <div class="app-sidebar-title">
+                        <div class="app-sidebar-title__main">Membership</div>
+                        <div class="app-sidebar-title__sub">Control Center</div>
+                    </div>
+                </div>
+
+                <NavMenu IsAdmin="_isAdmin || IsAdminUser()" />
+
+                <div class="app-sidebar-footer">
+                    <div class="version-info">
+                        <div class="version-info__developer">@VersionService.GetDeveloper() @VersionService.GetYear()</div>
+                        <div class="version-info__revision">Revision @VersionService.GetRevision()</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="content px-4">
+                @if (_modeLoaded && !_useRealControllers)
+                {
+                    <div class="alert alert-warning py-2 px-3 mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>Simulation Mode Active — Controller operations will not execute.</span>
+                    </div>
+                }
+                <AuthorizeView>
+                    <Authorized>
+                        <GFC.BlazorServer.Components.Shared.ErrorBoundary>
+                            <ChildContent>
+                                @Body
+                            </ChildContent>
+                        </GFC.BlazorServer.Components.Shared.ErrorBoundary>
+                    </Authorized>
+                    <NotAuthorized>
+                        <div class="guard-wrapper">
+                            <GFC.BlazorServer.Components.Shared.NotAuthorized
+                                RedirectUrl="/"
+                                RedirectLabel="Back to dashboard"
+                                SecondaryUrl="/login"
+                                SecondaryLabel="Go to login" />
+                        </div>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </main>
+    </div>
+</div>
+
+@* Mode Info Modal *@
+@if (_showModeInfoModal && (_isAdmin || IsAdminUser()))
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Controller Mode Information</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModeInfoModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <strong>Current Mode:</strong>
+                        @if (!_modeLoaded)
+                        {
+                            <span class="badge bg-secondary ms-2">
+                                <i class="bi bi-arrow-repeat"></i> Checking controller mode...
+                            </span>
+                        }
+                        else if (_useRealControllers)
+                        {
+                            <span class="badge bg-success ms-2">@ModeLabel</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark ms-2">@ModeLabel</span>
+                        }
+                    </div>
+                    <div class="mb-3">
+                        <strong>Active Implementation:</strong>
+                        <div class="text-muted small mt-1">
+                            @if (!_modeLoaded)
+                            {
+                                <text>Loading...</text>
+                            }
+                            else if (_useRealControllers)
+                            {
+                                <text>RealControllerClient (delegates to AgentApiClient)</text>
+                            }
+                            else
+                            {
+                                <text>SimulationControllerClient (in-memory state, no network traffic)</text>
+                            }
+                        </div>
+                    </div>
+                    @if (_modeLoaded && !_useRealControllers)
+                    {
+                        <div class="alert alert-info mb-0">
+                            <i class="bi bi-info-circle"></i> Simulation mode is active. No real controller hardware will be accessed.
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (_modeLoaded && !_useRealControllers)
+                    {
+                        <a href="/controllers/simulation" class="btn btn-primary">
+                            <i class="bi bi-sliders"></i> Open Simulation Control Panel
+                        </a>
+                    }
+                    <a href="/settings" class="btn btn-outline-secondary">
+                        <i class="bi bi-gear"></i> Settings
+                    </a>
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModeInfoModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<script src="~/js/camera.js"></script>
+<script src="~/js/download.js"></script>
+<script src="~/js/multiselect.js"></script>
+
+@code {
+    private string _currentUsername = string.Empty;
+    private bool _isAdmin = false;
+    private bool _useRealControllers = false;
+    private bool _modeLoaded = false;
+    private bool _showModeInfoModal = false;
+    private DateTime _lastModeRefreshUtc = DateTime.MinValue;
+    private static readonly TimeSpan ModeRefreshInterval = TimeSpan.FromSeconds(5);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await UpdateUserInfo();
+            await RefreshControllerModeIndicatorAsync(force: true);
+            
+            // Subscribe to authentication state changes to update menu visibility
+            AuthStateProvider.AuthenticationStateChanged += async (task) =>
+            {
+                await UpdateUserInfo();
+                StateHasChanged();
+            };
+        }
+        catch
+        {
+            // Ignore errors during initialization
+            _currentUsername = "Unknown";
+            _isAdmin = false;
+            await RefreshControllerModeIndicatorAsync(force: true);
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await RefreshControllerModeIndicatorAsync();
+    }
+
+    private async Task UpdateUserInfo()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _currentUsername = authState.User.Identity?.Name ?? "Unknown";
+            
+            // Check role from claims
+            _isAdmin = authState.User.IsInRole(AppRoles.Admin);
+            
+            // Also check directly from the user object as a fallback
+            if (!_isAdmin)
+            {
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                if (currentUser != null)
+                {
+                    _isAdmin = currentUser.IsAdmin;
+                }
+            }
+            
+            StateHasChanged();
+        }
+        catch
+        {
+            _currentUsername = "Unknown";
+            _isAdmin = false;
+        }
+    }
+
+    private void NavigateToLogin()
+    {
+        try
+        {
+            // Use JavaScript to navigate as a fallback
+            Navigation.NavigateTo("/login", forceLoad: true);
+        }
+        catch
+        {
+            // If navigation fails, try JavaScript
+            // This will be handled by the browser
+        }
+    }
+
+    private void NavigateToSimulationPanel()
+    {
+        Navigation.NavigateTo("/access/simulation");
+    }
+
+    private async Task HandleLogout()
+    {
+        try
+        {
+            await AuthStateProvider.LogoutAsync();
+            // Wait a moment for state to propagate
+            await Task.Delay(100);
+            await UpdateUserInfo();
+            // Force navigation with full page reload
+            Navigation.NavigateTo("/login", forceLoad: true);
+        }
+        catch (Exception)
+        {
+            // If logout fails, still try to navigate
+            Navigation.NavigateTo("/login", forceLoad: true);
+        }
+    }
+
+    private bool IsAdminUser()
+    {
+        try
+        {
+            // Check the cached _isAdmin first
+            if (_isAdmin)
+                return true;
+            
+            // Check directly from the current user object
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            return currentUser?.IsAdmin == true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ShowModeInfoModal()
+    {
+        _showModeInfoModal = true;
+    }
+
+    private void CloseModeInfoModal()
+    {
+        _showModeInfoModal = false;
+    }
+
+    private async Task RefreshControllerModeIndicatorAsync(bool force = false)
+    {
+        if (!force && _modeLoaded && DateTime.UtcNow - _lastModeRefreshUtc < ModeRefreshInterval)
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load controller mode; defaulting indicator to Simulation Mode");
+            _useRealControllers = false;
+        }
+        finally
+        {
+            _modeLoaded = true;
+            _lastModeRefreshUtc = DateTime.UtcNow;
+        }
+    }
+
+    private string ModeLabel =>
+        !_modeLoaded
+            ? "Checking controller mode..."
+            : _useRealControllers
+                ? "Real Controller Mode"
+                : "Simulation Mode (NO real hardware writes)";
+}
+

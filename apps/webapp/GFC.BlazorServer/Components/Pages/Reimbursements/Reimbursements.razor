@@ -1,0 +1,130 @@
+@page "/reimbursements"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@inject ReimbursementService ReimbursementService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject ILogger<Reimbursements> Logger
+
+<h1 class="page-title">Reimbursements</h1>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div></div>
+    <a href="/reimbursements/new" class="btn btn-primary">
+        <i class="bi bi-plus-circle"></i> New Request
+    </a>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading requests...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    @if (_requests.Count == 0)
+    {
+        <div class="data-card">
+            <p class="text-muted">No reimbursement requests found.</p>
+            <p>To create a new request, click the "New Request" button above.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Request #</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Total Amount</th>
+                        <th>Items</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var request in _requests)
+                    {
+                        <tr>
+                            <td>@request.Id</td>
+                            <td>@request.RequestDate.ToString("MMM d, yyyy")</td>
+                            <td>
+                                <span class="badge @GetStatusBadgeClass(request.Status)">@request.Status</span>
+                            </td>
+                            <td>@request.TotalAmount.ToString("C2")</td>
+                            <td>@request.Items.Count</td>
+                            <td>
+                                <a href="/reimbursements/view/@request.Id" class="btn btn-sm btn-outline-primary">View</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private string? _errorMessage;
+    private List<ReimbursementRequest> _requests = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var isAdmin = authState.User.IsInRole(AppRoles.Admin) || user?.IsAdmin == true;
+            
+            if (!isAdmin && user?.MemberId == null)
+            {
+                _errorMessage = "You must be associated with a member to view reimbursement requests.";
+                _loading = false;
+                return;
+            }
+
+            // Admins can see all requests, regular users see only their own
+            if (isAdmin)
+            {
+                _requests = await ReimbursementService.GetRequestsAsync();
+            }
+            else
+            {
+                _requests = await ReimbursementService.GetRequestsAsync(memberId: user.MemberId.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load reimbursements");
+            _errorMessage = "Failed to load reimbursement requests.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string GetStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Draft" => "bg-secondary",
+            "Submitted" => "bg-info",
+            "Approved" => "bg-success",
+            "Rejected" => "bg-danger",
+            "Paid" => "bg-primary",
+            _ => "bg-secondary"
+        };
+    }
+}

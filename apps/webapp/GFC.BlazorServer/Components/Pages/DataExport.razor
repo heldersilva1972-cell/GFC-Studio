@@ -1,0 +1,212 @@
+@page "/export"
+@using GFC.Core.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IDataExportService ExportService
+@inject ILogger<DataExport> Logger
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Data Export - GFC Membership</PageTitle>
+
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">Data Export</h1>
+        <p class="page-subtitle">Export club data to Excel format</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @_errorMessage
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert alert-success">
+            @_successMessage
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-header">
+            <h3>Select Data to Export</h3>
+        </div>
+        <div class="card-body">
+            <p class="text-muted mb-4">Choose which data types to include in the Excel export. Each data type will be exported to a separate sheet.</p>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="members" @bind="_options.IncludeMembers" />
+                        <label class="form-check-label" for="members">
+                            <strong>Members</strong>
+                            <small class="d-block text-muted">All member information including contact details and status</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="dues" @bind="_options.IncludeDues" />
+                        <label class="form-check-label" for="dues">
+                            <strong>Dues Payments</strong>
+                            <small class="d-block text-muted">All dues payment records</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="keycards" @bind="_options.IncludeKeyCards" />
+                        <label class="form-check-label" for="keycards">
+                            <strong>Key Cards</strong>
+                            <small class="d-block text-muted">All key card assignments and information</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="physicalkeys" @bind="_options.IncludePhysicalKeys" />
+                        <label class="form-check-label" for="physicalkeys">
+                            <strong>Physical Keys</strong>
+                            <small class="d-block text-muted">All physical door key assignments and returns</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="lottery" @bind="_options.IncludeLotteryShifts" />
+                        <label class="form-check-label" for="lottery">
+                            <strong>Lottery Shifts</strong>
+                            <small class="d-block text-muted">All lottery sales shift records</small>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="board" @bind="_options.IncludeBoardMembers" />
+                        <label class="form-check-label" for="board">
+                            <strong>Board Members</strong>
+                            <small class="d-block text-muted">Board of directors assignments and history</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="npqueue" @bind="_options.IncludeNpQueue" />
+                        <label class="form-check-label" for="npqueue">
+                            <strong>Non-Portuguese Queue</strong>
+                            <small class="d-block text-muted">Current queue of guests waiting for regular status</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="life" @bind="_options.IncludeLifeEligibility" />
+                        <label class="form-check-label" for="life">
+                            <strong>Life Eligibility</strong>
+                            <small class="d-block text-muted">Members eligible for life membership</small>
+                        </label>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="users" @bind="_options.IncludeUsers" />
+                        <label class="form-check-label" for="users">
+                            <strong>Users</strong>
+                            <small class="d-block text-muted">System user accounts (Admin only)</small>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <button class="btn btn-primary" @onclick="ExportData" disabled="@_isExporting">
+                    @if (_isExporting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        <span>Exporting...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-download me-2"></i>
+                        <span>Export to Excel</span>
+                    }
+                </button>
+                <button class="btn btn-outline-secondary ms-2" @onclick="SelectAll">Select All</button>
+                <button class="btn btn-outline-secondary ms-2" @onclick="DeselectAll">Deselect All</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ExportOptions _options = new();
+    private bool _isExporting = false;
+    private string _errorMessage = string.Empty;
+    private string _successMessage = string.Empty;
+
+    private void SelectAll()
+    {
+        _options.IncludeMembers = true;
+        _options.IncludeDues = true;
+        _options.IncludeKeyCards = true;
+        _options.IncludePhysicalKeys = true;
+        _options.IncludeLotteryShifts = true;
+        _options.IncludeBoardMembers = true;
+        _options.IncludeNpQueue = true;
+        _options.IncludeLifeEligibility = true;
+        _options.IncludeUsers = false; // Keep users off by default for security
+    }
+
+    private void DeselectAll()
+    {
+        _options.IncludeMembers = false;
+        _options.IncludeDues = false;
+        _options.IncludeKeyCards = false;
+        _options.IncludePhysicalKeys = false;
+        _options.IncludeLotteryShifts = false;
+        _options.IncludeBoardMembers = false;
+        _options.IncludeNpQueue = false;
+        _options.IncludeLifeEligibility = false;
+        _options.IncludeUsers = false;
+    }
+
+    private async Task ExportData()
+    {
+        // Check if at least one option is selected
+        if (!_options.IncludeMembers && !_options.IncludeDues && !_options.IncludeKeyCards &&
+            !_options.IncludePhysicalKeys && !_options.IncludeLotteryShifts && !_options.IncludeBoardMembers && 
+            !_options.IncludeNpQueue && !_options.IncludeLifeEligibility && !_options.IncludeUsers)
+        {
+            _errorMessage = "Please select at least one data type to export.";
+            _successMessage = string.Empty;
+            return;
+        }
+
+        _isExporting = true;
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+
+        try
+        {
+            var excelData = ExportService.ExportToExcel(_options);
+            var fileName = $"GFC_Export_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+            var contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+            // Trigger download
+            await DownloadFile(fileName, excelData, contentType);
+            
+            _successMessage = "Export completed successfully! The file should download automatically.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error exporting data to Excel");
+            _errorMessage = "An error occurred while exporting data: " + ex.Message;
+        }
+        finally
+        {
+            _isExporting = false;
+        }
+    }
+
+    private async Task DownloadFile(string fileName, byte[] fileData, string contentType)
+    {
+        // Use JavaScript interop to trigger download
+        await JSRuntime.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(fileData), contentType);
+    }
+}
+

@@ -1,0 +1,353 @@
+@page "/reimbursements/reports"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@inject ReimbursementService ReimbursementService
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<Reports> Logger
+
+<h1 class="page-title">Reimbursement Reports</h1>
+
+<div class="data-card mb-3">
+    <h3>Filters</h3>
+    <div class="row">
+        <div class="col-md-4">
+            <label class="form-label">Year</label>
+            <select class="form-select" @bind="_selectedYear" @bind:after="LoadReport">
+                @foreach (var year in _availableYears)
+                {
+                    <option value="@year">@year</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Month</label>
+            <select class="form-select" @bind="_selectedMonth" @bind:after="LoadReport">
+                <option value="0">All Months</option>
+                @for (int i = 1; i <= 12; i++)
+                {
+                    <option value="@i">@((new DateTime(2000, i, 1)).ToString("MMMM"))</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Category</label>
+            <select class="form-select" @bind="_selectedCategoryId" @bind:after="LoadReport">
+                <option value="0">All Categories</option>
+                @foreach (var category in _categories)
+                {
+                    <option value="@category.Id">@category.Name</option>
+                }
+            </select>
+        </div>
+    </div>
+    <div class="mt-3">
+        <button class="btn btn-outline-primary" @onclick="ExportToCsv" disabled="@_exporting">
+            <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_exporting)"></span>
+            Export to CSV
+        </button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading report...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-6">
+            <div class="data-card">
+                <h3>Summary</h3>
+                <table class="data-table">
+                    <tbody>
+                        <tr>
+                            <td><strong>Total Requests:</strong></td>
+                            <td>@_reportData.TotalRequests</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Total Amount:</strong></td>
+                            <td>@_reportData.TotalAmount.ToString("C2")</td>
+                        </tr>
+                        <tr>
+                            <td><strong>By Status:</strong></td>
+                            <td>
+                                <ul class="mb-0">
+                                    @foreach (var status in _reportData.ByStatus)
+                                    {
+                                        <li>@status.Key: @status.Value.ToString("C2")</li>
+                                    }
+                                </ul>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="data-card">
+                <h3>By Category</h3>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Count</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var category in _reportData.ByCategory)
+                        {
+                            <tr>
+                                <td>@category.CategoryName</td>
+                                <td>@category.Count</td>
+                                <td>@category.Total.ToString("C2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="data-card mt-3">
+        <h3>Details</h3>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Request #</th>
+                        <th>Requestor</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Category</th>
+                        <th>Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_reportData.Details.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center text-muted">No data found.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var detail in _reportData.Details)
+                        {
+                            <tr>
+                                <td>@detail.RequestId</td>
+                                <td>@detail.RequestorName</td>
+                                <td>@detail.RequestDate.ToString("MMM d, yyyy")</td>
+                                <td><span class="badge @GetStatusBadgeClass(detail.Status)">@detail.Status</span></td>
+                                <td>@detail.CategoryName</td>
+                                <td>@detail.Amount.ToString("C2")</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _exporting = false;
+    private string? _errorMessage;
+    private int _selectedYear = DateTime.Now.Year;
+    private int _selectedMonth = 0;
+    private int _selectedCategoryId = 0;
+    private List<int> _availableYears = new();
+    private List<ReimbursementCategory> _categories = new();
+    private ReportData _reportData = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _categories = await ReimbursementService.GetCategoriesAsync();
+            
+            // Get available years from requests
+            var allRequests = await ReimbursementService.GetRequestsAsync();
+            _availableYears = allRequests
+                .Select(r => r.RequestDate.Year)
+                .Distinct()
+                .OrderByDescending(y => y)
+                .ToList();
+            
+            if (!_availableYears.Contains(DateTime.Now.Year))
+            {
+                _availableYears.Add(DateTime.Now.Year);
+                _availableYears = _availableYears.OrderByDescending(y => y).ToList();
+            }
+
+            await LoadReport();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize reports");
+            _errorMessage = "Failed to load report data.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadReport()
+    {
+        _loading = true;
+        _errorMessage = null;
+
+        try
+        {
+            var startDate = _selectedMonth > 0 
+                ? new DateTime(_selectedYear, _selectedMonth, 1)
+                : new DateTime(_selectedYear, 1, 1);
+            var endDate = _selectedMonth > 0
+                ? new DateTime(_selectedYear, _selectedMonth, DateTime.DaysInMonth(_selectedYear, _selectedMonth))
+                : new DateTime(_selectedYear, 12, 31);
+
+            var requests = await ReimbursementService.GetRequestsAsync(
+                startDate: startDate,
+                endDate: endDate);
+
+            // Filter by category if selected
+            if (_selectedCategoryId > 0)
+            {
+                requests = requests.Where(r => r.Items.Any(i => i.CategoryId == _selectedCategoryId)).ToList();
+            }
+
+            _reportData = new ReportData
+            {
+                TotalRequests = requests.Count,
+                TotalAmount = requests.Sum(r => r.TotalAmount),
+                ByStatus = requests.GroupBy(r => r.Status)
+                    .ToDictionary(g => g.Key, g => g.Sum(r => r.TotalAmount)),
+                ByCategory = requests.SelectMany(r => r.Items)
+                    .GroupBy(i => i.Category.Name)
+                    .Select(g => new CategorySummary
+                    {
+                        CategoryName = g.Key,
+                        Count = g.Count(),
+                        Total = g.Sum(i => i.Amount)
+                    })
+                    .OrderByDescending(c => c.Total)
+                    .ToList(),
+                Details = requests.SelectMany(r => r.Items.Select(i => new ReportDetail
+                {
+                    RequestId = r.Id,
+                    RequestorName = GetMemberName(r.RequestorMemberId),
+                    RequestDate = r.RequestDate,
+                    Status = r.Status,
+                    CategoryName = i.Category.Name,
+                    Amount = i.Amount
+                }))
+                .OrderByDescending(d => d.RequestDate)
+                .ToList()
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load report");
+            _errorMessage = "Failed to load report data.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ExportToCsv()
+    {
+        _exporting = true;
+        try
+        {
+            var csv = "Request ID,Requestor,Date,Status,Category,Amount\n";
+            foreach (var detail in _reportData.Details)
+            {
+                csv += $"{detail.RequestId},\"{detail.RequestorName}\",{detail.RequestDate:yyyy-MM-dd},{detail.Status},\"{detail.CategoryName}\",{detail.Amount:F2}\n";
+            }
+
+            var fileName = $"reimbursements_{_selectedYear}_{_selectedMonth}_{DateTime.Now:yyyyMMddHHmmss}.csv";
+            var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+            var base64 = Convert.ToBase64String(bytes);
+            await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64, "text/csv");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export CSV");
+            await JSRuntime.InvokeVoidAsync("alert", "Failed to export CSV: " + ex.Message);
+        }
+        finally
+        {
+            _exporting = false;
+        }
+    }
+
+    private string GetMemberName(int memberId)
+    {
+        try
+        {
+            var member = MemberRepository.GetMemberById(memberId);
+            return member != null ? $"{member.FirstName} {member.LastName}" : $"Member #{memberId}";
+        }
+        catch
+        {
+            return $"Member #{memberId}";
+        }
+    }
+
+    private static string GetStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Draft" => "bg-secondary",
+            "Submitted" => "bg-info",
+            "Approved" => "bg-success",
+            "Rejected" => "bg-danger",
+            "Paid" => "bg-primary",
+            _ => "bg-secondary"
+        };
+    }
+
+    private class ReportData
+    {
+        public int TotalRequests { get; set; }
+        public decimal TotalAmount { get; set; }
+        public Dictionary<string, decimal> ByStatus { get; set; } = new();
+        public List<CategorySummary> ByCategory { get; set; } = new();
+        public List<ReportDetail> Details { get; set; } = new();
+    }
+
+    private class CategorySummary
+    {
+        public string CategoryName { get; set; } = string.Empty;
+        public int Count { get; set; }
+        public decimal Total { get; set; }
+    }
+
+    private class ReportDetail
+    {
+        public int RequestId { get; set; }
+        public string RequestorName { get; set; } = string.Empty;
+        public DateTime RequestDate { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string CategoryName { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+    }
+}
+

@@ -1,0 +1,225 @@
+@page "/np-queue"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject INpQueueService QueueService
+@inject IMemberHistoryService HistoryService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<NpQueue> Logger
+
+<h1 class="page-title">Non-Portuguese Queue</h1>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading queue...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="alert @(_operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
+    }
+
+    <div class="data-card mb-3">
+        <h3>Summary</h3>
+        <p>
+            Queue size: <strong>@_entries.Count</strong><br />
+            Slots available: <strong>@_slots</strong>
+        </p>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table table-compact table-sticky">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Applied</th>
+                    <th>Can Promote</th>
+                    <th style="width:200px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_entries.Count == 0)
+                {
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">Queue is empty.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var entry in _entries)
+                    {
+                        <tr>
+                            <td>@entry.Position</td>
+                            <td>@entry.FullName</td>
+                            <td>@(entry.ApplicationDate?.ToString("MMM d, yyyy") ?? "--")</td>
+                            <td>@(entry.CanPromote ? "Yes" : "Waiting")</td>
+                            <td>
+                                @if (ShowPromoteButton(entry))
+                                {
+                                    <button class="btn btn-success btn-sm"
+                                            disabled="@_promoting"
+                                            @onclick="() => BeginPromotion(entry)">
+                                        Promote to Regular
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_pendingPromotion is not null)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Confirm promotion</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelPromotion">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <p>
+            Promote <strong>@_pendingPromotion.FullName</strong> from Guest (NP) to Regular-NP?
+            This will update their status and history.
+        </p>
+        <div class="modal-card__actions">
+            <button class="btn btn-primary"
+                    disabled="@_promoting"
+                    @onclick="ConfirmPromotionAsync">
+                <span class="spinner-border spinner-border-sm me-1"
+                      role="status"
+                      hidden="@(!_promoting)"></span>
+                Confirm
+            </button>
+            <button class="btn btn-outline" type="button" @onclick="CancelPromotion">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _promoting;
+    private int _slots;
+    private List<NpQueueEntryDto> _entries = new();
+    private string? _errorMessage;
+    private string? _operationMessage;
+    private bool _operationError;
+    private NpQueueEntryDto? _pendingPromotion;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadQueue();
+    }
+
+    private async Task LoadQueue()
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            var queueTask = QueueService.GetQueueAsync();
+            var slotsTask = QueueService.GetSlotsAvailableAsync();
+            await Task.WhenAll(queueTask, slotsTask);
+            _entries = queueTask.Result.ToList();
+            _slots = slotsTask.Result;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[NPQueue] {ex}");
+            _errorMessage = "Unable to load the NP queue right now.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void BeginPromotion(NpQueueEntryDto entry)
+    {
+        _pendingPromotion = entry;
+        _operationMessage = null;
+        _operationError = false;
+    }
+
+    private void CancelPromotion()
+    {
+        _pendingPromotion = null;
+        _promoting = false;
+    }
+
+    private async Task ConfirmPromotionAsync()
+    {
+        if (_pendingPromotion is null)
+        {
+            return;
+        }
+
+        if (!ShowPromoteButton(_pendingPromotion))
+        {
+            _operationError = true;
+            _operationMessage = "This member is no longer eligible for promotion.";
+            _pendingPromotion = null;
+            return;
+        }
+
+        await Promote(_pendingPromotion);
+        _pendingPromotion = null;
+    }
+
+    private async Task Promote(NpQueueEntryDto entry)
+    {
+        _promoting = true;
+        _operationMessage = null;
+        try
+        {
+            await QueueService.PromoteAsync(entry.MemberId);
+
+            TryLogHistory(entry.MemberId, "Status", "GUEST (NP)", "REGULAR-NP");
+
+            _operationError = false;
+            _operationMessage = "Member promoted successfully.";
+            await LoadQueue();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[NPQueue:promote] {ex}");
+            _operationError = true;
+            _operationMessage = "Unable to promote the selected member.";
+        }
+        finally
+        {
+            _promoting = false;
+        }
+    }
+
+    private bool ShowPromoteButton(NpQueueEntryDto entry)
+        => entry.CanPromote && entry.Position == 1 && _slots > 0;
+    private void TryLogHistory(int memberId, string field, string? oldValue, string? newValue)
+    {
+        try
+        {
+            if (memberId > 0)
+            {
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                var username = currentUser?.Username ?? "Unknown";
+                HistoryService.LogChange(memberId, field, oldValue, newValue, username);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[NPQueue] Failed to log history for member {Member}", memberId);
+        }
+    }
+}
+

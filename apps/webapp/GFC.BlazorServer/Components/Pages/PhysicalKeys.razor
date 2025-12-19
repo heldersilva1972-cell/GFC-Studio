@@ -1,0 +1,506 @@
+@page "/physicalkeys"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@inject IPhysicalKeyService PhysicalKeyService
+@inject IMemberRepository MemberRepository
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<PhysicalKeys> Logger
+
+<PageTitle>Physical Keys - GFC Membership</PageTitle>
+
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title d-flex justify-content-between align-items-center">
+            <span>Physical Door Keys</span>
+            <button class="btn btn-success" type="button" @onclick="StartIssueKey">
+                <i class="bi bi-plus-circle"></i> Issue Key
+            </button>
+        </h1>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @_errorMessage
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert alert-success">
+            @_successMessage
+        </div>
+    }
+
+    @* Alerts for keys that should be returned *@
+    @{
+        var keysToReturn = PhysicalKeyService.GetKeysThatShouldBeReturned();
+    }
+    @if (keysToReturn.Any())
+    {
+        <div class="alert alert-warning">
+            <strong><i class="bi bi-exclamation-triangle"></i> Alert:</strong> The following members have active keys but are not currently board members. These keys should be returned:
+            <ul class="mb-0 mt-2">
+                @foreach (var key in keysToReturn)
+                {
+                    <li><strong>@key.MemberName</strong> - Key issued on @key.IssuedDate.ToString("MMM d, yyyy")</li>
+                }
+            </ul>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+            Loading physical keys...
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h3>Key Assignments</h3>
+                    <div class="pill-tabs">
+                        <button class="pill-tab @(_viewFilter == "all" ? "active" : "")" 
+                                type="button" 
+                                @onclick='() => SetViewFilter("all")'>
+                            All (@_allKeys.Count)
+                        </button>
+                        <button class="pill-tab @(_viewFilter == "active" ? "active" : "")" 
+                                type="button" 
+                                @onclick='() => SetViewFilter("active")'>
+                            Active (@_activeKeys.Count)
+                        </button>
+                        <button class="pill-tab @(_viewFilter == "returned" ? "active" : "")" 
+                                type="button" 
+                                @onclick='() => SetViewFilter("returned")'>
+                            Returned (@_returnedKeys.Count)
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                @{
+                    var displayKeys = _viewFilter == "active" ? _activeKeys : 
+                                     _viewFilter == "returned" ? _returnedKeys : 
+                                     _allKeys;
+                }
+
+                @if (displayKeys.Count == 0)
+                {
+                    <div class="alert alert-info">
+                        No keys found for the selected filter.
+                    </div>
+                }
+                else
+                {
+                    <div class="table-container">
+                        <table class="data-table table-compact">
+                            <thead>
+                                <tr>
+                                    <th>Member Name</th>
+                                    <th>Issued Date</th>
+                                    <th>Issued By</th>
+                                    <th>Returned Date</th>
+                                    <th>Returned By</th>
+                                    <th>Status</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var key in displayKeys)
+                                {
+                                    var isBoardMember = PhysicalKeyService.IsMemberCurrentBoardMember(key.MemberID);
+                                    <tr class="@(key.IsReturned ? "text-muted" : (isBoardMember ? "" : "table-warning"))">
+                                        <td>
+                                            @key.MemberName
+                                            @if (!key.IsReturned && !isBoardMember)
+                                            {
+                                                <span class="badge bg-warning text-dark ms-1" title="Member is not a current board member">!</span>
+                                            }
+                                        </td>
+                                        <td>@key.IssuedDate.ToString("MMM d, yyyy")</td>
+                                        <td>@(key.IssuedBy ?? "--")</td>
+                                        <td>@(key.ReturnedDate?.ToString("MMM d, yyyy") ?? "--")</td>
+                                        <td>@(key.ReturnedBy ?? "--")</td>
+                                        <td>
+                                            @if (key.IsReturned)
+                                            {
+                                                <span class="badge bg-secondary">Returned</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-success">Active</span>
+                                            }
+                                        </td>
+                                        <td>@(key.Notes ?? "--")</td>
+                                        <td>
+                                            @if (!key.IsReturned)
+                                            {
+                                                <button class="btn btn-outline-primary btn-sm" 
+                                                        type="button" 
+                                                        @onclick='() => StartReturnKey(key.PhysicalKeyID, key.MemberName ?? "")'>
+                                                    <i class="bi bi-arrow-return-left"></i> Return
+                                                </button>
+                                            }
+                                            <button class="btn btn-outline-danger btn-sm ms-1" 
+                                                    type="button" 
+                                                    @onclick='() => ConfirmDeleteKey(key.PhysicalKeyID, key.MemberName ?? "")'>
+                                                <i class="bi bi-trash"></i> Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@* Issue Key Modal *@
+@if (_showIssueModal)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 600px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Issue Physical Key</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelIssueModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_modalError))
+        {
+            <div class="alert alert-danger mb-3">
+                <strong>Error:</strong> @_modalError
+            </div>
+        }
+
+        <div class="mb-3">
+            <label class="form-label">Select Member <span class="text-danger">*</span></label>
+            <select class="form-select" @bind="_selectedMemberId">
+                <option value="0">-- Select a member --</option>
+                @foreach (var member in _members)
+                {
+                    <option value="@member.MemberID">@($"{member.FirstName} {member.LastName}")</option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Issued Date <span class="text-danger">*</span></label>
+            <input type="date" class="form-control" @bind="_issueDate" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" rows="3" @bind="_issueNotes"></textarea>
+        </div>
+
+        <div class="modal-card__actions">
+            <button type="button" class="btn btn-primary" @onclick="IssueKey" disabled="@_saving">
+                @if (_saving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                }
+                Issue Key
+            </button>
+            <button type="button" class="btn btn-outline" @onclick="CancelIssueModal">Cancel</button>
+        </div>
+    </div>
+}
+
+@* Return Key Modal *@
+@if (_showReturnModal && _keyToReturn.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Return Physical Key</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelReturnModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        <div class="mb-3">
+            <p>Return key for <strong>@_keyToReturnMemberName</strong>?</p>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Returned Date <span class="text-danger">*</span></label>
+            <input type="date" class="form-control" @bind="_returnDate" />
+        </div>
+
+        <div class="modal-card__actions">
+            <button type="button" class="btn btn-primary" @onclick="ReturnKey" disabled="@_saving">
+                @if (_saving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                }
+                Return Key
+            </button>
+            <button type="button" class="btn btn-outline" @onclick="CancelReturnModal">Cancel</button>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (_showDeleteModal && _keyToDelete.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Delete Key Record</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelDeleteModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        <div class="mb-3">
+            <p>Are you sure you want to delete the key record for <strong>@_keyToDeleteMemberName</strong>?</p>
+            <p class="text-danger small">This action cannot be undone.</p>
+        </div>
+
+        <div class="modal-card__actions">
+            <button type="button" class="btn btn-danger" @onclick="DeleteKey" disabled="@_saving">
+                @if (_saving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                }
+                Delete
+            </button>
+            <button type="button" class="btn btn-outline" @onclick="CancelDeleteModal">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PhysicalKey> _allKeys = new();
+    private List<PhysicalKey> _activeKeys = new();
+    private List<PhysicalKey> _returnedKeys = new();
+    private List<Member> _members = new();
+    private bool _loading = true;
+    private string _errorMessage = string.Empty;
+    private string _successMessage = string.Empty;
+    private string _viewFilter = "all";
+
+    // Issue modal
+    private bool _showIssueModal = false;
+    private int _selectedMemberId = 0;
+    private DateTime _issueDate = DateTime.Today;
+    private string _issueNotes = string.Empty;
+    private string _modalError = string.Empty;
+    private bool _saving = false;
+
+    // Return modal
+    private bool _showReturnModal = false;
+    private int? _keyToReturn = null;
+    private string _keyToReturnMemberName = string.Empty;
+    private DateTime _returnDate = DateTime.Today;
+
+    // Delete modal
+    private bool _showDeleteModal = false;
+    private int? _keyToDelete = null;
+    private string _keyToDeleteMemberName = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+        try
+        {
+            _allKeys = await Task.Run(() => PhysicalKeyService.GetAllKeys());
+            _activeKeys = _allKeys.Where(k => !k.IsReturned).ToList();
+            _returnedKeys = _allKeys.Where(k => k.IsReturned).ToList();
+            _members = await Task.Run(() => MemberRepository.GetAllMembers().OrderBy(m => m.LastName).ThenBy(m => m.FirstName).ToList());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading physical keys");
+            _errorMessage = "Failed to load physical keys: " + ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SetViewFilter(string filter)
+    {
+        _viewFilter = filter;
+    }
+
+    private void StartIssueKey()
+    {
+        _showIssueModal = true;
+        _selectedMemberId = 0;
+        _issueDate = DateTime.Today;
+        _issueNotes = string.Empty;
+        _modalError = string.Empty;
+    }
+
+    private void CancelIssueModal()
+    {
+        _showIssueModal = false;
+        _selectedMemberId = 0;
+        _issueDate = DateTime.Today;
+        _issueNotes = string.Empty;
+        _modalError = string.Empty;
+    }
+
+    private async Task IssueKey()
+    {
+        if (_selectedMemberId == 0)
+        {
+            _modalError = "Please select a member.";
+            return;
+        }
+
+        _saving = true;
+        _modalError = string.Empty;
+
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var username = currentUser?.Username;
+            var userId = currentUser?.UserId;
+            
+            // Fallback to authentication state if username is not available
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                username = authState.User.Identity?.Name ?? "Unknown";
+            }
+            
+            await Task.Run(() => PhysicalKeyService.IssueKey(
+                _selectedMemberId,
+                _issueDate,
+                username,
+                _issueNotes));
+
+            _showIssueModal = false;
+            _successMessage = "Key issued successfully.";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error issuing key");
+            _modalError = "Failed to issue key: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void StartReturnKey(int keyId, string memberName)
+    {
+        _showReturnModal = true;
+        _keyToReturn = keyId;
+        _keyToReturnMemberName = memberName;
+        _returnDate = DateTime.Today;
+    }
+
+    private void CancelReturnModal()
+    {
+        _showReturnModal = false;
+        _keyToReturn = null;
+        _keyToReturnMemberName = string.Empty;
+        _returnDate = DateTime.Today;
+    }
+
+    private async Task ReturnKey()
+    {
+        if (!_keyToReturn.HasValue)
+            return;
+
+        _saving = true;
+
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var username = currentUser?.Username;
+            var userId = currentUser?.UserId;
+            
+            // Fallback to authentication state if username is not available
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                username = authState.User.Identity?.Name ?? "Unknown";
+            }
+            
+            await Task.Run(() => PhysicalKeyService.ReturnKey(
+                _keyToReturn.Value,
+                _returnDate,
+                username));
+
+            _showReturnModal = false;
+            _successMessage = "Key returned successfully.";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error returning key");
+            _errorMessage = "Failed to return key: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void ConfirmDeleteKey(int keyId, string memberName)
+    {
+        _showDeleteModal = true;
+        _keyToDelete = keyId;
+        _keyToDeleteMemberName = memberName;
+    }
+
+    private void CancelDeleteModal()
+    {
+        _showDeleteModal = false;
+        _keyToDelete = null;
+        _keyToDeleteMemberName = string.Empty;
+    }
+
+    private async Task DeleteKey()
+    {
+        if (!_keyToDelete.HasValue)
+            return;
+
+        _saving = true;
+
+        try
+        {
+            await Task.Run(() => PhysicalKeyService.DeleteKey(_keyToDelete.Value));
+
+            _showDeleteModal = false;
+            _successMessage = "Key record deleted successfully.";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting key");
+            _errorMessage = "Failed to delete key record: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}
+

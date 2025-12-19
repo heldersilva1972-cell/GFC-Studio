@@ -1,0 +1,162 @@
+@page "/reimbursements/settings"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@inject ReimbursementService ReimbursementService
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject ILogger<Settings> Logger
+@inject IJSRuntime JSRuntime
+
+<h1 class="page-title">Reimbursement Settings</h1>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        Loading settings...
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="alert @(_operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
+    }
+
+    <div class="data-card">
+        <h3>General Settings</h3>
+        <div class="mb-3">
+            <div class="form-check">
+                <InputCheckbox class="form-check-input" @bind-Value="_settings.ReceiptRequired" />
+                <label class="form-check-label">
+                    Require receipts for all items before submission
+                </label>
+            </div>
+        </div>
+
+        <h4 class="mt-4">Notification Recipients</h4>
+        <p class="text-muted small mb-2">
+            Members selected here will receive an email each time a reimbursement request is submitted.
+        </p>
+        <div class="mb-3">
+            <select class="form-select" size="10" multiple @ref="_memberSelectElement" @onchange="OnMemberSelectionChanged">
+                @foreach (var member in _allMembers)
+                {
+                    <option value="@member.MemberID.ToString()" selected="@_selectedMemberIds.Contains(member.MemberID.ToString())">
+                        @member.FirstName @member.LastName
+                    </option>
+                }
+            </select>
+            <small class="text-muted">Hold Ctrl/Cmd to select multiple members.</small>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_saving">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                Save Settings
+            </button>
+            <button class="btn btn-outline" @onclick="Cancel">Cancel</button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _saving = false;
+    private string? _errorMessage;
+    private string? _operationMessage;
+    private bool _operationError;
+    private ReimbursementSettings _settings = new();
+    private List<GFC.Core.Models.Member> _allMembers = new();
+    private List<string> _selectedMemberIds = new();
+    private ElementReference _memberSelectElement;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _settings = await ReimbursementService.GetSettingsAsync();
+            
+            // Parse existing notification recipients
+            _selectedMemberIds = string.IsNullOrWhiteSpace(_settings.NotificationRecipients)
+                ? new List<string>()
+                : _settings.NotificationRecipients
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => x.Trim())
+                    .ToList();
+
+            // Load all members for selection
+            _allMembers = MemberRepository.GetAllMembers()
+                .OrderBy(m => m.LastName)
+                .ThenBy(m => m.FirstName)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load settings");
+            _errorMessage = "Failed to load reimbursement settings.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveSettings()
+    {
+        _saving = true;
+        _operationMessage = null;
+
+        try
+        {
+            _settings.NotificationRecipients = (_selectedMemberIds == null || _selectedMemberIds.Count == 0)
+                ? null
+                : string.Join(",", _selectedMemberIds);
+
+            await ReimbursementService.UpdateSettingsAsync(_settings);
+            _operationError = false;
+            _operationMessage = "Settings saved successfully.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save settings");
+            _operationError = true;
+            _operationMessage = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/reimbursements");
+    }
+
+    private async Task OnMemberSelectionChanged(ChangeEventArgs e)
+    {
+        try
+        {
+            // For multi-select, we need to use JavaScript to get all selected values
+            var selectedValues = await JSRuntime.InvokeAsync<string[]>(
+                "getSelectedValues",
+                _memberSelectElement);
+            
+            _selectedMemberIds = selectedValues?.ToList() ?? new List<string>();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error reading selected member IDs");
+            _selectedMemberIds = new List<string>();
+        }
+    }
+}
+

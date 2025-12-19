@@ -1,0 +1,569 @@
+@page "/controllers/{ControllerId:int}/schedules"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Models
+@using Microsoft.AspNetCore.Authorization
+@inject ControllerRegistryService RegistryService
+@inject IScheduleService ScheduleService
+@inject GFC.BlazorServer.Services.Controllers.IControllerClient ControllerClient
+@inject ISimulationGuard SimulationGuard
+@inject CommandInfoService CommandInfoService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<ControllerSchedules> Logger
+@inject ISystemSettingsService SystemSettingsService
+
+<PageTitle>Controller Schedules - GFC Controllers</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Controller Schedules</h1>
+        <p class="text-muted mb-0">@(_controller?.Name ?? "Unknown controller")</p>
+        @if (_useRealControllers)
+        {
+            <span class="badge bg-success ms-2">
+                <i class="bi bi-hdd-network"></i> Real Controller Mode
+            </span>
+        }
+        else
+        {
+            <span class="badge bg-warning text-dark ms-2">
+                <i class="bi bi-cpu"></i> Simulation Mode (NO real hardware writes)
+            </span>
+        }
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="RefreshFromController" disabled="@_isLoading">
+            <i class="bi bi-arrow-repeat"></i> Refresh from Controller
+        </button>
+        <button class="btn btn-outline-primary" @onclick="NavigateBackToDashboard">
+            <i class="bi bi-arrow-left"></i> Back to dashboard
+        </button>
+    </div>
+</div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_successMessage != null)
+{
+    <div class="alert alert-success">@_successMessage</div>
+}
+
+@if (_controller == null)
+{
+    <div class="alert alert-warning">
+        <p class="mb-0">Controller not found. Please open this page from the Control Center and select a controller.</p>
+    </div>
+}
+else if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="data-card mb-3">
+        <h3>Time Profile Mapping</h3>
+        <p class="text-muted small mb-3">
+            Map time profiles to controller profile indices (0-63). Each profile must have a unique index.
+        </p>
+        <table class="data-table table-compact">
+            <thead>
+                <tr>
+                    <th>Time Profile</th>
+                    <th>Controller Profile Index</th>
+                    <th>Enabled</th>
+                    <th>Intervals</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_profiles.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">
+                            No time profiles available. <a href="/controllers/schedules/profiles">Create one first</a>.
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var profile in _profiles)
+                    {
+                        var link = _links.FirstOrDefault(l => l.TimeProfileId == profile.Id);
+                        var index = link?.ControllerProfileIndex ?? -1;
+                        <tr>
+                            <td>
+                                <strong>@profile.Name</strong>
+                                @if (!string.IsNullOrWhiteSpace(profile.Description))
+                                {
+                                    <br /><small class="text-muted">@profile.Description</small>
+                                }
+                            </td>
+                            <td>
+                                <select class="form-select" 
+                                        value="@index" 
+                                        @onchange="@((ChangeEventArgs e) => UpdateMapping(profile.Id, e.Value?.ToString()))">
+                                    <option value="-1">(Not mapped)</option>
+                                    @for (int i = 0; i < 64; i++)
+                                    {
+                                        var isUsed = _links.Any(l => l.ControllerProfileIndex == i && l.TimeProfileId != profile.Id);
+                                        <option value="@i" disabled="@isUsed">
+                                            @i@(isUsed ? " (used)" : "")
+                                        </option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <input type="checkbox" class="form-check-input" 
+                                       checked="@(link?.IsEnabled ?? false)" 
+                                       @onchange="@((ChangeEventArgs e) => UpdateEnabled(profile.Id, e.Value?.ToString() == "True"))" />
+                            </td>
+                            <td>@profile.Intervals.Count</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="data-card mb-3">
+        <h3>Holidays</h3>
+        <p class="text-muted small mb-2">
+            <strong>@_holidays.Count</strong> holiday(s) configured. Holidays are included when syncing schedules.
+        </p>
+        <a href="/controllers/schedules/holidays" class="btn btn-sm btn-outline-primary">Manage Holidays</a>
+    </div>
+
+    <div class="data-card mb-3">
+        <h3>Actions</h3>
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-info" 
+                    @onclick="CompilePreview" 
+                    disabled="@(_isCompiling || _profiles.Count == 0 || !HasMappings())"
+                    title="@_compileTooltip">
+                <i class="bi bi-eye"></i> Compile Preview
+            </button>
+            <button class="btn btn-primary" 
+                    @onclick="ShowSyncConfirmationModal" 
+                    disabled="@(_isSyncing || _profiles.Count == 0 || !HasMappings() || HasMappingErrors())"
+                    title="@(!_useRealControllers ? "Simulation mode: sync uses virtual controllers." : _syncTooltip)">
+                <i class="bi bi-cloud-upload"></i> Sync to Controller
+            </button>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_compileError))
+        {
+            <div class="alert alert-danger mt-3">@_compileError</div>
+        }
+    </div>
+
+    @if (_showPreview && _compiledSchedule != null)
+    {
+        <div class="data-card">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3>Compiled Schedule Preview</h3>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ClosePreview">
+                    <i class="bi bi-x"></i> Close
+                </button>
+            </div>
+            <pre class="bg-light p-3 rounded" style="max-height: 500px; overflow: auto;"><code>@_previewJson</code></pre>
+        </div>
+    }
+
+    @* Sync Confirmation Modal *@
+    @if (_showSyncConfirmation)
+    {
+        <div class="modal-backdrop fade show"></div>
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Sync Time Profiles</h5>
+                        <button type="button" class="btn-close" @onclick="CloseSyncConfirmation"></button>
+                    </div>
+                    <div class="modal-body">
+                        @if (_syncCommandInfo != null)
+                        {
+                            <div class="alert alert-info">
+                                <strong>@_syncCommandInfo.DisplayName</strong> (Risk Level: @_syncCommandInfo.RiskLevel)<br />
+                                <small>@_syncCommandInfo.ShortDescription</small>
+                            </div>
+                        }
+                        <p>
+                            This will sync time profiles and holidays to controller <strong>@(_controller?.Name ?? "Unknown")</strong>.
+                        </p>
+                        <p class="text-muted small">
+                            Time profiles: @_links.Count(l => l.IsEnabled)<br />
+                            Holidays: @_holidays.Count
+                        </p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary" @onclick="CloseSyncConfirmation" disabled="@_isSyncing">Cancel</button>
+                        <button class="btn btn-primary" @onclick="ConfirmSyncToController" disabled="@_isSyncing">
+                            @(_isSyncing ? "Syncing..." : "Confirm Sync")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int ControllerId { get; set; }
+
+    private ControllerDevice? _controller;
+    private List<TimeProfile> _profiles = new();
+    private List<Holiday> _holidays = new();
+    private List<ControllerTimeProfileLink> _links = new();
+    private bool _isLoading = true;
+    private bool _isCompiling;
+    private bool _isSyncing;
+    private string? _errorMessage;
+    private string? _successMessage;
+    private string? _compileError;
+    private bool _showPreview;
+    private TimeScheduleCompiledDto? _compiledSchedule;
+    private string _previewJson = string.Empty;
+    private string _compileTooltip = "Preview the compiled schedule before syncing";
+    private string _syncTooltip = "Sync schedules to controller";
+    private ControllerCommandInfo? _syncCommandInfo;
+    private bool _showSyncConfirmation;
+
+    private bool _isUnauthorized = false;
+    private bool _useRealControllers = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var isAdmin = await CheckAdminAccess();
+        if (!isAdmin)
+        {
+            _isUnauthorized = true;
+            _isLoading = false;
+            return;
+        }
+        await LoadControllerModeAsync();
+        await LoadData();
+        await LoadCommandInfo();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isUnauthorized)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task<bool> CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            isAdmin = currentUser?.IsAdmin == true;
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Controller Schedules page");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            _controller = await RegistryService.GetControllerByIdAsync(ControllerId);
+            if (_controller == null)
+            {
+                _errorMessage = "Controller not found. Please open this page from the Control Center and select a controller.";
+                _isLoading = false;
+                return;
+            }
+
+            _profiles = await ScheduleService.GetProfilesAsync();
+            _holidays = await ScheduleService.GetHolidaysAsync();
+            _links = await ScheduleService.GetControllerLinksAsync(ControllerId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load schedule data");
+            _errorMessage = "Failed to load schedule data: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task UpdateMapping(int profileId, string? indexStr)
+    {
+        if (!int.TryParse(indexStr, out var index) || index < 0)
+        {
+            // Remove mapping
+            _links.RemoveAll(l => l.TimeProfileId == profileId);
+        }
+        else
+        {
+            // Update or add mapping
+            var existing = _links.FirstOrDefault(l => l.TimeProfileId == profileId);
+            if (existing != null)
+            {
+                existing.ControllerProfileIndex = index;
+            }
+            else
+            {
+                _links.Add(new ControllerTimeProfileLink
+                {
+                    TimeProfileId = profileId,
+                    ControllerProfileIndex = index,
+                    IsEnabled = true
+                });
+            }
+        }
+
+        try
+        {
+            await ScheduleService.SaveLinksAsync(ControllerId, _links);
+            _successMessage = "Mapping saved.";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save mapping");
+            _errorMessage = "Failed to save mapping: " + ex.Message;
+        }
+    }
+
+    private async Task UpdateEnabled(int profileId, bool isEnabled)
+    {
+        var existing = _links.FirstOrDefault(l => l.TimeProfileId == profileId);
+        if (existing != null)
+        {
+            existing.IsEnabled = isEnabled;
+        }
+        else if (isEnabled)
+        {
+            // Only create a new link if enabling and no link exists
+            // User must set index first
+            _errorMessage = "Please set a controller profile index before enabling.";
+            return;
+        }
+        else
+        {
+            // Disabling a non-existent link is a no-op
+            return;
+        }
+
+        try
+        {
+            await ScheduleService.SaveLinksAsync(ControllerId, _links);
+            _successMessage = "Mapping saved.";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save mapping");
+            _errorMessage = "Failed to save mapping: " + ex.Message;
+        }
+    }
+
+    private bool HasMappings()
+    {
+        return _links.Any(l => l.IsEnabled && l.ControllerProfileIndex >= 0);
+    }
+
+    private bool HasMappingErrors()
+    {
+        var indices = _links.Where(l => l.IsEnabled && l.ControllerProfileIndex >= 0).Select(l => l.ControllerProfileIndex).ToList();
+        return indices.Count != indices.Distinct().Count();
+    }
+
+    private async Task CompilePreview()
+    {
+        _isCompiling = true;
+        _compileError = null;
+        _showPreview = false;
+
+        try
+        {
+            if (HasMappingErrors())
+            {
+                _compileError = "Duplicate controller profile indices detected. Each profile must have a unique index.";
+                return;
+            }
+
+            _compiledSchedule = await ScheduleService.CompileForControllerAsync(ControllerId);
+            _previewJson = System.Text.Json.JsonSerializer.Serialize(_compiledSchedule.Schedule, new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            _showPreview = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to compile schedule");
+            _compileError = "Failed to compile schedule: " + ex.Message;
+        }
+        finally
+        {
+            _isCompiling = false;
+        }
+    }
+
+    private void ClosePreview()
+    {
+        _showPreview = false;
+    }
+
+    private async Task LoadCommandInfo()
+    {
+        try
+        {
+            _syncCommandInfo = await CommandInfoService.GetByKeyAsync("SyncTimeProfiles");
+            if (_syncCommandInfo != null)
+            {
+                _syncTooltip = $"{_syncCommandInfo.DisplayName} (Risk Level {_syncCommandInfo.RiskLevel}): {_syncCommandInfo.ShortDescription}";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load command info");
+        }
+    }
+
+    private void ShowSyncConfirmationModal()
+    {
+        if (_controller == null) return;
+
+        if (HasMappingErrors())
+        {
+            _errorMessage = "Cannot sync: duplicate controller profile indices detected.";
+            return;
+        }
+
+        _showSyncConfirmation = true;
+    }
+
+    private void CloseSyncConfirmation()
+    {
+        _showSyncConfirmation = false;
+    }
+
+    private async Task ConfirmSyncToController()
+    {
+        if (_controller == null) return;
+
+        _isSyncing = true;
+        _errorMessage = null;
+        _successMessage = null;
+        CloseSyncConfirmation();
+
+        try
+        {
+            var isSimulated = !_useRealControllers || _controller.IsSimulated;
+            if (!isSimulated)
+            {
+                await SimulationGuard.EnsureNotSimulationAsync(
+                    "WriteTimeSchedules",
+                    ControllerId,
+                    _controller.SerialNumber);
+            }
+
+            var compiled = await ScheduleService.CompileForControllerAsync(ControllerId);
+            await ControllerClient.WriteTimeSchedulesAsync(_controller.SerialNumberDisplay, compiled.Schedule);
+
+            _successMessage = isSimulated
+                ? $"[Simulated] Schedule synced successfully to controller '{_controller.Name}'."
+                : $"Schedule synced successfully to controller '{_controller.Name}'.";
+            Logger.LogInformation("Time schedules synced to controller {ControllerId}", ControllerId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to sync schedule to controller");
+            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
+            {
+                _errorMessage = "Time schedule sync is not implemented in Agent/firmware.";
+            }
+            else
+            {
+                _errorMessage = $"Failed to sync schedule to '{_controller.Name}': " + ex.Message;
+            }
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
+    }
+
+    private async Task RefreshFromController()
+    {
+        if (_controller == null) return;
+
+        _isLoading = true;
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            var schedule = await ControllerClient.GetTimeSchedulesAsync(_controller.SerialNumberDisplay);
+            if (schedule != null)
+            {
+                // TODO: Decode firmware schedule and update local DB if safe
+                _successMessage = "Schedule data retrieved from controller. (Decoding not yet implemented)";
+            }
+            else
+            {
+                _errorMessage = "Failed to retrieve schedule from controller.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to refresh from controller");
+            _errorMessage = "Failed to refresh: " + ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void NavigateBackToDashboard()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+
+    private async Task LoadControllerModeAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
+            _useRealControllers = false;
+        }
+    }
+}
+

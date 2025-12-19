@@ -1,0 +1,456 @@
+@page "/controllers/schedules/holidays"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject IScheduleService ScheduleService
+@inject ControllerRegistryService RegistryService
+@inject GFC.BlazorServer.Services.Controllers.IControllerClient ControllerClient
+@inject CommandInfoService CommandInfoService
+@inject ISystemSettingsService SystemSettingsService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<Holidays> Logger
+
+<PageTitle>Holidays - GFC Controllers</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Holidays</h1>
+        <p class="text-muted mb-0">Manage holidays used by controller time schedules.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="ShowAddModal" disabled="@_loading">
+        <i class="bi bi-plus-circle"></i> Add Holiday
+    </button>
+</div>
+
+<div class="alert alert-info mb-3" hidden="@_useRealControllers">
+    <strong>Simulation Mode enabled:</strong> Holiday sync will use simulated controllers (no hardware writes).
+    </div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_loading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="data-card mb-3">
+        <table class="data-table table-compact">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Date</th>
+                    <th>Recurring</th>
+                    <th style="width:150px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_holidays.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">No holidays configured.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var holiday in _holidays)
+                    {
+                        <tr>
+                            <td>@holiday.Name</td>
+                            <td>@holiday.Date.ToString("MMM d, yyyy")</td>
+                            <td>
+                                <span class="badge @(holiday.IsRecurring ? "bg-success" : "bg-secondary")">
+                                    @(holiday.IsRecurring ? "Yes" : "No")
+                                </span>
+                            </td>
+                            <td>
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => EditHoliday(holiday)">
+                                    Edit
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteHoliday(holiday)">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="data-card">
+        <h3>Sync Holidays to Controllers</h3>
+        <p class="text-muted small mb-3">
+            Sync holidays to all enabled controllers. This will update the holiday block used by privilege filtering.
+        </p>
+        <button class="btn btn-primary"
+                @onclick="ShowSyncConfirmation"
+                disabled="@(_syncing || _holidays.Count == 0)"
+                title="@(!_useRealControllers ? "Simulation mode: sync uses virtual controllers." : null)">
+            <i class="bi bi-cloud-upload"></i> Sync Holidays to Controllers
+        </button>
+        @if (_syncMessage != null)
+        {
+            <div class="alert @(_syncSuccess ? "alert-success" : "alert-danger") mt-3">@_syncMessage</div>
+        }
+    </div>
+}
+
+@if (_showModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(_editingHoliday?.Id > 0 ? "Edit" : "Add") Holiday</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrWhiteSpace(_modalError))
+                    {
+                        <div class="alert alert-danger">@_modalError</div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" @bind="_editingHoliday!.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Date <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" 
+                               value="@(_editingHoliday!.Date.ToString("yyyy-MM-dd"))" 
+                               @onchange="@((ChangeEventArgs e) => UpdateDate(e.Value?.ToString()))" />
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" @bind="_editingHoliday!.IsRecurring" />
+                            <label class="form-check-label">Recurring (applies every year)</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseModal" disabled="@_saving">Cancel</button>
+                    <button class="btn btn-primary" @onclick="SaveHoliday" disabled="@_saving">
+                        @(_saving ? "Saving..." : "Save")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Sync Confirmation Modal *@
+@if (_showSyncModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Sync Holidays</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSyncModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning" hidden="@_useRealControllers">
+                        <strong>Simulation Mode is active.</strong> Sync will run against virtual controllers only (no hardware changes).
+                    </div>
+                    @if (_syncCommandInfo != null)
+                    {
+                        <div class="alert alert-info">
+                            <strong>@_syncCommandInfo.DisplayName</strong> (Risk Level: @_syncCommandInfo.RiskLevel)<br />
+                            <small>@_syncCommandInfo.ShortDescription</small>
+                        </div>
+                    }
+                    <p>
+                        This will sync <strong>@_holidays.Count</strong> holiday(s) to all enabled controllers.
+                    </p>
+                    <p class="text-muted small">
+                        Controllers to sync: @_controllers.Count
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseSyncModal" disabled="@_syncing">Cancel</button>
+                    <button class="btn btn-primary" @onclick="SyncHolidaysToControllers" disabled="@_syncing">
+                        @(_syncing ? "Syncing..." : "Confirm Sync")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Holiday> _holidays = new();
+    private List<ControllerDevice> _controllers = new();
+    private bool _loading = true;
+    private string? _errorMessage;
+    private bool _showModal;
+    private Holiday? _editingHoliday;
+    private bool _saving;
+    private string? _modalError;
+    private bool _showSyncModal;
+    private bool _syncing;
+    private string? _syncMessage;
+    private bool _syncSuccess;
+    private ControllerCommandInfo? _syncCommandInfo;
+    private bool _useRealControllers = false;
+
+    private bool _isUnauthorized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var isAdmin = await CheckAdminAccess();
+        if (!isAdmin)
+        {
+            _isUnauthorized = true;
+            _loading = false;
+            return;
+        }
+        await LoadControllerModeAsync();
+        await LoadHolidays();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isUnauthorized)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task<bool> CheckAdminAccess()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
+        if (!isAdmin)
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            isAdmin = currentUser?.IsAdmin == true;
+        }
+
+        if (!isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Holidays page");
+            return false;
+        }
+        return true;
+    }
+
+    private async Task LoadControllerModeAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _useRealControllers = settings.UseRealControllers;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
+            _useRealControllers = false;
+        }
+    }
+
+    private async Task LoadHolidays()
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            _holidays = await ScheduleService.GetHolidaysAsync();
+            _controllers = (await RegistryService.GetControllersAsync()).Where(c => c.IsEnabled).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load holidays");
+            _errorMessage = "Failed to load holidays. See logs for details.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ShowSyncConfirmation()
+    {
+        try
+        {
+            _syncCommandInfo = await CommandInfoService.GetByKeyAsync("SyncHolidays");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load command info");
+        }
+        _showSyncModal = true;
+        _syncMessage = null;
+    }
+
+    private void CloseSyncModal()
+    {
+        _showSyncModal = false;
+        _syncCommandInfo = null;
+    }
+
+    private async Task SyncHolidaysToControllers()
+    {
+        _syncing = true;
+        _syncMessage = null;
+        _syncSuccess = false;
+
+        try
+        {
+            var successCount = 0;
+            var failCount = 0;
+            var messages = new List<string>();
+
+            foreach (var controller in _controllers)
+            {
+                try
+                {
+                    var compiled = await ScheduleService.CompileForControllerAsync(controller.Id);
+                    await ControllerClient.WriteTimeSchedulesAsync(controller.SerialNumberDisplay, compiled.Schedule);
+                    successCount++;
+                    Logger.LogInformation("Holidays synced to controller {ControllerName} (SN: {SerialNumber})", controller.Name, controller.SerialNumberDisplay);
+                }
+                catch (Exception ex)
+                {
+                    failCount++;
+                    messages.Add($"{controller.Name}: {ex.Message}");
+                    Logger.LogError(ex, "Error syncing holidays to controller {ControllerName}", controller.Name);
+                }
+            }
+
+            if (successCount > 0 && failCount == 0)
+            {
+                _syncMessage = $"Successfully synced holidays to {successCount} controller(s).";
+                _syncSuccess = true;
+            }
+            else if (successCount > 0)
+            {
+                _syncMessage = $"Synced to {successCount} controller(s), {failCount} failed: {string.Join("; ", messages)}";
+                _syncSuccess = false;
+            }
+            else
+            {
+                _syncMessage = $"Failed to sync to all controllers: {string.Join("; ", messages)}";
+                _syncSuccess = false;
+            }
+
+            CloseSyncModal();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during holiday sync");
+            _syncMessage = "Error syncing holidays: " + ex.Message;
+            _syncSuccess = false;
+            CloseSyncModal();
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    private void ShowAddModal()
+    {
+        _editingHoliday = new Holiday { Date = DateOnly.FromDateTime(DateTime.Today) };
+        _showModal = true;
+        _modalError = null;
+    }
+
+    private void UpdateDate(string? dateStr)
+    {
+        if (_editingHoliday != null && !string.IsNullOrWhiteSpace(dateStr) && DateOnly.TryParse(dateStr, out var date))
+        {
+            _editingHoliday.Date = date;
+        }
+    }
+
+    private void EditHoliday(Holiday holiday)
+    {
+        _editingHoliday = new Holiday
+        {
+            Id = holiday.Id,
+            Name = holiday.Name,
+            Date = holiday.Date,
+            IsRecurring = holiday.IsRecurring
+        };
+        _showModal = true;
+        _modalError = null;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _editingHoliday = null;
+        _modalError = null;
+    }
+
+    private async Task SaveHoliday()
+    {
+        if (_editingHoliday == null || string.IsNullOrWhiteSpace(_editingHoliday.Name))
+        {
+            _modalError = "Name is required.";
+            return;
+        }
+
+        _saving = true;
+        _modalError = null;
+
+        try
+        {
+            if (_editingHoliday.Id > 0)
+            {
+                await ScheduleService.UpdateHolidayAsync(_editingHoliday);
+            }
+            else
+            {
+                await ScheduleService.AddHolidayAsync(_editingHoliday);
+            }
+
+            CloseModal();
+            await LoadHolidays();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save holiday");
+            _modalError = "Failed to save holiday: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteHoliday(Holiday holiday)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete holiday '{holiday.Name}'?"))
+        {
+            return;
+        }
+
+        try
+        {
+            await ScheduleService.DeleteHolidayAsync(holiday.Id);
+            await LoadHolidays();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete holiday");
+            _errorMessage = "Failed to delete holiday: " + ex.Message;
+        }
+    }
+
+    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+}
+

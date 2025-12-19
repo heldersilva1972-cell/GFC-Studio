@@ -1,0 +1,269 @@
+@page "/admin/audit-logs"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.Core.Models
+@inject IAuditLogRepository AuditLogRepository
+@inject ILogger<AuditLogs> Logger
+
+<PageTitle>Audit Logs - GFC Membership</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Audit Logs</h1>
+        <p class="text-muted mb-0">Review administrative changes across the system.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+<EditForm Model="_filters" OnValidSubmit="ApplyFilters">
+    <div class="data-card mb-3">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Action</label>
+                <select class="form-select" @bind="_filters.Action">
+                    <option value="">All actions</option>
+                    @foreach (var action in _actions)
+                    {
+                        <option value="@action">@action</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Search</label>
+                <InputText class="form-control" @bind-Value="_filters.SearchText" placeholder="Action or details" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">From</label>
+                <InputDate class="form-control" @bind-Value="_filters.FromDate" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">To</label>
+                <InputDate class="form-control" @bind-Value="_filters.ToDate" />
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary w-100" disabled="@_isLoading">
+                    <i class="bi bi-search"></i> Apply
+                </button>
+                <button type="button" class="btn btn-outline-secondary w-100" @onclick="ClearFilters" disabled="@_isLoading">
+                    Clear
+                </button>
+            </div>
+        </div>
+    </div>
+</EditForm>
+
+@if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else if (_logs.Count == 0)
+{
+    <div class="data-card">
+        <h4>No audit logs found</h4>
+        <p class="text-muted mb-0">Try adjusting the filters or date range.</p>
+    </div>
+}
+else
+{
+    <div class="data-card">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <strong>@_totalCount</strong> log entries
+            </div>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Pagination">
+                <button class="btn btn-outline-secondary" @onclick="PreviousPage" disabled="@(_currentPage <= 1 || _isLoading)">
+                    <i class="bi bi-chevron-left"></i> Previous
+                </button>
+                <button class="btn btn-outline-secondary disabled">
+                    Page @_currentPage
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="NextPage" disabled="@(_currentPage * _pageSize >= _totalCount || _isLoading)">
+                    Next <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th style="width: 160px;">Date/Time</th>
+                        <th>Action</th>
+                        <th>Performed By</th>
+                        <th>Target User</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in _logs)
+                    {
+                        var detailsText = GetDetailsPreview(log.Details, out var tooltip);
+                        <tr>
+                            <td>@log.TimestampUtc.ToLocalTime():g</td>
+                            <td>@log.Action</td>
+                            <td>@log.PerformedByDisplayName</td>
+                            <td>@log.TargetDisplayName</td>
+                            <td title="@tooltip">@detailsText</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private const int DefaultPageSize = 50;
+
+    private readonly List<AuditLogRecord> _logs = new();
+    private readonly AuditLogFilter _filters = new();
+    private List<string> _actions = new();
+
+    private bool _isLoading = true;
+    private int _currentPage = 1;
+    private int _pageSize = DefaultPageSize;
+    private int _totalCount;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadActionsAsync();
+        await LoadLogsAsync();
+    }
+
+    private async Task LoadActionsAsync()
+    {
+        var actionSet = new HashSet<string>(AuditLogActions.All, StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var dbActions = await AuditLogRepository.GetDistinctActionsAsync();
+            foreach (var action in dbActions)
+            {
+                actionSet.Add(action);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load distinct audit actions; falling back to defaults");
+        }
+
+        _actions = actionSet.OrderBy(a => a).ToList();
+    }
+
+    private async Task LoadLogsAsync()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        _logs.Clear();
+
+        try
+        {
+            var from = ToDateTimeOffset(_filters.FromDate, isEndDate: false);
+            var to = ToDateTimeOffset(_filters.ToDate, isEndDate: true);
+            var search = string.IsNullOrWhiteSpace(_filters.SearchText) ? null : _filters.SearchText.Trim();
+
+            var result = await AuditLogRepository.GetAuditLogsAsync(
+                _filters.Action,
+                search,
+                from,
+                to,
+                _currentPage,
+                _pageSize);
+
+            _logs.AddRange(result.Items);
+            _totalCount = result.TotalCount;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load audit logs");
+            _errorMessage = "Failed to load audit logs. Please try again.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ApplyFilters()
+    {
+        _currentPage = 1;
+        await LoadLogsAsync();
+    }
+
+    private async Task ClearFilters()
+    {
+        _filters.Action = null;
+        _filters.SearchText = null;
+        _filters.FromDate = null;
+        _filters.ToDate = null;
+        _currentPage = 1;
+        await LoadLogsAsync();
+    }
+
+    private async Task PreviousPage()
+    {
+        if (_currentPage > 1)
+        {
+            _currentPage--;
+            await LoadLogsAsync();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (_currentPage * _pageSize < _totalCount)
+        {
+            _currentPage++;
+            await LoadLogsAsync();
+        }
+    }
+
+    private static DateTimeOffset? ToDateTimeOffset(DateTime? date, bool isEndDate)
+    {
+        if (!date.HasValue)
+        {
+            return null;
+        }
+
+        var value = date.Value.Date;
+        if (isEndDate)
+        {
+            value = value.AddDays(1).AddTicks(-1);
+        }
+
+        return new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Local)).ToUniversalTime();
+    }
+
+    private static string GetDetailsPreview(string? details, out string? tooltip)
+    {
+        tooltip = null;
+        if (string.IsNullOrWhiteSpace(details))
+        {
+            return "--";
+        }
+
+        var trimmed = details.Trim();
+        if (trimmed.Length <= 120)
+        {
+            return trimmed;
+        }
+
+        tooltip = trimmed;
+        return $"{trimmed[..120]}...";
+    }
+
+    private class AuditLogFilter
+    {
+        public string? Action { get; set; }
+        public string? SearchText { get; set; }
+        public DateTime? FromDate { get; set; }
+        public DateTime? ToDate { get; set; }
+    }
+}

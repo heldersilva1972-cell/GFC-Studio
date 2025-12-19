@@ -1,0 +1,93 @@
+@page "/"
+@namespace GFC.BlazorServer.Pages
+@using Microsoft.AspNetCore.Components.Web
+@using GFC.BlazorServer.Components
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="~/" />
+    <link rel="stylesheet" href="bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="GFC.BlazorServer.styles.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" />
+</head>
+<body>
+    <component type="typeof(App)" render-mode="ServerPrerendered" />
+
+    <script src="~/js/gfc-select-helpers.js"></script>
+    <script src="_framework/blazor.server.js"></script>
+    <script>
+        window.downloadFile = function (fileName, base64Data, contentType) {
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: contentType });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        };
+
+        window.selectBackupFolder = async function () {
+            try {
+                // Try File System Access API first (Chrome/Edge)
+                if ('showDirectoryPicker' in window) {
+                    const directoryHandle = await window.showDirectoryPicker();
+                    // Note: We can't get the full path due to browser security
+                    // Return the folder name and let user know they may need to enter full path
+                    return directoryHandle.name;
+                }
+                
+                // Fallback: Use file input with webkitdirectory
+                return new Promise((resolve) => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.webkitdirectory = true;
+                    input.style.display = 'none';
+                    
+                    input.onchange = function(e) {
+                        const files = e.target.files;
+                        if (files && files.length > 0) {
+                            // Get folder path from first file
+                            const fullPath = files[0].webkitRelativePath;
+                            const folderName = fullPath.substring(0, fullPath.indexOf('/'));
+                            // Note: Browser security prevents getting full file system path
+                            // Return folder name - user may need to complete the path
+                            resolve(folderName);
+                        } else {
+                            resolve(null);
+                        }
+                        document.body.removeChild(input);
+                    };
+                    
+                    input.oncancel = function() {
+                        resolve(null);
+                        document.body.removeChild(input);
+                    };
+                    
+                    document.body.appendChild(input);
+                    input.click();
+                });
+            } catch (error) {
+                console.error('Error selecting folder:', error);
+                // If user cancels or error occurs, return null
+                return null;
+            }
+        };
+    </script>
+</body>
+</html>
+

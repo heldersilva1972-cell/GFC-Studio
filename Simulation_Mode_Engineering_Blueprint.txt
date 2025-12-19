@@ -1,0 +1,315 @@
+ENGINEERING BLUEPRINT — SIMULATION MODE SYSTEM
+GFC Web App — Access Control
+==============================================================
+
+SECTION 0 — PURPOSE
+Simulation Mode provides a virtual access-control environment that mirrors real controllers without sending live packets. It supports trace logging, replay, scenario testing, card reader normalization, and controlled permissions.
+
+==============================================================
+PHASE 1 — FOUNDATIONS
+==============================================================
+
+P1-A1 — Core Simulation Wiring
+-----------------------------------------
+Objective:
+  Implement routing logic so controller operations go through Simulation or Real controller client.
+
+Backend Requirements:
+  - Add AccessControlSimulationOptions.UseSimulation.
+  - All controller operations must call IControllerClient.
+  - If UseSimulation=true → SimulationControllerClient; false → RealControllerClient.
+  - Zero bypass allowed.
+
+Acceptance:
+  - Simulation Mode ON works without controllers installed.
+  - Simulation Mode OFF sends traffic to Agent PC.
+
+--------------------------------------------------------------
+
+P1-A2 — SimulationControllerTraces Table + Trace Service
+--------------------------------------------------------------
+Objective:
+  Durable trace recording of all simulated operations.
+
+DB:
+  - Create SimulationControllerTraces with all fields (timestamps, operation, entity IDs, payloads, etc.)
+
+Backend:
+  - ISimulationTraceService: LogAsync, GetRecentAsync, GetByDateRange, GetBySession.
+
+Performance:
+  - Add SQL indexes on Time, ControllerId, MemberId.
+
+Acceptance:
+  - Every simulated operation logs exactly one trace.
+
+--------------------------------------------------------------
+
+P1-A3 — CardReaderProfiles Backend
+--------------------------------------------------------------
+Objective:
+  Provide config for card reader formatting.
+
+DB:
+  - CardReaderProfiles table: prefix, suffix, min/max length, flags.
+
+Backend:
+  - ICardReaderProfileService: GetOrCreateDefaultAsync(), NormalizeAsync().
+
+Acceptance:
+  - Default profile always exists.
+
+--------------------------------------------------------------
+
+P1-B1 — Simulation Panel Base UI
+--------------------------------------------------------------
+Objective:
+  Create Simulation Panel page.
+
+UI:
+  - Simulation banner.
+  - Health tiles.
+  - Navigation to Replay, Traces, Test Console.
+
+Acceptance:
+  - Loads without performance issues.
+
+--------------------------------------------------------------
+
+P1-B2 — Basic Simulation Trace List
+--------------------------------------------------------------
+UI:
+  - Table showing recent traces.
+
+Backend:
+  - Query via ISimulationTraceService.GetRecentAsync.
+
+Acceptance:
+  - Paginates large datasets gracefully.
+
+--------------------------------------------------------------
+
+P1-C1 — ReplayService + ReplayStep Backend
+--------------------------------------------------------------
+Backend:
+  - Create ReplayStep model.
+  - Implement IReplayService to convert traces into ordered steps.
+  - Add /simulation/replay/{sessionId} JSON endpoint.
+
+Acceptance:
+  - Returns valid ordered step list for any session.
+
+==============================================================
+PHASE 2 — INTERACTIVE TOOLS
+==============================================================
+
+P2-C1 — Replay Timeline UI
+--------------------------------------------------------------
+UI:
+  - Timeline bar.
+  - Play/Pause.
+  - Next/Previous Step.
+  - Speed Control.
+  - Highlight active step.
+
+Integration:
+  - Broadcast active step to Trace List.
+
+--------------------------------------------------------------
+
+P2-C2 — Replay Step Detail Panel
+--------------------------------------------------------------
+UI:
+  - Displays request/response payloads.
+  - Shows warnings and entity info.
+  - Automatically syncs to timeline.
+
+--------------------------------------------------------------
+
+P2-C3 — Affected Entity Chips
+--------------------------------------------------------------
+UI:
+  - Chips for Controller, Door, Card, Member.
+  - Navigates to respective pages.
+
+Routing:
+  - Ensure stable paths like /controllers/{id}, /doors/{id}, etc.
+
+--------------------------------------------------------------
+
+P2-D1 — Simulation Test Console v1
+--------------------------------------------------------------
+UI:
+  - Controller dropdown.
+  - Door dropdown.
+  - Card input field.
+  - Buttons: SimulateDoorOpen, SimulateCardSwipe.
+
+Backend:
+  - SimulateDoorOpenAsync, SimulateCardSwipeAsync.
+
+Integration:
+  - Each test logs a trace → replayable.
+
+==============================================================
+PHASE 3 — ADVANCED FEATURES
+==============================================================
+
+P3-A1 — Export (JSON/CSV)
+--------------------------------------------------------------
+API:
+  - SimulationExportController with export endpoints.
+
+Backend:
+  - Use ReplayService + TraceService for data retrieval.
+
+UI:
+  - Add Export buttons.
+
+Security:
+  - Controlled by SimulationExport permission.
+
+--------------------------------------------------------------
+
+P3-B1 — Simulation Impact Overlay
+--------------------------------------------------------------
+Backend:
+  - Aggregate distinct controllers, doors, members, cards.
+
+UI:
+  - ImpactOverlay.razor with navigation tiles.
+
+Acceptance:
+  - Shows meaningful coverage of simulation activity.
+
+--------------------------------------------------------------
+
+P3-C1 — Full Follow Mode (Auto-Scroll + Highlight)
+--------------------------------------------------------------
+JS Interop:
+  - scrollToElement(id), highlightElement(id).
+
+UI:
+  - Follow Mode toggle.
+
+Pages:
+  - Add rankable IDs like door-{id}, controller-{id}.
+
+Acceptance:
+  - Timeline navigation visually tracks UI elements.
+
+--------------------------------------------------------------
+
+P3-C2 — Warning Engine Expansion
+--------------------------------------------------------------
+Backend:
+  - Add WarningCode and WarningMessage.
+  - Detect mismatches between expected/actual.
+
+UI:
+  - Highlight steps with warnings.
+
+--------------------------------------------------------------
+
+P3-D1 — Card Reader Profile UI
+--------------------------------------------------------------
+UI:
+  - Edit prefix/suffix/min/max length.
+  - Toggle StripNonDigits.
+
+Backend:
+  - UpdateAsync in ICardReaderProfileService.
+
+Acceptance:
+  - Validates user input.
+
+--------------------------------------------------------------
+
+P3-D2 — Reader Normalization Integration
+--------------------------------------------------------------
+Backend:
+  - Normalize card inputs using profile rules.
+
+UI:
+  - Show normalized vs raw input.
+  - Display useful error messages.
+
+Trace:
+  - Store raw + normalized.
+
+--------------------------------------------------------------
+
+P3-E1 — Scenario Builder
+--------------------------------------------------------------
+DB:
+  - Scenario table (optional).
+
+Backend:
+  - Scenario runner to produce trace sequences.
+
+UI:
+  - Create, edit, reorder, run scenarios.
+
+Acceptance:
+  - Running scenario generates replay-ready trace set.
+
+--------------------------------------------------------------
+
+P3-E2 — Simulation Permissions
+--------------------------------------------------------------
+Backend:
+  - Add SimulationModeAccess, SimulationReplay, SimulationTest, SimulationScenario, SimulationExport.
+
+UI:
+  - Hide restricted features.
+
+Acceptance:
+  - Unauthorized users cannot see Simulation Panel or exports.
+
+==============================================================
+PHASE 4 — GOVERNANCE & POLISH
+==============================================================
+
+P4-A1 — Remove Compiler Warnings
+--------------------------------------------------------------
+Backend:
+  - Fix CS1998, CS0414 issues.
+  - Resolve unused fields/methods.
+
+Acceptance:
+  - Clean build.
+
+--------------------------------------------------------------
+
+P4-B1 — UI Harmonization
+--------------------------------------------------------------
+UI:
+  - Standardize fonts, buttons, spacing.
+  - Wrap JSON in scrollable containers.
+
+--------------------------------------------------------------
+
+P4-B2 — Documentation + Help Overlays
+--------------------------------------------------------------
+UI:
+  - “What is this?” tooltips.
+  - First-time guided help.
+
+Integration:
+  - Hook into documentation system (PageDoc/ElementDoc).
+
+--------------------------------------------------------------
+
+P4-E1 — Simulation Audit Events
+--------------------------------------------------------------
+Backend:
+  - Add simulation-specific audit actions.
+
+UI:
+  - Log actions during replay viewing, scenario runs, test console actions.
+
+Acceptance:
+  - Distinct audit trail for simulation vs real world operations.
+
+==============================================================
+END OF BLUEPRINT

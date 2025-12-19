@@ -1,0 +1,994 @@
+@page "/members/{MemberId:int}"
+@using System.Globalization
+@using System.Linq
+@using GFC.BlazorServer.Services.Members
+@using GFC.Core.BusinessRules
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@attribute [Authorize]
+@inject NavigationManager NavManager
+@inject IMemberRepository MemberRepository
+@inject IDuesRepository DuesRepository
+@inject IMemberKeycardRepository MemberKeycardRepository
+@inject IBoardRepository BoardRepository
+@inject KeyCardService KeyCardService
+@inject ILogger<MemberDetail> Logger
+@inject IMemberActivityTimelineService ActivityTimelineService
+
+<PageTitle>Member Detail</PageTitle>
+
+<div class="member-header">
+    <div class="header-left">
+        <div class="header-title-row">
+            <h1 class="page-title mb-1">
+                @if (_loading)
+                {
+                    <span class="text-skeleton w-60"></span>
+                }
+                else if (_notFound)
+                {
+                    <span>Member not found</span>
+                }
+                else if (_member is not null)
+                {
+                    @GetFullName(_member)
+                }
+            </h1>
+            <div class="header-badges">
+                @if (_loading)
+                {
+                    <span class="status-chip skeleton-chip"></span>
+                    <span class="status-chip skeleton-chip"></span>
+                }
+                else if (_member is not null)
+                {
+                    <span class="status-chip solid" style="--chip-color:@GetChipColor(GetMembershipStatusLabel())">
+                        @GetMembershipStatusLabel()
+                    </span>
+                    <span class="status-chip solid" style="--chip-color:@GetChipColor(GetDuesStatus())">
+                        @GetDuesStatus()
+                    </span>
+                }
+            </div>
+        </div>
+        <div class="header-meta text-muted small d-flex flex-wrap gap-2">
+            @if (_loading)
+            {
+                <span class="text-skeleton w-30"></span>
+                <span class="text-skeleton w-25"></span>
+            }
+            else
+            {
+                <span>Member ID @(_member?.MemberID ?? MemberId)</span>
+                @if (_member is not null)
+                {
+                    <span class="dot-separator">•</span>
+                    <span>Joined @FormatDate(GetJoinDate())</span>
+                    @if (_member.StatusChangeDate.HasValue)
+                    {
+                        <span class="dot-separator">•</span>
+                        <span>Last updated @FormatDate(_member.StatusChangeDate)</span>
+                    }
+                }
+            }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="alert alert-danger header-error mb-0 py-2 px-3">
+                @_error
+            </div>
+        }
+    </div>
+    <div class="header-right">
+        <div class="header-actions">
+            <button class="btn btn-outline-danger" type="button" @onclick="NavigateBack">
+                <i class="bi bi-arrow-left-short me-1"></i>
+                Back to Members
+            </button>
+            @if (AllowActiveActions())
+            {
+                <button class="btn btn-primary" type="button" @onclick="NavigateToEdit">
+                    <i class="bi bi-pencil-square me-1"></i>
+                    Edit Member
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="skeleton-grid">
+        <div class="skeleton-card large">
+            <div class="skeleton-line w-50"></div>
+            <div class="skeleton-line w-30"></div>
+            <div class="skeleton-line w-80"></div>
+            <div class="skeleton-line w-70"></div>
+        </div>
+        <div class="skeleton-card">
+            <div class="skeleton-line w-60"></div>
+            <div class="skeleton-line w-40"></div>
+            <div class="skeleton-line w-50"></div>
+        </div>
+    </div>
+}
+else if (_notFound)
+{
+    <div class="alert alert-warning d-flex align-items-center justify-content-between">
+        <div>
+            <strong>Member not found.</strong>
+            <div class="text-muted small">Member ID @MemberId could not be loaded.</div>
+        </div>
+        <button class="btn btn-outline-secondary" type="button" @onclick="NavigateBack">Back to Members</button>
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger d-flex align-items-center justify-content-between">
+        <span>@_error</span>
+        <button class="btn btn-outline-secondary btn-sm" type="button" aria-label="Retry loading member details" @onclick="LoadDataAsync">Retry</button>
+    </div>
+}
+else if (_member is not null)
+{
+    <div class="detail-grid">
+        <div class="detail-left">
+            <section class="detail-card">
+                <div class="card-header">
+                    <div>
+                        <div class="eyebrow">Identity</div>
+                        <h2 class="card-title mb-0">Identity / Basic Info</h2>
+                    </div>
+                    @if (_member.DateOfBirth.HasValue)
+                    {
+                        <div class="age-pill">
+                            <i class="bi bi-calendar-heart me-1"></i>
+                            @FormatDate(_member.DateOfBirth) (@GetAge(_member.DateOfBirth) yrs)
+                        </div>
+                    }
+                </div>
+
+                <div class="row g-3 row-cols-1 row-cols-md-2">
+                    <div class="col">
+                        <div class="info-label">Full Name</div>
+                        <div class="info-value">@GetFullName(_member)</div>
+                    </div>
+                    <div class="col">
+                        <div class="info-label">Member ID</div>
+                        <div class="info-value">@_member.MemberID</div>
+                    </div>
+                    <div class="col">
+                        <div class="info-label">Date of Birth</div>
+                        <div class="info-value d-flex flex-wrap align-items-center gap-2">
+                            @FormatDate(_member.DateOfBirth)
+                            @if (_member.DateOfBirth.HasValue)
+                            {
+                                <span class="badge rounded-pill bg-light text-dark border fw-semibold">@($"{GetAge(_member.DateOfBirth)} yrs")</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="info-label">Joined</div>
+                        <div class="info-value">@FormatDate(GetJoinDate())</div>
+                    </div>
+                    @if (!IsGuestMember())
+                    {
+                        <div class="col">
+                            <div class="info-label">Regular Since</div>
+                            <div class="info-value">@FormatDate(GetRegularSince())</div>
+                        </div>
+                    }
+                    @if (!IsGuestMember() && (IsLifeMember() || _member?.LifeEligibleDate.HasValue == true))
+                    {
+                        <div class="col">
+                            <div class="info-label">Life Since</div>
+                            <div class="info-value">@FormatDate(GetLifeSince())</div>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="detail-card">
+                <div class="card-header">
+                    <div>
+                        <div class="eyebrow">Status</div>
+                        <h2 class="card-title mb-0">Membership Status</h2>
+                    </div>
+                </div>
+
+                <div class="status-chips" role="list">
+                    @foreach (var chip in BuildStatusPills())
+                    {
+                        <span role="listitem"
+                              class="status-chip @(chip.Solid ? "solid" : string.Empty)"
+                              style="--chip-color:@chip.Color">
+                            @chip.Label
+                        </span>
+                    }
+                </div>
+
+                <div class="row g-3 row-cols-1 row-cols-md-2">
+                    <div class="col">
+                        <div class="info-label">Membership</div>
+                        <div class="info-value">@GetMembershipStatusLabel()</div>
+                    </div>
+                    <div class="col">
+                        <div class="info-label">Dues</div>
+                        <div class="info-value">@GetDuesStatus()</div>
+                    </div>
+                    <div class="col">
+                        <div class="info-label">Status Updated</div>
+                        <div class="info-value">@FormatDate(_member.StatusChangeDate)</div>
+                    </div>
+                    <div class="col">
+                        <div class="info-label">Board Member</div>
+                        <div class="info-value">@(IsDirector() ? "Yes" : "No")</div>
+                    </div>
+                    @if (IsNpMember())
+                    {
+                        <div class="col">
+                            <div class="info-label">NP Queue</div>
+                            <div class="info-value">Yes</div>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="detail-card soft-card contact-card">
+                <div class="card-header">
+                    <div>
+                        <div class="eyebrow">Contact</div>
+                        <h2 class="card-title mb-0">Contact Info</h2>
+                    </div>
+                </div>
+
+                @{
+                    var hasPhone = !string.IsNullOrWhiteSpace(_member.Phone);
+                    var hasSecondary = !string.IsNullOrWhiteSpace(_member.CellPhone);
+                    var hasEmail = !string.IsNullOrWhiteSpace(_member.Email);
+                    var hasAddress1 = !string.IsNullOrWhiteSpace(_member.Address1);
+                    var cityLine = FormatCityLine(_member);
+                    var hasCityLine = !string.IsNullOrWhiteSpace(cityLine);
+                    var hasAddress = hasAddress1 || hasCityLine;
+                    var hasContact = hasPhone || hasSecondary || hasEmail || hasAddress;
+                }
+
+                @if (hasContact)
+                {
+                    <div class="row g-3 row-cols-1 row-cols-md-2">
+                        @if (hasPhone)
+                        {
+                            <div class="col">
+                                <div class="info-label">Phone</div>
+                                <div class="info-value">
+                                    <a href="tel:@_member.Phone">@_member.Phone</a>
+                                </div>
+                            </div>
+                        }
+                        @if (hasSecondary)
+                        {
+                            <div class="col">
+                                <div class="info-label">Secondary</div>
+                                <div class="info-value">
+                                    <a href="tel:@_member.CellPhone">@_member.CellPhone</a>
+                                </div>
+                            </div>
+                        }
+                        @if (hasEmail)
+                        {
+                            <div class="col">
+                                <div class="info-label">Email</div>
+                                <div class="info-value">
+                                    <a href="mailto:@_member.Email">@_member.Email</a>
+                                </div>
+                            </div>
+                        }
+                        @if (hasAddress)
+                        {
+                            <div class="col">
+                                <div class="info-label">Address</div>
+                                <div class="info-value d-flex flex-column gap-1">
+                                    @if (hasAddress1)
+                                    {
+                                        <span>@_member.Address1</span>
+                                    }
+                                    @if (hasCityLine)
+                                    {
+                                        <span>@cityLine</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="text-muted small">No contact information provided.</div>
+                }
+            </section>
+
+            @if (!string.IsNullOrWhiteSpace(_member.Notes) || HasStatusIndicators())
+            {
+                <section class="detail-card soft-card notes-card">
+                    <div class="card-header align-items-center">
+                        <div>
+                            <div class="eyebrow">Notes / Flags</div>
+                            <h2 class="card-title mb-0">Notes / Flags</h2>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_member.Notes))
+                        {
+                            <button class="btn btn-link btn-sm p-0 text-secondary"
+                                    type="button"
+                                    aria-label="@(_notesExpanded ? "Collapse notes" : "Expand notes")"
+                                    aria-expanded="@_notesExpanded"
+                                    aria-controls="notes-content"
+                                    @onclick="ToggleNotes">
+                                <i class="bi @(_notesExpanded ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                            </button>
+                        }
+                    </div>
+
+                    <div class="row g-3 row-cols-1 row-cols-md-2">
+                        @if (!string.IsNullOrWhiteSpace(_member.Notes))
+                        {
+                            <div class="col">
+                                @if (_notesExpanded)
+                                {
+                                    <div class="notes-body" id="notes-content">
+                                        <div class="notes-content">@_member.Notes</div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="text-muted small" id="notes-content">Notes hidden.</div>
+                                }
+                            </div>
+                        }
+
+                        @if (HasStatusIndicators())
+                        {
+                            <div class="col">
+                                <div class="indicator-list">
+                                    @if (IsDirector())
+                                    {
+                                        <div class="indicator-item">
+                                            <span class="indicator-pill success">Director</span>
+                                            <div class="indicator-note">Board-appointed director.</div>
+                                        </div>
+                                    }
+
+                                    @if (HasDuesWaiver())
+                                    {
+                                        <div class="indicator-item">
+                                            <span class="indicator-pill warning">Dues Waived</span>
+                                            <div class="indicator-note">Dues waiver active.</div>
+                                        </div>
+                                    }
+
+                                    @if (IsLifeMember())
+                                    {
+                                        <div class="indicator-item">
+                                            <span class="indicator-pill success">Life Member</span>
+                                            <div class="indicator-note">Life dues waived permanently.</div>
+                                        </div>
+                                    }
+                                    else if (IsLifeEligible())
+                                    {
+                                        <div class="indicator-item">
+                                            <span class="indicator-pill info">Life Eligible</span>
+                                            <div class="indicator-note">Meets age and service requirements.</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+
+        <div class="detail-right">
+            @if (ShowDuesCard())
+            {
+                <section class="detail-card">
+                    <div class="card-header">
+                        <div>
+                            <div class="eyebrow">Dues</div>
+                            <h2 class="card-title mb-0">Dues Status</h2>
+                        </div>
+                        <span class="status-chip solid" style="--chip-color:@GetChipColor(GetDuesStatus())">
+                            @GetDuesStatus()
+                        </span>
+                    </div>
+
+                    <div class="metric-row">
+                        <div>
+                            <div class="info-label">Current year</div>
+                            <div class="metric-value">@GetDuesStatus()</div>
+                        </div>
+                        <div>
+                            <div class="info-label">Last payment</div>
+                            <div class="metric-value">@FormatDate(_latestPayment?.PaidDate)</div>
+                            @if (_latestPayment?.Amount.HasValue == true)
+                            {
+                                <div class="text-muted small">Amount @(_latestPayment.Amount.Value.ToString("C0", CultureInfo.InvariantCulture))</div>
+                            }
+                        </div>
+                    </div>
+
+                    @if (IsPastDueDues())
+                    {
+                        <div class="alert alert-danger small mb-2">
+                            This member is past due. Key card privileges may be suspended.
+                        </div>
+                    }
+
+                    @if (AllowActiveActions())
+                    {
+                        <button class="btn btn-outline-primary w-100" type="button" @onclick="NavigateToDues">
+                            View Dues History
+                        </button>
+                    }
+                </section>
+            }
+
+            <section class="detail-card soft-card">
+                <div class="card-header">
+                    <div>
+                        <div class="eyebrow">Alerts</div>
+                        <h2 class="card-title mb-0">Member Alerts</h2>
+                    </div>
+                </div>
+                <div class="d-flex flex-column gap-1">
+                    <div class="text-muted small">Alert filtering by member is not yet available.</div>
+                    <a class="small fw-semibold text-primary" href="/alerts">View All Alerts</a>
+                </div>
+            </section>
+
+            <div class="row g-3">
+                @if (ShowKeyCardSection())
+                {
+                    <div class="col-12 col-xl-6">
+                        <section class="detail-card soft-card keycard-card h-100">
+                            <div class="card-header">
+                                <div>
+                                    <div class="eyebrow">Key Cards</div>
+                                    <h2 class="card-title mb-0">Key Cards</h2>
+                                </div>
+                                @if (AllowActiveActions())
+                                {
+                                    <button class="btn btn-link btn-sm text-primary p-0" type="button" @onclick="NavigateToKeyCards">
+                                        Manage All Cards
+                                    </button>
+                                }
+                            </div>
+
+                            @if (_keyCardsLoading)
+                            {
+                                <div class="d-flex align-items-center gap-2 text-muted small">
+                                    <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
+                                    <span>Loading key cards...</span>
+                                </div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(_keyCardsError))
+                            {
+                                <div class="alert alert-danger d-flex align-items-center justify-content-between gap-2 mb-0 py-2 px-3 small">
+                                    <span class="me-2 flex-grow-1">@_keyCardsError</span>
+                                    <button class="btn btn-outline-light btn-sm" type="button" aria-label="Retry loading key cards" @onclick="LoadDataAsync">Retry</button>
+                                </div>
+                            }
+                            else if (_keyCards.Count == 0)
+                            {
+                                <div class="empty-card-state">
+                                    <div class="text-muted mb-2">No key cards assigned.</div>
+                                    @if (AllowActiveActions())
+                                    {
+                                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="NavigateToKeyCards">
+                                            Assign New Card
+                                        </button>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="keycard-list">
+                                    @foreach (var assignment in _keyCards)
+                                    {
+                                        var isActive = assignment.KeyCard?.IsActive == true && !assignment.ToDate.HasValue;
+                                        <div class="keycard-row">
+                                            <div class="keycard-row__top">
+                                                <div class="keycard-number">@((assignment.KeyCard?.CardNumber) ?? $"Card #{assignment.KeyCardId}")</div>
+                                                <span class="status-chip @(isActive ? "solid" : string.Empty)" style="--chip-color:@(isActive ? "#16a34a" : "#9ca3af")">
+                                                    @(isActive ? "Enabled" : "Disabled")
+                                                </span>
+                                            </div>
+                                            <div class="keycard-row__meta">
+                                                <div>
+                                                    <div class="info-label">Assigned</div>
+                                                    <div class="info-value">@FormatDate(assignment.FromDate)</div>
+                                                </div>
+                                                @if (assignment.ToDate.HasValue)
+                                                {
+                                                    <div>
+                                                        <div class="info-label">Returned</div>
+                                                        <div class="info-value">@FormatDate(assignment.ToDate)</div>
+                                                    </div>
+                                                }
+                                            </div>
+                                            @if (AllowActiveActions())
+                                            {
+                                                <div class="keycard-row__actions">
+                                                    <button class="btn btn-link btn-sm px-0" type="button" @onclick="() => NavigateToCardDetails(assignment.KeyCardId)">
+                                                        View Details
+                                                    </button>
+                                                    <span class="dot-separator">•</span>
+                                                    <button class="btn btn-link btn-sm px-0" type="button" @onclick="() => NavigateToReplaceCard(assignment.KeyCardId)">
+                                                        Replace Card
+                                                    </button>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </section>
+                    </div>
+                }
+
+                <div class="col-12 col-xl-6">
+                    <section class="detail-card soft-card activity-card h-100">
+                        <div class="card-header">
+                            <div>
+                            <div class="eyebrow">Timeline</div>
+                            <h2 class="card-title mb-0">Activity Timeline</h2>
+                            </div>
+                        </div>
+
+                        @if (_activityLoading)
+                        {
+                            <div class="d-flex align-items-center gap-2 text-muted small">
+                                <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
+                                <span>Loading activity...</span>
+                            </div>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(_activityError))
+                        {
+                            <div class="alert alert-danger d-flex align-items-center justify-content-between gap-2 mb-0 py-2 px-3 small">
+                                <span class="me-2 flex-grow-1">@_activityError</span>
+                                <button class="btn btn-outline-light btn-sm" type="button" aria-label="Retry loading activity timeline" @onclick="LoadDataAsync">Retry</button>
+                            </div>
+                        }
+                        else if (_activityEvents is null || _activityEvents.Count == 0)
+                        {
+                            <div class="alert alert-light border mb-0 text-muted small">No activity recorded for this member.</div>
+                        }
+                        else
+                        {
+                            <div class="timeline-list">
+                                @foreach (var evt in _activityEvents)
+                                {
+                                    <div class="timeline-item">
+                                        <div class="timeline-marker"></div>
+                                        <div class="timeline-body">
+                                            <div class="timeline-timestamp">@FormatTimestamp(evt.TimestampUtc)</div>
+                                            <div class="timeline-main">
+                                                <span class="@GetSourceBadgeClass(evt.Source)">@evt.Source</span>
+                                                <span class="timeline-summary">@evt.Summary</span>
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(evt.Details))
+                                            {
+                                                <div class="timeline-details text-muted">@evt.Details</div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+.member-header .btn:focus-visible,
+.detail-card :is(button, a):focus-visible,
+.detail-card .btn-link:focus-visible,
+.keycard-row__actions button:focus-visible,
+.header-actions .btn:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+    box-shadow: none;
+}
+</style>
+
+@code {
+    [Parameter] public int MemberId { get; set; }
+
+    private Member? _member;
+    private bool _loading = true;
+    private bool _notFound;
+    private string? _error;
+    private GFC.Core.Models.DuesPayment? _currentYearDues;
+    private GFC.Core.Models.DuesPayment? _latestPayment;
+    private bool _isBoardMember;
+    private List<MemberKeycardAssignment> _keyCards = new();
+    private bool _keyCardsLoading;
+    private string? _keyCardsError;
+    private IReadOnlyList<MemberActivityEvent>? _activityEvents;
+    private bool _activityLoading;
+    private string? _activityError;
+    private bool _notesExpanded = true;
+
+    private readonly Dictionary<string, string> _pillPalette = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "Guest", "#6b7280" },
+        { "Regular", "#14b8a6" },
+        { "Life", "#d6b33d" },
+        { "NP Queue", "#2563eb" },
+        { "Past Due", "#f97316" },
+        { "Paid", "#16a34a" },
+        { "Waived", "#0ea5e9" },
+        { "Director", "#0ea5e9" },
+        { "Suspended", "#ef4444" },
+        { "Inactive", "#ef4444" },
+        { "Life Eligible", "#a855f7" }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _error = null;
+        _notFound = false;
+        _keyCardsLoading = true;
+        _keyCardsError = null;
+        _keyCards = new List<MemberKeycardAssignment>();
+        _activityLoading = true;
+        _activityError = null;
+        _activityEvents = null;
+
+        try
+        {
+            var memberTask = Task.Run(() => MemberRepository.GetMemberById(MemberId));
+            var duesTask = Task.Run(() => DuesRepository.GetDuesForMember(MemberId));
+            var boardTask = Task.Run(() => BoardRepository.IsBoardMemberForYear(MemberId, DateTime.Today.Year));
+
+            await Task.WhenAll(memberTask, duesTask, boardTask);
+
+            _member = memberTask.Result;
+
+            if (_member is null)
+            {
+                _notFound = true;
+                _keyCardsLoading = false;
+                _activityLoading = false;
+                return;
+            }
+
+            _isBoardMember = boardTask.Result;
+
+            var duesList = duesTask.Result ?? new List<GFC.Core.Models.DuesPayment>();
+            _currentYearDues = duesList.FirstOrDefault(d => d.Year == DateTime.Today.Year);
+            _latestPayment = duesList
+                .Where(d => d.PaidDate.HasValue || d.Amount.HasValue)
+                .OrderByDescending(d => d.PaidDate ?? DateTime.MinValue)
+                .ThenByDescending(d => d.Year)
+                .FirstOrDefault();
+
+            var keyCardsTask = LoadKeyCardsAsync();
+            var activityTask = LoadActivityTimelineAsync();
+
+            await Task.WhenAll(keyCardsTask, activityTask);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[MemberDetail] Failed to load member {MemberId}", MemberId);
+            _error = "Unable to load member details right now.";
+        }
+        finally
+        {
+            _loading = false;
+            _keyCardsLoading = false;
+            _activityLoading = false;
+        }
+    }
+
+    private async Task LoadKeyCardsAsync()
+    {
+        _keyCardsLoading = true;
+        _keyCardsError = null;
+
+        try
+        {
+            var cards = await Task.Run(() => MemberKeycardRepository.GetHistoryForMember(MemberId));
+            _keyCards = cards ?? new List<MemberKeycardAssignment>();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[MemberDetail] Failed to load key cards for member {MemberId}", MemberId);
+            _keyCardsError = "Unable to load key cards.";
+            _keyCards = new List<MemberKeycardAssignment>();
+        }
+        finally
+        {
+            _keyCardsLoading = false;
+        }
+    }
+
+    private async Task LoadActivityTimelineAsync()
+    {
+        if (_member is null)
+        {
+            _activityEvents = Array.Empty<MemberActivityEvent>();
+            _activityLoading = false;
+            return;
+        }
+
+        _activityLoading = true;
+        _activityError = null;
+
+        try
+        {
+            _activityEvents = await ActivityTimelineService.GetTimelineAsync(_member.MemberID);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[MemberDetail] Failed to load activity timeline for member {MemberId}", MemberId);
+            _activityError = "Unable to load activity timeline.";
+            _activityEvents = Array.Empty<MemberActivityEvent>();
+        }
+        finally
+        {
+            _activityLoading = false;
+        }
+    }
+
+    private IEnumerable<StatusPill> BuildStatusPills()
+    {
+        if (_member is null)
+        {
+            yield break;
+        }
+
+        var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
+        var baseStatus = normalized switch
+        {
+            "REGULAR" or "REGULAR-NP" => "Regular",
+            "GUEST" => "Guest",
+            "LIFE" => "Life",
+            "INACTIVE" or "DECEASED" => "Inactive",
+            _ => "Unknown"
+        };
+
+        yield return new StatusPill(baseStatus, GetChipColor(baseStatus), true);
+
+        if (_member.IsNonPortugueseOrigin)
+        {
+            yield return new StatusPill("NP Queue", GetChipColor("NP Queue"), false);
+        }
+
+        var dues = GetDuesStatus();
+        yield return new StatusPill(dues, GetChipColor(dues), !dues.Equals("Waived", StringComparison.OrdinalIgnoreCase));
+
+        if (_isBoardMember)
+        {
+            yield return new StatusPill("Director", GetChipColor("Director"), false);
+        }
+
+        if (normalized == "INACTIVE" || normalized == "DECEASED")
+        {
+            yield return new StatusPill("Suspended", GetChipColor("Suspended"), true);
+        }
+        else if (normalized == "REGULAR" && MemberStatusHelper.IsLifeEligible(_member))
+        {
+            yield return new StatusPill("Life Eligible", GetChipColor("Life Eligible"), false);
+        }
+    }
+
+    private string GetDuesStatus()
+    {
+        var status = KeyCardService.GetDuesState(_currentYearDues?.PaymentType, _currentYearDues?.PaidDate);
+        return status.Equals("Unpaid", StringComparison.OrdinalIgnoreCase) ? "Past Due" : status;
+    }
+
+    private bool IsPastDueDues()
+        => string.Equals(GetDuesStatus(), "Past Due", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetFullName(Member member)
+    {
+        var first = member.FirstName?.Trim() ?? string.Empty;
+        var last = member.LastName?.Trim() ?? string.Empty;
+        var suffix = member.Suffix?.Trim();
+        var name = string.IsNullOrWhiteSpace(last) ? first : $"{first} {last}";
+        return string.IsNullOrWhiteSpace(suffix) ? name : $"{name} {suffix}";
+    }
+
+    private static string FormatDate(DateTime? value)
+        => value?.ToString("MMM d, yyyy", CultureInfo.InvariantCulture) ?? "—";
+
+    private static string FormatTimestamp(DateTime value)
+        => value.ToLocalTime().ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
+
+    private string FormatCityLine(Member member)
+    {
+        var city = member.City?.Trim();
+        var state = member.State?.Trim();
+        var postal = member.PostalCode?.Trim();
+
+        var stateZip = string.Join(" ", new[] { state, postal }.Where(v => !string.IsNullOrWhiteSpace(v)));
+        if (!string.IsNullOrWhiteSpace(city) && !string.IsNullOrWhiteSpace(stateZip))
+        {
+            return $"{city}, {stateZip}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(city))
+        {
+            return city!;
+        }
+
+        return stateZip;
+    }
+
+    private static string GetSourceBadgeClass(string source)
+    {
+        return source?.ToLowerInvariant() switch
+        {
+            "member" => "source-pill member-source",
+            "dues" => "source-pill dues-source",
+            "key" => "source-pill key-source",
+            "np queue" => "source-pill np-source",
+            "controller" => "source-pill controller-source",
+            _ => "source-pill"
+        };
+    }
+
+    private static int? GetAge(DateTime? dob)
+    {
+        if (!dob.HasValue)
+        {
+            return null;
+        }
+
+        var today = DateTime.Today;
+        var age = today.Year - dob.Value.Year;
+        if (dob.Value.Date > today.AddYears(-age))
+        {
+            age--;
+        }
+
+        return age;
+    }
+
+    private DateTime? GetJoinDate() => _member?.AcceptedDate ?? _member?.ApplicationDate;
+
+    private DateTime? GetRegularSince() => _member?.RegularSince ?? _member?.AcceptedDate;
+
+    private DateTime? GetLifeSince()
+    {
+        if (_member is null)
+        {
+            return null;
+        }
+
+        var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
+        if (normalized == "LIFE")
+        {
+            return _member.StatusChangeDate ?? _member.LifeEligibleDate;
+        }
+
+        return _member.LifeEligibleDate;
+    }
+
+    private string GetChipColor(string label)
+        => _pillPalette.TryGetValue(label, out var color) ? color : "#6b7280";
+
+    private string GetMembershipStatusLabel()
+    {
+        if (_member is null)
+        {
+            return "Loading";
+        }
+
+        var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
+        return normalized switch
+        {
+            "REGULAR" or "REGULAR-NP" => "Regular",
+            "GUEST" => "Guest",
+            "LIFE" => "Life",
+            "INACTIVE" or "DECEASED" => "Inactive",
+            _ => "Unknown"
+        };
+    }
+
+    private void NavigateBack() => NavManager.NavigateTo("/members");
+
+    private void NavigateToEdit()
+    {
+        if (_member is null)
+        {
+            return;
+        }
+
+        NavManager.NavigateTo($"/members/{_member.MemberID}/edit");
+    }
+
+    private void NavigateToDues()
+    {
+        if (_member is null)
+        {
+            return;
+        }
+
+        NavManager.NavigateTo("/dues");
+    }
+
+    private void NavigateToKeyCards()
+    {
+        if (_member is null)
+        {
+            return;
+        }
+
+        NavManager.NavigateTo($"/keycards/member/{_member.MemberID}");
+    }
+
+    private void NavigateToCardDetails(int keyCardId)
+    {
+        NavManager.NavigateTo($"/keycards/{keyCardId}");
+    }
+
+    private void NavigateToReplaceCard(int keyCardId)
+    {
+        NavManager.NavigateTo($"/keycards/replace/{keyCardId}");
+    }
+
+    private void ToggleNotes() => _notesExpanded = !_notesExpanded;
+
+    private bool HasStatusIndicators()
+    {
+        return IsDirector() || HasDuesWaiver() || IsLifeMember() || IsLifeEligible();
+    }
+
+    private bool IsDirector() => _isBoardMember;
+
+    private bool HasDuesWaiver()
+        => string.Equals(_currentYearDues?.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsLifeMember()
+        => string.Equals(_member?.Status, "LIFE", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsLifeEligible()
+        => _member?.GetType().GetProperty("IsLifeEligible") is not null
+            && _member?.GetType().GetProperty("IsLifeEligible")?.GetValue(_member) is bool eligible
+            && eligible;
+
+    private bool IsGuestMember()
+    {
+        var normalized = MemberStatusHelper.NormalizeStatus(_member?.Status);
+        return string.Equals(normalized, "GUEST", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsInactiveMember()
+    {
+        var normalized = MemberStatusHelper.NormalizeStatus(_member?.Status);
+        return string.Equals(normalized, "INACTIVE", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "DECEASED", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsNpMember() => _member?.IsNonPortugueseOrigin == true;
+
+    private bool ShowDuesCard() => !IsGuestMember();
+
+    private bool ShowKeyCardSection() => !IsGuestMember();
+
+    private bool AllowActiveActions() => !IsInactiveMember() && !IsGuestMember();
+
+    private sealed record StatusPill(string Label, string Color, bool Solid);
+}
+
