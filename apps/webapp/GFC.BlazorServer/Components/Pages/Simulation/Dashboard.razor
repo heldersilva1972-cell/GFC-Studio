@@ -382,7 +382,7 @@
 
     // --- Core Actions ---
 
-    private async Task RefreshDiagnostics()
+    private Task RefreshDiagnostics()
     {
         try 
         {
@@ -395,6 +395,8 @@
             }
         }
         catch (Exception) { /* Ignored in polling loop */ }
+
+        return Task.CompletedTask;
     }
 
     private async Task AdvanceTime(TimeSpan delta)
@@ -429,11 +431,15 @@
         if(_selectedControllerId == 0) { _errorMessage = "Select a controller first."; return; }
         if(string.IsNullOrWhiteSpace(_testCardNumber)) { _errorMessage = "Enter card number."; return; }
         
+        if (!long.TryParse(_testCardNumber, out long cardNum))
+        {
+            _errorMessage = "Invalid card number.";
+            return;
+        }
+
         // This is a simplified "Swipe" using direct event injection for now 
         // In full impl it would call client.SimulateCardRead
         await ExecuteSafeAsync(async () => {
-            long cardNum;
-            long.TryParse(_testCardNumber, out cardNum);
             // Type 3 = Granted ?? Actually depends on access, but for test we inject Read
              await EngineService.InjectEventAsync(_selectedControllerId, 0, cardNum, 3, DateTime.UtcNow); 
              _successMessage = "Swipe simulated (Event Injected).";
@@ -462,7 +468,7 @@
 
     // --- UI Helpers ---
 
-    private async Task OnControllerSelected()
+    private Task OnControllerSelected()
     {
         _selectedController = _controllers.FirstOrDefault(c => c.Id == _selectedControllerId);
         _doorStates.Clear();
@@ -485,13 +491,14 @@
                  }
             }
         }
+        return Task.CompletedTask;
     }
 
     private async Task ReloadTracesAsync()
     {
         _isLoadingTraces = true;
         try {
-             var raw = await TraceService.GetRecentTracesAsync(10);
+             var raw = await TraceService.GetTracesAsync(pageSize: 10);
              _traces = raw.Select(t => new SimTraceViewModel {
                  Id = t.Id,
                  TimestampUtc = t.TimestampUtc,
