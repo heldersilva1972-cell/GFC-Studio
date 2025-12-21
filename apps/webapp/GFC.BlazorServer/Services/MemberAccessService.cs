@@ -31,7 +31,6 @@ public class MemberAccessService : IMemberAccessService
     private readonly IControllerModeProvider _modeProvider;
     private readonly IMemberHistoryService _historyService;
     private readonly ILogger<MemberAccessService> _logger;
-    private readonly ISimulationGuard _simulationGuard;
     private readonly IAuditLogger _auditLogger;
 
     public MemberAccessService(
@@ -47,7 +46,6 @@ public class MemberAccessService : IMemberAccessService
         IControllerModeProvider modeProvider,
         IMemberHistoryService historyService,
         ILogger<MemberAccessService> logger,
-        ISimulationGuard simulationGuard,
         IAuditLogger auditLogger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
@@ -375,14 +373,6 @@ public class MemberAccessService : IMemberAccessService
         }
 
         var isSimulatedController = controller.Id == ControllerDevice.SimulatedControllerId || controller.IsSimulated;
-
-        if (!isSimulatedController && _modeProvider.UseRealControllers)
-        {
-            await _simulationGuard.EnsureNotSimulationAsync(
-                "ClearAllCards",
-                controller.Id,
-                controller.SerialNumber);
-        }
 
         await _controllerClient.ClearAllCardsAsync(controller.Id, cancellationToken);
 

@@ -18,20 +18,17 @@ public class ControllerNetworkConfigService
     private readonly IControllerClient _controllerClient;
     private readonly IControllerModeProvider _modeProvider;
     private readonly ILogger<ControllerNetworkConfigService> _logger;
-    private readonly ISimulationGuard _simulationGuard;
 
     public ControllerNetworkConfigService(
         GfcDbContext dbContext,
         IControllerClient controllerClient,
         IControllerModeProvider modeProvider,
-        ILogger<ControllerNetworkConfigService> logger,
-        ISimulationGuard simulationGuard)
+        ILogger<ControllerNetworkConfigService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
         _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _simulationGuard = simulationGuard ?? throw new ArgumentNullException(nameof(simulationGuard));
     }
 
     public async Task<ControllerNetworkConfig?> GetFromDbAsync(int controllerId, CancellationToken cancellationToken = default)
@@ -176,14 +173,6 @@ public class ControllerNetworkConfigService
 
         try
         {
-            if (!isSimulated)
-            {
-                await _simulationGuard.EnsureNotSimulationAsync(
-                    "SyncNetworkConfig",
-                    controller?.Id,
-                    controllerSerialNumber);
-            }
-
             // Sync network config
             var networkDto = new NetworkConfigDto
             {
