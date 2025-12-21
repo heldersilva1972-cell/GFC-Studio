@@ -1,4 +1,3 @@
-// [NEW]
 using GFC.Core.Models;
 using System;
 using System.Collections.Generic;
