@@ -21,10 +21,7 @@ public class ControllerNetworkConfigService
     public ControllerNetworkConfigService(
         GfcDbContext dbContext,
         IControllerClient controllerClient,
-<<<<<<< HEAD
-=======
-        IControllerModeProvider modeProvider,
->>>>>>> feat/purge-simulation-mode-7279706796921186118
+
         ILogger<ControllerNetworkConfigService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
@@ -150,12 +147,7 @@ public class ControllerNetworkConfigService
 
         try
         {
-<<<<<<< HEAD
-            // No simulation guard needed in production
 
-
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
             // Sync network config
             var networkDto = new NetworkConfigDto
             {

@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-// This file is obsolete and marked for deletion as part of the simulation mode purge.
-=======
 using Microsoft.Extensions.Logging;
 
 namespace GFC.BlazorServer.Services;
@@ -24,5 +21,3 @@ public class ControllerModeProvider : IControllerModeProvider
     /// </summary>
     public bool UseRealControllers => true;
 }
-
->>>>>>> feat/purge-simulation-mode-7279706796921186118

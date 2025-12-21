@@ -451,12 +451,7 @@ public class AutoOpenAndAdvancedModesService
 
         try
         {
-<<<<<<< HEAD
-            // No simulation guard needed in production
 
-
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
             var autoOpenModels = await GetDoorAutoOpenForControllerAsync(controllerId, cancellationToken);
             var links = await _scheduleService.GetControllerLinksAsync(controllerId, cancellationToken);
             var autoOpenDto = BuildAutoOpenConfigDto(controllerId, autoOpenModels, links);
@@ -504,12 +499,7 @@ public class AutoOpenAndAdvancedModesService
 
         try
         {
-<<<<<<< HEAD
-            // No simulation guard needed in production
 
-
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
             var doorModes = await GetDoorAdvancedModesForControllerAsync(controllerId, cancellationToken);
             var controllerBehavior = await GetControllerBehaviorAsync(controllerId, cancellationToken);
             var advancedModesDto = BuildAdvancedDoorModesDto(doorModes, controllerBehavior);
@@ -557,11 +547,7 @@ public class AutoOpenAndAdvancedModesService
 
         try
         {
-<<<<<<< HEAD
-            // No simulation guard needed in production
 
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
             // Sync Auto-Open
             var autoOpenModels = await GetDoorAutoOpenForControllerAsync(controllerId, cancellationToken);
             var links = await _scheduleService.GetControllerLinksAsync(controllerId, cancellationToken);
@@ -569,11 +555,7 @@ public class AutoOpenAndAdvancedModesService
             await controllerClient.WriteAutoOpenAsync(controller.SerialNumberDisplay, autoOpenDto, cancellationToken);
             report.CommandKeys.Add("SyncAutoOpen");
 
-<<<<<<< HEAD
-            // No simulation guard needed in production
 
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
             // Sync Advanced Door Modes
             var doorModes = await GetDoorAdvancedModesForControllerAsync(controllerId, cancellationToken);
             var controllerBehavior = await GetControllerBehaviorAsync(controllerId, cancellationToken);

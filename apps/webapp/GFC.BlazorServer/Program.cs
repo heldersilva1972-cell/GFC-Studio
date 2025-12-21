@@ -14,10 +14,7 @@ using GFC.Core.Interfaces;
 using GFC.Core.Services;
 using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
-<<<<<<< HEAD
 
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
@@ -168,10 +165,7 @@ public class Program
 
         var app = builder.Build();
 
-<<<<<<< HEAD
 
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
         // Configure the HTTP request pipeline.
         if (app.Environment.IsDevelopment())
         {
@@ -271,10 +265,7 @@ public class Program
         }
 
         app.MapControllers();
-<<<<<<< HEAD
 
-=======
->>>>>>> feat/purge-simulation-mode-7279706796921186118
         app.MapBlazorHub();
         app.MapFallbackToPage("/_Host");
 

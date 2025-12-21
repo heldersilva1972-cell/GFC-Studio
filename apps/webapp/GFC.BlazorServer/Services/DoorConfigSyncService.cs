@@ -23,10 +23,7 @@ public class DoorConfigSyncService
         IDoorConfigService doorConfigService,
         ControllerRegistryService controllerRegistryService,
         IControllerClient controllerClient,
-<<<<<<< HEAD
-=======
-        IControllerModeProvider modeProvider,
->>>>>>> feat/purge-simulation-mode-7279706796921186118
+
         ILogger<DoorConfigSyncService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
