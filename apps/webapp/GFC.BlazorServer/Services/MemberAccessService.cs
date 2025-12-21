@@ -326,9 +326,14 @@ public class MemberAccessService : IMemberAccessService
             throw new InvalidOperationException("ClearAllCards command info not found.");
         }
 
+<<<<<<< HEAD
         var isSimulatedController = controller.Id == ControllerDevice.SimulatedControllerId;
 
         // No simulation guard needed in production
+=======
+        var isSimulatedController = controller.Id == ControllerDevice.SimulatedControllerId || controller.IsSimulated;
+
+>>>>>>> feat/purge-simulation-mode-7279706796921186118
         await _controllerClient.ClearAllCardsAsync(controller.Id, cancellationToken);
 
         _logger.LogWarning(
