@@ -21,7 +21,6 @@ public class SystemSettings
     /// When false, controller operations run exclusively through the simulation controller client without touching hardware.
     /// Default: false (simulation mode) for safety.
     /// </summary>
-    public bool UseRealControllers { get; set; } = false;
 
     /// <summary>
     /// The ID of the controller designated as the system's primary card reader/scanner.
