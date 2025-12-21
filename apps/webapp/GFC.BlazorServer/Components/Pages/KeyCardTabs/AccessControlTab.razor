@@ -1,0 +1,340 @@
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Data
+@using GFC.Core.Interfaces
+@using Microsoft.EntityFrameworkCore
+@inject GfcDbContext DbContext
+@inject IKeyCardRepository _keyCardRepository
+@inject ILogger<AccessControlTab> Logger
+
+<div class="access-container">
+    <div class="access-info slide-in-up">
+        <div class="info-icon">
+            <i class="bi bi-info-circle"></i>
+        </div>
+        <div>
+            <h5 class="mb-1">Access Control Management</h5>
+            <p class="mb-0">Configure which doors each member can access. Changes are synced to controllers automatically.</p>
+        </div>
+    </div>
+
+    <div class="access-content slide-in-up" style="animation-delay: 0.1s;">
+        <div class="view-selector">
+            <button class="view-btn @(_viewMode == "member" ? "active" : "")" @onclick='() => _viewMode = "member"'>
+                <i class="bi bi-person"></i> By Member
+            </button>
+            <button class="view-btn @(_viewMode == "door" ? "active" : "")" @onclick='() => _viewMode = "door"'>
+                <i class="bi bi-door-open"></i> By Door
+            </button>
+        </div>
+
+        @if (_viewMode == "member")
+        {
+            <div class="member-access-view fade-in">
+                <div class="selection-panel">
+                    <label class="form-label-modern">Select Member</label>
+                    <select class="form-select form-select-lg" @bind="_selectedMemberId" @bind:after="LoadMemberAccessAsync">
+                        <option value="0">-- Select a member --</option>
+                        @foreach (var member in _membersWithCards)
+                        {
+                            <option value="@member.MemberId">@member.MemberName (Card: @member.CardNumber)</option>
+                        }
+                    </select>
+                </div>
+
+                @if (_selectedMemberId > 0)
+                {
+                    <div class="access-panel">
+                        <div class="panel-header">
+                            <h5>Door Access for @_selectedMemberName</h5>
+                            <button class="btn btn-primary" @onclick="ShowAddDoorModal">
+                                <i class="bi bi-plus-circle"></i> Add Door Access
+                            </button>
+                        </div>
+
+                        @if (_loading)
+                        {
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary"></div>
+                            </div>
+                        }
+                        else if (!_memberAccess.Any())
+                        {
+                            <div class="empty-state-small">
+                                <i class="bi bi-shield-x"></i>
+                                <p>No door access configured for this member</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="access-table-container">
+                                <table class="access-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Controller</th>
+                                            <th>Door</th>
+                                            <th>Time Profile</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var access in _memberAccess)
+                                        {
+                                            <tr>
+                                                <td>@access.ControllerName</td>
+                                                <td>@access.DoorName</td>
+                                                <td>@access.TimeProfileName</td>
+                                                <td>
+                                                    <div class="form-check form-switch">
+                                                        <input class="form-check-input" type="checkbox" 
+                                                               checked="@access.IsEnabled" 
+                                                               @onchange="() => ToggleAccess(access)" />
+                                                        <label class="form-check-label">
+                                                            @(access.IsEnabled ? "Enabled" : "Disabled")
+                                                        </label>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveAccess(access)">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="door-access-view fade-in">
+                <div class="selection-panel">
+                    <label class="form-label-modern">Select Door</label>
+                    <select class="form-select form-select-lg" @bind="_selectedDoorId" @bind:after="LoadDoorAccessAsync">
+                        <option value="0">-- Select a door --</option>
+                        @foreach (var door in _doors)
+                        {
+                            <option value="@door.Id">@door.Name (@door.Controller?.Name)</option>
+                        }
+                    </select>
+                </div>
+
+                @if (_selectedDoorId > 0)
+                {
+                    <div class="access-panel">
+                        <div class="panel-header">
+                            <h5>Members with Access to @_selectedDoorName</h5>
+                            <button class="btn btn-primary" @onclick="ShowAddMemberModal">
+                                <i class="bi bi-plus-circle"></i> Add Member
+                            </button>
+                        </div>
+
+                        @if (_loading)
+                        {
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary"></div>
+                            </div>
+                        }
+                        else if (!_doorAccess.Any())
+                        {
+                            <div class="empty-state-small">
+                                <i class="bi bi-people-fill"></i>
+                                <p>No members have access to this door</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="access-grid">
+                                @foreach (var access in _doorAccess)
+                                {
+                                    <div class="member-access-card">
+                                        <div class="member-avatar">
+                                            <i class="bi bi-person-circle"></i>
+                                        </div>
+                                        <div class="member-info">
+                                            <div class="member-name">@access.MemberName</div>
+                                            <div class="member-card">Card: @access.CardNumber</div>
+                                            <div class="member-profile">@access.TimeProfileName</div>
+                                        </div>
+                                        <div class="member-actions">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" 
+                                                       checked="@access.IsEnabled" 
+                                                       @onchange="() => ToggleAccess(access)" />
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveAccess(access)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _viewMode = "member";
+    private bool _loading = false;
+    private int _selectedMemberId = 0;
+    private int _selectedDoorId = 0;
+    private string _selectedMemberName = string.Empty;
+    private string _selectedDoorName = string.Empty;
+    
+    private List<MemberWithCard> _membersWithCards = new();
+    private List<Door> _doors = new();
+    private List<AccessItem> _memberAccess = new();
+    private List<AccessItem> _doorAccess = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+    
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            // Load members with cards
+            var keycards = await Task.Run(() => _keyCardRepository.GetAll());
+            
+            _membersWithCards = keycards.Select(k => new MemberWithCard
+            {
+                MemberId = k.MemberId,
+                MemberName = $"Member {k.MemberId}", // TODO: Get actual member name
+                CardNumber = k.CardNumber
+            }).ToList();
+            
+            // Load doors
+            _doors = await DbContext.Doors
+                .Include(d => d.Controller)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading data");
+        }
+    }
+    
+    private async Task LoadMemberAccessAsync()
+    {
+        if (_selectedMemberId == 0) return;
+        
+        _loading = true;
+        try
+        {
+            var member = _membersWithCards.FirstOrDefault(m => m.MemberId == _selectedMemberId);
+            _selectedMemberName = member?.MemberName ?? "";
+            
+            var access = await DbContext.MemberDoorAccesses
+                .Where(a => a.MemberId == _selectedMemberId)
+                .Include(a => a.Door)
+                .ThenInclude(d => d.Controller)
+                .Include(a => a.TimeProfile)
+                .ToListAsync();
+            
+            _memberAccess = access.Select(a => new AccessItem
+            {
+                Id = a.Id,
+                MemberId = a.MemberId,
+                DoorId = a.DoorId,
+                ControllerName = a.Door?.Controller?.Name ?? "Unknown",
+                DoorName = a.Door?.Name ?? "Unknown",
+                TimeProfileName = a.TimeProfile?.Name ?? "24/7",
+                IsEnabled = a.IsEnabled
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading member access");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+    
+    private async Task LoadDoorAccessAsync()
+    {
+        if (_selectedDoorId == 0) return;
+        
+        _loading = true;
+        try
+        {
+            var door = _doors.FirstOrDefault(d => d.Id == _selectedDoorId);
+            _selectedDoorName = door?.Name ?? "";
+            
+            var access = await DbContext.MemberDoorAccesses
+                .Where(a => a.DoorId == _selectedDoorId)
+                .Include(a => a.TimeProfile)
+                .ToListAsync();
+            
+            _doorAccess = access.Select(a => new AccessItem
+            {
+                Id = a.Id,
+                MemberId = a.MemberId,
+                DoorId = a.DoorId,
+                MemberName = $"Member {a.MemberId}", // TODO: Get actual member name
+                CardNumber = a.CardNumber,
+                TimeProfileName = a.TimeProfile?.Name ?? "24/7",
+                IsEnabled = a.IsEnabled
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading door access");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+    
+    private void ShowAddDoorModal()
+    {
+        // TODO: Show modal to add door access
+    }
+    
+    private void ShowAddMemberModal()
+    {
+        // TODO: Show modal to add member access
+    }
+    
+    private async Task ToggleAccess(AccessItem access)
+    {
+        // TODO: Toggle access and sync to controller
+    }
+    
+    private async Task RemoveAccess(AccessItem access)
+    {
+        // TODO: Remove access and sync to controller
+    }
+    
+    private class MemberWithCard
+    {
+        public int MemberId { get; set; }
+        public string MemberName { get; set; } = string.Empty;
+        public string CardNumber { get; set; } = string.Empty;
+    }
+    
+    private class AccessItem
+    {
+        public int Id { get; set; }
+        public int MemberId { get; set; }
+        public int DoorId { get; set; }
+        public string MemberName { get; set; } = string.Empty;
+        public string CardNumber { get; set; } = string.Empty;
+        public string ControllerName { get; set; } = string.Empty;
+        public string DoorName { get; set; } = string.Empty;
+        public string TimeProfileName { get; set; } = string.Empty;
+        public bool IsEnabled { get; set; }
+    }
+}

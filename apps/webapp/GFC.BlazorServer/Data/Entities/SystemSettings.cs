@@ -24,6 +24,11 @@ public class SystemSettings
     public bool UseRealControllers { get; set; } = false;
 
     /// <summary>
+    /// The ID of the controller designated as the system's primary card reader/scanner.
+    /// </summary>
+    public int? ScannerControllerId { get; set; }
+
+    /// <summary>
     /// Timestamp of last update to these settings.
     /// </summary>
     public DateTime? LastUpdatedUtc { get; set; }

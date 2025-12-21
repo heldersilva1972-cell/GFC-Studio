@@ -1,0 +1,969 @@
+@page "/members/keycards"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using System.ComponentModel.DataAnnotations
+@inject IMemberRepository MemberRepository
+@inject IKeyCardRepository KeyCardRepository
+@inject IMemberKeycardRepository MemberKeycardRepository
+@inject ILogger<MemberKeyCardStatus> Logger
+
+<PageTitle>Member Key Card Status - GFC</PageTitle>
+
+<div class="page-header mb-4">
+    <div>
+        <h1 class="page-title mb-2">Member Key Card Status</h1>
+        <p class="text-muted mb-0">Track which members have key cards and their status</p>
+    </div>
+</div>
+
+<!-- Summary Metrics -->
+<div class="status-metrics-grid mb-4">
+    <div class="metric-card metric-card-primary">
+        <div class="metric-icon">
+            <i class="bi bi-people-fill"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Total Members</div>
+            <div class="metric-value">@_allMembers.Count</div>
+        </div>
+    </div>
+
+    <div class="metric-card metric-card-success">
+        <div class="metric-icon">
+            <i class="bi bi-check-circle-fill"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">With Active Card</div>
+            <div class="metric-value">@_allMembers.Count(m => m.HasActiveCard)</div>
+        </div>
+    </div>
+
+    <div class="metric-card metric-card-warning">
+        <div class="metric-icon">
+            <i class="bi bi-exclamation-circle-fill"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">No Card Assigned</div>
+            <div class="metric-value">@_allMembers.Count(m => !m.HasCard)</div>
+        </div>
+    </div>
+
+    <div class="metric-card metric-card-danger">
+        <div class="metric-icon">
+            <i class="bi bi-x-circle-fill"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Inactive Cards</div>
+            <div class="metric-value">@_allMembers.Count(m => m.HasCard && !m.HasActiveCard)</div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="filters-card mb-4">
+    <div class="filters-bar">
+        <div class="search-group">
+            <label class="form-label">Search Members</label>
+            <div class="search-input-group">
+                <i class="bi bi-search search-icon"></i>
+                <input type="text" class="form-control" @bind="_searchText" @bind:event="oninput"
+                       placeholder="Search by name or member #" disabled="@_loading" />
+                @if (!string.IsNullOrWhiteSpace(_searchText))
+                {
+                    <button type="button" class="btn-clear" @onclick="ClearSearch" disabled="@_loading">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="filter-group">
+            <label class="form-label">Card Status</label>
+            <div class="pill-tabs">
+                @foreach (var option in _statusOptions)
+                {
+                    <button class="pill-tab @(option.Filter == _statusFilter ? "active" : "")"
+                            type="button"
+                            @onclick="() => SetStatusFilter(option.Filter)"
+                            disabled="@_loading">
+                        @option.Label
+                    </button>
+                }
+            </div>
+        </div>
+
+        <div class="filter-group">
+            <label class="form-label">Member Status</label>
+            <div class="pill-tabs">
+                @foreach (var option in _memberStatusOptions)
+                {
+                    <button class="pill-tab @(option.Filter == _memberStatusFilter ? "active" : "")"
+                            type="button"
+                            @onclick="() => SetMemberStatusFilter(option.Filter)"
+                            disabled="@_loading">
+                        @option.Label
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Members Table -->
+@if (_loading)
+{
+    <div class="loading-state-modern">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-3 text-muted">Loading member data...</p>
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle me-2"></i>@_errorMessage
+    </div>
+}
+else
+{
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light sticky-header">
+                        <tr>
+                            <th>Member</th>
+                            <th>Member Status</th>
+                            <th>Card Number</th>
+                            <th>Card Status</th>
+                            <th>Assigned Date</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!FilteredMembers.Any())
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-5 text-muted">
+                                    <i class="bi bi-inbox display-6 d-block mb-2"></i>
+                                    No members found matching your filters.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var member in FilteredMembers)
+                            {
+                                <tr class="@GetRowClass(member)">
+                                    <td>
+                                        <div class="member-info">
+                                            <div class="member-name">@GetMemberName(member)</div>
+                                            <div class="member-id">ID: @member.MemberId</div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetMemberStatusBadge(member.MemberStatus)">
+                                            @member.MemberStatus
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (member.HasCard)
+                                        {
+                                            <div class="card-number">
+                                                <i class="bi bi-credit-card me-1"></i>
+                                                @member.CardNumber
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">—</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (member.HasCard)
+                                        {
+                                            <span class="badge @(member.HasActiveCard ? "bg-success" : "bg-secondary")">
+                                                @(member.HasActiveCard ? "Active" : "Inactive")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning">No Card</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (member.AssignedDate.HasValue)
+                                        {
+                                            <span>@member.AssignedDate.Value.ToShortDateString()</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">—</span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        <div class="btn-group btn-group-sm">
+                                            @if (!member.HasCard)
+                                            {
+                                                <button class="btn btn-primary" @onclick="() => OpenAssignModal(member)">
+                                                    <i class="bi bi-plus-circle me-1"></i>
+                                                    Assign Card
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="btn btn-outline-secondary" @onclick="() => ViewCardDetails(member)">
+                                                    <i class="bi bi-eye me-1"></i>
+                                                    View
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3 text-muted small">
+        Showing @FilteredMembers.Count() of @_allMembers.Count members
+    </div>
+}
+
+<!-- Assign Card Modal -->
+@if (_showAssignModal && _selectedMember != null)
+{
+    <div class="modal-backdrop-modern show"></div>
+    <div class="modal-modern show">
+        <div class="modal-content-modern">
+            <div class="modal-header-modern">
+                <div>
+                    <h4 class="modal-title-modern">Assign Key Card</h4>
+                    <p class="modal-subtitle">Assign a key card to @GetMemberName(_selectedMember)</p>
+                </div>
+                <button class="btn-close-modern" type="button" @onclick="CloseAssignModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <EditForm Model="@_assignForm" OnValidSubmit="AssignCardAsync">
+                <DataAnnotationsValidator />
+
+                <div class="modal-body-modern">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Member:</strong> @GetMemberName(_selectedMember) (ID: @_selectedMember.MemberId)
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Card Number <span class="text-danger">*</span></label>
+                        <InputText class="form-control" @bind-Value="_assignForm.CardNumber" 
+                                   placeholder="Enter card number (e.g., 12345)" />
+                        <ValidationMessage For="@(() => _assignForm.CardNumber)" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Assigned Date <span class="text-danger">*</span></label>
+                        <InputDate class="form-control" @bind-Value="_assignForm.AssignedDate" />
+                        <ValidationMessage For="@(() => _assignForm.AssignedDate)" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Notes</label>
+                        <InputTextArea class="form-control" @bind-Value="_assignForm.Notes" rows="3"
+                                       placeholder="Optional notes about this card assignment..." />
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_assignError))
+                    {
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle me-2"></i>@_assignError
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer-modern">
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseAssignModal" disabled="@_assigning">
+                        Cancel
+                    </button>
+                    <button class="btn btn-success" type="submit" disabled="@_assigning">
+                        @if (_assigning)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-circle me-1"></i>
+                        }
+                        Assign Card
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+<style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 2rem;
+        flex-wrap: wrap;
+    }
+
+    /* Metrics Grid */
+    .status-metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1.25rem;
+    }
+
+    .metric-card {
+        background: var(--bg-surface);
+        border-radius: 12px;
+        padding: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        border: 1px solid var(--glass-border);
+        position: relative;
+        overflow: hidden;
+        transition: all 0.3s ease;
+        color: var(--text-primary);
+    }
+
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--metric-color-start), var(--metric-color-end));
+    }
+
+    .metric-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+    }
+
+    .metric-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+        background: linear-gradient(135deg, var(--metric-color-start), var(--metric-color-end));
+        color: white;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .metric-content {
+        flex: 1;
+    }
+
+    .metric-label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.5rem;
+    }
+
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1;
+    }
+
+    .metric-card-primary {
+        --metric-color-start: #6366f1;
+        --metric-color-end: #4f46e5;
+    }
+
+    .metric-card-success {
+        --metric-color-start: #10b981;
+        --metric-color-end: #059669;
+    }
+
+    .metric-card-warning {
+        --metric-color-start: #f59e0b;
+        --metric-color-end: #d97706;
+    }
+
+    .metric-card-danger {
+        --metric-color-start: #ef4444;
+        --metric-color-end: #dc2626;
+    }
+
+    /* Filters */
+    .filters-card {
+        background: var(--bg-surface);
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        border: 1px solid var(--glass-border);
+    }
+
+    .filters-bar {
+        display: grid;
+        grid-template-columns: 2fr 1.5fr 1.5fr;
+        gap: 1.5rem;
+        align-items: end;
+    }
+
+    .form-label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+    }
+
+    .search-input-group {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 1rem;
+        color: #9ca3af;
+        pointer-events: none;
+    }
+
+    .search-input-group .form-control {
+        padding-left: 2.75rem;
+        padding-right: 2.5rem;
+        border-radius: 8px;
+        border: 2px solid var(--glass-border);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .search-input-group .form-control:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .btn-clear {
+        position: absolute;
+        right: 0.5rem;
+        background: none;
+        border: none;
+        color: #9ca3af;
+        padding: 0.5rem;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all 0.2s;
+    }
+
+    .btn-clear:hover {
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .pill-tabs {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .pill-tab {
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        border: 2px solid var(--glass-border);
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .pill-tab:hover:not(:disabled) {
+        border-color: #d1d5db;
+        background: #f9fafb;
+    }
+
+    .pill-tab.active {
+        border-color: #3b82f6;
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    /* Table */
+    .table-responsive {
+        max-height: 600px;
+        overflow-y: auto;
+    }
+
+    .sticky-header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+
+    .member-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .member-name {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .member-id {
+        font-size: 0.875rem;
+        color: #6b7280;
+    }
+
+    .card-number {
+        font-family: 'Courier New', monospace;
+        font-weight: 600;
+        color: var(--accent-primary);
+    }
+
+    .row-no-card {
+        background: rgba(254, 243, 199, 0.05);
+    }
+
+    .row-inactive-card {
+        background: rgba(254, 226, 226, 0.05);
+    }
+
+    /* Loading State */
+    .loading-state-modern {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 4rem 2rem;
+        text-align: center;
+    }
+
+    /* Modal */
+    .modal-backdrop-modern {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+        z-index: 1040;
+        animation: fadeIn 0.2s ease;
+    }
+
+    .modal-modern {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1050;
+        padding: 1rem;
+        animation: fadeIn 0.3s ease;
+    }
+
+    .modal-content-modern {
+        background: var(--bg-secondary);
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        border: 1px solid var(--glass-border);
+        color: var(--text-primary);
+        max-width: 540px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        animation: slideUp 0.3s ease;
+    }
+
+    .modal-header-modern {
+        padding: 2rem;
+        border-bottom: 1px solid var(--glass-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+
+    .modal-title-modern {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .modal-subtitle {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        margin: 0.5rem 0 0 0;
+    }
+
+    .btn-close-modern {
+        background: none;
+        border: none;
+        font-size: 1.25rem;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+    }
+
+    .btn-close-modern:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-primary);
+    }
+
+    .modal-body-modern {
+        padding: 2rem;
+    }
+
+    .modal-footer-modern {
+        padding: 1.5rem 2rem;
+        background: rgba(255, 255, 255, 0.01);
+        border-top: 1px solid var(--glass-border);
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* Responsive */
+    @@media (max-width: 992px) {
+        .filters-bar {
+            grid-template-columns: 1fr;
+        }
+
+        .status-metrics-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @@media (max-width: 640px) {
+        .status-metrics-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    private enum CardStatusFilter
+    {
+        All,
+        HasActiveCard,
+        NoCard,
+        InactiveCard
+    }
+
+    private enum MemberStatusFilter
+    {
+        All,
+        Regular,
+        Life,
+        Inactive
+    }
+
+    private sealed record StatusOption(CardStatusFilter Filter, string Label);
+    private sealed record MemberStatusOption(MemberStatusFilter Filter, string Label);
+
+    private sealed record MemberCardInfo(
+        int MemberId,
+        string FirstName,
+        string LastName,
+        string MemberStatus,
+        bool HasCard,
+        bool HasActiveCard,
+        string? CardNumber,
+        int? KeyCardId,
+        DateTime? AssignedDate);
+
+    private class AssignCardForm
+    {
+        [Required(ErrorMessage = "Card number is required")]
+        [StringLength(50, ErrorMessage = "Card number cannot exceed 50 characters")]
+        public string CardNumber { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Assigned date is required")]
+        public DateTime AssignedDate { get; set; } = DateTime.Today;
+
+        [StringLength(500, ErrorMessage = "Notes cannot exceed 500 characters")]
+        public string? Notes { get; set; }
+    }
+
+    private readonly List<StatusOption> _statusOptions = new()
+    {
+        new(CardStatusFilter.All, "All"),
+        new(CardStatusFilter.HasActiveCard, "Has Active Card"),
+        new(CardStatusFilter.NoCard, "No Card"),
+        new(CardStatusFilter.InactiveCard, "Inactive Card")
+    };
+
+    private readonly List<MemberStatusOption> _memberStatusOptions = new()
+    {
+        new(MemberStatusFilter.All, "All"),
+        new(MemberStatusFilter.Regular, "Regular"),
+        new(MemberStatusFilter.Life, "Life"),
+        new(MemberStatusFilter.Inactive, "Inactive")
+    };
+
+    private List<MemberCardInfo> _allMembers = new();
+    private string _searchText = string.Empty;
+    private CardStatusFilter _statusFilter = CardStatusFilter.All;
+    private MemberStatusFilter _memberStatusFilter = MemberStatusFilter.All;
+    private bool _loading = true;
+    private string? _errorMessage;
+    private bool _showAssignModal;
+    private bool _assigning;
+    private string? _assignError;
+    private MemberCardInfo? _selectedMember;
+    private AssignCardForm _assignForm = new();
+
+    private IEnumerable<MemberCardInfo> FilteredMembers
+    {
+        get
+        {
+            IEnumerable<MemberCardInfo> query = _allMembers;
+
+            // Search filter
+            if (!string.IsNullOrWhiteSpace(_searchText))
+            {
+                var term = _searchText.Trim();
+                query = query.Where(m =>
+                    m.FirstName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    m.LastName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    m.MemberId.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (m.CardNumber != null && m.CardNumber.Contains(term, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            // Card status filter
+            query = _statusFilter switch
+            {
+                CardStatusFilter.HasActiveCard => query.Where(m => m.HasActiveCard),
+                CardStatusFilter.NoCard => query.Where(m => !m.HasCard),
+                CardStatusFilter.InactiveCard => query.Where(m => m.HasCard && !m.HasActiveCard),
+                _ => query
+            };
+
+            // Member status filter
+            query = _memberStatusFilter switch
+            {
+                MemberStatusFilter.Regular => query.Where(m => m.MemberStatus == "REGULAR" || m.MemberStatus == "REGULAR-NP"),
+                MemberStatusFilter.Life => query.Where(m => m.MemberStatus == "LIFE"),
+                MemberStatusFilter.Inactive => query.Where(m => m.MemberStatus == "INACTIVE"),
+                _ => query
+            };
+
+            return query.OrderBy(m => m.LastName).ThenBy(m => m.FirstName);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _errorMessage = null;
+
+        try
+        {
+            // Load all members
+            var members = await Task.Run(() => MemberRepository.GetAllMembers());
+
+            // Load all current key card assignments
+            var assignments = new Dictionary<int, (bool isActive, string cardNumber, int keyCardId, DateTime? assignedDate)>();
+            
+            foreach (var member in members)
+            {
+                var assignment = await Task.Run(() => MemberKeycardRepository.GetCurrentAssignmentForMember(member.MemberID));
+                if (assignment != null && assignment.KeyCard != null)
+                {
+                    var isActive = !assignment.ToDate.HasValue; // Active if no end date
+                    assignments[member.MemberID] = (isActive, assignment.KeyCard.CardNumber, assignment.KeyCardId, assignment.FromDate);
+                }
+            }
+
+            // Build member card info list
+            _allMembers = members.Select(m =>
+            {
+                var hasAssignment = assignments.ContainsKey(m.MemberID);
+                var assignment = hasAssignment ? assignments[m.MemberID] : default;
+
+                return new MemberCardInfo(
+                    m.MemberID,
+                    m.FirstName,
+                    m.LastName,
+                    m.Status,
+                    hasAssignment,
+                    hasAssignment && assignment.isActive,
+                    hasAssignment ? assignment.cardNumber : null,
+                    hasAssignment ? assignment.keyCardId : null,
+                    hasAssignment ? assignment.assignedDate : null
+                );
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load member key card status");
+            _errorMessage = "Unable to load member data.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ClearSearch()
+    {
+        _searchText = string.Empty;
+    }
+
+    private void SetStatusFilter(CardStatusFilter filter)
+    {
+        _statusFilter = filter;
+    }
+
+    private void SetMemberStatusFilter(MemberStatusFilter filter)
+    {
+        _memberStatusFilter = filter;
+    }
+
+    private void OpenAssignModal(MemberCardInfo member)
+    {
+        _selectedMember = member;
+        _assignForm = new AssignCardForm();
+        _assignError = null;
+        _showAssignModal = true;
+    }
+
+    private void CloseAssignModal()
+    {
+        _showAssignModal = false;
+        _selectedMember = null;
+        _assignForm = new AssignCardForm();
+        _assignError = null;
+    }
+
+    private async Task AssignCardAsync()
+    {
+        if (_selectedMember == null) return;
+
+        _assigning = true;
+        _assignError = null;
+
+        try
+        {
+            // Check if card number already exists
+            var existingCard = await Task.Run(() => KeyCardRepository.GetByCardNumber(_assignForm.CardNumber));
+            if (existingCard != null)
+            {
+                _assignError = $"Card number '{_assignForm.CardNumber}' is already assigned.";
+                _assigning = false;
+                return;
+            }
+
+            // Create new key card and assign to member
+            var newCard = await Task.Run(() => KeyCardRepository.Create(
+                _assignForm.CardNumber,
+                _selectedMember.MemberId,
+                _assignForm.Notes
+            ));
+
+            // Create assignment record
+            var assignment = new MemberKeycardAssignment
+            {
+                MemberId = _selectedMember.MemberId,
+                KeyCardId = newCard.KeyCardId,
+                FromDate = _assignForm.AssignedDate,
+                Reason = "Initial assignment",
+                ChangedBy = "System"
+            };
+
+            await Task.Run(() => MemberKeycardRepository.AddAssignment(assignment));
+
+            // Reload data
+            await LoadDataAsync();
+            CloseAssignModal();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to assign key card to member {MemberId}", _selectedMember.MemberId);
+            _assignError = "Failed to assign key card. Please try again.";
+        }
+        finally
+        {
+            _assigning = false;
+        }
+    }
+
+    private void ViewCardDetails(MemberCardInfo member)
+    {
+        if (member.KeyCardId.HasValue)
+        {
+            // Navigate to key card detail page
+            // NavManager.NavigateTo($"/keycards/{member.KeyCardId.Value}");
+        }
+    }
+
+    private static string GetMemberName(MemberCardInfo member)
+    {
+        return $"{member.LastName}, {member.FirstName}";
+    }
+
+    private static string GetRowClass(MemberCardInfo member)
+    {
+        if (!member.HasCard)
+            return "row-no-card";
+        if (member.HasCard && !member.HasActiveCard)
+            return "row-inactive-card";
+        return string.Empty;
+    }
+
+    private static string GetMemberStatusBadge(string status)
+    {
+        return status switch
+        {
+            "REGULAR" or "REGULAR-NP" => "bg-success",
+            "LIFE" => "bg-primary",
+            "INACTIVE" => "bg-secondary",
+            "DECEASED" => "bg-dark",
+            _ => "bg-secondary"
+        };
+    }
+}

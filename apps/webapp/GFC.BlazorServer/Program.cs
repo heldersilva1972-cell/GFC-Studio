@@ -144,6 +144,7 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<IReplayService, ReplayService>();
+        builder.Services.AddScoped<ThemeService>();
         
         // BEGIN Simulation/Real controller toggle wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();

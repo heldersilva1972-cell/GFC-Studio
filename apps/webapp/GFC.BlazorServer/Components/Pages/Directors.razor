@@ -19,74 +19,131 @@
 @inject ILogger<Directors> Logger
 @inject IPasswordPolicy PasswordPolicy
 
-<h1 class="page-title">Board Assignments</h1>
+<PageTitle>Board Management - GFC</PageTitle>
+
+<div class="page-header mb-4">
+    <div>
+        <h1 class="page-title mb-2">Board Management</h1>
+        <p class="text-muted mb-0">Manage officer and director assignments for each term year</p>
+    </div>
+    <div class="page-header-actions">
+        <div class="year-selector-group">
+            <label class="form-label mb-1">Term Year</label>
+            <div class="d-flex gap-2">
+                <select class="form-select" value="@_selectedTermYear" @onchange="OnTermYearChanged" disabled="@_loading">
+                    @foreach (var year in _termYears)
+                    {
+                        <option value="@year">@year</option>
+                    }
+                </select>
+                @if (_selectedTermYear != _currentYear)
+                {
+                    <button class="btn btn-outline-primary" type="button" @onclick="UseCurrentYear">
+                        <i class="bi bi-calendar-check me-1"></i>
+                        Current
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
 
 @if (_loading)
 {
-    <div class="loading-state">
-        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-        Loading board data...
+    <div class="loading-state-modern">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-3 text-muted">Loading board data...</p>
     </div>
 }
 else if (!string.IsNullOrWhiteSpace(_errorMessage))
 {
-    <div class="alert alert-danger">@_errorMessage</div>
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle me-2"></i>@_errorMessage
+    </div>
 }
 else
 {
-    <div class="data-card board-summary mb-3">
-        <div class="board-summary__copy">
-            <h3 class="mb-1">Manage the @_selectedTermYear Board</h3>
-            <p class="text-muted mb-0">
-                Assign only active Regular or Life members to officer and director roles. Saving updates the database and records a history entry.
-            </p>
+    <!-- Summary Metrics -->
+    <div class="board-metrics-grid mb-4">
+        <div class="metric-card metric-card-primary">
+            <div class="metric-icon">
+                <i class="bi bi-people-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Total Positions</div>
+                <div class="metric-value">@_seats.Count</div>
+            </div>
         </div>
-        <div class="board-summary__controls">
-            <label class="form-label text-muted mb-1">Term year</label>
-            <select class="form-select board-term-select" value="@_selectedTermYear" @onchange="OnTermYearChanged">
-                @foreach (var year in _termYears)
-                {
-                    <option value="@year">@year</option>
-                }
-            </select>
-            <button class="btn btn-outline btn-sm mt-2 mt-md-0"
-                    type="button"
-                    disabled="@(_selectedTermYear == _currentYear)"
-                    @onclick="UseCurrentYear">
-                Jump to @_currentYear term
-            </button>
+
+        <div class="metric-card metric-card-success">
+            <div class="metric-icon">
+                <i class="bi bi-check-circle-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Filled</div>
+                <div class="metric-value">@_seats.Count(s => s.AssignmentId.HasValue)</div>
+            </div>
+        </div>
+
+        <div class="metric-card metric-card-warning">
+            <div class="metric-icon">
+                <i class="bi bi-exclamation-circle-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Vacant</div>
+                <div class="metric-value">@_seats.Count(s => !s.AssignmentId.HasValue)</div>
+            </div>
+        </div>
+
+        <div class="metric-card metric-card-info">
+            <div class="metric-icon">
+                <i class="bi bi-person-check-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Eligible Members</div>
+                <div class="metric-value">@_memberOptions.Count</div>
+            </div>
         </div>
     </div>
 
-    <div class="mb-3">
-        @if (_termConfirmation is null)
-        {
-            <div class="alert alert-warning mb-2">
-                The @_selectedTermYear board has not been confirmed yet. Confirm once positions are finalized (or intentionally left vacant) to clear dashboard reminders.
+    <!-- Confirmation Status -->
+    @if (_termConfirmation is null)
+    {
+        <div class="alert alert-warning d-flex align-items-center justify-content-between mb-4">
+            <div>
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                <strong>Board Not Confirmed</strong>
+                <p class="mb-0 mt-1 small">The @_selectedTermYear board has not been confirmed yet. Confirm once positions are finalized.</p>
             </div>
-            <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenConfirmationModal">
-                Confirm @_selectedTermYear board is ready
+            <button class="btn btn-warning" type="button" @onclick="OpenConfirmationModal">
+                <i class="bi bi-check-circle me-1"></i>Confirm Board
             </button>
-        }
-        else
-        {
-            <div class="alert alert-success mb-2">
-                Confirmed @_termConfirmation.ConfirmedOnUtc.ToLocalTime().ToString("MMM d, yyyy") by @_termConfirmation.ConfirmedBy.
-                @if (!string.IsNullOrWhiteSpace(_termConfirmation.Notes))
-                {
-                    <span class="d-block text-muted small">Notes: @_termConfirmation.Notes</span>
-                }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-success d-flex align-items-center justify-content-between mb-4">
+            <div>
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <strong>Board Confirmed</strong>
+                <p class="mb-0 mt-1 small">
+                    Confirmed on @_termConfirmation.ConfirmedOnUtc.ToLocalTime().ToString("MMM d, yyyy") by @_termConfirmation.ConfirmedBy
+                    @if (!string.IsNullOrWhiteSpace(_termConfirmation.Notes))
+                    {
+                        <span class="d-block mt-1">Notes: @_termConfirmation.Notes</span>
+                    }
+                </p>
             </div>
-            <button class="btn btn-outline btn-sm" type="button" @onclick="OpenConfirmationModal">
-                Update confirmation / notes
+            <button class="btn btn-outline-success btn-sm" type="button" @onclick="OpenConfirmationModal">
+                <i class="bi bi-pencil me-1"></i>Update
             </button>
-        }
-    </div>
+        </div>
+    }
 
     @if (!string.IsNullOrWhiteSpace(_statusMessage))
     {
         <div class="alert alert-success alert-dismissible fade show" role="alert">
-            @_statusMessage
+            <i class="bi bi-check-circle me-2"></i>@_statusMessage
             <button type="button" class="btn-close" aria-label="Close" @onclick="() => _statusMessage = null"></button>
         </div>
     }
@@ -94,37 +151,48 @@ else
     @if (_memberOptions.Count == 0)
     {
         <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle me-2"></i>
             No eligible members found. Only active Regular or Life members can be assigned to the board.
         </div>
     }
 
+    <!-- Board Positions Grid -->
     @if (_loadingAssignments)
     {
-        <div class="loading-state">
-            <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-            Refreshing assignments...
+        <div class="loading-state-modern">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Refreshing assignments...</p>
         </div>
     }
     else
     {
-        <div class="board-grid">
+        <div class="positions-grid">
             @foreach (var seat in _seats)
             {
-                <div class="data-card board-card">
-                    <div class="board-card__header">
-                        <div>
-                            <h4 class="mb-0">@seat.PositionLabel</h4>
-                            <p class="text-muted mb-0">@seat.CurrentSummary</p>
+                <div class="position-card @(seat.AssignmentId.HasValue ? "position-filled" : "position-vacant")">
+                    <div class="position-header">
+                        <div class="position-title-group">
+                            <h3 class="position-title">@seat.PositionLabel</h3>
+                            <span class="position-badge @(seat.AssignmentId.HasValue ? "badge-filled" : "badge-vacant")">
+                                @(seat.AssignmentId.HasValue ? "Filled" : "Vacant")
+                            </span>
                         </div>
-                        <span class="badge @seat.BadgeClass">@seat.BadgeLabel</span>
+                        @if (seat.AssignmentId.HasValue && seat.OriginalMemberId.HasValue)
+                        {
+                            <div class="current-assignment">
+                                <i class="bi bi-person-fill me-1"></i>
+                                <span>@FormatMemberDisplay(seat.OriginalMemberId.Value)</span>
+                            </div>
+                        }
                     </div>
-                    <div class="board-card__body">
-                        <label class="form-label">Assigned member</label>
-                        <select class="form-select"
+
+                    <div class="position-body">
+                        <label class="form-label">Assign Member</label>
+                        <select class="form-select modern-select"
                                 value="@FormatSelectValue(seat.SelectedMemberId)"
                                 disabled="@(_savingTerm || seat.IsSaving || _memberOptions.Count == 0)"
                                 @onchange="args => OnSelectionChanged(seat, args)">
-                            <option value="">Unassigned</option>
+                            <option value="">— Select a member —</option>
                             @foreach (var option in _memberOptions)
                             {
                                 var isSelected = seat.SelectedMemberId == option.MemberId;
@@ -136,25 +204,40 @@ else
                                 <option value="@option.MemberId">@option.DisplayLabel</option>
                             }
                         </select>
+
                         @if (!string.IsNullOrWhiteSpace(seat.Error))
                         {
-                            <div class="text-danger small mt-2">@seat.Error</div>
+                            <div class="error-message">
+                                <i class="bi bi-exclamation-circle me-1"></i>@seat.Error
+                            </div>
                         }
                     </div>
-                    <div class="board-card__footer">
-                        <button class="btn btn-primary btn-sm"
+
+                    <div class="position-footer">
+                        <button class="btn btn-primary"
                                 disabled="@(!seat.CanSave || _savingTerm)"
                                 @onclick="() => SaveSeatAsync(seat)">
-                            <span class="spinner-border spinner-border-sm me-1" hidden="@(!seat.IsSaving)" role="status"></span>
-                            Save
+                            @if (seat.IsSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-lg me-1"></i>
+                            }
+                            Save Assignment
                         </button>
-                        <button class="btn btn-link btn-sm text-danger"
-                                type="button"
-                                hidden="@(seat.AssignmentId is null)"
-                                disabled="@(seat.IsSaving || _savingTerm)"
-                                @onclick="() => ClearSeatAsync(seat)">
-                            Remove
-                        </button>
+
+                        @if (seat.AssignmentId is not null)
+                        {
+                            <button class="btn btn-outline-danger"
+                                    type="button"
+                                    disabled="@(seat.IsSaving || _savingTerm)"
+                                    @onclick="() => ClearSeatAsync(seat)">
+                                <i class="bi bi-x-lg me-1"></i>
+                                Remove
+                            </button>
+                        }
                     </div>
                 </div>
             }
@@ -162,32 +245,423 @@ else
     }
 }
 
+<!-- Confirmation Modal -->
 @if (_confirmationModalOpen)
 {
-    <div class="modal-backdrop"></div>
-    <div class="modal-card">
-        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0">Confirm @_selectedTermYear board</h4>
-            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelConfirmationModal">
-                <i class="bi bi-x-lg"></i>
-            </button>
-        </div>
-        <p>
-            Confirm that the @_selectedTermYear board lineup is complete (or intentionally finalized). This acknowledgement will stop the dashboard alert for that term.
-        </p>
-        <div class="mb-3">
-            <label class="form-label">Notes (optional)</label>
-            <textarea class="form-control" rows="3" @bind="_confirmationNotes"></textarea>
-        </div>
-        <div class="modal-card__actions">
-            <button class="btn btn-primary" disabled="@_confirmationSaving" @onclick="ConfirmBoardAsync">
-                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_confirmationSaving)"></span>
-                Confirm
-            </button>
-            <button class="btn btn-outline" type="button" @onclick="CancelConfirmationModal">Cancel</button>
+    <div class="modal-backdrop-modern show"></div>
+    <div class="modal-modern show">
+        <div class="modal-content-modern">
+            <div class="modal-header-modern">
+                <div>
+                    <h4 class="modal-title-modern">Confirm @_selectedTermYear Board</h4>
+                    <p class="modal-subtitle">Mark this board lineup as complete and finalized</p>
+                </div>
+                <button class="btn-close-modern" type="button" @onclick="CancelConfirmationModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="modal-body-modern">
+                <p class="text-muted mb-3">
+                    Confirming the board will acknowledge that all positions are either filled or intentionally left vacant. 
+                    This will clear dashboard alerts for this term.
+                </p>
+
+                <div class="mb-3">
+                    <label class="form-label">Notes (optional)</label>
+                    <textarea class="form-control" rows="3" @bind="_confirmationNotes" 
+                              placeholder="Add any notes about this board term..."></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer-modern">
+                <button class="btn btn-outline-secondary" type="button" @onclick="CancelConfirmationModal">
+                    Cancel
+                </button>
+                <button class="btn btn-success" disabled="@_confirmationSaving" @onclick="ConfirmBoardAsync">
+                    @if (_confirmationSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check-circle me-1"></i>
+                    }
+                    Confirm Board
+                </button>
+            </div>
         </div>
     </div>
 }
+
+<style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 2rem;
+        flex-wrap: wrap;
+    }
+
+    .page-header-actions {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-end;
+    }
+
+    .year-selector-group {
+        min-width: 200px;
+    }
+
+    .loading-state-modern {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 4rem 2rem;
+    }
+
+    /* Metrics Grid */
+    .board-metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1.25rem;
+    }
+
+    .metric-card {
+        background: var(--bg-surface);
+        border-radius: 12px;
+        padding: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        box-shadow: var(--card-shadow);
+        border: 1px solid var(--glass-border);
+        position: relative;
+        overflow: hidden;
+        transition: all 0.3s ease;
+        color: var(--text-primary);
+    }
+
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--metric-color-start), var(--metric-color-end));
+    }
+
+    .metric-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+    }
+
+    .metric-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+        background: linear-gradient(135deg, var(--metric-color-start), var(--metric-color-end));
+        color: white;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .metric-content {
+        flex: 1;
+    }
+
+    .metric-label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.5rem;
+    }
+
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1;
+    }
+
+    .metric-card-primary {
+        --metric-color-start: #6366f1;
+        --metric-color-end: #4f46e5;
+    }
+
+    .metric-card-success {
+        --metric-color-start: #10b981;
+        --metric-color-end: #059669;
+    }
+
+    .metric-card-warning {
+        --metric-color-start: #f59e0b;
+        --metric-color-end: #d97706;
+    }
+
+    .metric-card-info {
+        --metric-color-start: #3b82f6;
+        --metric-color-end: #2563eb;
+    }
+
+    /* Positions Grid */
+    .positions-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .position-card {
+        background: var(--bg-surface);
+        border-radius: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        border: 2px solid var(--glass-border);
+        overflow: hidden;
+        transition: all 0.3s ease;
+        color: var(--text-primary);
+    }
+
+    .position-card:hover {
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        transform: translateY(-2px);
+        border-color: var(--accent-primary);
+    }
+
+    .position-filled {
+        border-color: rgba(16, 185, 129, 0.5);
+    }
+
+    .position-vacant {
+        border-color: rgba(245, 158, 11, 0.5);
+    }
+
+    .position-header {
+        padding: 1.5rem;
+        background: var(--bg-primary);
+        border-bottom: 1px solid var(--glass-border);
+    }
+
+    .position-title-group {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.75rem;
+    }
+
+    .position-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .position-badge {
+        padding: 0.375rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .badge-filled {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .badge-vacant {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .current-assignment {
+        display: flex;
+        align-items: center;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .position-body {
+        padding: 1.5rem;
+    }
+
+    .modern-select {
+        border-radius: 8px;
+        border: 2px solid var(--glass-border);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        padding: 0.625rem 1rem;
+        font-size: 0.9375rem;
+        transition: all 0.2s ease;
+    }
+
+    .modern-select:focus {
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+    }
+
+    .error-message {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: #fee2e2;
+        border-left: 3px solid #ef4444;
+        border-radius: 6px;
+        color: #991b1b;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .position-footer {
+        padding: 1.5rem;
+        background: var(--bg-primary);
+        border-top: 1px solid var(--glass-border);
+        display: flex;
+        gap: 0.75rem;
+    }
+
+    .position-footer .btn {
+        flex: 1;
+        border-radius: 8px;
+        font-weight: 600;
+        padding: 0.625rem 1rem;
+    }
+
+    /* Modern Modal */
+    .modal-backdrop-modern {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+        z-index: 1040;
+        animation: fadeIn 0.2s ease;
+    }
+
+    .modal-modern {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1050;
+        padding: 1rem;
+        animation: fadeIn 0.3s ease;
+    }
+
+    .modal-content-modern {
+        background: var(--bg-secondary);
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        border: 1px solid var(--glass-border);
+        max-width: 540px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        animation: slideUp 0.3s ease;
+        color: var(--text-primary);
+    }
+
+    .modal-header-modern {
+        padding: 2rem;
+        border-bottom: 1px solid var(--glass-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+
+    .modal-title-modern {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .modal-subtitle {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        margin: 0.5rem 0 0 0;
+    }
+
+    .btn-close-modern {
+        background: none;
+        border: none;
+        font-size: 1.25rem;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+    }
+
+    .btn-close-modern:hover {
+        background: var(--bg-surface-hover);
+        color: var(--text-primary);
+    }
+
+    .modal-body-modern {
+        padding: 2rem;
+    }
+
+    .modal-footer-modern {
+        padding: 1.5rem 2rem;
+        background: var(--bg-primary);
+        border-top: 1px solid var(--glass-border);
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* Responsive */
+    @@media (max-width: 768px) {
+        .page-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .positions-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .board-metrics-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @@media (max-width: 480px) {
+        .board-metrics-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
 
 @code {
     private readonly int _currentYear = DateTime.Today.Year;
@@ -436,7 +910,6 @@ else
                 desiredMemberId.Value,
                 BuildDirectorAuditDetails(seat.BasePositionName, _selectedTermYear, "Added", performedByUserName));
             
-            // Create user account for the director if it doesn't exist
             CreateDirectorUserIfNeeded(desiredMemberId.Value);
             
             return;
@@ -479,7 +952,6 @@ else
             desiredMemberId.Value,
             BuildDirectorAuditDetails(seat.BasePositionName, _selectedTermYear, "Added", performedByUserName, originalMemberId));
         
-        // Create user account for the director if it doesn't exist
         CreateDirectorUserIfNeeded(desiredMemberId.Value);
     }
 
@@ -487,24 +959,18 @@ else
     {
         try
         {
-            // Check if user already exists for this member using repository directly
             var existingUser = UserRepository.GetByMemberId(memberId);
             
             if (existingUser != null)
             {
-                // User already exists, don't create another one
                 return;
             }
 
-            // Generate username from member
             var username = UserManagementService.GenerateUsernameFromMember(memberId);
-            
-            // Get current user for CreatedBy
             var currentUser = AuthStateProvider.GetCurrentUser();
             var createdBy = currentUser?.Username ?? "System";
-            
-            // Create user with default password and password change required
             var tempPassword = BuildDefaultDirectorPassword(memberId, username);
+            
             UserManagementService.CreateUser(
                 username: username,
                 password: tempPassword,
@@ -518,7 +984,6 @@ else
         }
         catch (Exception ex)
         {
-            // Log but don't fail the director assignment if user creation fails
             Logger.LogWarning(ex, "Failed to create user account for director member {MemberId}", memberId);
         }
     }

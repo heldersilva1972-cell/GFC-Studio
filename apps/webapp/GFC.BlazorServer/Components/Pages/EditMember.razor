@@ -1,0 +1,562 @@
+@page "/members/{MemberId:int}/edit"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@using GFC.Core.BusinessRules
+@using System.ComponentModel.DataAnnotations
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@inject IMemberRepository MemberRepository
+@inject NavigationManager NavManager
+@inject ILogger<EditMember> Logger
+
+<PageTitle>Edit Member - GFC Membership</PageTitle>
+
+<link href="css/add-member-animations.css" rel="stylesheet" />
+
+<div class="page-header mb-4">
+    <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-outline-secondary" @onclick="GoBack" disabled="@_saving">
+            <i class="bi bi-arrow-left"></i>
+        </button>
+        <div>
+            <h1 class="page-title mb-0">Edit Member</h1>
+            @if (_loading)
+            {
+                <p class="text-muted mb-0">Loading member data...</p>
+            }
+            else if (_member != null)
+            {
+                <p class="text-muted mb-0">Editing: @GetFullName(_member)</p>
+            }
+        </div>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
+        <span>Loading member details...</span>
+    </div>
+}
+else if (_notFound)
+{
+    <div class="alert alert-warning">
+        <strong>Member not found.</strong>
+        <div class="text-muted small">Member ID @MemberId could not be loaded.</div>
+        <button class="btn btn-outline-secondary mt-2" type="button" @onclick="GoBack">Back to Members</button>
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(_loadError))
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle me-2"></i>@_loadError
+        <button class="btn btn-outline-secondary mt-2" type="button" @onclick="GoBack">Back to Members</button>
+    </div>
+}
+else if (_showSuccessAnimation)
+{
+    <div class="success-overlay">
+        <div class="success-card">
+            <div class="success-checkmark">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+            </div>
+            <h2 class="success-title">Member Updated Successfully!</h2>
+            <p class="success-message">Changes to @_memberName have been saved.</p>
+            <div class="success-actions">
+                <button class="btn btn-primary" @onclick="GoToMemberDetail">
+                    <i class="bi bi-eye me-2"></i>View Member Details
+                </button>
+                <button class="btn btn-outline-primary" @onclick="GoBack">
+                    <i class="bi bi-list-ul me-2"></i>Back to Members
+                </button>
+            </div>
+        </div>
+    </div>
+}
+else if (_memberForm != null)
+{
+    <EditForm Model="@_memberForm" OnValidSubmit="SaveMember">
+        <DataAnnotationsValidator />
+        
+        <div class="row g-4">
+            <!-- Personal Information Card -->
+            <div class="col-lg-6">
+                <div class="form-card">
+                    <div class="form-card-header">
+                        <i class="bi bi-person-circle"></i>
+                        <h5>Personal Information</h5>
+                    </div>
+                    <div class="form-card-body">
+                        <div class="mb-3">
+                            <label class="form-label">First Name <span class="text-danger">*</span></label>
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.FirstName" placeholder="Enter first name" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.FirstName)" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Middle Name</label>
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.MiddleName" placeholder="Enter middle name (optional)" disabled="@_saving" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Last Name <span class="text-danger">*</span></label>
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.LastName" placeholder="Enter last name" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.LastName)" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Suffix</label>
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Suffix" placeholder="Jr., Sr., III, etc." disabled="@_saving" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Date of Birth <span class="text-danger">*</span></label>
+                            <InputDate class="form-control form-control-modern" @bind-Value="_memberForm.DateOfBirth" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.DateOfBirth)" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contact Information Card -->
+            <div class="col-lg-6">
+                <div class="form-card">
+                    <div class="form-card-header">
+                        <i class="bi bi-telephone"></i>
+                        <h5>Contact Information</h5>
+                    </div>
+                    <div class="form-card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <InputText type="email" class="form-control form-control-modern" @bind-Value="_memberForm.Email" placeholder="member@example.com" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.Email)" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Home Phone <span class="text-danger">*</span></label>
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Phone" placeholder="(555) 123-4567" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.Phone)" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Cell Phone <span class="text-danger">*</span></label>
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.CellPhone" placeholder="(555) 987-6543" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.CellPhone)" />
+                            <small class="text-muted">At least one phone number is required</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Address <span class="text-danger">*</span></label>
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Address1" placeholder="123 Main Street" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.Address1)" />
+                        </div>
+                        
+                        <div class="row g-2">
+                            <div class="col-md-5">
+                                <label class="form-label">City <span class="text-danger">*</span></label>
+                                @if (_cities.Any())
+                                {
+                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.City" disabled="@_saving">
+                                        <option value="">-- Select --</option>
+                                        @foreach (var city in _cities)
+                                        {
+                                            <option value="@city">@city</option>
+                                        }
+                                    </InputSelect>
+                                }
+                                else
+                                {
+                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.City" placeholder="City" disabled="@_saving" />
+                                }
+                                <ValidationMessage For="@(() => _memberForm.City)" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">State <span class="text-danger">*</span></label>
+                                @if (_states.Any())
+                                {
+                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.State" disabled="@_saving">
+                                        <option value="">-- Select --</option>
+                                        @foreach (var state in _states)
+                                        {
+                                            <option value="@state">@state</option>
+                                        }
+                                    </InputSelect>
+                                }
+                                else
+                                {
+                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.State" placeholder="MA" disabled="@_saving" maxlength="2" />
+                                }
+                                <ValidationMessage For="@(() => _memberForm.State)" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Zip Code <span class="text-danger">*</span></label>
+                                @if (_postalCodes.Any())
+                                {
+                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.PostalCode" disabled="@_saving">
+                                        <option value="">-- Select --</option>
+                                        @foreach (var zip in _postalCodes)
+                                        {
+                                            <option value="@zip">@zip</option>
+                                        }
+                                    </InputSelect>
+                                }
+                                else
+                                {
+                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.PostalCode" placeholder="02101" disabled="@_saving" />
+                                }
+                                <ValidationMessage For="@(() => _memberForm.PostalCode)" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Membership Details Card -->
+            <div class="col-lg-6">
+                <div class="form-card">
+                    <div class="form-card-header">
+                        <i class="bi bi-card-checklist"></i>
+                        <h5>Membership Details</h5>
+                    </div>
+                    <div class="form-card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Status <span class="text-danger">*</span></label>
+                            <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.Status" disabled="@_saving">
+                                <option value="">-- Select Status --</option>
+                                <option value="GUEST">Guest</option>
+                                <option value="REGULAR">Regular</option>
+                                <option value="REGULAR-NP">Regular (NP)</option>
+                                <option value="LIFE">Life</option>
+                                <option value="INACTIVE">Inactive</option>
+                                <option value="DECEASED">Deceased</option>
+                                <option value="REJECTED">Rejected</option>
+                            </InputSelect>
+                            <ValidationMessage For="@(() => _memberForm.Status)" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Application Date <span class="text-danger">*</span></label>
+                            <InputDate class="form-control form-control-modern" @bind-Value="_memberForm.ApplicationDate" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.ApplicationDate)" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Accepted Date</label>
+                            <InputDate class="form-control form-control-modern" @bind-Value="_memberForm.AcceptedDate" disabled="@_saving" />
+                            <ValidationMessage For="@(() => _memberForm.AcceptedDate)" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Regular Since</label>
+                            <InputDate class="form-control form-control-modern" @bind-Value="_memberForm.RegularSince" disabled="@_saving" />
+                            <small class="text-muted">Date when member became a regular member</small>
+                        </div>
+
+                        <div class="form-check mb-3">
+                            <InputCheckbox class="form-check-input" @bind-Value="_memberForm.IsNonPortugueseOrigin" disabled="@_saving" id="npOriginCheck" />
+                            <label class="form-check-label" for="npOriginCheck">
+                                Non-Portuguese Origin (NP Queue)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notes Card -->
+            <div class="col-lg-6">
+                <div class="form-card">
+                    <div class="form-card-header">
+                        <i class="bi bi-sticky"></i>
+                        <h5>Additional Notes</h5>
+                    </div>
+                    <div class="form-card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Notes</label>
+                            <InputTextArea class="form-control form-control-modern" @bind-Value="_memberForm.Notes" rows="8" placeholder="Add any additional information about this member..." disabled="@_saving" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-bar">
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger mb-3">
+                    <i class="bi bi-exclamation-triangle me-2"></i>@_errorMessage
+                </div>
+            }
+            
+            <div class="d-flex gap-3 justify-content-end">
+                <button type="button" class="btn btn-outline-secondary" @onclick="GoBack" disabled="@_saving">
+                    <i class="bi bi-x-circle me-2"></i>Cancel
+                </button>
+                <button type="submit" class="btn-save @(_saving ? "saving" : "")" disabled="@_saving">
+                    @if (_saving)
+                    {
+                        <span class="spinner"></span>
+                        <span class="save-text">Saving...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check-circle me-2"></i>
+                        <span class="save-text">Save Changes</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public int MemberId { get; set; }
+
+    private Member? _member;
+    private MemberFormModel? _memberForm;
+    private bool _loading = true;
+    private bool _notFound = false;
+    private string? _loadError;
+    private bool _saving = false;
+    private bool _showSuccessAnimation = false;
+    private string _errorMessage = "";
+    private string _memberName = "";
+    private List<string> _cities = new();
+    private List<string> _states = new();
+    private List<string> _postalCodes = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMemberAsync();
+        LoadDropdownData();
+    }
+
+    private async Task LoadMemberAsync()
+    {
+        _loading = true;
+        _loadError = null;
+        _notFound = false;
+
+        try
+        {
+            _member = await Task.Run(() => MemberRepository.GetMemberById(MemberId));
+
+            if (_member == null)
+            {
+                _notFound = true;
+                return;
+            }
+
+            // Populate form with existing member data
+            _memberForm = new MemberFormModel
+            {
+                FirstName = _member.FirstName ?? "",
+                MiddleName = _member.MiddleName,
+                LastName = _member.LastName ?? "",
+                Suffix = _member.Suffix,
+                DateOfBirth = _member.DateOfBirth,
+                Email = _member.Email,
+                Phone = _member.Phone,
+                CellPhone = _member.CellPhone,
+                Address1 = _member.Address1,
+                City = _member.City,
+                State = _member.State,
+                PostalCode = _member.PostalCode,
+                Status = _member.Status ?? "",
+                ApplicationDate = _member.ApplicationDate,
+                AcceptedDate = _member.AcceptedDate,
+                RegularSince = _member.RegularSince,
+                IsNonPortugueseOrigin = _member.IsNonPortugueseOrigin,
+                Notes = _member.Notes
+            };
+
+            _memberName = GetFullName(_member);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading member {MemberId} for editing", MemberId);
+            _loadError = "Failed to load member details. Please try again.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void LoadDropdownData()
+    {
+        try
+        {
+            _cities = MemberRepository.GetDistinctCities()
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .OrderBy(c => c)
+                .ToList();
+            
+            _states = MemberRepository.GetDistinctStates()
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .OrderBy(s => s)
+                .ToList();
+                
+            _postalCodes = MemberRepository.GetDistinctPostalCodes()
+                .Where(z => !string.IsNullOrWhiteSpace(z))
+                .OrderBy(z => z)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading dropdown data");
+        }
+    }
+
+    private async Task SaveMember()
+    {
+        if (_member == null || _memberForm == null)
+        {
+            return;
+        }
+
+        _saving = true;
+        _errorMessage = "";
+        
+        // Custom validation: At least one phone required
+        if (string.IsNullOrWhiteSpace(_memberForm.Phone) && string.IsNullOrWhiteSpace(_memberForm.CellPhone))
+        {
+            _errorMessage = "At least one phone number (Home or Cell) is required.";
+            _saving = false;
+            return;
+        }
+        
+        StateHasChanged();
+
+        try
+        {
+            // Update member object with form data
+            _member.FirstName = FormatName(_memberForm.FirstName);
+            _member.MiddleName = FormatName(_memberForm.MiddleName);
+            _member.LastName = FormatName(_memberForm.LastName);
+            _member.Suffix = _memberForm.Suffix?.Trim();
+            _member.DateOfBirth = _memberForm.DateOfBirth;
+            _member.Address1 = FormatAddress(_memberForm.Address1);
+            _member.City = FormatName(_memberForm.City);
+            _member.State = _memberForm.State?.Trim().ToUpperInvariant();
+            _member.PostalCode = _memberForm.PostalCode?.Trim();
+            _member.Phone = _memberForm.Phone?.Trim();
+            _member.CellPhone = _memberForm.CellPhone?.Trim();
+            _member.Email = _memberForm.Email?.Trim().ToLowerInvariant();
+            _member.ApplicationDate = _memberForm.ApplicationDate;
+            _member.AcceptedDate = _memberForm.AcceptedDate;
+            _member.RegularSince = _memberForm.RegularSince;
+            _member.Status = _memberForm.Status;
+            _member.IsNonPortugueseOrigin = _memberForm.IsNonPortugueseOrigin;
+            _member.Notes = _memberForm.Notes?.Trim();
+
+            // Update in database
+            MemberRepository.UpdateMember(_member);
+            
+            _memberName = GetFullName(_member);
+            
+            // Show success animation
+            _saving = false;
+            _showSuccessAnimation = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating member {MemberId}", MemberId);
+            _errorMessage = "Failed to update member. Please try again.";
+            _saving = false;
+        }
+    }
+    
+    // Format names: Capitalize first letter of each word, lowercase the rest
+    private string? FormatName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return name;
+        
+        var textInfo = System.Globalization.CultureInfo.CurrentCulture.TextInfo;
+        return textInfo.ToTitleCase(name.Trim().ToLowerInvariant());
+    }
+    
+    // Format addresses: Proper capitalization
+    private string? FormatAddress(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return address;
+        
+        var textInfo = System.Globalization.CultureInfo.CurrentCulture.TextInfo;
+        return textInfo.ToTitleCase(address.Trim().ToLowerInvariant());
+    }
+
+    private static string GetFullName(Member member)
+    {
+        var first = member.FirstName?.Trim() ?? string.Empty;
+        var last = member.LastName?.Trim() ?? string.Empty;
+        var suffix = member.Suffix?.Trim();
+        var name = string.IsNullOrWhiteSpace(last) ? first : $"{first} {last}";
+        return string.IsNullOrWhiteSpace(suffix) ? name : $"{name} {suffix}";
+    }
+
+    private void GoBack()
+    {
+        NavManager.NavigateTo("/members");
+    }
+
+    private void GoToMemberDetail()
+    {
+        NavManager.NavigateTo($"/members/{MemberId}");
+    }
+
+    private class MemberFormModel
+    {
+        [Required(ErrorMessage = "First name is required")]
+        [StringLength(50, ErrorMessage = "First name cannot exceed 50 characters")]
+        public string FirstName { get; set; } = "";
+
+        public string? MiddleName { get; set; }
+
+        [Required(ErrorMessage = "Last name is required")]
+        [StringLength(50, ErrorMessage = "Last name cannot exceed 50 characters")]
+        public string LastName { get; set; } = "";
+
+        public string? Suffix { get; set; }
+
+        [EmailAddress(ErrorMessage = "Please enter a valid email address")]
+        public string? Email { get; set; }
+
+        public string? Phone { get; set; }
+        public string? CellPhone { get; set; }
+        
+        [Required(ErrorMessage = "Address is required")]
+        public string? Address1 { get; set; }
+        
+        [Required(ErrorMessage = "City is required")]
+        public string? City { get; set; }
+        
+        [Required(ErrorMessage = "State is required")]
+        [StringLength(2, ErrorMessage = "State must be 2 characters")]
+        public string? State { get; set; }
+        
+        [Required(ErrorMessage = "Zip code is required")]
+        public string? PostalCode { get; set; }
+
+        [Required(ErrorMessage = "Status is required")]
+        public string Status { get; set; } = "";
+
+        [Required(ErrorMessage = "Application date is required")]
+        public DateTime? ApplicationDate { get; set; }
+        
+        public DateTime? AcceptedDate { get; set; }
+        
+        public DateTime? RegularSince { get; set; }
+        
+        [Required(ErrorMessage = "Date of birth is required")]
+        public DateTime? DateOfBirth { get; set; }
+
+        public bool IsNonPortugueseOrigin { get; set; }
+        
+        public string? Notes { get; set; }
+    }
+}

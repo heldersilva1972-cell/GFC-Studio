@@ -1,0 +1,386 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@inject IKeyCardRepository KeyCardRepository
+@inject IMemberRepository MemberRepository
+@inject ILogger<CardAssignmentsTab> Logger
+
+<div class="assignments-container">
+    <!-- Summary Metrics -->
+    <div class="metrics-grid slide-in-up">
+        <div class="metric-card metric-primary">
+            <div class="metric-icon">
+                <i class="bi bi-credit-card-2-front-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Total Cards</div>
+                <div class="metric-value">@_totalCards</div>
+            </div>
+        </div>
+        
+        <div class="metric-card metric-success">
+            <div class="metric-icon">
+                <i class="bi bi-check-circle-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Active</div>
+                <div class="metric-value">@_activeCards</div>
+            </div>
+        </div>
+        
+        <div class="metric-card metric-warning">
+            <div class="metric-icon">
+                <i class="bi bi-pause-circle-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Inactive</div>
+                <div class="metric-value">@_inactiveCards</div>
+            </div>
+        </div>
+        
+        <div class="metric-card metric-info">
+            <div class="metric-icon">
+                <i class="bi bi-people-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Members with Cards</div>
+                <div class="metric-value">@_membersWithCards</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters and Search -->
+    <div class="filters-section slide-in-up" style="animation-delay: 0.1s;">
+        <div class="search-filter-bar">
+            <div class="search-box-large">
+                <i class="bi bi-search"></i>
+                <input type="text" 
+                       class="form-control" 
+                       placeholder="Search by card number, member name, or ID..."
+                       @bind="_searchTerm"
+                       @bind:event="oninput"
+                       @bind:after="ApplyFilters" />
+                @if (!string.IsNullOrEmpty(_searchTerm))
+                {
+                    <button class="btn-clear" @onclick="ClearSearch">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                }
+            </div>
+            
+            <div class="filter-pills">
+                <button class="filter-pill @(_statusFilter == "all" ? "active" : "")" 
+                        @onclick='() => SetStatusFilter("all")'>
+                    All Cards
+                </button>
+                <button class="filter-pill @(_statusFilter == "active" ? "active" : "")" 
+                        @onclick='() => SetStatusFilter("active")'>
+                    <i class="bi bi-check-circle"></i> Active
+                </button>
+                <button class="filter-pill @(_statusFilter == "inactive" ? "active" : "")" 
+                        @onclick='() => SetStatusFilter("inactive")'>
+                    <i class="bi bi-pause-circle"></i> Inactive
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cards Grid -->
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <div class="spinner-modern">
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+            </div>
+            <p>Loading cards...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger slide-in-up" style="animation-delay: 0.2s;">
+            <i class="bi bi-exclamation-triangle"></i> @_errorMessage
+        </div>
+    }
+    else if (!_filteredCards.Any())
+    {
+        <div class="empty-state slide-in-up" style="animation-delay: 0.2s;">
+            <div class="empty-icon">
+                <i class="bi bi-inbox"></i>
+            </div>
+            <h3>No Cards Found</h3>
+            <p>@(_searchTerm.Length > 0 ? "Try adjusting your search or filters" : "Get started by assigning a new key card")</p>
+        </div>
+    }
+    else
+    {
+        <div class="cards-grid">
+            @foreach (var (card, index) in _filteredCards.Select((c, i) => (c, i)))
+            {
+                <div class="card-item slide-in-up" style="animation-delay: @(0.05 * index)s;">
+                    <div class="card-item-header">
+                        <div class="card-number-badge">
+                            <i class="bi bi-credit-card"></i>
+                            <span>@card.CardNumber</span>
+                        </div>
+                        <div class="status-badge status-@(card.IsActive ? "active" : "inactive")">
+                            <i class="bi bi-@(card.IsActive ? "check" : "pause")-circle-fill"></i>
+                            <span>@(card.IsActive ? "Active" : "Inactive")</span>
+                        </div>
+                    </div>
+                    
+                    <div class="card-item-body">
+                        <div class="member-info-row">
+                            <div class="member-avatar-small">
+                                <i class="bi bi-person-fill"></i>
+                            </div>
+                            <div>
+                                <div class="member-name-small">@card.MemberName</div>
+                                <div class="member-id-small">Member #@card.MemberId</div>
+                            </div>
+                        </div>
+                        
+                        @if (card.IssuedDate.HasValue)
+                        {
+                            <div class="card-meta">
+                                <i class="bi bi-calendar3"></i>
+                                <span>Issued @card.IssuedDate.Value.ToString("MMM dd, yyyy")</span>
+                            </div>
+                        }
+                        
+                        @if (card.LastUsed.HasValue)
+                        {
+                            <div class="card-meta">
+                                <i class="bi bi-clock-history"></i>
+                                <span>Last used @GetRelativeTime(card.LastUsed.Value)</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="card-meta text-muted">
+                                <i class="bi bi-clock-history"></i>
+                                <span>Never used</span>
+                            </div>
+                        }
+                    </div>
+                    
+                    <div class="card-item-actions">
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewCard(card.CardId)">
+                            <i class="bi bi-eye"></i> View
+                        </button>
+                        @if (card.IsActive)
+                        {
+                            <button class="btn btn-sm btn-outline-warning" @onclick="() => DeactivateCard(card.CardId)">
+                                <i class="bi bi-pause-circle"></i> Deactivate
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-success" @onclick="() => ReactivateCard(card.CardId)">
+                                <i class="bi bi-play-circle"></i> Reactivate
+                            </button>
+                        }
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ReplaceCard(card.CardId)">
+                            <i class="bi bi-arrow-repeat"></i> Replace
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string _searchTerm = string.Empty;
+    private string _statusFilter = "all";
+    private string _errorMessage = string.Empty;
+    
+    private int _totalCards = 0;
+    private int _activeCards = 0;
+    private int _inactiveCards = 0;
+    private int _membersWithCards = 0;
+    
+    private List<CardListItem> _allCards = new();
+    private List<CardListItem> _filteredCards = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCardsAsync();
+    }
+    
+    private async Task LoadCardsAsync()
+    {
+        _loading = true;
+        _errorMessage = string.Empty;
+        
+        try
+        {
+            // Load all key cards with member info
+            var cards = await Task.Run(() => KeyCardRepository.GetAll());
+            var members = await Task.Run(() => MemberRepository.GetAllMembers());
+            
+            _allCards = cards.Select(c => {
+                var member = members.FirstOrDefault(m => m.MemberID == c.MemberId);
+                return new CardListItem
+                {
+                    CardId = c.KeyCardId,
+                    CardNumber = c.CardNumber,
+                    MemberId = c.MemberId,
+                    MemberName = member != null ? $"{member.FirstName} {member.LastName}" : "Unknown",
+                    IsActive = c.IsActive,
+                    IssuedDate = c.CreatedDate,
+                    LastUsed = null // TODO: Get from ControllerEvents
+                };
+            }).ToList();
+            
+            UpdateMetrics();
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading cards");
+            _errorMessage = "Failed to load key cards. Please try again.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+    
+    private void UpdateMetrics()
+    {
+        _totalCards = _allCards.Count;
+        _activeCards = _allCards.Count(c => c.IsActive);
+        _inactiveCards = _allCards.Count(c => !c.IsActive);
+        _membersWithCards = _allCards.Select(c => c.MemberId).Distinct().Count();
+    }
+    
+    private void ApplyFilters()
+    {
+        var query = _allCards.AsEnumerable();
+        
+        // Search filter
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            var search = _searchTerm.ToLower();
+            query = query.Where(c =>
+                c.CardNumber.ToLower().Contains(search) ||
+                c.MemberName.ToLower().Contains(search) ||
+                c.MemberId.ToString().Contains(search));
+        }
+        
+        // Status filter
+        query = _statusFilter switch
+        {
+            "active" => query.Where(c => c.IsActive),
+            "inactive" => query.Where(c => !c.IsActive),
+            _ => query
+        };
+        
+        _filteredCards = query.OrderByDescending(c => c.IssuedDate).ToList();
+    }
+    
+    private void ClearSearch()
+    {
+        _searchTerm = string.Empty;
+        ApplyFilters();
+    }
+    
+    private void SetStatusFilter(string filter)
+    {
+        _statusFilter = filter;
+        ApplyFilters();
+    }
+    
+    private void ViewCard(int cardId)
+    {
+        // Navigate to card detail page or show modal
+        // TODO: Implement card detail view
+    }
+    
+    private async Task DeactivateCard(int cardId)
+    {
+        try
+        {
+            var card = await Task.Run(() => KeyCardRepository.GetById(cardId));
+            if (card == null) return;
+            
+            card.IsActive = false;
+            await Task.Run(() => KeyCardRepository.Update(card));
+            
+            Logger.LogInformation("Card {CardId} deactivated", cardId);
+            
+            // Refresh the list
+            await LoadCardsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deactivating card {CardId}", cardId);
+            _errorMessage = "Failed to deactivate card. Please try again.";
+        }
+    }
+    
+    private async Task ReactivateCard(int cardId)
+    {
+        try
+        {
+            var card = await Task.Run(() => KeyCardRepository.GetById(cardId));
+            if (card == null) return;
+            
+            // Check if member already has another active card
+            var memberActiveCard = _allCards.FirstOrDefault(c => 
+                c.MemberId == card.MemberId && c.IsActive && c.CardId != cardId);
+            
+            if (memberActiveCard != null)
+            {
+                _errorMessage = $"Member already has an active card (#{memberActiveCard.CardNumber}). Please deactivate it first.";
+                return;
+            }
+            
+            card.IsActive = true;
+            await Task.Run(() => KeyCardRepository.Update(card));
+            
+            Logger.LogInformation("Card {CardId} reactivated", cardId);
+            
+            // Refresh the list
+            await LoadCardsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error reactivating card {CardId}", cardId);
+            _errorMessage = "Failed to reactivate card. Please try again.";
+        }
+    }
+    
+    private async Task ReplaceCard(int cardId)
+    {
+        // TODO: Show replace card modal with card scanner
+        // This would:
+        // 1. Scan new card
+        // 2. Deactivate old card
+        // 3. Create new card with same member
+        // 4. Copy door access privileges
+    }
+    
+    private string GetRelativeTime(DateTime date)
+    {
+        var span = DateTime.Now - date;
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
+        return date.ToString("MMM dd");
+    }
+    
+    private class CardListItem
+    {
+        public int CardId { get; set; }
+        public string CardNumber { get; set; } = string.Empty;
+        public int MemberId { get; set; }
+        public string MemberName { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+        public DateTime? IssuedDate { get; set; }
+        public DateTime? LastUsed { get; set; }
+    }
+}

@@ -1,0 +1,388 @@
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Data
+@using GFC.Core.Interfaces
+@using Microsoft.EntityFrameworkCore
+@inject GfcDbContext DbContext
+@inject IKeyCardRepository KeyCardRepository
+@inject IMemberRepository MemberRepository
+@inject ILogger<DoorActivityTab> Logger
+
+<div class="activity-container">
+    <!-- Time Range Filters -->
+    <div class="activity-filters slide-in-up">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label class="filter-label">Time Range</label>
+                <select class="form-select" @bind="_timeRange" @bind:after="LoadActivityAsync">
+                    <option value="24h">Last 24 Hours</option>
+                    <option value="today">Today</option>
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="custom">Custom Range</option>
+                </select>
+            </div>
+            
+            @if (_timeRange == "custom")
+            {
+                <div class="filter-group">
+                    <label class="filter-label">From</label>
+                    <input type="datetime-local" class="form-control" @bind="_fromDate" @bind:after="LoadActivityAsync" />
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">To</label>
+                    <input type="datetime-local" class="form-control" @bind="_toDate" @bind:after="LoadActivityAsync" />
+                </div>
+            }
+            
+            <div class="filter-group">
+                <label class="filter-label">Controller</label>
+                <select class="form-select" @bind="_selectedControllerId" @bind:after="LoadActivityAsync">
+                    <option value="0">All Controllers</option>
+                    @foreach (var controller in _controllers)
+                    {
+                        <option value="@controller.Id">@controller.Name</option>
+                    }
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label class="filter-label">Door</label>
+                <select class="form-select" @bind="_selectedDoorId" @bind:after="LoadActivityAsync">
+                    <option value="0">All Doors</option>
+                    @foreach (var door in _filteredDoors)
+                    {
+                        <option value="@door.Id">@door.Name</option>
+                    }
+                </select>
+            </div>
+            
+            <div class="filter-group align-end">
+                <button class="btn btn-primary" @onclick="LoadActivityAsync" disabled="@_loading">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity Table -->
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <div class="spinner-modern">
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+            </div>
+            <p>Loading activity...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle"></i> @_errorMessage
+        </div>
+    }
+    else
+    {
+        <div class="activity-card slide-in-up" style="animation-delay: 0.1s;">
+            <div class="activity-header">
+                <div>
+                    <h5 class="mb-1">Door Activity Log</h5>
+                    <p class="text-muted mb-0 small">Showing @_activities.Count of @_totalCount events @(_hasMore ? "(more available)" : "")</p>
+                </div>
+                <div class="activity-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ExportToCsv">
+                        <i class="bi bi-download"></i> Export
+                    </button>
+                </div>
+            </div>
+            
+            <div class="activity-table-container">
+                <table class="activity-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Controller</th>
+                            <th>Door</th>
+                            <th>Card</th>
+                            <th>Member</th>
+                            <th>Event</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!_activities.Any())
+                        {
+                            <tr>
+                                <td colspan="7" class="text-center py-5">
+                                    <div class="empty-icon-small">
+                                        <i class="bi bi-inbox"></i>
+                                    </div>
+                                    <p class="text-muted mb-0">No activity found for the selected filters</p>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var activity in _activities)
+                            {
+                                <tr class="activity-row @GetRowClass(activity)">
+                                    <td class="time-cell">
+                                        <div class="time-display">@activity.TimestampUtc.ToLocalTime().ToString("MM/dd HH:mm:ss")</div>
+                                    </td>
+                                    <td>@activity.ControllerName</td>
+                                    <td>@activity.DoorName</td>
+                                    <td>
+                                        @if (activity.CardNumber.HasValue)
+                                        {
+                                            <span class="card-badge">#@activity.CardNumber</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">—</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(activity.MemberName))
+                                        {
+                                            <span>@activity.MemberName</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Unknown</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="event-badge event-@GetEventClass(activity.EventType)">
+                                            <i class="bi bi-@GetEventIcon(activity.EventType)"></i>
+                                            @GetEventName(activity.EventType)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewDetails(activity)">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            
+            @if (_hasMore)
+            {
+                <div class="activity-footer">
+                    <button class="btn btn-outline-primary" @onclick="LoadMoreAsync" disabled="@_loadingMore">
+                        @if (_loadingMore)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Load More (Next 100)
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _loadingMore = false;
+    private string _errorMessage = string.Empty;
+    private string _timeRange = "24h";
+    private DateTime? _fromDate;
+    private DateTime? _toDate;
+    private int _selectedControllerId = 0;
+    private int _selectedDoorId = 0;
+    
+    private List<ControllerDevice> _controllers = new();
+    private List<Door> _allDoors = new();
+    private List<Door> _filteredDoors = new();
+    private List<ActivityItem> _activities = new();
+    private int _totalCount = 0;
+    private bool _hasMore = false;
+    private int _currentPage = 0;
+    private const int PageSize = 100;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadControllersAndDoorsAsync();
+        await LoadActivityAsync();
+    }
+    
+    private async Task LoadControllersAndDoorsAsync()
+    {
+        try
+        {
+            _controllers = await DbContext.Controllers.ToListAsync();
+            _allDoors = await DbContext.Doors.ToListAsync();
+            _filteredDoors = _allDoors;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading controllers and doors");
+        }
+    }
+    
+    private async Task LoadActivityAsync()
+    {
+        _currentPage = 0;
+        _activities.Clear();
+        await LoadMoreAsync();
+    }
+    
+    private async Task LoadMoreAsync()
+    {
+        _loading = _currentPage == 0;
+        _loadingMore = _currentPage > 0;
+        _errorMessage = string.Empty;
+        
+        try
+        {
+            var (fromDate, toDate) = GetDateRange();
+            
+            var query = DbContext.ControllerEvents
+                .Where(e => e.TimestampUtc >= fromDate && e.TimestampUtc <= toDate)
+                .Where(e => e.IsByCard) // Only card-related events
+                .OrderByDescending(e => e.TimestampUtc);
+            
+            // Apply filters
+            if (_selectedControllerId > 0)
+                query = (IOrderedQueryable<ControllerEvent>)query.Where(e => e.ControllerId == _selectedControllerId);
+            
+            if (_selectedDoorId > 0)
+                query = (IOrderedQueryable<ControllerEvent>)query.Where(e => e.DoorId == _selectedDoorId);
+            
+            var events = await query
+                .Skip(_currentPage * PageSize)
+                .Take(PageSize)
+                .Include(e => e.Controller)
+                .Include(e => e.Door)
+                .ToListAsync();
+            
+            // Load all cards and members for lookup
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            
+            var newActivities = events.Select(e => {
+                string? memberName = null;
+                if (e.CardNumber.HasValue)
+                {
+                    var card = allCards.FirstOrDefault(c => c.CardNumber == e.CardNumber.ToString());
+                    if (card != null)
+                    {
+                        var member = allMembers.FirstOrDefault(m => m.MemberID == card.MemberId);
+                        if (member != null)
+                        {
+                            memberName = $"{member.FirstName} {member.LastName}";
+                        }
+                    }
+                }
+                
+                return new ActivityItem
+                {
+                    Id = e.Id,
+                    TimestampUtc = e.TimestampUtc,
+                    ControllerName = e.Controller?.Name ?? "Unknown",
+                    DoorName = e.Door?.Name ?? "Unknown",
+                    CardNumber = e.CardNumber,
+                    MemberName = memberName,
+                    EventType = e.EventType,
+                    ReasonCode = e.ReasonCode
+                };
+            }).ToList();
+            
+            _activities.AddRange(newActivities);
+            _hasMore = newActivities.Count == PageSize;
+            _currentPage++;
+            _totalCount = _activities.Count;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading activity");
+            _errorMessage = "Failed to load door activity. Please try again.";
+        }
+        finally
+        {
+            _loading = false;
+            _loadingMore = false;
+        }
+    }
+    
+    private (DateTime from, DateTime to) GetDateRange()
+    {
+        var now = DateTime.UtcNow;
+        return _timeRange switch
+        {
+            "24h" => (now.AddHours(-24), now),
+            "today" => (now.Date.ToUniversalTime(), now),
+            "week" => (now.AddDays(-7), now),
+            "month" => (now.AddMonths(-1), now),
+            "custom" => (_fromDate?.ToUniversalTime() ?? now.AddHours(-24), _toDate?.ToUniversalTime() ?? now),
+            _ => (now.AddHours(-24), now)
+        };
+    }
+    
+    private void ExportToCsv()
+    {
+        // TODO: Implement CSV export
+    }
+    
+    private void ViewDetails(ActivityItem activity)
+    {
+        // TODO: Show activity details modal
+    }
+    
+    private string GetRowClass(ActivityItem activity)
+    {
+        return activity.EventType switch
+        {
+            1 => "event-success", // Access granted
+            2 => "event-danger",  // Access denied
+            _ => ""
+        };
+    }
+    
+    private string GetEventClass(int eventType)
+    {
+        return eventType switch
+        {
+            1 => "success",
+            2 => "danger",
+            _ => "secondary"
+        };
+    }
+    
+    private string GetEventIcon(int eventType)
+    {
+        return eventType switch
+        {
+            1 => "check-circle-fill",
+            2 => "x-circle-fill",
+            _ => "circle-fill"
+        };
+    }
+    
+    private string GetEventName(int eventType)
+    {
+        return eventType switch
+        {
+            1 => "Access Granted",
+            2 => "Access Denied",
+            _ => "Unknown"
+        };
+    }
+    
+    private class ActivityItem
+    {
+        public int Id { get; set; }
+        public DateTime TimestampUtc { get; set; }
+        public string ControllerName { get; set; } = string.Empty;
+        public string DoorName { get; set; } = string.Empty;
+        public long? CardNumber { get; set; }
+        public string? MemberName { get; set; }
+        public int EventType { get; set; }
+        public int? ReasonCode { get; set; }
+    }
+}

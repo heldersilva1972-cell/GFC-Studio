@@ -1,693 +1,462 @@
 @page "/keycards"
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
-@using System.Linq
-@using Microsoft.AspNetCore.Components.Forms
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
-@inject IKeyCardDashboardRepository KeyCardDashboardRepository
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Components.Pages.KeyCardTabs
+@inject IKeyCardRepository KeyCardRepository
+@inject IMemberRepository MemberRepository
 @inject NavigationManager NavManager
 @inject ILogger<KeyCards> Logger
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+<PageTitle>Key Card Management - GFC</PageTitle>
+
+<!-- Page Header with Animation -->
+<div class="page-header-modern fade-in">
+    <div class="header-content">
+        <div class="header-icon-wrapper">
+            <div class="header-icon pulse">
+                <i class="bi bi-credit-card-2-front"></i>
+            </div>
+        </div>
         <div>
-            <h1 class="mb-0">Key Cards</h1>
-            <div class="text-muted small">
-                Manage member access cards, status, and controller privileges.
-            </div>
-        </div>
-        <div class="d-flex gap-2">
-            <button class="btn btn-primary" type="button" @onclick="NavigateToAssign">Assign New Card</button>
-            <button class="btn btn-outline-secondary" type="button" disabled>Export</button>
+            <h1 class="page-title-modern">Key Card Management</h1>
+            <p class="page-subtitle">Manage member access cards, monitor activity, and configure permissions</p>
         </div>
     </div>
-
-    <div class="card mb-3 shadow-sm rounded">
-        <div class="card-body py-2">
-            <div class="filters-bar">
-                <div class="filters-primary">
-                    <label class="form-label mb-1 small text-muted fw-semibold" for="keycard-search">Search key cards</label>
-                    <div class="input-group input-group-sm search-input">
-                        <span class="input-group-text">
-                            <i class="bi bi-search" aria-hidden="true"></i>
-                        </span>
-                        <InputText @bind-Value="SearchTerm"
-                                   id="keycard-search"
-                                   class="form-control"
-                                   placeholder="Search by name, card number, or member #"
-                                   aria-label="Search key cards"
-                                   disabled="@_loading" />
-                        @if (!string.IsNullOrWhiteSpace(SearchTerm))
-                        {
-                            <button type="button"
-                                    class="btn btn-outline-secondary"
-                                    @onclick="ClearSearch"
-                                    disabled="@_loading">
-                                <i class="bi bi-x-circle me-1"></i> Clear
-                            </button>
-                        }
-                    </div>
-                </div>
-
-                <div class="filters-secondary">
-                    <div class="filter-row">
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                            <span class="text-muted small fw-semibold">Status</span>
-                            <div class="pill-tabs flex-wrap">
-                                @foreach (var option in _statusFilterOptions)
-                                {
-                                    <button class="pill-tab @(option.Filter == _activeStatus ? "active" : string.Empty)"
-                                            type="button"
-                                            @onclick="() => SetStatusFilter(option.Filter)"
-                                            disabled="@_loading">
-                                        @option.Label
-                                    </button>
-                                }
-                            </div>
-                        </div>
-
-                        <div class="d-flex align-items-center gap-2">
-                            <label class="text-muted small mb-0" for="keycard-sort">Sort by</label>
-                            <select class="form-select form-select-sm"
-                                    id="keycard-sort"
-                                    @onchange="OnSortChanged"
-                                    value="@_sortOption"
-                                    aria-label="Sort key cards"
-                                    disabled="@_loading">
-                                <option value="@SortOption.CardNumber">Card number</option>
-                                <option value="@SortOption.MemberName">Member name</option>
-                                <option value="@SortOption.IssuedDate">Issued date</option>
-                                <option value="@SortOption.Status">Status</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    @if (HasActiveFilters)
-                    {
-                        <span class="badge rounded-pill active-filters-badge">
-                            <span class="badge-dot"></span>
-                            Filters active
-                        </span>
-                    }
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card shadow-sm rounded">
-        <div class="card-body p-0">
-            <div class="keycard-list">
-                @if (_loading)
-                {
-                    <div class="state-panel">
-                        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-                        <div class="text-muted small">Loading key cards...</div>
-                    </div>
-                }
-                else if (!string.IsNullOrWhiteSpace(_errorMessage))
-                {
-                    <div class="state-panel error-state">
-                        <div class="text-danger fw-semibold">@_errorMessage</div>
-                        <div class="text-muted small">Please try again.</div>
-                        <button class="btn btn-sm btn-outline-primary"
-                                type="button"
-                                @onclick="RetryLoadAsync"
-                                disabled="@_loading">
-                            Retry
-                        </button>
-                    </div>
-                }
-                else if (FilteredKeyCards != null && FilteredKeyCards.Any())
-                {
-                    @foreach (var card in FilteredKeyCards)
-                    {
-                        <div class="keycard-row @(card.CardId == _selectedCardId ? "selected" : string.Empty)"
-                             role="button"
-                             tabindex="0"
-                             aria-label="@($"Key card {card.CardNumber} for {(string.IsNullOrWhiteSpace(card.MemberName) ? "unassigned member" : card.MemberName)}")"
-                             @onclick="() => SelectAndNavigate(card)">
-                            <div class="keycard-content">
-                                <div class="keycard-header">
-                                    <div class="keycard-cardnumber">@card.CardNumber</div>
-                                    @{
-                                        var statusText = GetStatusLabel(card);
-                                        var statusClass = GetStatusClass(statusText);
-                                    }
-                                    <span class="status-badge @statusClass">@statusText</span>
-                                </div>
-                                <div class="keycard-secondary">
-                                    <div class="keycard-member text-muted">
-                                        @if (!string.IsNullOrWhiteSpace(card.MemberName))
-                                        {
-                                            <span>@card.MemberName</span>
-                                        }
-                                        else
-                                        {
-                                            <span>Unassigned</span>
-                                        }
-                                    </div>
-                                    <span class="keycard-date text-muted">
-                                        Issued @(card.IssuedDate?.ToShortDateString() ?? "—")
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="keycard-actions">
-                                <div class="keycard-id text-muted">Member #@card.MemberId</div>
-                            <button class="btn btn-sm btn-outline-primary"
-                                        @onclick:stopPropagation="true"
-                                    @onclick="() => SelectAndNavigate(card)">
-                                    View
-                                </button>
-                            </div>
-                        </div>
-                    }
-                }
-                else
-                {
-                    <div class="state-panel empty-state">
-                        <div class="fw-semibold">No keycards found</div>
-                        <div class="text-muted small">Try clearing filters/search.</div>
-                        @if (HasActiveFilters)
-                        {
-                            <button class="btn btn-sm btn-outline-secondary"
-                                    type="button"
-                                    @onclick="ClearFilters"
-                                    disabled="@_loading">
-                                Clear filters
-                            </button>
-                        }
-                    </div>
-                }
-            </div>
-        </div>
+    <div class="header-actions">
+        <button class="btn btn-primary btn-modern" @onclick="OpenAssignCardModal">
+            <i class="bi bi-plus-circle"></i>
+            <span>Assign New Card</span>
+        </button>
     </div>
 </div>
 
-<style>
-    .keycard-list {
-        display: flex;
-        flex-direction: column;
+<!-- Tab Navigation with Slide Animation -->
+<div class="tab-navigation-modern slide-in-up">
+    <div class="tab-nav-container">
+        <button class="tab-nav-item @(_activeTab == "assignments" ? "active" : "")" 
+                @onclick='() => SetActiveTab("assignments")'>
+            <i class="bi bi-credit-card"></i>
+            <span>Card Assignments</span>
+            <div class="tab-indicator"></div>
+        </button>
+        <button class="tab-nav-item @(_activeTab == "activity" ? "active" : "")" 
+                @onclick='() => SetActiveTab("activity")'>
+            <i class="bi bi-activity"></i>
+            <span>Door Activity</span>
+            <div class="tab-indicator"></div>
+        </button>
+        <button class="tab-nav-item @(_activeTab == "access" ? "active" : "")" 
+                @onclick='() => SetActiveTab("access")'>
+            <i class="bi bi-shield-lock"></i>
+            <span>Access Control</span>
+            <div class="tab-indicator"></div>
+        </button>
+    </div>
+</div>
+
+<!-- Tab Content with Fade Transition -->
+<div class="tab-content-modern">
+    @if (_activeTab == "assignments")
+    {
+        <div class="tab-pane fade-in" key="assignments">
+            <CardAssignmentsTab />
+        </div>
     }
-
-    .state-panel {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 0.35rem;
-        padding: 2.25rem 1rem;
-        text-align: center;
+    else if (_activeTab == "activity")
+    {
+        <div class="tab-pane fade-in" key="activity">
+            <DoorActivityTab />
+        </div>
     }
-
-    .state-panel .btn {
-        margin-top: 0.25rem;
+    else if (_activeTab == "access")
+    {
+        <div class="tab-pane fade-in" key="access">
+            <AccessControlTab />
+        </div>
     }
+</div>
 
-    .error-state {
-        background: #fff5f5;
-        border-top: 1px solid #f4c2c2;
-    }
+<!-- Assign Card Modal -->
+@if (_showAssignModal)
+{
+    <div class="modal-backdrop-modern fade-in" @onclick="CloseAssignCardModal"></div>
+    <div class="modal-modern-container fade-in scale-in">
+        <div class="modal-modern">
+            <div class="modal-header-modern">
+                <div>
+                    <h3 class="modal-title-modern">
+                        <i class="bi bi-credit-card-2-front text-primary"></i>
+                        Assign New Key Card
+                    </h3>
+                    <p class="modal-subtitle">Scan a card and assign it to a member</p>
+                </div>
+                <button class="btn-close-modern" @onclick="CloseAssignCardModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body-modern">
+                <div class="assign-card-content">
+                    <!-- Step Indicator -->
+                    <div class="steps-indicator">
+                        <div class="step @(_assignStep >= 1 ? "active" : "") @(_assignStep > 1 ? "completed" : "")">
+                            <div class="step-number">
+                                @if (_assignStep > 1)
+                                {
+                                    <i class="bi bi-check"></i>
+                                }
+                                else
+                                {
+                                    <span>1</span>
+                                }
+                            </div>
+                            <div class="step-label">Scan Card</div>
+                        </div>
+                        <div class="step-line @(_assignStep > 1 ? "completed" : "")"></div>
+                        <div class="step @(_assignStep >= 2 ? "active" : "") @(_assignStep > 2 ? "completed" : "")">
+                            <div class="step-number">
+                                @if (_assignStep > 2)
+                                {
+                                    <i class="bi bi-check"></i>
+                                }
+                                else
+                                {
+                                    <span>2</span>
+                                }
+                            </div>
+                            <div class="step-label">Select Member</div>
+                        </div>
+                        <div class="step-line @(_assignStep > 2 ? "completed" : "")"></div>
+                        <div class="step @(_assignStep >= 3 ? "active" : "")">
+                            <div class="step-number">3</div>
+                            <div class="step-label">Confirm</div>
+                        </div>
+                    </div>
 
-    .empty-state {
-        background: #f8fafc;
-        border-top: 1px solid #e9ecef;
-    }
+                    <!-- Step 1: Scan Card -->
+                    @if (_assignStep == 1)
+                    {
+                        <div class="step-content fade-in">
+                            <div class="card-scanner-visual">
+                                @if (!_cardScanned)
+                                {
+                                    <div class="scanner-animation">
+                                        <div class="scanner-icon pulse-slow">
+                                            <i class="bi bi-upc-scan"></i>
+                                        </div>
+                                        <div class="scanner-waves">
+                                            <div class="wave wave-1"></div>
+                                            <div class="wave wave-2"></div>
+                                            <div class="wave wave-3"></div>
+                                        </div>
+                                    </div>
+                                    <p class="scanner-instruction">Click the button below and tap your card</p>
+                                    <button class="btn btn-primary btn-lg btn-scan" @onclick="EnableScanning" disabled="@_scanningEnabled">
+                                        <i class="bi bi-upc-scan"></i>
+                                        @(_scanningEnabled ? "Waiting for card..." : "Start Scanning")
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="scan-success bounce-in">
+                                        <div class="success-checkmark">
+                                            <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                                                <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                                                <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                                            </svg>
+                                        </div>
+                                        <h4 class="status-title-success mt-3">Card Scanned!</h4>
+                                        <div class="card-number-display">
+                                            <code>@_scannedCardNumber</code>
+                                        </div>
+                                        <button class="btn btn-primary btn-lg mt-3" @onclick="() => _assignStep = 2">
+                                            Continue <i class="bi bi-arrow-right"></i>
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                            
+                            <!-- Hidden input for card reader -->
+                            @if (_scanningEnabled && !_cardScanned)
+                            {
+                                 <input type="text" 
+                                       @bind="_scannedCardNumber"
+                                       @bind:event="oninput"
+                                       @onkeydown="HandleCardScan"
+                                       autofocus
+                                       class="hidden-scanner-input" />
+                            }
+                        </div>
+                    }
 
-    .keycard-row {
-        display: grid;
-        grid-template-columns: minmax(0, 2fr) auto;
-        gap: 0.75rem 1.25rem;
-        align-items: center;
-        padding: 0.85rem 1rem;
-        border-bottom: 1px solid #e9ecef;
-        border-radius: 0.35rem;
-        transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-    }
+                    <!-- Step 2: Select Member -->
+                    @if (_assignStep == 2)
+                    {
+                        <div class="step-content fade-in">
+                            <div class="member-selection">
+                                <label class="form-label-modern">Select Member</label>
+                                <div class="search-box-modern mb-3">
+                                    <i class="bi bi-search"></i>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           placeholder="Search members by name or ID..."
+                                           @bind="_memberSearch"
+                                           @bind:event="oninput" />
+                                </div>
+                                
+                                <div class="member-list">
+                                    @foreach (var member in FilteredMembers.Take(10))
+                                    {
+                                        <div class="member-card @(_selectedMemberId == member.MemberID ? "selected" : "")"
+                                             @onclick="() => SelectMember(member)">
+                                            <div class="member-avatar">
+                                                <i class="bi bi-person-circle"></i>
+                                            </div>
+                                            <div class="member-info">
+                                                <div class="member-name">@member.FirstName @member.LastName</div>
+                                                <div class="member-details">
+                                                     <span class="badge-chip">ID: @member.MemberID</span>
+                                                    <span class="badge-chip badge-@GetStatusClass(member.Status)">@member.Status</span>
+                                                </div>
+                                            </div>
+                                            @if (_selectedMemberId == member.MemberID)
+                                            {
+                                                <div class="member-check">
+                                                    <i class="bi bi-check-circle-fill"></i>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
 
-    .keycard-row:last-child {
-        border-bottom: none;
-    }
+                                <div class="step-actions">
+                                    <button class="btn btn-outline-secondary" @onclick="() => _assignStep = 1">
+                                        <i class="bi bi-arrow-left"></i> Back
+                                    </button>
+                                    <button class="btn btn-primary" @onclick="() => _assignStep = 3" disabled="@(_selectedMemberId == 0)">
+                                        Continue <i class="bi bi-arrow-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
 
-    .keycard-row:hover {
-        background: #f7f9fc;
-        border-color: #dfe6ee;
-    }
+                    <!-- Step 3: Confirm -->
+                    @if (_assignStep == 3)
+                    {
+                        <div class="step-content fade-in">
+                            <div class="confirmation-summary">
+                                <div class="summary-card">
+                                    <h5>Assignment Summary</h5>
+                                    <div class="summary-row">
+                                        <span class="summary-label">Card Number:</span>
+                                        <span class="summary-value"><code>@_scannedCardNumber</code></span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span class="summary-label">Member:</span>
+                                        <span class="summary-value">@_selectedMemberName</span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span class="summary-label">Issued Date:</span>
+                                        <span class="summary-value">@DateTime.Today.ToString("MMMM dd, yyyy")</span>
+                                    </div>
+                                </div>
 
-    .keycard-row:focus-visible {
-        outline: 2px solid #4c8dff;
-        outline-offset: -1px;
-        background: #eef4ff;
-        border-color: #b6cffd;
-        box-shadow: 0 0 0 3px rgba(76, 141, 255, 0.25);
-    }
+                                <div class="form-group-modern">
+                                    <label class="form-label-modern">Notes (Optional)</label>
+                                    <textarea class="form-control" rows="3" @bind="_assignNotes" placeholder="Add any notes about this assignment..."></textarea>
+                                </div>
 
-    .keycard-row.selected {
-        background: #e9f2ff;
-        border-color: #b6cffd;
-        box-shadow: inset 0 0 0 1px #b6cffd;
-    }
+                                @if (!string.IsNullOrEmpty(_assignError))
+                                {
+                                    <div class="alert alert-danger slide-in-down">
+                                        <i class="bi bi-exclamation-triangle"></i> @_assignError
+                                    </div>
+                                }
 
-    .keycard-row.selected:focus-visible {
-        background: #e4edff;
-    }
-
-    .filters-bar {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: flex-start;
-        gap: 0.85rem 1rem;
-    }
-
-    .filters-primary {
-        flex: 1 1 280px;
-        min-width: 260px;
-    }
-
-    .filters-secondary {
-        flex: 1 1 320px;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        justify-content: center;
-        gap: 0.35rem;
-    }
-
-    .filter-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 0.75rem;
-        width: 100%;
-    }
-
-    .search-input .btn {
-        white-space: nowrap;
-    }
-
-    .active-filters-badge {
-        background: #f0f7f2;
-        color: #157347;
-        border: 1px solid #cfe7d7;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        padding: 0.25rem 0.6rem;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-
-    .active-filters-badge .badge-dot {
-        width: 0.45rem;
-        height: 0.45rem;
-        border-radius: 999px;
-        background: #157347;
-        display: inline-block;
-    }
-
-    .keycard-content {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-        min-width: 0;
-    }
-
-    .keycard-header {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem 0.6rem;
-        flex-wrap: wrap;
-        min-width: 0;
-    }
-
-    .keycard-cardnumber {
-        font-weight: 600;
-        font-size: 1rem;
-        color: #0f172a;
-        word-break: break-word;
-        overflow-wrap: anywhere;
-        max-width: 100%;
-    }
-
-    .keycard-secondary {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
-        min-width: 0;
-    }
-
-    .keycard-member {
-        font-size: 0.95rem;
-        word-break: break-word;
-        min-width: 0;
-    }
-
-    .keycard-member span {
-        display: inline-block;
-        max-width: 100%;
-        overflow-wrap: anywhere;
-    }
-
-    .keycard-actions {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 0.25rem;
-        text-align: right;
-        min-width: 0;
-    }
-
-    .keycard-id {
-        font-size: 0.85rem;
-    }
-
-    .keycard-date {
-        font-size: 0.9rem;
-    }
-
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.25rem 0.5rem;
-        border-radius: 999px;
-        font-weight: 600;
-        font-size: 0.85rem;
-        line-height: 1.1;
-        gap: 0.25rem;
-        flex-shrink: 0;
-    }
-
-    .status-active {
-        background: #e6f4ea;
-        color: #137333;
-        border: 1px solid #c4e3cc;
-    }
-
-    .status-disabled,
-    .status-inactive {
-        background: #f0f1f3;
-        color: #475467;
-        border: 1px solid #e3e4e6;
-    }
-
-    .status-replaced {
-        background: #e8f1ff;
-        color: #1d4ed8;
-        border: 1px solid #cddffe;
-    }
-
-    .status-lost {
-        background: #fff4ed;
-        color: #c2410c;
-        border: 1px solid #ffd7ba;
-    }
-
-    .status-unknown {
-        background: #f6f7fb;
-        color: #6b7280;
-        border: 1px solid #e5e7eb;
-    }
-
-    .pill-tab:focus-visible,
-    .btn:focus-visible,
-    select:focus-visible,
-    input:focus-visible {
-        outline: 2px solid #4c8dff;
-        outline-offset: 2px;
-        box-shadow: 0 0 0 3px rgba(76, 141, 255, 0.25);
-    }
-
-    .keycard-row .btn:focus-visible {
-        outline-offset: 3px;
-    }
-
-    @@media (max-width: 992px) {
-        .filters-bar {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .filters-secondary {
-            align-items: flex-start;
-            width: 100%;
-        }
-
-        .keycard-row {
-            grid-template-columns: minmax(0, 1.2fr) auto;
-            align-items: start;
-            gap: 0.65rem 1rem;
-        }
-
-        .keycard-secondary {
-            gap: 0.5rem;
-        }
-    }
-
-    @@media (max-width: 640px) {
-        .filters-primary,
-        .filters-secondary,
-        .filter-row {
-            width: 100%;
-        }
-
-        .filter-row {
-            justify-content: space-between;
-        }
-
-        .filters-secondary {
-            align-items: flex-start;
-        }
-
-        .keycard-row {
-            grid-template-columns: 1fr;
-            align-items: flex-start;
-        }
-
-        .keycard-header {
-            justify-content: space-between;
-            gap: 0.4rem 0.6rem;
-        }
-
-        .keycard-secondary {
-            width: 100%;
-            justify-content: space-between;
-            gap: 0.35rem 0.5rem;
-        }
-
-        .keycard-date {
-            order: 2;
-        }
-
-        .keycard-actions {
-            flex-direction: row;
-            align-items: center;
-            justify-content: space-between;
-            width: 100%;
-            gap: 0.5rem;
-            text-align: left;
-        }
-
-        .keycard-actions .btn {
-            margin-left: auto;
-        }
-    }
-</style>
+                                <div class="step-actions">
+                                    <button class="btn btn-outline-secondary" @onclick="() => _assignStep = 2" disabled="@_assigning">
+                                        <i class="bi bi-arrow-left"></i> Back
+                                    </button>
+                                    <button class="btn btn-success btn-lg" @onclick="ConfirmAssignment" disabled="@_assigning">
+                                        @if (_assigning)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                            <span>Assigning...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-check-circle"></i>
+                                            <span>Assign & Activate Card</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
-    private enum StatusFilter
-    {
-        All,
-        Active,
-        Inactive
-    }
-
-    private enum SortOption
-    {
-        CardNumber,
-        MemberName,
-        IssuedDate,
-        Status
-    }
-
-    private sealed record StatusOption(StatusFilter Filter, string Label);
-
-    private sealed record KeyCardListItem(
-        int CardId,
-        string CardNumber,
-        int MemberId,
-        string MemberName,
-        bool IsActive,
-        DateTime? IssuedDate,
-        bool HasNotes);
-
-    private readonly List<StatusOption> _statusFilterOptions = new()
-    {
-        new(StatusFilter.All, "All"),
-        new(StatusFilter.Active, "Active"),
-        new(StatusFilter.Inactive, "Inactive")
-    };
-
-    private readonly List<KeyCardListItem> _allCards = new();
-    private List<KeyCardListItem> _filteredCards = new();
-    private string _searchText = string.Empty;
-    private StatusFilter _activeStatus = StatusFilter.All;
-    private SortOption _sortOption = SortOption.CardNumber;
-    private bool _loading = true;
-    private string? _errorMessage;
-    private int? _selectedCardId;
-    private bool HasActiveFilters => !string.IsNullOrWhiteSpace(_searchText) || _activeStatus != StatusFilter.All;
-
-    private string? SearchTerm
-    {
-        get => _searchText;
-        set
-        {
-            _searchText = value ?? string.Empty;
-            ApplyFilters();
-        }
-    }
-
-    private IEnumerable<KeyCardListItem> FilteredKeyCards => _filteredCards;
-
+    private string _activeTab = "assignments";
+    private bool _showAssignModal = false;
+    private int _assignStep = 1;
+    private bool _scanningEnabled = false;
+    private bool _cardScanned = false;
+    private string _scannedCardNumber = string.Empty;
+    private int _selectedMemberId = 0;
+    private string _selectedMemberName = string.Empty;
+    private string _memberSearch = string.Empty;
+    private string _assignNotes = string.Empty;
+    private bool _assigning = false;
+    private string _assignError = string.Empty;
+    
+    private List<Member> _allMembers = new();
+    
     protected override async Task OnInitializedAsync()
     {
-        await LoadKeyCardsAsync();
-        ApplyFilters();
+        await LoadMembersAsync();
     }
-
-    private async Task LoadKeyCardsAsync()
+    
+    private async Task LoadMembersAsync()
     {
-        _loading = true;
-        _errorMessage = null;
-
         try
         {
-            var data = await Task.Run(() => KeyCardDashboardRepository.GetMembersForYear(DateTime.Today.Year));
-            _allCards.Clear();
-
-            foreach (var row in data.Where(r => r.KeyCardId.HasValue))
-            {
-                _allCards.Add(new KeyCardListItem(
-                    row.KeyCardId!.Value,
-                    string.IsNullOrWhiteSpace(row.KeyCardNumber) ? $"#{row.KeyCardId}" : row.KeyCardNumber!,
-                    row.MemberId,
-                    row.DisplayName,
-                    row.HasActiveAssignment,
-                    null,
-                    false));
-            }
+            var members = await Task.Run(() => MemberRepository.GetAllMembers());
+            _allMembers = members
+                .Where(m => m.Status == "REGULAR" || m.Status == "REGULAR-NP" || m.Status == "LIFE")
+                .OrderBy(m => m.LastName)
+                .ThenBy(m => m.FirstName)
+                .ToList();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load key cards");
-            _errorMessage = "Unable to load key cards.";
+            Logger.LogError(ex, "Error loading members");
+        }
+    }
+    
+    private IEnumerable<Member> FilteredMembers
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_memberSearch))
+                return _allMembers;
+            
+            var search = _memberSearch.ToLower();
+            return _allMembers.Where(m =>
+                m.FirstName.ToLower().Contains(search) ||
+                m.LastName.ToLower().Contains(search) ||
+                m.MemberID.ToString().Contains(search));
+        }
+    }
+    
+    private void SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+    }
+    
+    private void OpenAssignCardModal()
+    {
+        _showAssignModal = true;
+        _assignStep = 1;
+        _cardScanned = false;
+        _scannedCardNumber = string.Empty;
+        _selectedMemberId = 0;
+        _selectedMemberName = string.Empty;
+        _memberSearch = string.Empty;
+        _assignNotes = string.Empty;
+        _assignError = string.Empty;
+    }
+    
+    private void CloseAssignCardModal()
+    {
+        _showAssignModal = false;
+    }
+    
+    private void EnableScanning()
+    {
+        _scanningEnabled = true;
+        _cardScanned = false;
+        _scannedCardNumber = string.Empty;
+    }
+    
+    private void HandleCardScan(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_scannedCardNumber))
+        {
+            _cardScanned = true;
+            _scanningEnabled = false;
+            StateHasChanged();
+        }
+    }
+    
+    private void SelectMember(Member member)
+    {
+        _selectedMemberId = member.MemberID;
+        _selectedMemberName = $"{member.FirstName} {member.LastName}";
+    }
+    
+    private async Task ConfirmAssignment()
+    {
+        _assigning = true;
+        _assignError = string.Empty;
+        
+        try
+        {
+            // Check if card number already exists
+            var existingCard = await Task.Run(() => KeyCardRepository.GetByCardNumber(_scannedCardNumber));
+            if (existingCard != null)
+            {
+                _assignError = $"Card number {_scannedCardNumber} is already assigned to another member.";
+                return;
+            }
+            
+            // Check if member already has an active card
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            var memberActiveCard = allCards.FirstOrDefault(c => c.MemberId == _selectedMemberId && c.IsActive);
+            if (memberActiveCard != null)
+            {
+                _assignError = $"Member already has an active card (#{memberActiveCard.CardNumber}). Please deactivate it first or use the Replace function.";
+                return;
+            }
+            
+            // Create the new card
+            var newCard = await Task.Run(() => 
+                KeyCardRepository.Create(_scannedCardNumber, _selectedMemberId, _assignNotes));
+            
+            Logger.LogInformation("Card {CardNumber} assigned to member {MemberId}", _scannedCardNumber, _selectedMemberId);
+            
+            // Close modal and refresh
+            _showAssignModal = false;
+            
+            // Trigger refresh of the assignments tab
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error assigning card");
+            _assignError = "Failed to assign card. Please try again.";
         }
         finally
         {
-            _loading = false;
-            ApplyFilters();
+            _assigning = false;
         }
     }
-
-    private async Task RetryLoadAsync()
+    
+    private string GetStatusClass(string status)
     {
-        await LoadKeyCardsAsync();
-    }
-
-    private void ApplyFilters()
-    {
-        IEnumerable<KeyCardListItem> query = _allCards;
-
-        if (!string.IsNullOrWhiteSpace(_searchText))
+        return status switch
         {
-            var term = _searchText.Trim();
-            query = query.Where(card =>
-                card.CardNumber.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                card.MemberName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                card.MemberId.ToString().Contains(term, StringComparison.OrdinalIgnoreCase));
-        }
-
-        query = _activeStatus switch
-        {
-            StatusFilter.Active => query.Where(card => card.IsActive),
-            StatusFilter.Inactive => query.Where(card => !card.IsActive),
-            _ => query
+            "REGULAR" => "success",
+            "REGULAR-NP" => "success",
+            "LIFE" => "primary",
+            _ => "secondary"
         };
-
-        query = _sortOption switch
-        {
-            SortOption.MemberName => query.OrderBy(card => card.MemberName),
-            SortOption.IssuedDate => query.OrderByDescending(card => card.IssuedDate ?? DateTime.MinValue),
-            SortOption.Status => query.OrderByDescending(card => card.IsActive).ThenBy(card => card.CardNumber),
-            _ => query.OrderBy(card => card.CardNumber)
-        };
-
-        _filteredCards = query.ToList();
-        StateHasChanged();
-    }
-
-    private void ClearSearch()
-    {
-        SearchTerm = string.Empty;
-    }
-
-    private void ClearFilters()
-    {
-        _searchText = string.Empty;
-        _activeStatus = StatusFilter.All;
-        ApplyFilters();
-    }
-
-    private void SetStatusFilter(StatusFilter filter)
-    {
-        if (_activeStatus == filter)
-        {
-            return;
-        }
-
-        _activeStatus = filter;
-        ApplyFilters();
-    }
-
-    private void OnSortChanged(ChangeEventArgs args)
-    {
-        if (Enum.TryParse<SortOption>(args.Value?.ToString(), out var selected))
-        {
-            _sortOption = selected;
-            ApplyFilters();
-        }
-    }
-
-    private static string GetStatusLabel(KeyCardListItem card) => card.IsActive ? "Active" : "Inactive";
-
-    private static string GetStatusClass(string statusText)
-    {
-        return statusText.ToLowerInvariant() switch
-        {
-            "active" => "status-active",
-            "disabled" => "status-disabled",
-            "replaced" => "status-replaced",
-            "lost" => "status-lost",
-            "inactive" => "status-inactive",
-            _ => "status-unknown"
-        };
-    }
-
-    private void NavigateToCard(KeyCardListItem card)
-    {
-        NavManager.NavigateTo($"/keycards/{card.CardId}");
-    }
-
-    private void SelectAndNavigate(KeyCardListItem card)
-    {
-        _selectedCardId = card.CardId;
-        NavigateToCard(card);
-    }
-
-    private void NavigateToAssign()
-    {
-        NavManager.NavigateTo("/keycards/assign");
     }
 }

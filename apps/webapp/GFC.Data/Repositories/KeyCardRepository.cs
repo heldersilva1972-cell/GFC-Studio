@@ -54,6 +54,28 @@ public class KeyCardRepository : IKeyCardRepository
         return reader.Read() ? MapReader(reader, nameof(GetByCardNumber)) : null;
     }
 
+    public List<KeyCard> GetAll()
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        const string sql = @"
+            SELECT KeyCardId, MemberID, CardNumber, Notes
+            FROM dbo.KeyCards
+            ORDER BY KeyCardId DESC";
+
+        using var command = new SqlCommand(sql, connection);
+        using var reader = command.ExecuteReader();
+
+        var cards = new List<KeyCard>();
+        while (reader.Read())
+        {
+            cards.Add(MapReader(reader, nameof(GetAll)));
+        }
+
+        return cards;
+    }
+
     public KeyCard Create(string cardNumber, int memberId, string? notes)
     {
         using var connection = Db.GetConnection();
