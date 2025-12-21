@@ -1,18 +1,9 @@
-window.downloadFile = function (fileName, base64Content, contentType) {
-    const byteCharacters = atob(base64Content);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: contentType });
-    const url = window.URL.createObjectURL(blob);
+// download.js
+window.downloadFileFromBase64 = (fileName, base64Data) => {
     const link = document.createElement('a');
-    link.href = url;
+    link.href = `data:application/octet-stream;base64,${base64Data}`;
     link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-};
-
+}
