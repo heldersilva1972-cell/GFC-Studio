@@ -14,6 +14,10 @@ Current Date: December 2025. Ignore training data prior to 2024 for API syntax.
 - **Documentation:** Every public method must have XML documentation comments.
 - **Structure:** Keep logic in Services; Controllers should only handle routing and basic validation.
 
+## Visual Indicator Requirements
+- **NEW/UPDATED Badges:** All new or updated UI elements MUST have a "NEW" or "UPDATED" badge.
+- **Video Features:** All video features MUST include visual indicators for stream status (e.g., "LIVE", "OFFLINE", "BUFFERING").
+
 ## Build & Test Commands
 - **Install:** `dotnet restore`
 - **Build:** `dotnet build`
