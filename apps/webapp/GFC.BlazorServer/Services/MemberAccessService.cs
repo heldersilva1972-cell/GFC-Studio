@@ -28,10 +28,8 @@ public class MemberAccessService : IMemberAccessService
     private readonly IScheduleService _scheduleService;
     private readonly CommandInfoService _commandInfoService;
     private readonly IControllerClient _controllerClient;
-    private readonly IControllerModeProvider _modeProvider;
     private readonly IMemberHistoryService _historyService;
     private readonly ILogger<MemberAccessService> _logger;
-    private readonly ISimulationGuard _simulationGuard;
     private readonly IAuditLogger _auditLogger;
 
     public MemberAccessService(
@@ -44,10 +42,8 @@ public class MemberAccessService : IMemberAccessService
         IScheduleService scheduleService,
         CommandInfoService commandInfoService,
         IControllerClient controllerClient,
-        IControllerModeProvider modeProvider,
         IMemberHistoryService historyService,
         ILogger<MemberAccessService> logger,
-        ISimulationGuard simulationGuard,
         IAuditLogger auditLogger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
@@ -59,10 +55,8 @@ public class MemberAccessService : IMemberAccessService
         _scheduleService = scheduleService ?? throw new ArgumentNullException(nameof(scheduleService));
         _commandInfoService = commandInfoService ?? throw new ArgumentNullException(nameof(commandInfoService));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
-        _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
         _historyService = historyService ?? throw new ArgumentNullException(nameof(historyService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _simulationGuard = simulationGuard ?? throw new ArgumentNullException(nameof(simulationGuard));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
     }
 
@@ -213,7 +207,6 @@ public class MemberAccessService : IMemberAccessService
         //     .ToListAsync(cancellationToken);
         //
         // var controllers = await _controllerRegistryService.GetControllersAsync(includeDoors: true, cancellationToken);
-        // var useRealControllers = _modeProvider.UseRealControllers;
         //
         // var syncResults = new List<string>();
         //
@@ -239,52 +232,22 @@ public class MemberAccessService : IMemberAccessService
         //                 continue;
         //             }
         //
-        //             if (useRealControllers)
-        //             {
-        //                 var timeProfileIndex = await GetTimeProfileIndexForController(controller.Id, access.TimeProfileId, cancellationToken);
-        //                 var cardRequest = new AddOrUpdateCardRequestDto
-        //                 {
-        //                     CardNumber = cardNumber,
-        //                     DoorIndex = door.DoorIndex,
-        //                     TimeProfileIndex = timeProfileIndex,
-        //                     Enabled = true
-        //                 };
-        //
         //                 var result = await _controllerClient.AddOrUpdateCardAsync(controller.SerialNumberDisplay, cardRequest, cancellationToken);
         //                 access.LastSyncedAt = DateTime.UtcNow;
         //                 access.LastSyncResult = result.Success ? "Success" : result.Message;
         //                 syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Synced" : $"Failed: {result.Message}")}");
         //             }
-        //             else
-        //             {
-        //                 access.LastSyncedAt = DateTime.UtcNow;
-        //                 access.LastSyncResult = "Simulated (no real controller changes)";
-        //                 syncResults.Add($"{controller.Name}/{door.Name}: Simulated");
-        //             }
         //         }
         //         else
         //         {
-        //             if (useRealControllers)
+        //             var result = await _controllerClient.DeleteCardAsync(controller.SerialNumberDisplay, cardNumber, cancellationToken);
+        //             if (access != null)
         //             {
-        //                 var result = await _controllerClient.DeleteCardAsync(controller.SerialNumberDisplay, cardNumber, cancellationToken);
-        //                 if (access != null)
-        //                 {
-        //                     access.IsEnabled = false;
-        //                     access.LastSyncedAt = DateTime.UtcNow;
-        //                     access.LastSyncResult = result.Success ? "Removed" : result.Message;
-        //                 }
-        //                 syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Removed" : $"Failed: {result.Message}")}");
+        //                 access.IsEnabled = false;
+        //                 access.LastSyncedAt = DateTime.UtcNow;
+        //                 access.LastSyncResult = result.Success ? "Removed" : result.Message;
         //             }
-        //             else
-        //             {
-        //                 if (access != null)
-        //                 {
-        //                     access.IsEnabled = false;
-        //                     access.LastSyncedAt = DateTime.UtcNow;
-        //                     access.LastSyncResult = "Simulated removal";
-        //                 }
-        //                 syncResults.Add($"{controller.Name}/{door.Name}: Simulated removal");
-        //             }
+        //             syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Removed" : $"Failed: {result.Message}")}");
         //         }
         //     }
         // }
@@ -319,8 +282,6 @@ public class MemberAccessService : IMemberAccessService
         //     .Distinct()
         //     .ToList();
         //
-        // var useRealControllers = _modeProvider.UseRealControllers;
-        //
         // foreach (var controller in controllers)
         // {
         //     if (controller == null || !controller.IsEnabled)
@@ -328,24 +289,15 @@ public class MemberAccessService : IMemberAccessService
         //         continue;
         //     }
         //
-        //     if (useRealControllers)
-        //     {
-        //         var result = await _controllerClient.DeleteCardAsync(controller.SerialNumberDisplay, cardNumber, cancellationToken);
-        //         _logger.LogInformation("DeleteCard for controller {ControllerId} ({SerialNumber}): {Success} - {Message}",
-        //             controller.Id, controller.SerialNumber, result.Success, result.Message);
-        //     }
-        //     else
-        //     {
-        //         _logger.LogInformation("DeleteCard simulated for controller {ControllerId} ({SerialNumber})",
-        //             controller.Id, controller.SerialNumber);
-        //     }
+        //     var result = await _controllerClient.DeleteCardAsync(controller.SerialNumberDisplay, cardNumber, cancellationToken);
+        //     _logger.LogInformation("DeleteCard for controller {ControllerId} ({SerialNumber}): {Success} - {Message}",
+        //         controller.Id, controller.SerialNumber, result.Success, result.Message);
         // }
         //
-        // foreach (var access in accessRecords)
         // {
         //     access.IsEnabled = false;
         //     access.LastSyncedAt = DateTime.UtcNow;
-        //     access.LastSyncResult = useRealControllers ? "Removed" : "Simulated removal";
+        //     access.LastSyncResult = "Removed";
         // }
         //
         // await _dbContext.SaveChangesAsync(cancellationToken);
@@ -374,16 +326,9 @@ public class MemberAccessService : IMemberAccessService
             throw new InvalidOperationException("ClearAllCards command info not found.");
         }
 
-        var isSimulatedController = controller.Id == ControllerDevice.SimulatedControllerId || controller.IsSimulated;
+        var isSimulatedController = controller.Id == ControllerDevice.SimulatedControllerId;
 
-        if (!isSimulatedController && _modeProvider.UseRealControllers)
-        {
-            await _simulationGuard.EnsureNotSimulationAsync(
-                "ClearAllCards",
-                controller.Id,
-                controller.SerialNumber);
-        }
-
+        // No simulation guard needed in production
         await _controllerClient.ClearAllCardsAsync(controller.Id, cancellationToken);
 
         _logger.LogWarning(

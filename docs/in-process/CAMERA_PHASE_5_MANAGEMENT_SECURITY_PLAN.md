@@ -1,6 +1,6 @@
 # Plan: Camera System Integration - Phase 5: Management & Security Suite
 **Project:** GFC Camera Viewer  
-**Status:** Completion & Hardening Phase  
+**Status:** **FINALIZED / APPROVED**  
 
 ## 🎯 Objective
 Provide a simplified, secure "Command Center" for all camera configurations and a high-speed "Visual Activity Gallery" for daily monitoring.
@@ -8,6 +8,7 @@ Provide a simplified, secure "Command Center" for all camera configurations and 
 ## 🏗️ Technical Checklist
 
 ### 1. Camera Management UI
+- [ ] **Visual Tracking Rule**: Every modified page MUST have a visible `[MODIFIED]` tag at the top. New elements MUST be wrapped in a `[NEW]` tag indicator.
 - [ ] **Create Camera Settings Page**: Use a clean, card-based layout. [**TAG: NEW**]
     - **Door/Camera Linker**: Simple dropdowns to assign Camera 01 to Front Door, etc.
     - **Timing Config**: Adjust pre-roll/post-roll seconds for the Archive.

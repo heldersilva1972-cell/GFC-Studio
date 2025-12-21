@@ -16,26 +16,20 @@ public class DoorConfigSyncService
     private readonly IDoorConfigService _doorConfigService;
     private readonly ControllerRegistryService _controllerRegistryService;
     private readonly IControllerClient _controllerClient;
-    private readonly IControllerModeProvider _modeProvider;
     private readonly ILogger<DoorConfigSyncService> _logger;
-    private readonly ISimulationGuard _simulationGuard;
 
     public DoorConfigSyncService(
         GfcDbContext dbContext,
         IDoorConfigService doorConfigService,
         ControllerRegistryService controllerRegistryService,
         IControllerClient controllerClient,
-        IControllerModeProvider modeProvider,
-        ILogger<DoorConfigSyncService> logger,
-        ISimulationGuard simulationGuard)
+        ILogger<DoorConfigSyncService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _doorConfigService = doorConfigService ?? throw new ArgumentNullException(nameof(doorConfigService));
         _controllerRegistryService = controllerRegistryService ?? throw new ArgumentNullException(nameof(controllerRegistryService));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
-        _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _simulationGuard = simulationGuard ?? throw new ArgumentNullException(nameof(simulationGuard));
     }
 
     /// <summary>
@@ -43,11 +37,8 @@ public class DoorConfigSyncService
     /// </summary>
     public async Task<bool> ReadFromControllerAsync(uint controllerSerialNumber, CancellationToken cancellationToken = default)
     {
-        if (!_modeProvider.UseRealControllers)
-        {
-            _logger.LogInformation("Simulation mode: ReadFromController skipped for controller {SerialNumber}", controllerSerialNumber);
-            return true;
-        }
+        // Always use real controller client logic now
+
 
         try
         {
@@ -87,21 +78,11 @@ public class DoorConfigSyncService
     {
         try
         {
-            var isSimulated = !_modeProvider.UseRealControllers || controllerSerialNumber == ControllerDevice.GetSimulatedSerialValue();
-
             var controller = await _controllerRegistryService.GetControllerBySerialNumberAsync(controllerSerialNumber, cancellationToken);
             if (controller == null)
             {
                 _logger.LogWarning("Controller {SerialNumber} not found in database", controllerSerialNumber);
                 return false;
-            }
-
-            if (!isSimulated)
-            {
-                await _simulationGuard.EnsureNotSimulationAsync(
-                    "SyncDoorConfig",
-                    controllerId: controller.Id,
-                    controllerSerialNumber: controllerSerialNumber);
             }
 
             var configs = await _doorConfigService.GetConfigsForControllerAsync(controller.Id, cancellationToken);

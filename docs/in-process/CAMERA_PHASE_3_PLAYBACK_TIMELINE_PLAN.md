@@ -1,6 +1,6 @@
 # Plan: Camera System Integration - Phase 3: Playback & Timeline
 **Project:** GFC Camera Viewer  
-**Status:** Future Phase  
+**Status:** **FINALIZED / APPROVED**  
 
 ## 🎯 Objective
 Enable users to search, rewind, and analyze recorded footage directly from the GFC Web App using a professional, high-precision timeline.
@@ -8,6 +8,7 @@ Enable users to search, rewind, and analyze recorded footage directly from the G
 ## 🏗️ Technical Checklist
 
 ### 1. Interactive Timeline UI
+- [ ] **Visual Tracking Rule**: Every modified page MUST have a visible `[MODIFIED]` tag at the top. New elements MUST be wrapped in a `[NEW]` tag indicator.
 - [ ] **Create Visual Timeline Component**: A scrollable browser component at the bottom of the viewer. [**TAG: NEW**]
 - [ ] **Data Density Bar**: Show colored indicators (Green = Video, Orange = Motion) fetched from the NVR.
 - [ ] **Event Markers**: Small "Key" icons on the timeline representing door swipes or system alerts. [**TAG: NEW**]

@@ -506,7 +506,6 @@ else
     private readonly List<ControllerSnapshot> _controllerSnapshots = new();
     private string? _controllerConnectivityNote;
     private bool _useRealControllers;
-    private bool _isSimulationMode;
     private bool IsRefreshing;
     private bool IsAutoRefreshEnabled { get; set; } = false;
     private bool ShowMembershipCard { get; set; } = true;
@@ -607,7 +606,6 @@ else
         }
 
         await controllerModeTask;
-        _isSimulationMode = !_useRealControllers;
         await LoadControllerStatusSafeAsync();
 
         Alerts ??= new List<DashboardAlert>();
@@ -740,20 +738,13 @@ else
             _controllerConnectivityNote = null;
             _controllerSnapshots.Clear();
 
-            if (_isSimulationMode)
-            {
-                await ApplySimulationControllerStateAsync();
-                return;
-            }
-
             try
             {
                 await ControllerClient.PingAsync(CancellationToken.None);
             }
-            catch (SimulationModeBlockedException)
+            catch (Exception ex)
             {
-                await ApplySimulationControllerStateAsync();
-                return;
+                 _logger.LogWarning(ex, "Failed to ping controller system during dashboard load");
             }
 
             var controllers = await ControllerRegistryService.GetControllersAsync(cancellationToken: CancellationToken.None);
@@ -796,50 +787,17 @@ else
         {
             await LoadControllerSnapshotAsync();
         }
-        catch (SimulationModeBlockedException)
+        catch (Exception ex)
         {
-            await ApplySimulationControllerStateAsync();
-            StateHasChanged();
+             Console.Error.WriteLine($"[Dashboard:controllerStatus] {ex}");
         }
     }
 
-    private async Task ApplySimulationControllerStateAsync()
-    {
-        _controllerConnectivityNote = "Simulation Mode";
-        _controllerSnapshots.Clear();
 
-        var controllers = await ControllerRegistryService.GetControllersAsync(cancellationToken: CancellationToken.None);
-        var firstControllerWithDoor = controllers.FirstOrDefault(c => c.Doors.Any());
-        if (firstControllerWithDoor is not null)
-        {
-            _defaultControllerSerial ??= firstControllerWithDoor.SerialNumberDisplay;
-            _defaultDoorIndex ??= firstControllerWithDoor.Doors.OrderBy(d => d.DoorIndex).First().DoorIndex;
-        }
-
-        foreach (var controller in controllers)
-        {
-            _controllerSnapshots.Add(new ControllerSnapshot(
-                controller.Id,
-                controller.Name,
-                "Simulation Mode",
-                "bg-secondary",
-                controller.IsEnabled,
-                null));
-        }
-    }
 
     private async Task LoadControllerModeAsync()
     {
-        try
-        {
-            var settings = await SystemSettingsService.GetAsync();
-            _useRealControllers = settings.UseRealControllers;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[Dashboard:controllerMode] {ex}");
-            _useRealControllers = false;
-        }
+        _useRealControllers = true; // Always true in non-simulation mode
     }
 
     private static string GetControllerStatusText(ControllerEvent? lastEvent)
@@ -932,22 +890,7 @@ else
 
     private void NavigateToSearchMember() => NavMgr.NavigateTo("/members");
 
-    private async Task TestSimulatedDoorOpen()
-    {
-        if (!_isSimulationMode || string.IsNullOrWhiteSpace(_defaultControllerSerial) || !_defaultDoorIndex.HasValue)
-        {
-            return;
-        }
 
-        try
-        {
-            await ControllerClient.OpenDoorAsync(_defaultControllerSerial, _defaultDoorIndex.Value);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[Dashboard:simOpenDoor] {ex}");
-        }
-    }
 
     private static int CalculateOpenAlerts(AlertSummaryDto alert)
     {
@@ -1042,7 +985,7 @@ else
 
     private MetricState GetControllersState()
     {
-        if (_isSimulationMode || _controllerSnapshots.Count == 0)
+        if (_controllerSnapshots.Count == 0)
         {
             return MetricState.Normal;
         }

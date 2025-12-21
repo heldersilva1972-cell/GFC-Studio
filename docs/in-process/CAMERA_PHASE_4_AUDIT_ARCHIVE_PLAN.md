@@ -1,6 +1,6 @@
 # Plan: Camera System Integration - Phase 4: Audit Archive (Visual Evidence)
 **Project:** GFC Camera Viewer  
-**Status:** Core Security Feature  
+**Status:** **FINALIZED / APPROVED**  
 
 ## 🎯 Objective
 Automatically create and store permanent video evidence of every door activation. Ensure these clips remain accessible even after the NVR has overwritten its local hard drive.
@@ -17,6 +17,7 @@ Automatically create and store permanent video evidence of every door activation
     - Automatically delete the oldest day's clips when the cap is reached.
 
 ### 2. UI Integration & Visual Tracking
+- [ ] **Visual Tracking Rule**: Every modified page MUST have a visible `[MODIFIED]` tag at the top. New elements MUST be wrapped in a `[NEW]` tag indicator.
 - [ ] **Modify Audit Logs**: Add a "Play Evidence" icon next to every door access event. [**TAG: MODIFIED**]
 - [ ] **Implement Evidence Pop-out**: A high-speed video player that loads clips directly from the local Archive (bypassing the NVR for speed). [**TAG: NEW**]
 - [ ] **Visual "Overwritten" Indicator**: Dim the play button if the clip was never archived and the NVR loop has naturally expired.

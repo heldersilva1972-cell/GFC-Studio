@@ -16,13 +16,6 @@ public class SystemSettings
     public int Id { get; set; } = 1;
 
     /// <summary>
-    /// Canonical flag for controller mode selection.
-    /// When true, controller operations use real hardware via the real controller client.
-    /// When false, controller operations run exclusively through the simulation controller client without touching hardware.
-    /// Default: false (simulation mode) for safety.
-    /// </summary>
-
-    /// <summary>
     /// The ID of the controller designated as the system's primary card reader/scanner.
     /// </summary>
     public int? ScannerControllerId { get; set; }

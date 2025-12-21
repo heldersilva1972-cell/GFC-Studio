@@ -14,7 +14,7 @@ using GFC.Core.Interfaces;
 using GFC.Core.Services;
 using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
-using GFC.BlazorServer.Services.SimulationReplay;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
@@ -164,8 +164,6 @@ public class Program
 
         var app = builder.Build();
 
-        var accessControlOptions = app.Services.GetRequiredService<IOptions<AccessControlSimulationOptions>>().Value;
-        app.Logger.LogInformation("Access Control Simulation Mode: {Mode}", accessControlOptions.UseAccessControlSimulation ? "ON" : "OFF");
 
         // Configure the HTTP request pipeline.
         if (app.Environment.IsDevelopment())
@@ -266,12 +264,7 @@ public class Program
         }
 
         app.MapControllers();
-        app.MapGet("/simulation/replay/{sessionId}",
-            async (string sessionId, IReplayService replay, CancellationToken ct) =>
-            {
-                var steps = await replay.BuildReplayStepsAsync(sessionId, ct);
-                return Results.Ok(steps);
-            });
+
         app.MapBlazorHub();
         app.MapFallbackToPage("/_Host");
 

@@ -1,6 +1,6 @@
 # Plan: Camera System Integration - Phase 2: Modern UI & Premium Grid
 **Project:** GFC Camera Viewer  
-**Status:** Multi-Phase Design (Deferred until Phase 1 Success)  
+**Status:** **FINALIZED / APPROVED**  
 
 ## 🎯 Objective
 Transform the proof-of-concept viewer into a world-class, 16-channel "Control Room" interface with glassmorphism design and high-performance video scaling.
@@ -8,6 +8,7 @@ Transform the proof-of-concept viewer into a world-class, 16-channel "Control Ro
 ## 🏗️ Technical Checklist
 
 ### 1. UI/UX Design & Visual Tracking
+- [ ] **Visual Tracking Rule**: Every modified page MUST have a visible `[MODIFIED]` tag at the top. New elements MUST be wrapped in a `[NEW]` tag indicator.
 - [ ] **Design Camera Grid UI**: Implement a flexible CSS Grid for 1, 4, 9, or 16 cameras. [**TAG: NEW**]
 - [ ] **Apply Glassmorphism**: Use frosted-glass panels and blur-backdrops for the camera selector and layout controls.
 - [ ] **Smooth Transitions**: Use C# / CSS transitions for resizing camera windows.
