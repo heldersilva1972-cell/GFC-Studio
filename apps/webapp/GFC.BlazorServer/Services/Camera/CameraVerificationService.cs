@@ -88,28 +88,96 @@ namespace GFC.BlazorServer.Services.Camera
             }
         }
 
+
         private async Task<VerificationResult> VerifyNvrServiceAvailability()
         {
-            // Real Port Check (RTSP Port 554 and HTTP Port 80)
-            string nvrIp = "192.168.1.64";
-            var tasks = new List<Task<bool>> { CheckPort(nvrIp, 554), CheckPort(nvrIp, 80) };
+            // Get NVR settings from configuration
+            string nvrIp = _configuration["NvrSettings:IpAddress"] ?? "192.168.1.64";
+            string username = _configuration["NvrSettings:Username"];
+            string password = _configuration["NvrSettings:Password"];
+            int rtspPort = int.Parse(_configuration["NvrSettings:RtspPort"] ?? "554");
+            int httpPort = int.Parse(_configuration["NvrSettings:HttpPort"] ?? "80");
+
+            // First check if ports are open
+            var tasks = new List<Task<bool>> { CheckPort(nvrIp, rtspPort), CheckPort(nvrIp, httpPort) };
             var results = await Task.WhenAll(tasks);
             bool rtspOpen = results[0];
             bool httpOpen = results[1];
 
-            if (rtspOpen && httpOpen)
+            if (!rtspOpen && !httpOpen)
             {
-                 return new VerificationResult { TestName = "Phase 0: NVR Service Availability", Success = true, Message = "NVR ports 554 (RTSP) and 80 (HTTP) are open and accepting connections." };
+                return new VerificationResult 
+                { 
+                    TestName = "Phase 0: NVR Service Availability", 
+                    Success = false, 
+                    Message = $"Could not connect to NVR ports {rtspPort} or {httpPort}. Check firewall/network." 
+                };
             }
-            else if (rtspOpen || httpOpen)
+
+            // Check if credentials are configured
+            if (string.IsNullOrEmpty(username) || username.Contains("REPLACE") || 
+                string.IsNullOrEmpty(password) || password.Contains("REPLACE"))
             {
-                 return new VerificationResult { TestName = "Phase 0: NVR Service Availability", Success = true, Message = $"Partial success. RTSP(554):{(rtspOpen?"Open":"Closed")}, HTTP(80):{(httpOpen?"Open":"Closed")}." };
+                return new VerificationResult 
+                { 
+                    TestName = "Phase 0: NVR Authentication", 
+                    Success = false, 
+                    Message = "NVR credentials not configured. Update NvrSettings:Username and NvrSettings:Password in appsettings.json." 
+                };
             }
-            else
+
+            // Try to authenticate via HTTP (most NVRs have a web interface)
+            try
             {
-                 return new VerificationResult { TestName = "Phase 0: NVR Service Availability", Success = false, Message = "Could not connect to NVR ports 554 or 80. Check firewall/network." };
+                var credentials = Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes($"{username}:{password}"));
+                var request = new HttpRequestMessage(HttpMethod.Get, $"http://{nvrIp}:{httpPort}/");
+                request.Headers.Add("Authorization", $"Basic {credentials}");
+                
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(3));
+                var response = await _httpClient.SendAsync(request, cts.Token);
+                
+                // 200 OK or 401 Unauthorized both mean the server is responding to auth
+                // 401 with our creds means wrong password, but server is working
+                if (response.StatusCode == System.Net.HttpStatusCode.OK)
+                {
+                    return new VerificationResult 
+                    { 
+                        TestName = "Phase 0: NVR Authentication", 
+                        Success = true, 
+                        Message = $"Successfully authenticated with NVR at {nvrIp} using provided credentials." 
+                    };
+                }
+                else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    return new VerificationResult 
+                    { 
+                        TestName = "Phase 0: NVR Authentication", 
+                        Success = false, 
+                        Message = $"NVR rejected credentials. Please verify NvrSettings:Username and NvrSettings:Password are correct." 
+                    };
+                }
+                else
+                {
+                    return new VerificationResult 
+                    { 
+                        TestName = "Phase 0: NVR Authentication", 
+                        Success = true, 
+                        Message = $"NVR is reachable. Ports: RTSP({rtspPort}):{(rtspOpen?"Open":"Closed")}, HTTP({httpPort}):{(httpOpen?"Open":"Closed")}. Auth test inconclusive (Status: {response.StatusCode})." 
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                // If HTTP auth fails, at least confirm ports are open
+                return new VerificationResult 
+                { 
+                    TestName = "Phase 0: NVR Authentication", 
+                    Success = rtspOpen, 
+                    Message = $"Could not verify authentication via HTTP. RTSP port {rtspPort} is {(rtspOpen ? "open" : "closed")}. Error: {ex.Message}" 
+                };
             }
         }
+
 
         private async Task<bool> CheckPort(string ip, int port)
         {
