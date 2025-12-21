@@ -1,6 +1,6 @@
 @page "/camera-settings"
-@using Microsoft.Extensions.Configuration
-@inject IConfiguration Configuration
+@using GFC.BlazorServer.Services.Camera
+@inject INvrConfigurationService ConfigService
 @inject NavigationManager Navigation
 
 <div class="settings-container">
@@ -148,22 +148,14 @@
     private string StatusMessage = null;
     private bool IsSuccess = false;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        LoadSettings();
+        await LoadSettings();
     }
 
-    private void LoadSettings()
+    private async Task LoadSettings()
     {
-        settings.IpAddress = Configuration["NvrSettings:IpAddress"] ?? "192.168.1.64";
-        settings.RtspPort = int.Parse(Configuration["NvrSettings:RtspPort"] ?? "554");
-        settings.HttpPort = int.Parse(Configuration["NvrSettings:HttpPort"] ?? "80");
-        settings.Username = Configuration["NvrSettings:Username"] ?? "";
-        settings.Password = Configuration["NvrSettings:Password"] ?? "";
-        
-        // Clear placeholder values
-        if (settings.Username.Contains("REPLACE")) settings.Username = "";
-        if (settings.Password.Contains("REPLACE")) settings.Password = "";
+        settings = await ConfigService.GetSettingsAsync();
     }
 
     private async Task SaveSettings()
@@ -171,51 +163,18 @@
         IsSaving = true;
         try
         {
-            // Read the current appsettings.json
-            var appSettingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-            var json = await File.ReadAllTextAsync(appSettingsPath);
-            var jsonDoc = System.Text.Json.JsonDocument.Parse(json);
+            var success = await ConfigService.SaveSettingsAsync(settings);
             
-            using var stream = new MemoryStream();
-            using (var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true }))
+            if (success)
             {
-                writer.WriteStartObject();
-                
-                foreach (var property in jsonDoc.RootElement.EnumerateObject())
-                {
-                    if (property.Name == "NvrSettings")
-                    {
-                        writer.WritePropertyName("NvrSettings");
-                        writer.WriteStartObject();
-                        writer.WriteString("IpAddress", settings.IpAddress);
-                        writer.WriteNumber("RtspPort", settings.RtspPort);
-                        writer.WriteNumber("HttpPort", settings.HttpPort);
-                        writer.WriteString("Username", settings.Username);
-                        writer.WriteString("Password", settings.Password);
-                        
-                        // Preserve Cameras array if it exists
-                        if (property.Value.TryGetProperty("Cameras", out var cameras))
-                        {
-                            writer.WritePropertyName("Cameras");
-                            cameras.WriteTo(writer);
-                        }
-                        
-                        writer.WriteEndObject();
-                    }
-                    else
-                    {
-                        property.WriteTo(writer);
-                    }
-                }
-                
-                writer.WriteEndObject();
+                StatusMessage = "Settings saved successfully! Restart the application for changes to take effect.";
+                IsSuccess = true;
             }
-            
-            var updatedJson = System.Text.Encoding.UTF8.GetString(stream.ToArray());
-            await File.WriteAllTextAsync(appSettingsPath, updatedJson);
-            
-            StatusMessage = "Settings saved successfully! Restart the application for changes to take effect.";
-            IsSuccess = true;
+            else
+            {
+                StatusMessage = "Error saving settings. Please check file permissions.";
+                IsSuccess = false;
+            }
         }
         catch (Exception ex)
         {
