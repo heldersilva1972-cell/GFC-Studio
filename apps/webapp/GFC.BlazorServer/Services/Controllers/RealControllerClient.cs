@@ -15,18 +15,15 @@ public class RealControllerClient : IControllerClient
 {
     private readonly AgentApiClient _agentApiClient;
     private readonly ILogger<RealControllerClient> _logger;
-    private readonly ISimulationGuard _simulationGuard;
     private readonly ControllerRegistryService _controllerRegistry;
 
     public RealControllerClient(
         AgentApiClient agentApiClient,
         ILogger<RealControllerClient> logger,
-        ISimulationGuard simulationGuard,
         ControllerRegistryService controllerRegistry)
     {
         _agentApiClient = agentApiClient ?? throw new ArgumentNullException(nameof(agentApiClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _simulationGuard = simulationGuard ?? throw new ArgumentNullException(nameof(simulationGuard));
         _controllerRegistry = controllerRegistry ?? throw new ArgumentNullException(nameof(controllerRegistry));
     }
 
@@ -139,7 +136,6 @@ public class RealControllerClient : IControllerClient
             return;
         }
 
-        await EnsureRealControllersAsync("SyncTime", controller.SerialNumber);
         await _agentApiClient.SyncTimeAsync(controller.SerialNumber, DateTime.UtcNow, ct);
     }
 
@@ -215,7 +211,6 @@ public class RealControllerClient : IControllerClient
 
     public async Task<bool> PingAsync(CancellationToken cancellationToken = default)
     {
-        await EnsureRealControllersAsync("Ping");
         return await _agentApiClient.PingAsync(cancellationToken);
     }
 
@@ -226,7 +221,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return null;
         }
-        await EnsureRealControllersAsync("GetRunStatus", sn);
         return await _agentApiClient.GetRunStatusAsync(sn, cancellationToken);
     }
 
@@ -237,7 +231,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return;
         }
-        await EnsureRealControllersAsync("OpenDoor", sn);
         var success = await _agentApiClient.OpenDoorAsync(sn, doorNo, durationSec, cancellationToken);
         if (!success)
         {
@@ -252,7 +245,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return new ApiResult { Success = false, Message = "Invalid controller serial number." };
         }
-        await EnsureRealControllersAsync("AddOrUpdateCard", sn);
         return await _agentApiClient.AddOrUpdateCardAsync(sn, request, cancellationToken);
     }
 
@@ -263,7 +255,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return new ApiResult { Success = false, Message = "Invalid controller serial number." };
         }
-        await EnsureRealControllersAsync("DeleteCard", sn);
         return await _agentApiClient.DeleteCardAsync(sn, cardNumber, cancellationToken);
     }
 
@@ -274,7 +265,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return new ApiResult { Success = false, Message = "Invalid controller serial number." };
         }
-        await EnsureRealControllersAsync("ClearAllCards", sn);
         return await _agentApiClient.ClearAllCardsAsync(sn, cancellationToken);
     }
 
@@ -293,7 +283,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return null;
         }
-        await EnsureRealControllersAsync("GetTimeSchedules", sn);
         return await _agentApiClient.GetTimeSchedulesAsync(sn, cancellationToken);
     }
 
@@ -304,7 +293,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return;
         }
-        await EnsureRealControllersAsync("WriteTimeSchedules", sn);
         var result = await _agentApiClient.SyncTimeSchedulesAsync(sn, dto, cancellationToken);
         if (!result.Success)
         {
@@ -319,7 +307,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return null;
         }
-        await EnsureRealControllersAsync("GetDoorConfig", sn);
         return await _agentApiClient.GetDoorConfigAsync(sn, cancellationToken);
     }
 
@@ -330,7 +317,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return;
         }
-        await EnsureRealControllersAsync("WriteDoorConfig", sn);
         var result = await _agentApiClient.SyncDoorConfigAsync(sn, dto, cancellationToken);
         if (!result.Success)
         {
@@ -345,7 +331,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return null;
         }
-        await EnsureRealControllersAsync("GetAutoOpen", sn);
         return await _agentApiClient.GetAutoOpenAsync(sn, cancellationToken);
     }
 
@@ -356,7 +341,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return;
         }
-        await EnsureRealControllersAsync("WriteAutoOpen", sn);
         var result = await _agentApiClient.SyncAutoOpenAsync(sn, dto, cancellationToken);
         if (!result.Success)
         {
@@ -371,7 +355,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return null;
         }
-        await EnsureRealControllersAsync("GetAdvancedDoorModes", sn);
         return await _agentApiClient.GetAdvancedDoorModesAsync(sn, cancellationToken);
     }
 
@@ -382,7 +365,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return;
         }
-        await EnsureRealControllersAsync("WriteAdvancedDoorModes", sn);
         var result = await _agentApiClient.SyncAdvancedDoorModesAsync(sn, dto, cancellationToken);
         if (!result.Success)
         {
@@ -397,7 +379,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return null;
         }
-        await EnsureRealControllersAsync("GetNetworkConfig", sn);
         return await _agentApiClient.GetNetworkConfigAsync(sn, cancellationToken);
     }
 
@@ -408,7 +389,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return;
         }
-        await EnsureRealControllersAsync("SetNetworkConfig", sn);
         var requestDto = new NetworkConfigRequestDto
         {
             IpAddress = dto.IpAddress,
@@ -431,7 +411,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return null;
         }
-        await EnsureRealControllersAsync("GetAllowedPcSettings", sn);
         return await _agentApiClient.GetAllowedPcAndPasswordAsync(sn, cancellationToken);
     }
 
@@ -442,7 +421,6 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Invalid controller serial number: {Sn}", controllerSn);
             return new ApiResult { Success = false, Message = "Invalid controller serial number." };
         }
-        await EnsureRealControllersAsync("SetAllowedPcSettings", sn);
         return await _agentApiClient.SetAllowedPcAndCommPasswordAsync(sn, dto, cancellationToken);
     }
 
@@ -452,9 +430,6 @@ public class RealControllerClient : IControllerClient
         _logger.LogWarning("RebootAsync not yet implemented");
         return Task.CompletedTask;
     }
-
-    private Task EnsureRealControllersAsync(string operationName, uint? serial = null) =>
-        _simulationGuard.EnsureNotSimulationAsync(operationName, controllerSerialNumber: serial);
 
     private async Task<(ControllerDevice? Controller, Door? Door)> ResolveControllerAndDoorAsync(int controllerId, int doorId, CancellationToken ct)
     {
