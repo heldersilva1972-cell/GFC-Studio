@@ -25,7 +25,6 @@ public class GfcDbContext : DbContext
     public DbSet<ControllerBehaviorOptions> ControllerBehaviorOptions => Set<ControllerBehaviorOptions>();
     public DbSet<ControllerNetworkConfig> ControllerNetworkConfigs => Set<ControllerNetworkConfig>();
     public DbSet<ControllerCommandLog> ControllerCommandLogs => Set<ControllerCommandLog>();
-    public DbSet<SimulationControllerTrace> SimulationControllerTraces { get; set; }
     public DbSet<CardReaderProfile> CardReaderProfiles => Set<CardReaderProfile>();
     public DbSet<SystemSettings> SystemSettings => Set<SystemSettings>();
     public DbSet<MemberDoorAccess> MemberDoorAccesses => Set<MemberDoorAccess>();
@@ -196,36 +195,6 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<SimulationControllerTrace>(entity =>
-        {
-            entity.ToTable("SimulationControllerTraces");
-            entity.HasKey(x => x.Id);
-            entity.HasIndex(t => t.TimestampUtc);
-
-            entity.Property(t => t.TimestampUtc)
-                .IsRequired();
-
-            entity.Property(t => t.Operation)
-                .IsRequired()
-                .HasMaxLength(100);
-
-            entity.Property(t => t.ResultStatus)
-                .IsRequired()
-                .HasMaxLength(50);
-
-            entity.Property(t => t.TriggerPage)
-                .HasMaxLength(100);
-
-            entity.Property(t => t.RequestSummary)
-                .HasMaxLength(1000);
-
-            entity.Property(t => t.ExpectedResponseSummary)
-                .HasMaxLength(1000);
-
-            entity.Property(t => t.IsSimulation)
-                .IsRequired();
-        });
-
         modelBuilder.Entity<CardReaderProfile>(entity =>
         {
             entity.ToTable("CardReaderProfiles");
@@ -254,7 +223,6 @@ public class GfcDbContext : DbContext
             entity.HasData(new SystemSettings
             {
                 Id = 1,
-                UseRealControllers = false,
                 LastUpdatedUtc = null
             });
         });

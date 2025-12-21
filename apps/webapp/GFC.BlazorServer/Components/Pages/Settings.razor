@@ -1,4 +1,10 @@
 @page "/settings"
+
+<div class="gfc-modified-tag">
+    <span class="gfc-tag-label">MODIFIED</span>
+    <strong>Settings Page Update:</strong> Removed the "Controller Settings" section, which included the toggle for Simulation Mode vs. Real Controller Mode. The system now exclusively uses real hardware controllers.
+</div>
+
 @using GFC.Core.Services
 @using GFC.Core.Interfaces
 @using Microsoft.AspNetCore.Authorization
@@ -195,90 +201,6 @@
                 </EditForm>
             </div>
         </div>
-
-        <div class="settings-section">
-            <div class="settings-section__header">
-                <h2>
-                    <i class="bi bi-hdd-network"></i>
-                    Controller Settings
-                </h2>
-                <p class="settings-section__description">
-                    Configure controller behavior and simulation mode.
-                </p>
-            </div>
-
-            <div class="settings-section__body">
-                @if (_showControllerSuccessMessage)
-                {
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <i class="bi bi-check-circle"></i>
-                        Controller settings saved successfully!
-                        <button type="button" class="btn-close" @onclick="() => _showControllerSuccessMessage = false"></button>
-                    </div>
-                }
-
-                @if (!string.IsNullOrEmpty(_controllerErrorMessage))
-                {
-                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                        <i class="bi bi-exclamation-circle"></i>
-                        @_controllerErrorMessage
-                        <button type="button" class="btn-close" @onclick="() => _controllerErrorMessage = string.Empty"></button>
-                    </div>
-                }
-
-                <div class="form-grid">
-                    <div class="form-field">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" 
-                                   type="checkbox" 
-                                   id="use-real-controllers" 
-                                   @bind="_useRealControllers"
-                                   @bind:after="OnSimulationModeChanged"
-                                   style="width: 3rem; height: 1.5rem; cursor: pointer;" />
-                            <label class="form-check-label" for="use-real-controllers" style="cursor: pointer; margin-left: 0.5rem;">
-                                <strong>Use Real Controllers</strong>
-                            </label>
-                        </div>
-                        <small class="form-text text-muted">
-                            @if (_useRealControllers)
-                            {
-                                <span class="text-success">
-                                    <i class="bi bi-hdd-network"></i> <strong>Real Controller Mode:</strong> All controller operations will communicate with physical hardware via the Agent API.
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="text-warning">
-                                    <i class="bi bi-cpu"></i> <strong>Simulation Mode (NO real hardware writes):</strong> Controller operations will use simulation mode. No physical hardware will be accessed. No network packets will be sent.
-                                </span>
-                            }
-                        </small>
-                        <div class="mt-2">
-                            <small class="text-muted">
-                                <strong>Note:</strong> When simulation mode is enabled, all controller-related features (door control, card sync, schedules, event polling) will operate against a simulated controller layer instead of real hardware.
-                            </small>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="settings-actions mt-3">
-                    <button type="button" 
-                            class="btn btn-primary" 
-                            @onclick="SaveControllerSettings"
-                            disabled="@_savingControllerSettings">
-                        <i class="bi bi-save"></i>
-                        @if (_savingControllerSettings)
-                        {
-                            <span>Saving...</span>
-                        }
-                        else
-                        {
-                            <span>Save Controller Settings</span>
-                        }
-                    </button>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -292,16 +214,9 @@
     private bool _showSuccessMessage = false;
     private string _errorMessage = string.Empty;
 
-    // Controller settings
-    private bool _useRealControllers = false; // Default to false (simulation mode)
-    private bool _savingControllerSettings = false;
-    private bool _showControllerSuccessMessage = false;
-    private string _controllerErrorMessage = string.Empty;
-
     protected override async Task OnInitializedAsync()
     {
         LoadBackupSettings();
-        await LoadControllerSettingsAsync();
         await Task.CompletedTask; // Suppress async warning
     }
 
@@ -556,70 +471,6 @@
         finally
         {
             _runningBackup = false;
-        }
-    }
-
-    private async Task LoadControllerSettingsAsync()
-    {
-        try
-        {
-            var settings = await SystemSettingsService.GetAsync();
-            _useRealControllers = settings.UseRealControllers;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading controller settings");
-            _controllerErrorMessage = "Failed to load controller settings. Using defaults.";
-            _useRealControllers = false; // Default to simulation mode on error
-        }
-    }
-
-    private void OnSimulationModeChanged()
-    {
-        // This is called when the toggle changes, but we don't save until user clicks Save
-        // Just update the UI state
-        StateHasChanged();
-    }
-
-    private async Task SaveControllerSettings()
-    {
-        _savingControllerSettings = true;
-        _controllerErrorMessage = string.Empty;
-        _showControllerSuccessMessage = false;
-
-        try
-        {
-            var oldSettings = await SystemSettingsService.GetAsync();
-            var oldValue = oldSettings.UseRealControllers;
-            
-            await SystemSettingsService.SetUseRealControllersAsync(_useRealControllers);
-
-            // Audit log for mode change
-            if (oldValue != _useRealControllers)
-            {
-                var currentUser = AuthStateProvider.GetCurrentUser();
-                var userName = currentUser?.Username ?? Environment.UserName ?? "System";
-                Logger.LogInformation(
-                    "Controller mode changed by {UserName}: {OldMode} → {NewMode}",
-                    userName,
-                    oldValue ? "Live" : "Simulation",
-                    _useRealControllers ? "Live" : "Simulation");
-            }
-
-            _showControllerSuccessMessage = true;
-            Logger.LogInformation("Controller settings saved: UseRealControllers = {UseRealControllers}", _useRealControllers);
-
-            // Small delay to show success message
-            await Task.Delay(100);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error saving controller settings");
-            _controllerErrorMessage = "Failed to save controller settings: " + ex.Message;
-        }
-        finally
-        {
-            _savingControllerSettings = false;
         }
     }
 }

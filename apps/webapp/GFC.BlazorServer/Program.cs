@@ -127,8 +127,6 @@ public class Program
         builder.Services.AddScoped<DiagnosticsService>();
         builder.Services.AddScoped<ControllerRegistryService>();
         builder.Services.AddScoped<ControllerEventService>();
-        builder.Services.AddScoped<ISimulationTraceService, SimulationTraceService>();
-        builder.Services.AddScoped<IAccessSimulationScenarioService, AccessSimulationScenarioService>();
         builder.Services.AddScoped<CommandInfoService>();
         builder.Services.AddScoped<IScheduleService, ScheduleService>();
         builder.Services.AddScoped<IMaintenanceService, GFC.BlazorServer.Services.Maintenance.MaintenanceService>();
@@ -137,63 +135,29 @@ public class Program
         builder.Services.AddScoped<AutoOpenAndAdvancedModesService>();
         builder.Services.AddScoped<IMemberAccessService, MemberAccessService>();
         builder.Services.AddScoped<IMemberPrivilegeSyncService, MemberPrivilegeSyncService>();
-        builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.ISimulationGuard, GFC.BlazorServer.Services.Controllers.SimulationGuard>();
         builder.Services.AddScoped<DuesService>();
         builder.Services.AddScoped<WaiverService>();
         builder.Services.AddScoped<KeyHistoryService>();
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
-        builder.Services.AddScoped<IReplayService, ReplayService>();
         builder.Services.AddScoped<ThemeService>();
         
-        // BEGIN Simulation/Real controller toggle wiring
+        // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
-        builder.Services.AddScoped<IControllerModeProvider, ControllerModeProvider>();
         
-        // Register simulation state store as singleton (shared across all requests)
-        builder.Services.AddSingleton<GFC.BlazorServer.Services.Controllers.SimControllerStateStore>();
-        builder.Services.AddScoped<GFC.BlazorServer.Services.Simulation.ISimulationStateEngine, GFC.BlazorServer.Services.Simulation.SimulationStateEngine>();
-        
-        // Register simulation controller options
-        builder.Services.Configure<GFC.BlazorServer.Configuration.SimControllerOptions>(
-            builder.Configuration.GetSection("SimController"));
-        builder.Services.Configure<AccessControlSimulationOptions>(
-            builder.Configuration.GetSection("AccessControlSimulation"));
-        
-        // Register simulation services
-        builder.Services.AddScoped<GFC.BlazorServer.Services.Simulation.ISimulationModeService, GFC.BlazorServer.Services.Simulation.SimulationModeService>();
-        builder.Services.AddSingleton<GFC.BlazorServer.Services.Simulation.SimulationPresetService>();
-        
-        // Register simulation engine service (both as hosted service and as control service)
-        builder.Services.AddSingleton<GFC.BlazorServer.Services.Simulation.SimControllerEngineService>();
-        builder.Services.AddSingleton<GFC.BlazorServer.Services.Simulation.ISimulationEngineControlService>(sp => 
-            sp.GetRequiredService<GFC.BlazorServer.Services.Simulation.SimControllerEngineService>());
-        builder.Services.AddHostedService<GFC.BlazorServer.Services.Simulation.SimControllerEngineService>(sp => 
-            sp.GetRequiredService<GFC.BlazorServer.Services.Simulation.SimControllerEngineService>());
-        
-        // Register concrete controller clients
-        builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.SimulationControllerClient>();
+        // Register concrete controller clients. The `RealControllerClient` in the `Services` namespace
+        // is the one that implements the `IMengqiControllerClient` for test tooling. The one
+        // in `Services/Controllers` implements `IControllerClient` for the main application.
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.RealControllerClient>();
-        
-        // Register Mengqi controller clients used by controller-test tooling
-        builder.Services.AddScoped<GFC.BlazorServer.Services.SimulationControllerClient>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.RealControllerClient>();
 
-        // Register Dynamic proxies
-        builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.DynamicControllerClient>();
-        builder.Services.AddScoped<GFC.BlazorServer.Services.DynamicMengqiControllerClient>();
-        
-        // Register IControllerClient that dynamically resolves based on UseRealControllers setting
-        builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.IControllerClient>(sp =>
-            sp.GetRequiredService<GFC.BlazorServer.Services.Controllers.DynamicControllerClient>());
+        // Register the IControllerClient to always use the RealControllerClient.
+        // The DynamicControllerClient that switched between real and simulation has been removed.
+        builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.IControllerClient, GFC.BlazorServer.Services.Controllers.RealControllerClient>();
+        builder.Services.AddScoped<IMengqiControllerClient, GFC.BlazorServer.Services.RealControllerClient>();
         
         // Register ControllerNetworkConfigService AFTER IControllerClient is registered
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.ControllerNetworkConfigService>();
-        
-        // Wire IMengqiControllerClient to dynamically resolve based on UseRealControllers setting
-        builder.Services.AddScoped<IMengqiControllerClient>(sp =>
-            sp.GetRequiredService<GFC.BlazorServer.Services.DynamicMengqiControllerClient>());
-        // END Simulation/Real controller toggle wiring
         
         builder.Services.AddScoped<ControllerTestService>();
 
