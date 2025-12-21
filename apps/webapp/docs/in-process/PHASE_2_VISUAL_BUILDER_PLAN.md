@@ -3,6 +3,10 @@
 ## 🎯 Objective
 Replace the current placeholder alert in the "Time Profiles" section with a professional, graphical interface for defining recurring access time ranges.
 
+### 🏷️ Visual Tracking Requirement
+*   Any page modified by this phase must include a visible **[MODIFIED]** tag with a description.
+*   The new `TimeIntervalPicker` component and its container must be marked with a visible **[NEW]** tag.
+
 ## 🏗️ Technical Requirements
 
 ### 1. New Component: `TimeIntervalPicker.razor`

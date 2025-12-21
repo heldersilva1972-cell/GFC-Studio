@@ -3,6 +3,10 @@
 ## 🎯 Objective
 Transition the project from "Development" to "Production-Ready" by eliminating technical debt, purging legacy files, and refining the final UX details.
 
+### 🏷️ Visual Tracking Requirement
+*   Any page modified by this phase must include a visible **[MODIFIED]** tag with a description.
+*   New cleanup tools or status reports must be marked with a visible **[NEW]** tag.
+
 ## 🏗️ Technical Requirements
 
 ### 1. Legacy File Purge

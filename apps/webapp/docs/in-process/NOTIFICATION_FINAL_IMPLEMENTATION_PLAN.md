@@ -9,6 +9,7 @@
 4. **Directors Filter** - Filter to show only current/active Directors
 5. **Reminders** - Alert when new Directors need notification setup
 6. **Cleanup** - Auto-disable notifications when Director leaves board
+7. **Visual Tracking** - Any page modified by this plan must include a visible **[MODIFIED]** tag. New components (like the notification modal) must be tagged/wrapped with a visible **[NEW]** tag.
 
 ---
 
