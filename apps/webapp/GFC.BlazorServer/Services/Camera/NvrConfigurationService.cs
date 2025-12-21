@@ -46,13 +46,20 @@ namespace GFC.BlazorServer.Services.Camera
                 var projectRoot = _environment.ContentRootPath;
                 var appSettingsPath = Path.Combine(projectRoot, "appsettings.json");
 
+                // Log the path for debugging
+                Console.WriteLine($"[NvrConfig] Attempting to save to: {appSettingsPath}");
+                Console.WriteLine($"[NvrConfig] File exists: {File.Exists(appSettingsPath)}");
+
                 if (!File.Exists(appSettingsPath))
                 {
+                    Console.WriteLine($"[NvrConfig] ERROR: appsettings.json not found at {appSettingsPath}");
                     throw new FileNotFoundException($"appsettings.json not found at {appSettingsPath}");
                 }
 
                 // Read current JSON
                 var json = await File.ReadAllTextAsync(appSettingsPath);
+                Console.WriteLine($"[NvrConfig] Read {json.Length} characters from file");
+                
                 var jsonDoc = JsonDocument.Parse(json);
 
                 using var stream = new MemoryStream();
@@ -71,6 +78,8 @@ namespace GFC.BlazorServer.Services.Camera
                             writer.WriteNumber("HttpPort", settings.HttpPort);
                             writer.WriteString("Username", settings.Username);
                             writer.WriteString("Password", settings.Password);
+
+                            Console.WriteLine($"[NvrConfig] Writing credentials - Username: {settings.Username}, Password: {(string.IsNullOrEmpty(settings.Password) ? "EMPTY" : "***")}");
 
                             // Preserve Cameras array if it exists
                             if (property.Value.TryGetProperty("Cameras", out var cameras))
@@ -91,12 +100,17 @@ namespace GFC.BlazorServer.Services.Camera
                 }
 
                 var updatedJson = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+                Console.WriteLine($"[NvrConfig] Generated {updatedJson.Length} characters of JSON");
+                
                 await File.WriteAllTextAsync(appSettingsPath, updatedJson);
+                Console.WriteLine($"[NvrConfig] Successfully wrote to file");
 
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                Console.WriteLine($"[NvrConfig] ERROR: {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[NvrConfig] Stack: {ex.StackTrace}");
                 return false;
             }
         }
