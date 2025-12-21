@@ -11,12 +11,12 @@ namespace GFC.BlazorServer.Services.Camera
     {
         private readonly HttpClient _httpClient;
         private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
-        private readonly Microsoft.Extensions.Hosting.IHostEnvironment _environment;
+        private readonly Microsoft.AspNetCore.Hosting.IWebHostEnvironment _environment;
 
         public CameraVerificationService(
             IHttpClientFactory httpClientFactory, 
             Microsoft.Extensions.Configuration.IConfiguration configuration,
-            Microsoft.Extensions.Hosting.IHostEnvironment environment)
+            Microsoft.AspNetCore.Hosting.IWebHostEnvironment environment)
         {
             _httpClient = httpClientFactory.CreateClient();
             _configuration = configuration;
