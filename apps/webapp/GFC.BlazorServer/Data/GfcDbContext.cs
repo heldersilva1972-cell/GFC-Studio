@@ -223,7 +223,6 @@ public class GfcDbContext : DbContext
             entity.HasData(new SystemSettings
             {
                 Id = 1,
-                UseRealControllers = false,
                 LastUpdatedUtc = null
             });
         });

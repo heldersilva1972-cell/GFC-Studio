@@ -145,7 +145,6 @@ public class Program
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
-        builder.Services.AddScoped<IControllerModeProvider, ControllerModeProvider>();
         
         // Register concrete controller clients. The `RealControllerClient` in the `Services` namespace
         // is the one that implements the `IMengqiControllerClient` for test tooling. The one
