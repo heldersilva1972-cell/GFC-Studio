@@ -36,7 +36,7 @@ public class ControllerEvent
     [MaxLength(4000)]
     public string? RawData { get; set; }
 
-    public bool IsSimulated { get; set; } = false;
+
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 }

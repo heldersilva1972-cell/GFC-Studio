@@ -31,11 +31,7 @@ public class ControllerDevice
 
     public ControllerLastIndex? LastIndex { get; set; }
 
-    /// <summary>
-    /// Indicates this controller is runtime-only and should not persist.
-    /// </summary>
-    [NotMapped]
-    public bool IsSimulated { get; set; }
+
 
     /// <summary>
     /// Friendly serial number text used for UI and simulated clients.

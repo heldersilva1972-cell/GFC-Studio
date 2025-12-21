@@ -11,7 +11,8 @@
 @inject ISystemSettingsService SystemSettingsService
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject ILogger<MemberAccessControl> Logger
-@inject IOptions<AccessControlSimulationOptions> AccessSimOptions
+
+
 
 <AuthorizeView>
     <Authorized>
@@ -20,18 +21,8 @@
             <section class="detail-history">
                 <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
                     <h5 class="mb-0">Access Control</h5>
-                    @if (AccessSimOptions?.Value?.UseAccessControlSimulation == true)
-                    {
-                        <span class="sim-chip">
-                            <span class="sim-chip-dot"></span>
-                            Sim mode active
-                        </span>
-                    }
                 </div>
                 
-                <div class="alert alert-info mb-3" hidden="@_useRealControllers">
-                    <strong>Simulation Mode enabled:</strong> Controller operations will be simulated only (no hardware traffic).
-                </div>
 
             @if (!_loading && !MemberIsEligible)
             {
@@ -71,7 +62,7 @@
                                 <button class="btn btn-success btn-sm" 
                                         type="button" 
                                         disabled="@(_saving || _syncing)"
-                                        title="@(!_useRealControllers ? "Simulation mode: hardware writes are virtual only." : null)"
+
                                         @onclick="SyncPrivileges">
                                     <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_syncing)"></span>
                                     Sync Privileges to Controllers
@@ -81,7 +72,7 @@
                                     <button class="btn btn-warning btn-sm" 
                                             type="button" 
                                             disabled="@(_saving || _syncing || _removingCard)"
-                                            title="@(!_useRealControllers ? "Simulation mode: removal uses virtual controllers." : null)"
+
                                             @onclick="ShowRemoveCardConfirm">
                                         <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_removingCard)"></span>
                                         Remove Card from Controllers
@@ -153,7 +144,7 @@
                                     <button class="btn btn-danger btn-sm" 
                                             type="button" 
                                             disabled="@(_saving || _syncing || _clearingAll)"
-                                            title="@(!_useRealControllers ? "Simulation mode: clears privileges in simulation only." : null)"
+
                                             @onclick="() => ShowClearAllConfirm(controller.Id, controller.Name)">
                                         <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_clearingAll || _clearingControllerId != controller.Id)"></span>
                                         Clear All: @controller.Name
@@ -202,9 +193,7 @@
                                 <button type="button" class="btn-close btn-close-white" @onclick="CancelClearAll"></button>
                             </div>
                             <div class="modal-body">
-                                <div class="alert alert-warning" hidden="@_useRealControllers">
-                                    <strong>Simulation Mode is active.</strong> Clearing privileges will be simulated only (no hardware writes).
-                                </div>
+
                                 <div class="alert alert-danger">
                                     <strong>DANGEROUS OPERATION</strong>
                                     <p class="mb-0">This will erase ALL card privileges from controller <strong>@_clearingControllerName</strong>.</p>
@@ -248,7 +237,6 @@
     private int? _clearingControllerId = null;
     private string _error = string.Empty;
     private bool _isAdmin = false;
-    private bool _useRealControllers = false;
     private bool _hasActiveCard = false;
     private KeyCardEligibilityResult? _memberEligibility;
     private bool _showRemoveCardModal = false;
@@ -271,7 +259,7 @@
         _error = string.Empty;
         try
         {
-            await LoadControllerModeAsync();
+
             _controllers = (await ControllerRegistryService.GetControllersAsync(includeDoors: true)).ToList();
             var accessResponse = await MemberAccessService.GetMemberDoorAccessAsync(MemberId);
             _accessData = accessResponse.Access.ToList();
@@ -424,6 +412,7 @@
             return;
         }
 
+
         _clearingAll = true;
         _error = string.Empty;
         try
@@ -431,11 +420,6 @@
             await MemberAccessService.ClearAllPrivilegesAsync(_clearingControllerId.Value);
             _showClearAllModal = false;
             await LoadData();
-        }
-        catch (SimulationModeBlockedException ex)
-        {
-            Logger.LogWarning(ex, "Blocked clear all privileges request for controller {ControllerId}", _clearingControllerId);
-            _error = ex.Message;
         }
         catch (Exception ex)
         {
@@ -480,17 +464,4 @@
         return string.Join(" ", reasons);
     }
 
-    private async Task LoadControllerModeAsync()
-    {
-        try
-        {
-            var settings = await SystemSettingsService.GetAsync();
-            _useRealControllers = settings.UseRealControllers;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
-            _useRealControllers = false;
-        }
-    }
 }

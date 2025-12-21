@@ -16,18 +16,9 @@
     <div>
         <h1>Controllers</h1>
         <p class="text-muted mb-0">Monitor controller metadata, open doors, and jump to detailed status.</p>
-        @if (_useRealControllers)
-        {
-            <span class="badge bg-success mt-2">
-                <i class="bi bi-hdd-network"></i> Real Controller Mode
-            </span>
-        }
-        else
-        {
-            <span class="badge bg-warning text-dark mt-2">
-                <i class="bi bi-cpu"></i> Simulation Mode (NO real hardware writes)
-            </span>
-        }
+        <span class="badge bg-success mt-2">
+            <i class="bi bi-hdd-network"></i> Real Controller Mode
+        </span>
     </div>
     <div class="d-flex gap-2">
         <button class="btn btn-outline-secondary" @onclick="LoadControllersAsync" disabled="@_isLoading">
@@ -88,12 +79,8 @@ else
             var lastEvent = _latestEvents.TryGetValue(controller.Id, out var evt) ? evt : null;
             var statusColor = GetControllerStatusColor(lastEvent);
             var statusText = GetControllerStatusText(lastEvent);
-            var connectivityLabel = !_useRealControllers
-                ? "Simulated"
-                : statusText == "Never" ? "Offline" : statusText;
-            var connectivityColor = !_useRealControllers
-                ? "bg-warning text-dark"
-                : statusColor;
+            var connectivityLabel = statusText == "Never" ? "Offline" : statusText;
+            var connectivityColor = statusColor;
             <div class="controller-row data-card @(controller.Id == _selectedControllerId ? "controller-row--selected" : string.Empty)"
                  role="button"
                  tabindex="0"
@@ -132,12 +119,7 @@ else
                     <span class="badge @(controller.IsEnabled ? "bg-success" : "bg-secondary")">
                         @(controller.IsEnabled ? "Enabled" : "Disabled")
                     </span>
-                    @if (!_useRealControllers)
-                    {
-                        <span class="badge bg-warning text-dark" title="Simulation Mode">
-                            <i class="bi bi-cpu"></i> Simulated
-                        </span>
-                    }
+
                 </div>
 
                 <div class="controller-actions">
@@ -160,9 +142,7 @@ else
                     {
                         <button class="btn btn-primary btn-sm"
                                 @onclick="@(() => ShowOpenDoorDialog(controller))"
-                                @onclick:stopPropagation="true"
-                                disabled="@(!_useRealControllers)"
-                                title="@(!_useRealControllers ? "Disabled — Simulation Mode" : null)">
+                                @onclick:stopPropagation="true">
                             <i class="bi bi-door-open"></i> Open Door
                         </button>
                     }
@@ -360,7 +340,6 @@ else
     private int? _selectedControllerId;
     private ControllerDevice? _selectedController;
     private bool _isAdmin;
-    private bool _useRealControllers = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -368,7 +347,6 @@ else
         await Task.Yield();
         
         await CheckAdminAccess();
-        await LoadControllerModeAsync();
         
         // Don't await the DB load synchronously if we want the UI to be responsive immediately
         // But for StateHasChanged to work, we stick to this pattern, now that we yielded.
@@ -410,7 +388,7 @@ else
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load controllers");
-            _errorMessage = "Unable to load controllers right now. If you are in Simulation Mode only, this message is expected.";
+            _errorMessage = "Unable to load controllers right now.";
         }
         finally
         {
@@ -494,18 +472,5 @@ else
         }
     }
 
-    private async Task LoadControllerModeAsync()
-    {
-        try
-        {
-            var settings = await SystemSettingsService.GetAsync();
-            _useRealControllers = settings.UseRealControllers;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
-            _useRealControllers = false;
-        }
-    }
 }
 

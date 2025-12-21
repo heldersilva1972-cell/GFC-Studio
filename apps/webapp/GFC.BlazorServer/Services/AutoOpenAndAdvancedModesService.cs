@@ -13,18 +13,15 @@ public class AutoOpenAndAdvancedModesService
     private readonly GfcDbContext _dbContext;
     private readonly IScheduleService _scheduleService;
     private readonly ILogger<AutoOpenAndAdvancedModesService> _logger;
-    private readonly ISimulationGuard _simulationGuard;
 
     public AutoOpenAndAdvancedModesService(
         GfcDbContext dbContext,
         IScheduleService scheduleService,
-        ILogger<AutoOpenAndAdvancedModesService> logger,
-        ISimulationGuard simulationGuard)
+        ILogger<AutoOpenAndAdvancedModesService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _scheduleService = scheduleService ?? throw new ArgumentNullException(nameof(scheduleService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _simulationGuard = simulationGuard ?? throw new ArgumentNullException(nameof(simulationGuard));
     }
 
     public async Task<List<DoorAutoOpenViewModel>> GetDoorAutoOpenForControllerAsync(int controllerId, CancellationToken cancellationToken = default)
@@ -454,10 +451,6 @@ public class AutoOpenAndAdvancedModesService
 
         try
         {
-            await _simulationGuard.EnsureNotSimulationAsync(
-                "WriteAutoOpen",
-                controller.Id,
-                controller.SerialNumber);
 
             var autoOpenModels = await GetDoorAutoOpenForControllerAsync(controllerId, cancellationToken);
             var links = await _scheduleService.GetControllerLinksAsync(controllerId, cancellationToken);
@@ -467,15 +460,9 @@ public class AutoOpenAndAdvancedModesService
             report.Success = true;
             report.Message = "Auto-open configuration synced to controller successfully";
         }
-        catch (SimulationModeBlockedException ex)
-        {
-            _logger.LogWarning(ex, "Blocked auto-open sync for controller {ControllerId} while in Simulation Mode", controllerId);
-            report.Success = false;
-            report.Message = ex.Message;
-        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to sync auto-open to controller {ControllerId}", controllerId);
+            _logger.LogError(ex, "Failed to sync to controller {ControllerId}", controllerId);
             report.Success = false;
             report.Message = $"Failed to sync: {ex.Message}";
         }
@@ -512,10 +499,6 @@ public class AutoOpenAndAdvancedModesService
 
         try
         {
-            await _simulationGuard.EnsureNotSimulationAsync(
-                "WriteAdvancedDoorModes",
-                controller.Id,
-                controller.SerialNumber);
 
             var doorModes = await GetDoorAdvancedModesForControllerAsync(controllerId, cancellationToken);
             var controllerBehavior = await GetControllerBehaviorAsync(controllerId, cancellationToken);
@@ -524,12 +507,6 @@ public class AutoOpenAndAdvancedModesService
 
             report.Success = true;
             report.Message = "Advanced door modes configuration synced to controller successfully";
-        }
-        catch (SimulationModeBlockedException ex)
-        {
-            _logger.LogWarning(ex, "Blocked advanced door modes sync for controller {ControllerId} while in Simulation Mode", controllerId);
-            report.Success = false;
-            report.Message = ex.Message;
         }
         catch (Exception ex)
         {
@@ -570,10 +547,7 @@ public class AutoOpenAndAdvancedModesService
 
         try
         {
-            await _simulationGuard.EnsureNotSimulationAsync(
-                "WriteAutoOpen",
-                controller.Id,
-                controller.SerialNumber);
+
             // Sync Auto-Open
             var autoOpenModels = await GetDoorAutoOpenForControllerAsync(controllerId, cancellationToken);
             var links = await _scheduleService.GetControllerLinksAsync(controllerId, cancellationToken);
@@ -581,10 +555,7 @@ public class AutoOpenAndAdvancedModesService
             await controllerClient.WriteAutoOpenAsync(controller.SerialNumberDisplay, autoOpenDto, cancellationToken);
             report.CommandKeys.Add("SyncAutoOpen");
 
-            await _simulationGuard.EnsureNotSimulationAsync(
-                "WriteAdvancedDoorModes",
-                controller.Id,
-                controller.SerialNumber);
+
             // Sync Advanced Door Modes
             var doorModes = await GetDoorAdvancedModesForControllerAsync(controllerId, cancellationToken);
             var controllerBehavior = await GetControllerBehaviorAsync(controllerId, cancellationToken);
@@ -594,12 +565,6 @@ public class AutoOpenAndAdvancedModesService
 
             report.Success = true;
             report.Message = "Configuration synced to controller successfully";
-        }
-        catch (SimulationModeBlockedException ex)
-        {
-            _logger.LogWarning(ex, "Blocked auto-open/advanced modes sync for controller {ControllerId} while in Simulation Mode", controllerId);
-            report.Success = false;
-            report.Message = ex.Message;
         }
         catch (Exception ex)
         {

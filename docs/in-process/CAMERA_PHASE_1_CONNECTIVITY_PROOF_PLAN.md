@@ -1,6 +1,6 @@
 # Plan: Camera System Integration - Phase 1: Connectivity Proof
 **Project:** GFC Camera Viewer  
-**Status:** Planning / In-Process  
+**Status:** **FINALIZED / APPROVED**  
 
 ## 🎯 Objective
 Prove reliable connectivity between the GFC Web App and the NVR (192.168.1.64) via the Local Video Agent. Establish a real-time status bridge with plain-English feedback for the user.
@@ -9,12 +9,13 @@ Prove reliable connectivity between the GFC Web App and the NVR (192.168.1.64) v
 
 ### 1. UI Integration & Visual Tracking
 - [ ] **Implement Change Tracking UI**: Ensure `.gfc-modified-tag` and `.gfc-new-tag` are available in `app.css`.
+- [ ] **Visual Tracking Rule**: Every modified page MUST have a visible `[MODIFIED]` tag at the top. New elements MUST be wrapped in a `[NEW]` tag indicator.
 - [ ] **Modify Dashboard.razor**: Add a "Cameras" button to the top action bar. [**TAG: NEW**]
     - Include a status LED component (🟢/🟡/🔴) indicating the heartbeat status of the Video Agent.
 - [ ] **Create CameraViewer.razor**: A new page for testing live connectivity. [**TAG: NEW**]
     - Add a "Plain-English Status Window" for connection logs.
     - Implement a single video player (HLS.js) for Camera 1.
-- [ ] **Modify NavMenu.razor**: Add a temporary test link to the "Cameras" page under the Controllers section. [**TAG: MODIFIED**]
+- [ ] **Modify NavMenu.razor**: Add a link to the "Cameras" page under the Controllers section. [**TAG: MODIFIED**]
 
 ### 2. Video Agent (Phase 1 MVP)
 - [ ] **Create Video Agent Service (C#)**:

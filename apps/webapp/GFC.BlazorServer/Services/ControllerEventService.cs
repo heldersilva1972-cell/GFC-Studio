@@ -21,7 +21,7 @@ public class ControllerEventService
     }
 
     /// <summary>
-    /// Saves events from ControllerEventDto (e.g., from simulation).
+    /// Saves events from ControllerEventDto.
     /// </summary>
     public async Task SaveEventsFromDtoAsync(uint controllerSerialNumber, IEnumerable<ControllerEventDto> eventDtos, uint newLastIndex, CancellationToken cancellationToken = default)
     {
@@ -76,7 +76,6 @@ public class ControllerEventService
                     IsByButton = e.IsByButton,
                     RawIndex = (int)e.RawIndex,
                     RawData = e.RawData,
-                    IsSimulated = e.IsSimulated,
                     CreatedUtc = now
                 };
             })
@@ -106,7 +105,7 @@ public class ControllerEventService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "Saved {Count} new simulated events for controller {ControllerName} (SN {Serial}). LastIndex={Index}",
+            "Saved {Count} new events for controller {ControllerName} (SN {Serial}). LastIndex={Index}",
             newEvents.Count,
             controller.Name,
             controllerSerialNumber,
@@ -162,7 +161,6 @@ public class ControllerEventService
                     IsByButton = e.IsByButton,
                     RawIndex = e.RawIndex,
                     RawData = e.RawData,
-                    IsSimulated = e.IsSimulated,
                     CreatedUtc = now
                 };
 
@@ -208,7 +206,7 @@ public class ControllerEventService
         int? doorId = null,
         bool? isByCard = null,
         bool? isByButton = null,
-        bool? isSimulated = null,
+
         int? limit = 500,
         CancellationToken cancellationToken = default)
     {
@@ -248,10 +246,7 @@ public class ControllerEventService
             query = query.Where(e => e.IsByButton == isByButton.Value);
         }
 
-        if (isSimulated.HasValue)
-        {
-            query = query.Where(e => e.IsSimulated == isSimulated.Value);
-        }
+
 
         if (limit.HasValue && limit > 0)
         {
@@ -273,7 +268,7 @@ public class ControllerEventService
         int? doorId = null,
         bool? isByCard = null,
         bool? isByButton = null,
-        bool? isSimulated = null,
+
         CancellationToken cancellationToken = default)
     {
         if (page <= 0) page = 1;
@@ -311,10 +306,7 @@ public class ControllerEventService
             query = query.Where(e => e.IsByButton == isByButton.Value);
         }
 
-        if (isSimulated.HasValue)
-        {
-            query = query.Where(e => e.IsSimulated == isSimulated.Value);
-        }
+
 
         var total = await query.CountAsync(cancellationToken);
 
