@@ -60,7 +60,6 @@ public class MemberAccessService : IMemberAccessService
         _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
         _historyService = historyService ?? throw new ArgumentNullException(nameof(historyService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _simulationGuard = simulationGuard ?? throw new ArgumentNullException(nameof(simulationGuard));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
     }
 

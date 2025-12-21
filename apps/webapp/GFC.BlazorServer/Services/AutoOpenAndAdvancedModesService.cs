@@ -459,12 +459,6 @@ public class AutoOpenAndAdvancedModesService
             report.Success = true;
             report.Message = "Auto-open configuration synced to controller successfully";
         }
-        catch (SimulationModeBlockedException ex)
-        {
-            _logger.LogWarning(ex, "Blocked auto-open sync for controller {ControllerId} while in Simulation Mode", controllerId);
-            report.Success = false;
-            report.Message = ex.Message;
-        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to sync auto-open to controller {ControllerId}", controllerId);
@@ -511,12 +505,6 @@ public class AutoOpenAndAdvancedModesService
 
             report.Success = true;
             report.Message = "Advanced door modes configuration synced to controller successfully";
-        }
-        catch (SimulationModeBlockedException ex)
-        {
-            _logger.LogWarning(ex, "Blocked advanced door modes sync for controller {ControllerId} while in Simulation Mode", controllerId);
-            report.Success = false;
-            report.Message = ex.Message;
         }
         catch (Exception ex)
         {
@@ -573,12 +561,6 @@ public class AutoOpenAndAdvancedModesService
 
             report.Success = true;
             report.Message = "Configuration synced to controller successfully";
-        }
-        catch (SimulationModeBlockedException ex)
-        {
-            _logger.LogWarning(ex, "Blocked auto-open/advanced modes sync for controller {ControllerId} while in Simulation Mode", controllerId);
-            report.Success = false;
-            report.Message = ex.Message;
         }
         catch (Exception ex)
         {
