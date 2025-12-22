@@ -116,15 +116,14 @@ namespace GFC.BlazorServer.Services.Camera
                     {
                         if (c.RtspUrl == null) return false;
                         
-                        if (Uri.TryCreate(c.RtspUrl, UriKind.Absolute, out var existingUri) && 
-                            Uri.TryCreate(camera.RtspUrl, UriKind.Absolute, out var newUri))
+                        // Robust check: Parse discovered URL (safe) and check if Existing contains Host + Path
+                        if (Uri.TryCreate(camera.RtspUrl, UriKind.Absolute, out var newUri))
                         {
-                            // Compare Host and AbsolutePath (ignores query string and credentials)
-                            return existingUri.Host == newUri.Host && 
-                                   existingUri.AbsolutePath.Equals(newUri.AbsolutePath, StringComparison.OrdinalIgnoreCase);
+                            return c.RtspUrl.Contains(newUri.Host) && 
+                                   c.RtspUrl.Contains(newUri.AbsolutePath, StringComparison.OrdinalIgnoreCase);
                         }
                         
-                        return false;
+                        return c.RtspUrl.Contains(camera.IpAddress);
                     });
                 }
 
