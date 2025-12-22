@@ -3,6 +3,7 @@ using GFC.BlazorServer.Components;
 using GFC.BlazorServer.Configuration;
 using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Services;
+using GFC.BlazorServer.Services.Camera;
 using GFC.BlazorServer.Services.Core;
 using GFC.BlazorServer.Services.Dashboard;
 using GFC.BlazorServer.Services.Members;
@@ -104,6 +105,7 @@ public class Program
         // Shared services
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();
+        builder.Services.AddScoped<ICameraService, CameraService>();
         builder.Services.AddSingleton<IDatabaseBackupService, GFC.BlazorServer.Services.DatabaseBackupService>();
         builder.Services.AddHostedService<GFC.BlazorServer.Services.BackupSchedulerService>();
         builder.Services.AddScoped<OverdueCalculationService>();

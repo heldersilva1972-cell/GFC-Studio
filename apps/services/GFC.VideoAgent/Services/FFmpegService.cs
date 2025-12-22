@@ -14,6 +14,7 @@ namespace GFC.VideoAgent.Services
         private readonly ILogger<FFmpegService> _logger;
         private readonly IConfiguration _configuration;
         private readonly ConcurrentDictionary<int, Process> _activeProcesses = new();
+        private readonly ConcurrentDictionary<int, StreamQuality> _streamQualities = new();
         private readonly string _outputDirectory;
 
         public FFmpegService(ILogger<FFmpegService> logger, IConfiguration configuration)
@@ -30,9 +31,13 @@ namespace GFC.VideoAgent.Services
 
         public void StartStream(CameraStream stream)
         {
+            var quality = _streamQualities.GetOrAdd(stream.CameraId, StreamQuality.HD);
             var ffmpegPath = _configuration.GetValue<string>("VideoAgent:FFmpegPath") ?? "ffmpeg";
+            var qualityArgs = GetQualityArguments(quality);
+
             var arguments = $"-rtsp_transport tcp -i \"{stream.RtspUrl}\" " +
-                            "-c:v copy -c:a aac -f hls " +
+                            $"{qualityArgs} " +
+                            "-c:a aac -f hls " +
                             "-hls_time 2 -hls_list_size 5 -hls_flags delete_segments " +
                             $"-hls_segment_filename \"{Path.Combine(_outputDirectory, $"camera_{stream.CameraId}_%03d.ts")}\" " +
                             $"\"{Path.Combine(_outputDirectory, $"camera{stream.CameraId}.m3u8")}\"";
@@ -106,6 +111,82 @@ namespace GFC.VideoAgent.Services
                 return StreamStatus.Buffering;
             }
             return StreamStatus.Offline;
+        }
+
+        public async Task<byte[]?> CaptureSnapshotAsync(int cameraId)
+        {
+            var cameraConfig = _configuration.GetSection($"NvrSettings:Cameras").Get<List<CameraConfig>>()?.FirstOrDefault(c => c.Id == cameraId);
+            if (cameraConfig == null)
+            {
+                _logger.LogError($"Camera configuration for camera {cameraId} not found.");
+                return null;
+            }
+
+            var rtspUrl = $"rtsp://{_configuration["NvrSettings:Username"]}:{_configuration["NvrSettings:Password"]}@{_configuration["NvrSettings:IpAddress"]}:{_configuration["NvrSettings:RtspPort"]}{cameraConfig.RtspPath}";
+            var ffmpegPath = _configuration.GetValue<string>("VideoAgent:FFmpegPath") ?? "ffmpeg";
+            var tempFileName = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.jpg");
+
+            var arguments = $"-rtsp_transport tcp -i \"{rtspUrl}\" -vframes 1 -q:v 2 \"{tempFileName}\"";
+
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = arguments,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                }
+            };
+
+            process.Start();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogError($"FFmpeg snapshot process for camera {cameraId} exited with code {process.ExitCode}.");
+                return null;
+            }
+
+            if (!File.Exists(tempFileName))
+            {
+                _logger.LogError($"Snapshot file for camera {cameraId} was not created.");
+                return null;
+            }
+
+            var imageBytes = await File.ReadAllBytesAsync(tempFileName);
+            File.Delete(tempFileName);
+
+            return imageBytes;
+        }
+
+        public void SetStreamQuality(CameraStream stream, StreamQuality quality)
+        {
+            _streamQualities[stream.CameraId] = quality;
+            StopStream(stream.CameraId);
+            StartStream(stream);
+            _logger.LogInformation($"Set stream quality for camera {stream.CameraId} to {quality}.");
+        }
+
+        public StreamQuality GetStreamQuality(int cameraId)
+        {
+            return _streamQualities.GetOrAdd(cameraId, StreamQuality.HD);
+        }
+
+        private string GetQualityArguments(StreamQuality quality)
+        {
+            switch (quality)
+            {
+                case StreamQuality.Low:
+                    return "-vf scale=640:-1 -b:v 500k -c:v h264";
+                case StreamQuality.SD:
+                    return "-vf scale=1280:-1 -b:v 1500k -c:v h264";
+                case StreamQuality.HD:
+                default:
+                    return "-c:v copy"; // No transcoding for HD
+            }
         }
     }
 }
