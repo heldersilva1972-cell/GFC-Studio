@@ -12,6 +12,14 @@ public interface ISystemSettingsService
     /// </summary>
     Task<SystemSettings> GetAsync();
 
+    /// <summary>
+    /// Gets the system settings synchronously. Creates default settings if none exist.
+    /// </summary>
+    SystemSettings GetSettings();
 
+    /// <summary>
+    /// Updates NVR credentials for camera auto-discovery.
+    /// </summary>
+    Task UpdateNvrCredentialsAsync(string nvrIpAddress, int nvrPort, string username, string password);
 }
 

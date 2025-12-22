@@ -31,5 +31,26 @@ public class SystemSettings
     /// Timestamp of last update to these settings.
     /// </summary>
     public DateTime? LastUpdatedUtc { get; set; }
+
+    // [NEW] NVR/Camera Credentials for Auto-Discovery
+    /// <summary>
+    /// NVR IP Address for camera auto-discovery.
+    /// </summary>
+    public string? NvrIpAddress { get; set; }
+
+    /// <summary>
+    /// NVR HTTP port (default: 8000).
+    /// </summary>
+    public int? NvrPort { get; set; }
+
+    /// <summary>
+    /// NVR/Camera username for authentication.
+    /// </summary>
+    public string? NvrUsername { get; set; }
+
+    /// <summary>
+    /// NVR/Camera password for authentication. Should be encrypted in production.
+    /// </summary>
+    public string? NvrPassword { get; set; }
 }
 
