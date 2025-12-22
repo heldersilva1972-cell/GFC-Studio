@@ -39,6 +39,13 @@ public class GfcDbContext : DbContext
     public DbSet<ReimbursementChangeLog> ReimbursementChangeLogs => Set<ReimbursementChangeLog>();
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
+    
+    // Camera System
+    public DbSet<GFC.Core.Models.Camera> Cameras => Set<GFC.Core.Models.Camera>();
+    public DbSet<GFC.Core.Models.CameraEvent> CameraEvents => Set<GFC.Core.Models.CameraEvent>();
+    public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
+    public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
+    public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
