@@ -24,7 +24,7 @@ namespace GFC.BlazorServer.Services.Camera
                 .ToListAsync();
         }
 
-        public async Task<List<CameraPermission>> GetPermissionsForUserAsync(string userId)
+        public async Task<List<CameraPermission>> GetPermissionsForUserAsync(int userId)
         {
             return await _context.CameraPermissions
                 .Where(p => p.UserId == userId)
@@ -47,7 +47,7 @@ namespace GFC.BlazorServer.Services.Camera
             }
         }
 
-        public async Task<bool> HasPermissionAsync(string userId, int cameraId, CameraAccessLevel accessLevel)
+        public async Task<bool> HasPermissionAsync(int userId, int cameraId, CameraAccessLevel accessLevel)
         {
             return await _context.CameraPermissions
                 .AnyAsync(p => p.UserId == userId && p.CameraId == cameraId && p.AccessLevel >= accessLevel);

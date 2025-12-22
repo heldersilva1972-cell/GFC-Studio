@@ -65,5 +65,11 @@ namespace GFC.BlazorServer.Services.Camera
             await Task.CompletedTask;
             return true;
         }
+
+        public async Task SetStreamQualityAsync(int cameraId, StreamQuality quality)
+        {
+            // TODO: Implement stream quality setting via Video Agent
+            await Task.CompletedTask;
+        }
     }
 }

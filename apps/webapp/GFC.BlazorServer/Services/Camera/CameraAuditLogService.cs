@@ -18,7 +18,7 @@ namespace GFC.BlazorServer.Services.Camera
             _context = context;
         }
 
-        public async Task LogActionAsync(int cameraId, string userId, string action, string details)
+        public async Task LogActionAsync(int cameraId, int userId, string action, string details)
         {
             var logEntry = new CameraAuditLog
             {
@@ -39,7 +39,7 @@ namespace GFC.BlazorServer.Services.Camera
                 .ToListAsync();
         }
 
-        public async Task<List<CameraAuditLog>> GetLogsForUserAsync(string userId, DateTime start, DateTime end)
+        public async Task<List<CameraAuditLog>> GetLogsForUserAsync(int userId, DateTime start, DateTime end)
         {
             return await _context.CameraAuditLogs
                 .Where(l => l.UserId == userId && l.Timestamp >= start && l.Timestamp <= end)
