@@ -1,6 +1,6 @@
 using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Models.Diagnostics;
-using GFC.Core.Models;
+using GFC.Core.Models.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Data;
@@ -41,7 +41,7 @@ public class GfcDbContext : DbContext
     public DbSet<ReimbursementChangeLog> ReimbursementChangeLogs => Set<ReimbursementChangeLog>();
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
-    public DbSet<DuesYearSettings> DuesYearSettings => Set<DuesYearSettings>();
+    public DbSet<GFC.Core.Models.DuesYearSettings> DuesYearSettings => Set<GFC.Core.Models.DuesYearSettings>();
     
     // Camera System
     public DbSet<GFC.Core.Models.Camera> Cameras => Set<GFC.Core.Models.Camera>();
@@ -441,7 +441,7 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<DuesYearSettings>(entity =>
+        modelBuilder.Entity<GFC.Core.Models.DuesYearSettings>(entity =>
         {
             entity.ToTable("DuesYearSettings");
             entity.HasKey(e => e.Year);
