@@ -301,15 +301,21 @@
     {
         _isScanning = true;
         _errorMessage = null;
-        _discoveredCameras = null;
+        _discoveredCameras = new List<DiscoveredCamera>();
         _discoveryLog = new(); // Clear log
         StateHasChanged();
 
         try
         {
-            _discoveredCameras = await DiscoveryService.DiscoverCamerasAsync(_networkRange, _timeoutSeconds, (status) => 
+            await DiscoveryService.DiscoverCamerasAsync(_networkRange, _timeoutSeconds, 
+            (status) => 
             {
                 _discoveryLog.Add(new LogEntry(DateTime.Now, status));
+                InvokeAsync(StateHasChanged);
+            },
+            (camera) =>
+            {
+                _discoveredCameras.Add(camera);
                 InvokeAsync(StateHasChanged);
             });
         }
@@ -327,13 +333,36 @@
     private void ShowAddCameraModal(DiscoveredCamera camera)
     {
         _selectedCamera = camera;
+        
+        string username = "admin";
+        string password = "";
+
+        // Attempt to extract credentials from RTSP URL
+        if (!string.IsNullOrEmpty(camera.RtspUrl))
+        {
+            try 
+            {
+                var uri = new Uri(camera.RtspUrl);
+                if (!string.IsNullOrEmpty(uri.UserInfo))
+                {
+                    var parts = uri.UserInfo.Split(':');
+                    if (parts.Length == 2)
+                    {
+                        username = parts[0];
+                        password = parts[1];
+                    }
+                }
+            }
+            catch { /* Ignore parsing errors */ }
+        }
+
         _addRequest = new AddDiscoveredCameraRequest
         {
             IpAddress = camera.IpAddress,
             CustomName = camera.Name,
             SelectedStreamPath = camera.AvailableStreams.FirstOrDefault()?.RtspPath,
-            Username = "admin",
-            Password = "",
+            Username = username,
+            Password = password,
             EnableImmediately = true
         };
         _showAddModal = true;

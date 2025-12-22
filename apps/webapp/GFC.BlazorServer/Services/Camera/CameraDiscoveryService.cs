@@ -43,7 +43,7 @@ namespace GFC.BlazorServer.Services.Camera
         /// <summary>
         /// Discovers cameras on the network using multiple methods
         /// </summary>
-        public async Task<List<DiscoveredCamera>> DiscoverCamerasAsync(string networkRange = null, int timeoutSeconds = 30, Action<string> onStatusUpdate = null)
+        public async Task<List<DiscoveredCamera>> DiscoverCamerasAsync(string networkRange = null, int timeoutSeconds = 30, Action<string> onStatusUpdate = null, Action<DiscoveredCamera> onCameraFound = null)
         {
             var discoveredCameras = new List<DiscoveredCamera>();
 
@@ -61,6 +61,14 @@ namespace GFC.BlazorServer.Services.Camera
                 if (nvrCameras.Any())
                 {
                    onStatusUpdate?.Invoke($"Found {nvrCameras.Count} cameras from NVR.");
+                   foreach(var cam in nvrCameras)
+                   {
+                       cam.IsAlreadyAdded = existingCameras.Any(c => 
+                          (c.RtspUrl != null && c.RtspUrl.Contains(cam.RtspUrl)) || 
+                          (c.IpAddress == cam.IpAddress && c.Port == cam.Port && c.Name == cam.Name));
+                       
+                       onCameraFound?.Invoke(cam);
+                   }
                 }
                 discoveredCameras.AddRange(nvrCameras);
 
@@ -291,6 +299,8 @@ namespace GFC.BlazorServer.Services.Camera
                     ? $"Camera at {request.IpAddress}" 
                     : request.CustomName,
                 RtspUrl = rtspUrl,
+                Username = request.Username,
+                Password = request.Password,
                 IsEnabled = request.EnableImmediately,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
