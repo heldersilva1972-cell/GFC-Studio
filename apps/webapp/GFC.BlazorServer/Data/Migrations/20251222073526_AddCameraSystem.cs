@@ -24,6 +24,8 @@ namespace GFC.BlazorServer.Data.Migrations
                 type: "int",
                 nullable: true);
 
+            // AppUsers table already exists, skipping creation
+            /*
             migrationBuilder.CreateTable(
                 name: "AppUsers",
                 columns: table => new
@@ -45,6 +47,7 @@ namespace GFC.BlazorServer.Data.Migrations
                 {
                     table.PrimaryKey("PK_AppUsers", x => x.UserId);
                 });
+            */
 
             migrationBuilder.CreateTable(
                 name: "Cameras",
@@ -250,8 +253,11 @@ namespace GFC.BlazorServer.Data.Migrations
             migrationBuilder.DropTable(
                 name: "UserNotificationPreferences");
 
+            // AppUsers table was not created by this migration, skipping drop
+            /*
             migrationBuilder.DropTable(
                 name: "AppUsers");
+            */
 
             migrationBuilder.DropTable(
                 name: "Cameras");
