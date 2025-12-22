@@ -1,5 +1,6 @@
 // [NEW]
 using GFC.VideoAgent.Services;
+using Microsoft.AspNetCore.Http;
 
 public class Program
 {
@@ -77,9 +78,38 @@ public class Startup
 
         app.UseEndpoints(endpoints =>
         {
-            endpoints.MapGet("/", async context =>
+            endpoints.MapGet("/", context => context.Response.WriteAsync("GFC Video Agent is running."));
+
+            // [NEW] Health check endpoint
+            endpoints.MapGet("/health", context =>
             {
-                await context.Response.WriteAsync("GFC Video Agent is running.");
+                context.Response.ContentType = "application/json";
+                return context.Response.WriteAsJsonAsync(new { status = "healthy", timestamp = DateTime.UtcNow });
+            });
+
+            // [NEW] Stream status endpoint
+            endpoints.MapGet("/stream/{cameraId}/status", async context =>
+            {
+                if (!int.TryParse(context.Request.RouteValues["cameraId"]?.ToString(), out var cameraId))
+                {
+                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    await context.Response.WriteAsJsonAsync(new { message = "Invalid camera ID format." });
+                    return;
+                }
+
+                var streamManager = context.Request.Services.GetRequiredService<StreamManager>();
+                var status = streamManager.GetStreamStatus(cameraId);
+
+                // Check if the stream status was found for the given camera ID
+                if (status == null)
+                {
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    await context.Response.WriteAsJsonAsync(new { message = $"Status for camera {cameraId} not found." });
+                    return;
+                }
+
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new { cameraId, status = status.ToString(), timestamp = DateTime.UtcNow });
             });
         });
     }

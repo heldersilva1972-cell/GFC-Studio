@@ -1,57 +1,67 @@
 // [NEW]
 window.CameraPlayer = {
-    init: function (videoId, streamUrl) {
-        var video = document.getElementById(videoId);
+    init: function(videoElementId, streamUrl) {
+        const video = document.getElementById(videoElementId);
+
+        if (!video) {
+            console.error(`Video element ${videoElementId} not found`);
+            return null;
+        }
+
         if (Hls.isSupported()) {
-            var hls = new Hls();
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 90,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60
+            });
+
             hls.loadSource(streamUrl);
             hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                video.play();
-                updateStreamStatus(videoId, 'LIVE', '🟢');
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                console.log('HLS manifest parsed, starting playback');
+                video.play().catch(e => console.error('Autoplay failed:', e));
             });
-            hls.on(Hls.Events.ERROR, function (event, data) {
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error('HLS Error:', data);
                 if (data.fatal) {
-                    switch (data.type) {
+                    switch(data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.error('fatal network error encountered, trying to recover');
+                            console.log('Network error, attempting recovery...');
                             hls.startLoad();
                             break;
                         case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.error('fatal media error encountered, trying to recover');
+                            console.log('Media error, attempting recovery...');
                             hls.recoverMediaError();
                             break;
                         default:
-                            console.error('unrecoverable error', data);
+                            console.error('Fatal error, destroying HLS instance');
                             hls.destroy();
-                            updateStreamStatus(videoId, 'OFFLINE', '🔴');
                             break;
                     }
                 }
             });
-            hls.on(Hls.Events.BUFFER_APPENDING, function () {
-                updateStreamStatus(videoId, 'BUFFERING', '⏸️');
-            });
-            hls.on(Hls.Events.BUFFER_EOS, function () {
-                updateStreamStatus(videoId, 'LIVE', '🟢');
-            });
 
+            return hls;
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari native HLS support
             video.src = streamUrl;
-            video.addEventListener('loadedmetadata', function () {
-                video.play();
-                updateStreamStatus(videoId, 'LIVE', '🟢');
+            video.addEventListener('loadedmetadata', () => {
+                video.play().catch(e => console.error('Autoplay failed:', e));
             });
+            return video;
+        } else {
+            console.error('HLS is not supported in this browser');
+            return null;
+        }
+    },
+
+    destroy: function(playerInstance) {
+        if (playerInstance && playerInstance.destroy) {
+            playerInstance.destroy();
         }
     }
 };
-
-function updateStreamStatus(videoId, status, indicator) {
-    var videoElement = document.getElementById(videoId);
-    if (videoElement) {
-        var statusElement = videoElement.parentElement.querySelector('.stream-status');
-        if (statusElement) {
-            statusElement.innerHTML = `${indicator} ${status}`;
-        }
-    }
-}
