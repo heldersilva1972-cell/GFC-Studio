@@ -17,6 +17,12 @@ namespace GFC.Core.Models
         [StringLength(500)]
         public string RtspUrl { get; set; }
 
+        [StringLength(100)]
+        public string Username { get; set; }
+
+        [StringLength(100)]
+        public string Password { get; set; }
+
         public bool IsEnabled { get; set; }
 
         public DateTime CreatedAt { get; set; }
