@@ -59,10 +59,22 @@ namespace GFC.Core.Models
         /// </summary>
         public DateTime LastUpdated { get; set; }
 
+        /// <summary>
+        /// Gets or sets the health information for the hardware controllers.
+        /// </summary>
+        public ControllerHealthInfo ControllerHealth { get; set; }
+
+        /// <summary>
+        /// Gets or sets the health information for the camera system.
+        /// </summary>
+        public CameraSystemInfo CameraSystem { get; set; }
+
         public SystemDiagnosticsInfo()
         {
             Performance = new PerformanceMetrics();
             DatabaseHealth = new DatabaseHealthInfo();
+            ControllerHealth = new ControllerHealthInfo();
+            CameraSystem = new CameraSystemInfo();
         }
     }
 }
