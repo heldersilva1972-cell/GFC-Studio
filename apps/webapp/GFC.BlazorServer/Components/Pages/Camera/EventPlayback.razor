@@ -1,0 +1,83 @@
+<!-- [NEW] -->
+@page "/cameras/{CameraId:int}/playback"
+@inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
+@inject GFC.BlazorServer.Services.Camera.ICameraEventService EventService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Event Playback</PageTitle>
+
+@if (_camera != null)
+{
+    <h1>Event Playback: @_camera.Name</h1>
+
+    <div>
+        <!-- Placeholder for video player -->
+        <video id="video-playback" controls style="width: 100%;"></video>
+    </div>
+
+    <div>
+        <!-- Placeholder for timeline control -->
+        <input type="range" class="form-range" min="0" max="100" @onchange="Seek" />
+    </div>
+
+    <div>
+        <button class="btn btn-sm btn-primary" @onclick="() => SetPlaybackSpeed(0.5)">0.5x</button>
+        <button class="btn btn-sm btn-primary" @onclick="() => SetPlaybackSpeed(1)">1x</button>
+        <button class="btn btn-sm btn-primary" @onclick="() => SetPlaybackSpeed(2)">2x</button>
+        <button class="btn btn-sm btn-primary" @onclick="() => SetPlaybackSpeed(4)">4x</button>
+    </div>
+
+    <hr />
+
+    <h3>Events</h3>
+    @if (_events == null)
+    {
+        <p><em>Loading events...</em></p>
+    }
+    else
+    {
+        <ul class="list-group">
+            @foreach(var ev in _events)
+            {
+                <li class="list-group-item">
+                    <strong>@ev.EventType:</strong> @ev.Description (@ev.Timestamp.ToLocalTime())
+                </li>
+            }
+        </ul>
+    }
+}
+else
+{
+    <p><em>Loading camera...</em></p>
+}
+
+@code {
+    [Parameter]
+    public int CameraId { get; set; }
+
+    private GFC.Core.Models.Camera _camera;
+    private List<GFC.Core.Models.CameraEvent> _events;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _camera = await CameraService.GetCameraByIdAsync(CameraId);
+        _events = await EventService.GetEventsForCameraAsync(CameraId, DateTime.UtcNow.AddDays(-1), DateTime.UtcNow);
+    }
+
+    private async Task SetPlaybackSpeed(double speed)
+    {
+        await JSRuntime.InvokeVoidAsync("setPlaybackSpeed", "video-playback", speed);
+    }
+
+    private async Task Seek(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value.ToString(), out double percentage))
+        {
+            await JSRuntime.InvokeVoidAsync("seekVideo", "video-playback", percentage);
+        }
+    }
+}
+
+@code {
+    // Need to add JS functions for setPlaybackSpeed and seekVideo to camera-player.js
+}

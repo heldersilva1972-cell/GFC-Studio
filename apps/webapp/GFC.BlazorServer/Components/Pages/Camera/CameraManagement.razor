@@ -1,0 +1,148 @@
+<!-- [NEW] -->
+@page "/cameras"
+@inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
+@inject GFC.BlazorServer.Services.Camera.ICameraAuditLogService AuditLogService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Camera Management</PageTitle>
+
+<h1>Camera Management</h1>
+
+<button class="btn btn-primary mb-3" @onclick="ShowAddModal">Add Camera</button>
+
+@if (_cameras == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>RTSP URL</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var cam in _cameras)
+            {
+                <tr>
+                    <td>@cam.Name</td>
+                    <td>@cam.RtspUrl</td>
+                    <td>@cam.IsEnabled</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" @onclick="() => ShowEditModal(cam)">Edit</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteCamera(cam.Id)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (_showModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(_isEditMode ? "Edit" : "Add") Camera</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="@_camera" OnValidSubmit="SaveChanges">
+                        <DataAnnotationsValidator />
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Name</label>
+                            <InputText id="name" class="form-control" @bind-Value="_camera.Name" />
+                            <ValidationMessage For="@(() => _camera.Name)" />
+                        </div>
+                        <div class="mb-3">
+                            <label for="rtspUrl" class="form-label">RTSP URL</label>
+                            <InputText id="rtspUrl" class="form-control" @bind-Value="_camera.RtspUrl" />
+                            <ValidationMessage For="@(() => _camera.RtspUrl)" />
+                        </div>
+                        <div class="form-check mb-3">
+                            <InputCheckbox id="isEnabled" class="form-check-input" @bind-Value="_camera.IsEnabled" />
+                            <label for="isEnabled" class="form-check-label">Enabled</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+
+@code {
+    private List<GFC.Core.Models.Camera> _cameras;
+    private GFC.Core.Models.Camera _camera;
+    private bool _showModal = false;
+    private bool _isEditMode = false;
+    private string _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCameras();
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        _currentUserId = user.Identity.Name;
+    }
+
+    private async Task LoadCameras()
+    {
+        _cameras = await CameraService.GetAllCamerasAsync();
+    }
+
+    private void ShowAddModal()
+    {
+        _camera = new GFC.Core.Models.Camera();
+        _isEditMode = false;
+        _showModal = true;
+    }
+
+    private void ShowEditModal(GFC.Core.Models.Camera camera)
+    {
+        _camera = new GFC.Core.Models.Camera { Id = camera.Id, Name = camera.Name, RtspUrl = camera.RtspUrl, IsEnabled = camera.IsEnabled };
+        _isEditMode = true;
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+    }
+
+    private async Task SaveChanges()
+    {
+        if (_isEditMode)
+        {
+            await CameraService.UpdateCameraAsync(_camera);
+            await AuditLogService.LogActionAsync(_camera.Id, _currentUserId, "Camera Updated", $"Camera '{_camera.Name}' was updated.");
+        }
+        else
+        {
+            var newCam = await CameraService.CreateCameraAsync(_camera);
+            await AuditLogService.LogActionAsync(newCam.Id, _currentUserId, "Camera Created", $"Camera '{newCam.Name}' was created.");
+        }
+
+        CloseModal();
+        await LoadCameras();
+    }
+
+    private async Task DeleteCamera(int id)
+    {
+        var cam = _cameras.FirstOrDefault(c => c.Id == id);
+        if(cam != null)
+        {
+            await CameraService.DeleteCameraAsync(id);
+            await AuditLogService.LogActionAsync(id, _currentUserId, "Camera Deleted", $"Camera '{cam.Name}' was deleted.");
+            await LoadCameras();
+        }
+    }
+}

@@ -1,0 +1,137 @@
+<!-- [NEW] -->
+@page "/cameras/audit"
+@inject GFC.BlazorServer.Services.Camera.ICameraAuditLogService AuditLogService
+@inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
+@inject GFC.BlazorServer.Services.IUserManagementService UserService
+
+<PageTitle>Camera Audit Log</PageTitle>
+
+<h1>Camera Audit Log</h1>
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <label for="camera" class="form-label">Camera</label>
+        <select id="camera" class="form-select" @onchange="OnCameraFilterChanged">
+            <option value="0">All Cameras</option>
+            @foreach (var cam in _cameras)
+            {
+                <option value="@cam.Id">@cam.Name</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label for="user" class="form-label">User</label>
+        <select id="user" class="form-select" @onchange="OnUserFilterChanged">
+            <option value="">All Users</option>
+            @foreach (var user in _users)
+            {
+                <option value="@user.UserId">@user.Username</option>
+            }
+        </select>
+    </div>
+</div>
+
+@if (_logs == null)
+{
+    <p><em>Loading logs...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>User</th>
+                <th>Camera</th>
+                <th>Action</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var log in _logs)
+            {
+                <tr>
+                    <td>@log.Timestamp.ToLocalTime()</td>
+                    <td>@log.User?.Username</td>
+                    <td>@log.Camera?.Name</td>
+                    <td>@log.Action</td>
+                    <td>@log.Details</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<GFC.Core.Models.CameraAuditLog> _logs;
+    private List<GFC.Core.Models.Camera> _cameras;
+    private List<GFC.Core.Models.AppUser> _users;
+
+    private int? _selectedCameraId;
+    private string _selectedUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cameras = await CameraService.GetAllCamerasAsync();
+        _users = (await UserService.GetAllUsersAsync()).ToList();
+        await LoadLogs();
+    }
+
+    private async Task OnCameraFilterChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value.ToString(), out int cameraId) && cameraId > 0)
+        {
+            _selectedCameraId = cameraId;
+        }
+        else
+        {
+            _selectedCameraId = null;
+        }
+        await LoadLogs();
+    }
+
+    private async Task OnUserFilterChanged(ChangeEventArgs e)
+    {
+        _selectedUserId = e.Value.ToString();
+        await LoadLogs();
+    }
+
+    private async Task LoadLogs()
+    {
+        var allLogs = new List<GFC.Core.Models.CameraAuditLog>();
+
+        if (_selectedCameraId.HasValue && !string.IsNullOrEmpty(_selectedUserId))
+        {
+            // Filter by both camera and user
+            var logs = await AuditLogService.GetLogsForCameraAsync(_selectedCameraId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow);
+            allLogs.AddRange(logs.Where(l => l.UserId == _selectedUserId));
+        }
+        else if (_selectedCameraId.HasValue)
+        {
+            // Filter by camera only
+            allLogs.AddRange(await AuditLogService.GetLogsForCameraAsync(_selectedCameraId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
+        }
+        else if (!string.IsNullOrEmpty(_selectedUserId))
+        {
+            // Filter by user only
+            allLogs.AddRange(await AuditLogService.GetLogsForUserAsync(_selectedUserId, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
+        }
+        else
+        {
+            // Load all logs
+            foreach (var cam in _cameras)
+            {
+                allLogs.AddRange(await AuditLogService.GetLogsForCameraAsync(cam.Id, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
+            }
+        }
+
+        // Manually load user and camera for display
+        foreach(var l in allLogs)
+        {
+            l.User = _users.FirstOrDefault(u => u.UserId == l.UserId);
+            l.Camera = _cameras.FirstOrDefault(c => c.Id == l.CameraId);
+        }
+
+        _logs = allLogs.OrderByDescending(l => l.Timestamp).ToList();
+    }
+}
