@@ -18,7 +18,7 @@ public class DoorConfigSyncService
     private readonly IControllerClient _controllerClient;
     private readonly IControllerModeProvider _modeProvider;
     private readonly ILogger<DoorConfigSyncService> _logger;
-    private readonly ISimulationGuard _simulationGuard;
+
 
     public DoorConfigSyncService(
         GfcDbContext dbContext,
@@ -27,7 +27,7 @@ public class DoorConfigSyncService
         IControllerClient controllerClient,
         IControllerModeProvider modeProvider,
         ILogger<DoorConfigSyncService> logger,
-        ISimulationGuard simulationGuard)
+
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _doorConfigService = doorConfigService ?? throw new ArgumentNullException(nameof(doorConfigService));
@@ -35,7 +35,7 @@ public class DoorConfigSyncService
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
         _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _simulationGuard = simulationGuard ?? throw new ArgumentNullException(nameof(simulationGuard));
+
     }
 
     /// <summary>
@@ -96,13 +96,7 @@ public class DoorConfigSyncService
                 return false;
             }
 
-            if (!isSimulated)
-            {
-                await _simulationGuard.EnsureNotSimulationAsync(
-                    "SyncDoorConfig",
-                    controllerId: controller.Id,
-                    controllerSerialNumber: controllerSerialNumber);
-            }
+
 
             var configs = await _doorConfigService.GetConfigsForControllerAsync(controller.Id, cancellationToken);
             if (configs.Count == 0)
