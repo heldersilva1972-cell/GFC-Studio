@@ -65,7 +65,28 @@ namespace GFC.BlazorServer.Data.Migrations
             //     type: "int",
             //     nullable: true);
 
-            migrationBuilder.Sql(@"
+                -- Ensure Members table exists FIRST as it is referenced by AppUsers
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Members]') AND type in (N'U'))
+                BEGIN
+                     CREATE TABLE [dbo].[Members](
+                        [MemberID] [int] IDENTITY(1,1) NOT NULL,
+                        [FirstName] [nvarchar](100) NULL,
+                        [LastName] [nvarchar](100) NULL,
+                        [Email] [nvarchar](100) NULL,
+                        [Phone] [nvarchar](20) NULL,
+                        [Address] [nvarchar](200) NULL,
+                        [City] [nvarchar](100) NULL,
+                        [State] [nvarchar](50) NULL,
+                        [Zip] [nvarchar](20) NULL,
+                        [JoinDate] [datetime] NULL,
+                        [DateOfBirth] [datetime] NULL,
+                        [IsActive] [bit] NOT NULL DEFAULT 1,
+                        [IsLifeMember] [bit] NOT NULL DEFAULT 0,
+                        [IsOfficer] [bit] NOT NULL DEFAULT 0,
+                        CONSTRAINT [PK_Members] PRIMARY KEY CLUSTERED ([MemberID] ASC)
+                    );
+                END
+
                 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[AppUsers]') AND type in (N'U'))
                 BEGIN
                     CREATE TABLE [dbo].[AppUsers](
