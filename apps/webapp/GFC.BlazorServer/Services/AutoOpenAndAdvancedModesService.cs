@@ -18,8 +18,7 @@ public class AutoOpenAndAdvancedModesService
     public AutoOpenAndAdvancedModesService(
         GfcDbContext dbContext,
         IScheduleService scheduleService,
-        ILogger<AutoOpenAndAdvancedModesService> logger,
-
+        ILogger<AutoOpenAndAdvancedModesService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _scheduleService = scheduleService ?? throw new ArgumentNullException(nameof(scheduleService));

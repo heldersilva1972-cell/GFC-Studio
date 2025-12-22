@@ -26,8 +26,7 @@ public class DoorConfigSyncService
         ControllerRegistryService controllerRegistryService,
         IControllerClient controllerClient,
         IControllerModeProvider modeProvider,
-        ILogger<DoorConfigSyncService> logger,
-
+        ILogger<DoorConfigSyncService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _doorConfigService = doorConfigService ?? throw new ArgumentNullException(nameof(doorConfigService));

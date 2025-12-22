@@ -24,8 +24,7 @@ public class ControllerNetworkConfigService
         GfcDbContext dbContext,
         IControllerClient controllerClient,
         IControllerModeProvider modeProvider,
-        ILogger<ControllerNetworkConfigService> logger,
-
+        ILogger<ControllerNetworkConfigService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
