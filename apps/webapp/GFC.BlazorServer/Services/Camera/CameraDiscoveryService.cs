@@ -106,8 +106,24 @@ namespace GFC.BlazorServer.Services.Camera
                 // Mark cameras that are already added
                 foreach (var camera in discoveredCameras)
                 {
+                    if (string.IsNullOrEmpty(camera.RtspUrl))
+                    {
+                         camera.IsAlreadyAdded = existingCameras.Any(c => c.RtspUrl != null && c.RtspUrl.Contains(camera.IpAddress));
+                         continue;
+                    }
+
                     camera.IsAlreadyAdded = existingCameras.Any(c => 
-                        c.RtspUrl != null && c.RtspUrl.Contains(camera.IpAddress));
+                    {
+                        if (c.RtspUrl == null) return false;
+                        
+                        if (Uri.TryCreate(c.RtspUrl, UriKind.Absolute, out var existingUri) && 
+                            Uri.TryCreate(camera.RtspUrl, UriKind.Absolute, out var newUri))
+                        {
+                            return existingUri.Host == newUri.Host && existingUri.PathAndQuery == newUri.PathAndQuery;
+                        }
+                        
+                        return false;
+                    });
                 }
 
                 _logger.LogInformation($"Discovery complete. Found {discoveredCameras.Count} cameras.");
