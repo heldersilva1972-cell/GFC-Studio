@@ -18,7 +18,8 @@ namespace GFC.BlazorServer.Services.Camera
         public static async Task<List<DiscoveredCamera>> DiscoverCamerasFromNvrAsync(
             this CameraDiscoveryService service,
             ISystemSettingsService settingsService,
-            ILogger logger)
+            ILogger logger,
+            Action<string> onStatusUpdate = null)
         {
             var cameras = new List<DiscoveredCamera>();
 
@@ -32,6 +33,7 @@ namespace GFC.BlazorServer.Services.Camera
                     string.IsNullOrEmpty(settings?.NvrPassword))
                 {
                     logger.LogInformation("NVR not configured, skipping NVR camera discovery");
+                    onStatusUpdate?.Invoke("NVR not configured in settings. Skipping.");
                     return cameras;
                 }
 
@@ -40,7 +42,9 @@ namespace GFC.BlazorServer.Services.Camera
                 var username = settings.NvrUsername;
                 var password = settings.NvrPassword;
 
-                logger.LogInformation($"Discovering cameras from NVR at {nvrHost}:{nvrPort}");
+                var msg = $"Connecting to NVR at {nvrHost}:{nvrPort}...";
+                logger.LogInformation(msg);
+                onStatusUpdate?.Invoke(msg);
 
                 // Create HTTP client with authentication
                 var handler = new HttpClientHandler
@@ -71,17 +75,21 @@ namespace GFC.BlazorServer.Services.Camera
                     }
                     else
                     {
-                        logger.LogWarning($"Failed to get camera list from NVR. Status: {response.StatusCode}");
+                        var failMsg = $"Failed to get camera list from NVR. Status: {response.StatusCode} ({response.ReasonPhrase})";
+                        logger.LogWarning(failMsg);
+                        onStatusUpdate?.Invoke(failMsg);
                     }
                 }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Error querying NVR for camera list");
+                    onStatusUpdate?.Invoke($"Error querying NVR: {ex.Message}");
                 }
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error discovering cameras from NVR");
+                onStatusUpdate?.Invoke($"Critical error in NVR discovery: {ex.Message}");
             }
 
             return cameras;

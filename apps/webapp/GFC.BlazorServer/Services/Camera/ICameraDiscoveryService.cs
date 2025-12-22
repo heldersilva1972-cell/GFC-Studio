@@ -14,7 +14,7 @@ namespace GFC.BlazorServer.Services.Camera
         /// <param name="networkRange">Optional network range to scan (e.g., "192.168.1.0/24"). If null, scans local subnet.</param>
         /// <param name="timeoutSeconds">Timeout for discovery operation in seconds</param>
         /// <returns>List of discovered cameras</returns>
-        Task<List<DiscoveredCamera>> DiscoverCamerasAsync(string networkRange = null, int timeoutSeconds = 30);
+        Task<List<DiscoveredCamera>> DiscoverCamerasAsync(string networkRange = null, int timeoutSeconds = 30, Action<string> onStatusUpdate = null);
 
         /// <summary>
         /// Tests connection to a specific camera and retrieves its details

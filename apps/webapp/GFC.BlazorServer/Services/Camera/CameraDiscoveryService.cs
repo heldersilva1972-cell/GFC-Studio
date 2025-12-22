@@ -43,26 +43,38 @@ namespace GFC.BlazorServer.Services.Camera
         /// <summary>
         /// Discovers cameras on the network using multiple methods
         /// </summary>
-        public async Task<List<DiscoveredCamera>> DiscoverCamerasAsync(string networkRange = null, int timeoutSeconds = 30)
+        public async Task<List<DiscoveredCamera>> DiscoverCamerasAsync(string networkRange = null, int timeoutSeconds = 30, Action<string> onStatusUpdate = null)
         {
             var discoveredCameras = new List<DiscoveredCamera>();
 
             try
             {
                 _logger.LogInformation("Starting camera discovery...");
+                onStatusUpdate?.Invoke("Starting discovery process...");
 
                 // Get existing cameras to mark duplicates
                 var existingCameras = await _context.Cameras.ToListAsync();
 
                 // Method 0: NVR Discovery
-                var nvrCameras = await this.DiscoverCamerasFromNvrAsync(_systemSettingsService, _logger);
+                onStatusUpdate?.Invoke("Checking configured NVR...");
+                var nvrCameras = await this.DiscoverCamerasFromNvrAsync(_systemSettingsService, _logger, onStatusUpdate);
+                if (nvrCameras.Any())
+                {
+                   onStatusUpdate?.Invoke($"Found {nvrCameras.Count} cameras from NVR.");
+                }
                 discoveredCameras.AddRange(nvrCameras);
 
                 // Method 1: ONVIF WS-Discovery (multicast)
+                onStatusUpdate?.Invoke("Scanning network for ONVIF devices...");
                 var onvifCameras = await DiscoverOnvifCamerasAsync(timeoutSeconds);
+                if (onvifCameras.Any())
+                {
+                   onStatusUpdate?.Invoke($"Found {onvifCameras.Count} ONVIF devices.");
+                }
                 discoveredCameras.AddRange(onvifCameras);
 
                 // Method 2: Port scanning for RTSP services
+                onStatusUpdate?.Invoke("Scanning network ports for RTSP streams...");
                 var ipRange = networkRange ?? GetLocalSubnet();
                 var scannedCameras = await ScanNetworkForCamerasAsync(ipRange, timeoutSeconds);
                 

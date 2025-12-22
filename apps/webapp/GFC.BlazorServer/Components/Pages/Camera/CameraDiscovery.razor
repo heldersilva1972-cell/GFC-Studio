@@ -54,15 +54,27 @@
         </div>
     </div>
 
-    @if (_isScanning)
+    @if (_isScanning || _discoveryLog.Count > 0)
     {
-        <div class="alert alert-info">
-            <div class="d-flex align-items-center">
-                <div class="spinner-border spinner-border-sm me-3"></div>
-                <div>
-                    <strong>Scanning network for cameras...</strong><br />
-                    <small>This may take up to @_timeoutSeconds seconds. Please wait.</small>
-                </div>
+        <div class="card mb-4">
+            <div class="card-header bg-light">
+                <i class="bi bi-terminal"></i> Discovery Log
+                @if (_isScanning)
+                {
+                    <span class="spinner-border spinner-border-sm float-end text-primary" role="status"></span>
+                }
+            </div>
+            <div class="card-body bg-dark text-light p-3" style="max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.9em;">
+                @foreach (var log in _discoveryLog)
+                {
+                    <div class="log-entry">
+                        <span class="text-secondary">@log.Timestamp.ToString("HH:mm:ss")</span>: @log.Message
+                    </div>
+                }
+                @if (_isScanning)
+                {
+                    <div class="log-entry text-info fst-italic">Waiting for updates...</div>
+                }
             </div>
         </div>
     }
@@ -282,16 +294,24 @@
         _currentUserId = int.TryParse(userIdClaim, out var userId) ? userId : 0;
     }
 
+    private record LogEntry(DateTime Timestamp, string Message);
+    private List<LogEntry> _discoveryLog = new();
+
     private async Task StartDiscovery()
     {
         _isScanning = true;
         _errorMessage = null;
         _discoveredCameras = null;
+        _discoveryLog = new(); // Clear log
         StateHasChanged();
 
         try
         {
-            _discoveredCameras = await DiscoveryService.DiscoverCamerasAsync(_networkRange, _timeoutSeconds);
+            _discoveredCameras = await DiscoveryService.DiscoverCamerasAsync(_networkRange, _timeoutSeconds, (status) => 
+            {
+                _discoveryLog.Add(new LogEntry(DateTime.Now, status));
+                InvokeAsync(StateHasChanged);
+            });
         }
         catch (Exception ex)
         {
