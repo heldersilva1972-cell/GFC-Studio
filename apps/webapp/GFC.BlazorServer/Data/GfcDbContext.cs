@@ -41,6 +41,11 @@ public class GfcDbContext : DbContext
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
     
+    // Diagnostics System
+    public DbSet<GFC.Core.Models.Diagnostics.PerformanceSnapshot> PerformanceSnapshots => Set<GFC.Core.Models.Diagnostics.PerformanceSnapshot>();
+    public DbSet<GFC.Core.Models.Diagnostics.AlertThreshold> AlertThresholds => Set<GFC.Core.Models.Diagnostics.AlertThreshold>();
+    public DbSet<GFC.Core.Models.Diagnostics.DiagnosticAlert> DiagnosticAlerts => Set<GFC.Core.Models.Diagnostics.DiagnosticAlert>();
+    
     // Camera System
     public DbSet<GFC.Core.Models.Camera> Cameras => Set<GFC.Core.Models.Camera>();
     public DbSet<GFC.Core.Models.CameraEvent> CameraEvents => Set<GFC.Core.Models.CameraEvent>();
