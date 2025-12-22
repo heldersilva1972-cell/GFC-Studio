@@ -33,6 +33,7 @@ namespace GFC.BlazorServer.Services.Camera
             camera.UpdatedAt = DateTime.UtcNow;
             _context.Cameras.Add(camera);
             await _context.SaveChangesAsync();
+            await SyncToVideoAgentAsync();
             return camera;
         }
 
@@ -46,6 +47,7 @@ namespace GFC.BlazorServer.Services.Camera
                 existingCamera.IsEnabled = camera.IsEnabled;
                 existingCamera.UpdatedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
+                await SyncToVideoAgentAsync();
             }
         }
 
@@ -56,6 +58,7 @@ namespace GFC.BlazorServer.Services.Camera
             {
                 _context.Cameras.Remove(camera);
                 await _context.SaveChangesAsync();
+                await SyncToVideoAgentAsync();
             }
         }
 
@@ -91,6 +94,56 @@ namespace GFC.BlazorServer.Services.Camera
             // TODO: Implement snapshot capture via Video Agent
             await Task.CompletedTask;
             return new byte[0];
+        }
+
+        public async Task SyncToVideoAgentAsync()
+        {
+            try 
+            {
+                var cameras = await GetAllCamerasAsync();
+                var videoAgentPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "..", "..", "services", "GFC.VideoAgent", "appsettings.json");
+                
+                if (!System.IO.File.Exists(videoAgentPath)) return;
+                
+                var configContent = await System.IO.File.ReadAllTextAsync(videoAgentPath);
+                var configJson = System.Text.Json.Nodes.JsonNode.Parse(configContent);
+                
+                if (configJson["NvrSettings"]?["Cameras"] is System.Text.Json.Nodes.JsonArray cameraArray)
+                {
+                    cameraArray.Clear();
+                    foreach (var cam in cameras)
+                    {
+                        var rtspPath = "";
+                        if (!string.IsNullOrEmpty(cam.RtspUrl))
+                        {
+                            // Try to extract path component (after port/host)
+                            // If it contains /Streaming/Channels/, use that (Hikvision)
+                            if (cam.RtspUrl.Contains("/Streaming/Channels/"))
+                            {
+                                rtspPath = cam.RtspUrl.Substring(cam.RtspUrl.IndexOf("/Streaming/Channels/"));
+                            }
+                            else if (Uri.TryCreate(cam.RtspUrl, UriKind.Absolute, out var uri))
+                            {
+                                rtspPath = uri.PathAndQuery;
+                            }
+                        }
+
+                        cameraArray.Add(new System.Text.Json.Nodes.JsonObject
+                        {
+                            ["Id"] = cam.Id,
+                            ["Name"] = cam.Name,
+                            ["RtspPath"] = rtspPath,
+                            ["Enabled"] = cam.IsEnabled ?? false
+                        });
+                    }
+                    
+                    await System.IO.File.WriteAllTextAsync(videoAgentPath, configJson.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to sync cameras to Video Agent: {ex.Message}");
+            }
         }
     }
 }

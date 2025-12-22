@@ -16,5 +16,6 @@ namespace GFC.BlazorServer.Services.Camera
         Task SetStreamQualityAsync(int cameraId, StreamQuality quality);
         Task<CameraCapabilities> GetCameraCapabilitiesAsync(int cameraId);
         Task<byte[]> CaptureSnapshotAsync(int cameraId);
+        Task SyncToVideoAgentAsync();
     }
 }
