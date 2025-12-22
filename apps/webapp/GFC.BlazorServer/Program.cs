@@ -265,12 +265,7 @@ public class Program
         }
 
         app.MapControllers();
-        app.MapGet("/simulation/replay/{sessionId}",
-            async (string sessionId, IReplayService replay, CancellationToken ct) =>
-            {
-                var steps = await replay.BuildReplayStepsAsync(sessionId, ct);
-                return Results.Ok(steps);
-            });
+
         app.MapBlazorHub();
         app.MapFallbackToPage("/_Host");
 
