@@ -315,7 +315,62 @@ namespace GFC.BlazorServer.Services.Camera
                 UpdatedAt = DateTime.UtcNow
             };
 
-            return await _cameraService.CreateCameraAsync(camera);
+            var createdCamera = await _cameraService.CreateCameraAsync(camera);
+            
+            // Sync to Video Agent Config
+            await SyncCamerasToVideoAgent();
+            
+            return createdCamera;
+        }
+
+        private async Task SyncCamerasToVideoAgent()
+        {
+            try 
+            {
+                var cameras = await _cameraService.GetAllCamerasAsync();
+                var videoAgentPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "..", "..", "services", "GFC.VideoAgent", "appsettings.json");
+                
+                if (System.IO.File.Exists(videoAgentPath))
+                {
+                    var json = await System.IO.File.ReadAllTextAsync(videoAgentPath);
+                    // Simple replacement for now to avoid typed serialization dependency hell
+                    // In a real app, use JsonNode
+                    
+                    // We will reconstruct the generic JSON structure for NvrSettings
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    var root = doc.RootElement.Clone();
+                    
+                    // This is complex to edit purely with text replace without full model. 
+                    // Simpler approach: Create a config object model here.
+                }
+                
+                // Writing manually to ensure speed and correctness
+                var configContent = await System.IO.File.ReadAllTextAsync(videoAgentPath);
+                var configJson = System.Text.Json.Nodes.JsonNode.Parse(configContent);
+                
+                if (configJson["NvrSettings"]?["Cameras"] is System.Text.Json.Nodes.JsonArray cameraArray)
+                {
+                    cameraArray.Clear();
+                    foreach (var cam in cameras)
+                    {
+                        cameraArray.Add(new System.Text.Json.Nodes.JsonObject
+                        {
+                            ["Id"] = cam.Id,
+                            ["Name"] = cam.Name,
+                            ["RtspPath"] = cam.RtspUrl.Contains("/Streaming/Channels/") 
+                                ? cam.RtspUrl.Substring(cam.RtspUrl.IndexOf("/Streaming/Channels/")) // Hikvision path extraction
+                                : "", // Fallback
+                            ["Enabled"] = cam.IsEnabled ?? false
+                        });
+                    }
+                    
+                    await System.IO.File.WriteAllTextAsync(videoAgentPath, configJson.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to sync cameras to Video Agent config");
+            }
         }
 
         /// <summary>
