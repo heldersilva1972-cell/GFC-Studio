@@ -10,6 +10,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
 @using System.IO
+@using GFC.BlazorServer.Models
 @attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
 @inject BackupConfigService BackupConfigService
 @inject IDatabaseBackupService DatabaseBackupService
@@ -201,6 +202,124 @@
                 </EditForm>
             </div>
         </div>
+
+        <!-- [NEW] NVR/Camera Credentials Section -->
+        <div class="settings-section">
+            <div class="settings-section__header">
+                <h2>
+                    <i class="bi bi-camera-video"></i>
+                    NVR / Camera Credentials
+                </h2>
+                <p class="settings-section__description">
+                    Configure default credentials for camera auto-discovery. These credentials will be used to connect to all discovered cameras.
+                </p>
+            </div>
+
+            <div class="settings-section__body">
+                @if (_showNvrSuccessMessage)
+                {
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="bi bi-check-circle"></i>
+                        NVR credentials saved successfully!
+                        <button type="button" class="btn-close" @onclick="() => _showNvrSuccessMessage = false"></button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_nvrErrorMessage))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-circle"></i>
+                        @_nvrErrorMessage
+                        <button type="button" class="btn-close" @onclick="() => _nvrErrorMessage = string.Empty"></button>
+                    </div>
+                }
+
+                <EditForm Model="_nvrConfig" OnValidSubmit="SaveNvrCredentials">
+                    <DataAnnotationsValidator />
+
+                    <div class="form-grid two-column">
+                        <div class="form-field">
+                            <label class="form-label" for="nvr-ip">
+                                NVR IP Address <span class="text-danger">*</span>
+                            </label>
+                            <InputText id="nvr-ip" 
+                                       class="form-control" 
+                                       @bind-Value="_nvrConfig.NvrIpAddress" 
+                                       placeholder="192.168.1.64" />
+                            <small class="form-text text-muted">
+                                IP address of your NVR (Network Video Recorder)
+                            </small>
+                        </div>
+
+                        <div class="form-field">
+                            <label class="form-label" for="nvr-port">
+                                NVR Port
+                            </label>
+                            <InputNumber id="nvr-port" 
+                                       class="form-control" 
+                                       @bind-Value="_nvrConfig.NvrPort" 
+                                       placeholder="8000" />
+                            <small class="form-text text-muted">
+                                HTTP port (default: 8000)
+                            </small>
+                        </div>
+
+                        <div class="form-field">
+                            <label class="form-label" for="nvr-username">
+                                Username <span class="text-danger">*</span>
+                            </label>
+                            <InputText id="nvr-username" 
+                                       class="form-control" 
+                                       @bind-Value="_nvrConfig.Username" 
+                                       placeholder="admin" />
+                            <small class="form-text text-muted">
+                                NVR/Camera username (usually 'admin')
+                            </small>
+                        </div>
+
+                        <div class="form-field">
+                            <label class="form-label" for="nvr-password">
+                                Password <span class="text-danger">*</span>
+                            </label>
+                            <InputText id="nvr-password" 
+                                       type="password"
+                                       class="form-control" 
+                                       @bind-Value="_nvrConfig.Password" 
+                                       placeholder="••••••••" />
+                            <small class="form-text text-muted">
+                                NVR/Camera password
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info mt-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Note:</strong> These credentials will be used automatically when discovering cameras on your network. 
+                        All discovered cameras will use these credentials unless you specify different ones.
+                    </div>
+
+                    <div class="settings-actions">
+                        <button type="submit" 
+                                class="btn btn-primary" 
+                                disabled="@_savingNvrConfig">
+                            <i class="bi bi-save"></i>
+                            @if (_savingNvrConfig)
+                            {
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>Save NVR Credentials</span>
+                            }
+                        </button>
+                        <a href="/cameras/discover" class="btn btn-success">
+                            <i class="bi bi-radar"></i>
+                            Discover Cameras
+                        </a>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -214,10 +333,73 @@
     private bool _showSuccessMessage = false;
     private string _errorMessage = string.Empty;
 
+    // [NEW] NVR Credentials fields
+    private NvrConfig _nvrConfig = new();
+    private bool _savingNvrConfig = false;
+    private bool _showNvrSuccessMessage = false;
+    private string _nvrErrorMessage = string.Empty;
+
     protected override async Task OnInitializedAsync()
     {
         LoadBackupSettings();
+        LoadNvrSettings();
         await Task.CompletedTask; // Suppress async warning
+    }
+
+    private void LoadNvrSettings()
+    {
+        try
+        {
+            // Load from appsettings or database
+            var config = SystemSettingsService.GetSettings();
+            _nvrConfig = new NvrConfig
+            {
+                NvrIpAddress = config?.NvrIpAddress ?? "192.168.1.64",
+                NvrPort = config?.NvrPort ?? 8000,
+                Username = config?.NvrUsername ?? "admin",
+                Password = "" // Never load password for security
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading NVR settings");
+            _nvrConfig = new NvrConfig();
+        }
+    }
+
+    private async Task SaveNvrCredentials()
+    {
+        _savingNvrConfig = true;
+        _nvrErrorMessage = string.Empty;
+        _showNvrSuccessMessage = false;
+
+        try
+        {
+            // Save to SystemSettings
+            await SystemSettingsService.UpdateNvrCredentialsAsync(
+                _nvrConfig.NvrIpAddress,
+                _nvrConfig.NvrPort,
+                _nvrConfig.Username,
+                _nvrConfig.Password
+            );
+
+            _showNvrSuccessMessage = true;
+            Logger.LogInformation("NVR credentials saved successfully");
+            
+            // Clear password field after save for security
+            _nvrConfig.Password = "";
+            
+            await Task.Delay(100);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving NVR credentials");
+            _nvrErrorMessage = "Failed to save NVR credentials: " + ex.Message;
+        }
+        finally
+        {
+            _savingNvrConfig = false;
+        }
     }
 
     private void LoadBackupSettings()
