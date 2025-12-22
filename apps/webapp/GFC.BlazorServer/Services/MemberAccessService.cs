@@ -28,7 +28,7 @@ public class MemberAccessService : IMemberAccessService
     private readonly IScheduleService _scheduleService;
     private readonly CommandInfoService _commandInfoService;
     private readonly IControllerClient _controllerClient;
-    private readonly IControllerModeProvider _modeProvider;
+
     private readonly IMemberHistoryService _historyService;
     private readonly ILogger<MemberAccessService> _logger;
 
@@ -44,7 +44,7 @@ public class MemberAccessService : IMemberAccessService
         IScheduleService scheduleService,
         CommandInfoService commandInfoService,
         IControllerClient controllerClient,
-        IControllerModeProvider modeProvider,
+
         IMemberHistoryService historyService,
         ILogger<MemberAccessService> logger,
 
@@ -59,7 +59,7 @@ public class MemberAccessService : IMemberAccessService
         _scheduleService = scheduleService ?? throw new ArgumentNullException(nameof(scheduleService));
         _commandInfoService = commandInfoService ?? throw new ArgumentNullException(nameof(commandInfoService));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
-        _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
+
         _historyService = historyService ?? throw new ArgumentNullException(nameof(historyService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 

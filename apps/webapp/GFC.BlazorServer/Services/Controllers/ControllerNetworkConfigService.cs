@@ -16,19 +16,19 @@ public class ControllerNetworkConfigService
 {
     private readonly GfcDbContext _dbContext;
     private readonly IControllerClient _controllerClient;
-    private readonly IControllerModeProvider _modeProvider;
+
     private readonly ILogger<ControllerNetworkConfigService> _logger;
 
 
     public ControllerNetworkConfigService(
         GfcDbContext dbContext,
         IControllerClient controllerClient,
-        IControllerModeProvider modeProvider,
+
         ILogger<ControllerNetworkConfigService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
-        _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
+
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     }
@@ -76,32 +76,7 @@ public class ControllerNetworkConfigService
             return null;
         }
 
-        if (!_modeProvider.UseRealControllers)
-        {
-            // Simulation mode: return simulated data
-            var simulated = await GetFromDbAsync(controller.Id, cancellationToken);
-            if (simulated == null)
-            {
-                simulated = new ControllerNetworkConfig
-                {
-                    ControllerId = controller.Id,
-                    IpAddress = "192.168.1.100",
-                    SubnetMask = "255.255.255.0",
-                    Gateway = "192.168.1.1",
-                    Port = 60000,
-                    DhcpEnabled = false,
-                    AllowedPcIp = "192.168.1.50",
-                    CommPasswordMasked = "****",
-                    LastReadUtc = DateTime.UtcNow
-                };
-            }
-            else
-            {
-                simulated.LastReadUtc = DateTime.UtcNow;
-            }
-            return simulated;
-        }
-
+        // Simulation mode removed - always use real controllers
         try
         {
             // Read network config
@@ -164,7 +139,7 @@ public class ControllerNetworkConfigService
 
     public async Task SyncToControllerAsync(uint controllerSerialNumber, ControllerNetworkConfig config, string? newPassword = null, CancellationToken cancellationToken = default)
     {
-        var isSimulated = !_modeProvider.UseRealControllers || controllerSerialNumber == ControllerDevice.GetSimulatedSerialValue();
+        var isSimulated = controllerSerialNumber == ControllerDevice.GetSimulatedSerialValue();
         var controller = await _dbContext.Controllers
             .FirstOrDefaultAsync(c => c.SerialNumber == controllerSerialNumber, cancellationToken);
 

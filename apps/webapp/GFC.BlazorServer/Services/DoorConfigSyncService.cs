@@ -16,7 +16,7 @@ public class DoorConfigSyncService
     private readonly IDoorConfigService _doorConfigService;
     private readonly ControllerRegistryService _controllerRegistryService;
     private readonly IControllerClient _controllerClient;
-    private readonly IControllerModeProvider _modeProvider;
+
     private readonly ILogger<DoorConfigSyncService> _logger;
 
 
@@ -25,14 +25,14 @@ public class DoorConfigSyncService
         IDoorConfigService doorConfigService,
         ControllerRegistryService controllerRegistryService,
         IControllerClient controllerClient,
-        IControllerModeProvider modeProvider,
+
         ILogger<DoorConfigSyncService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _doorConfigService = doorConfigService ?? throw new ArgumentNullException(nameof(doorConfigService));
         _controllerRegistryService = controllerRegistryService ?? throw new ArgumentNullException(nameof(controllerRegistryService));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
-        _modeProvider = modeProvider ?? throw new ArgumentNullException(nameof(modeProvider));
+
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     }
@@ -42,11 +42,7 @@ public class DoorConfigSyncService
     /// </summary>
     public async Task<bool> ReadFromControllerAsync(uint controllerSerialNumber, CancellationToken cancellationToken = default)
     {
-        if (!_modeProvider.UseRealControllers)
-        {
-            _logger.LogInformation("Simulation mode: ReadFromController skipped for controller {SerialNumber}", controllerSerialNumber);
-            return true;
-        }
+        // Simulation mode removed - always use real controllers
 
         try
         {
@@ -86,7 +82,7 @@ public class DoorConfigSyncService
     {
         try
         {
-            var isSimulated = !_modeProvider.UseRealControllers || controllerSerialNumber == ControllerDevice.GetSimulatedSerialValue();
+            var isSimulated = controllerSerialNumber == ControllerDevice.GetSimulatedSerialValue();
 
             var controller = await _controllerRegistryService.GetControllerBySerialNumberAsync(controllerSerialNumber, cancellationToken);
             if (controller == null)
