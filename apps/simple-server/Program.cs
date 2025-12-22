@@ -2,7 +2,17 @@ var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
 // Serve static files from the website/public folder
-var publicPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "website", "public"));
+var publicPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "website", "public"));
+
+// Ensure the directory exists
+if (!Directory.Exists(publicPath))
+{
+    Console.WriteLine($"ERROR: Directory not found: {publicPath}");
+    // Fallback if running from different dir
+    publicPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "website", "public")); 
+}
+
+Console.WriteLine($"Serving content from: {publicPath}");
 
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -10,7 +20,6 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = ""
 });
 
-// Also serve default files (index.html)
 app.UseDefaultFiles(new DefaultFilesOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(publicPath),
@@ -19,10 +28,12 @@ app.UseDefaultFiles(new DefaultFilesOptions
 
 app.MapGet("/", async context =>
 {
-    await context.Response.SendFileAsync(Path.Combine(publicPath, "index.html"));
+    var indexPath = Path.Combine(publicPath, "index.html");
+    if (File.Exists(indexPath))
+        await context.Response.SendFileAsync(indexPath);
+    else
+        await context.Response.WriteAsync("Error: index.html not found at " + indexPath);
 });
 
-Console.WriteLine($"Serving GFC Website from: {publicPath}");
-Console.WriteLine("Server running on http://localhost:3000");
-
-app.Run("http://localhost:3000");
+// LISTEN ON PORT 8888
+app.Run("http://localhost:8888");
