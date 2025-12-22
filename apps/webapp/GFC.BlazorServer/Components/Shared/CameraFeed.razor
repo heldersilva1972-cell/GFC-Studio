@@ -1,0 +1,199 @@
+<!-- [NEW] -->
+@inject IJSRuntime JS
+@inject IConfiguration Configuration
+@implements IAsyncDisposable
+
+<div class="camera-feed">
+    <div class="video-container">
+        <video id="camera-@CameraId"
+               class="camera-video"
+               controls
+               autoplay
+               muted
+               @ref="videoElement">
+        </video>
+
+        @if (IsLoading)
+        {
+            <div class="loading-overlay">
+                <div class="spinner-border text-light" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2 small">Connecting...</p>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="error-overlay">
+                <i class="bi bi-exclamation-triangle-fill text-warning mb-2" style="font-size: 2rem;"></i>
+                <h6 class="mb-2">@ErrorMessage</h6>
+                <button class="btn btn-primary btn-sm" @onclick="RetryConnection">
+                    <i class="bi bi-arrow-clockwise"></i> Retry
+                </button>
+            </div>
+        }
+    </div>
+    <div class="feed-footer">
+        <div class="camera-title">
+            <i class="bi bi-camera-video me-1"></i>
+            @CameraName
+        </div>
+        <div class="stream-status-badge @StatusClass">
+            <i class="bi @StatusIcon me-1"></i>
+            @StreamStatus
+        </div>
+    </div>
+</div>
+
+<style>
+    .camera-feed {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #f8f9fa;
+        display: flex;
+        flex-direction: column;
+    }
+    .video-container {
+        position: relative;
+        background: #000;
+        aspect-ratio: 16 / 9;
+    }
+    .camera-video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+    .loading-overlay, .error-overlay {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        text-align: center;
+    }
+    .feed-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: #fff;
+        border-top: 1px solid #dee2e6;
+    }
+    .camera-title {
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+    .stream-status-badge {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.8rem;
+    }
+    .stream-status-badge.live {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        animation: pulse-glow 2s ease-in-out infinite;
+    }
+    .stream-status-badge.connecting {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        color: white;
+    }
+    .stream-status-badge.offline {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: white;
+    }
+
+    @keyframes pulse-glow {
+        0%, 100% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
+        50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.8); }
+    }
+</style>
+
+@code {
+    [Parameter] public int CameraId { get; set; }
+    [Parameter] public string? CameraName { get; set; }
+
+    private ElementReference videoElement;
+    private IJSObjectReference? hlsPlayer;
+    private string StreamUrl = "";
+    private string StreamStatus = "Connecting...";
+    private string StatusClass = "connecting";
+    private string StatusIcon = "bi-hourglass-split";
+    private bool IsLoading = true;
+    private string? ErrorMessage = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        CameraName ??= $"Camera {CameraId}";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InitializeStream();
+        }
+    }
+
+    private async Task InitializeStream()
+    {
+        try
+        {
+            IsLoading = true;
+            ErrorMessage = null;
+            StateHasChanged();
+
+            var videoAgentUrl = Configuration["VideoAgent:BaseUrl"] ?? "https://localhost:5101";
+            StreamUrl = $"{videoAgentUrl}/stream/camera{CameraId}.m3u8";
+
+            hlsPlayer = await JS.InvokeAsync<IJSObjectReference>(
+                "CameraPlayer.init",
+                $"camera-{CameraId}",
+                StreamUrl
+            );
+
+            await Task.Delay(2000); // Simulate network delay
+
+            StreamStatus = "LIVE";
+            StatusClass = "live";
+            StatusIcon = "bi-circle-fill";
+            IsLoading = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = "Connection Failed";
+            StreamStatus = "Offline";
+            StatusClass = "offline";
+            StatusIcon = "bi-x-circle-fill";
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RetryConnection()
+    {
+        await InitializeStream();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hlsPlayer != null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("CameraPlayer.destroy", hlsPlayer);
+            }
+            catch (JSDisconnectedException) { /* Ignored */ }
+            finally
+            {
+                await hlsPlayer.DisposeAsync();
+            }
+        }
+    }
+}
