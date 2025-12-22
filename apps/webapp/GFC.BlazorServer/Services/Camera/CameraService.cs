@@ -19,15 +19,15 @@ namespace GFC.BlazorServer.Services.Camera
             _videoAgentBaseUrl = configuration["VideoAgent:BaseUrl"] ?? "https://localhost:5101";
         }
 
-        public async Task<List<Camera>> GetAllCamerasAsync()
+        public async Task<List<CameraInfo>> GetAllCamerasAsync()
         {
             // Placeholder: In a real app, this would come from a database or config
-            return await Task.FromResult(new List<Camera>
+            return await Task.FromResult(new List<CameraInfo>
             {
-                new Camera { Id = 1, Name = "Lobby" },
-                new Camera { Id = 2, Name = "Warehouse" },
-                new Camera { Id = 3, Name = "Office" },
-                new Camera { Id = 4, Name = "Parking Lot" }
+                new CameraInfo { Id = 1, Name = "Lobby" },
+                new CameraInfo { Id = 2, Name = "Warehouse" },
+                new CameraInfo { Id = 3, Name = "Office" },
+                new CameraInfo { Id = 4, Name = "Parking Lot" }
             });
         }
 
