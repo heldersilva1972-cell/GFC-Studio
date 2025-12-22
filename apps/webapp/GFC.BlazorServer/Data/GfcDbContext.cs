@@ -1,5 +1,6 @@
 using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Models.Diagnostics;
+using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Data;
@@ -40,6 +41,7 @@ public class GfcDbContext : DbContext
     public DbSet<ReimbursementChangeLog> ReimbursementChangeLogs => Set<ReimbursementChangeLog>();
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
+    public DbSet<DuesYearSettings> DuesYearSettings => Set<DuesYearSettings>();
     
     // Camera System
     public DbSet<GFC.Core.Models.Camera> Cameras => Set<GFC.Core.Models.Camera>();
@@ -258,6 +260,7 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("DuesPayments");
             entity.HasKey(d => new { d.MemberId, d.Year });
+            entity.Property(d => d.Amount).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<Waiver>(entity =>
@@ -436,6 +439,14 @@ public class GfcDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(a => a.AlertThresholdId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DuesYearSettings>(entity =>
+        {
+            entity.ToTable("DuesYearSettings");
+            entity.HasKey(e => e.Year);
+            entity.Property(e => e.Year).ValueGeneratedNever();
+            entity.Property(e => e.StandardDues).HasColumnType("decimal(18,2)");
         });
     }
 
