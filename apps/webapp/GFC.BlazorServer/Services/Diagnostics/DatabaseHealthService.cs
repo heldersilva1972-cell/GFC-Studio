@@ -1,152 +1,259 @@
-// [NEW]
-using GFC.Core.Models.Diagnostics;
-using Microsoft.Extensions.Configuration;
-using MongoDB.Driver;
-using System;
+using System.Data;
 using System.Diagnostics;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+using GFC.BlazorServer.Data;
+using GFC.Core.Models.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 
-namespace GFC.BlazorServer.Services.Diagnostics
+namespace GFC.BlazorServer.Services.Diagnostics;
+
+/// <summary>
+/// Service for checking database health and performance
+/// </summary>
+public class DatabaseHealthService
 {
-    public interface IDatabaseHealthService
+    private readonly GfcDbContext _dbContext;
+    private readonly AgentApiClient _agentApiClient;
+    private readonly ILogger<DatabaseHealthService> _logger;
+    
+    public DatabaseHealthService(
+        GfcDbContext dbContext,
+        AgentApiClient agentApiClient,
+        ILogger<DatabaseHealthService> logger)
     {
-        Task<DatabaseHealthInfo> GetDatabaseHealthAsync(CancellationToken cancellationToken = default);
-        Task<DiagnosticActionResult> TestDatabaseConnectionAsync();
-        Task<DiagnosticActionResult> TestAgentApiConnectionAsync();
+        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _agentApiClient = agentApiClient ?? throw new ArgumentNullException(nameof(agentApiClient));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
-
-    public class DatabaseHealthService : IDatabaseHealthService
+    
+    public async Task<DatabaseHealthInfo> GetDatabaseHealthAsync(CancellationToken cancellationToken = default)
     {
-        private readonly IConfiguration _configuration;
-        private readonly ILogger<DatabaseHealthService> _logger;
-        private readonly IMongoClient _mongoClient;
-        private readonly AgentApiClient _agentApiClient;
-
-        public DatabaseHealthService(IConfiguration configuration, ILogger<DatabaseHealthService> logger, IMongoClient mongoClient, AgentApiClient agentApiClient)
+        var healthInfo = new DatabaseHealthInfo
         {
-            _configuration = configuration;
-            _logger = logger;
-            _mongoClient = mongoClient;
-            _agentApiClient = agentApiClient;
-        }
-
-        public async Task<DatabaseHealthInfo> GetDatabaseHealthAsync(CancellationToken cancellationToken = default)
+            CollectedAt = DateTime.UtcNow,
+            Status = HealthStatus.Unknown,
+            Message = "Starting database health check..."
+        };
+        
+        var connection = _dbContext.Database.GetDbConnection();
+        healthInfo.Provider = connection.GetType().Name;
+        
+        var shouldCloseConnection = false;
+        var stopwatch = Stopwatch.StartNew();
+        
+        try
         {
-            var info = new DatabaseHealthInfo
+            if (connection.State == ConnectionState.Closed)
             {
-                Status = HealthStatus.Unknown,
-                Message = "Starting database health check..."
-            };
-
-            try
-            {
-                var dbName = new MongoUrl(_configuration.GetConnectionString("DefaultConnection")).DatabaseName;
-                var database = _mongoClient.GetDatabase(dbName);
-
-                // Check database size
-                var stats = await database.RunCommandAsync<MongoDB.Bson.BsonDocument>("{ dbStats: 1 }");
-                if (stats.TryGetValue("storageSize", out var storageSize))
-                {
-                    info.DatabaseSizeGb = Math.Round(storageSize.AsDouble / (1024 * 1024 * 1024), 2);
-                }
-
-                // Get connection pool stats from the MongoDB client
-                var server = _mongoClient.Cluster.Description.Servers.FirstOrDefault();
-                if (server != null)
-                {
-                    info.ActiveConnections = server.Connections.Count(c => c.IsOpen);
-                    info.IdleConnections = server.Connections.Count(c => !c.IsOpen);
-                    info.MaxPoolSize = _mongoClient.Settings.MaxConnectionPoolSize;
-                }
-
-                // Placeholder for last backup date - this would typically come from a dedicated service or log
-                info.LastBackupDate = DateTime.UtcNow.AddDays(-2); // Example value
-                info.LastBackupSuccessful = true;
-
-                // Placeholder for migrations - this would require a custom migration tracking system
-                info.HasPendingMigrations = false; // Example value
-
-                // Test connection
-                var connectionTest = await TestDatabaseConnectionAsync();
-                info.ConnectionResponseTimeMs = connectionTest.ResponseTimeMs;
-
-                // Health Status Calculation
-                info.Status = CalculateHealthStatus(info);
-                info.Message = $"Database is {info.Status}.";
+                await connection.OpenAsync(cancellationToken);
+                shouldCloseConnection = true;
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting database health.");
-                info.Status = HealthStatus.Critical;
-                info.Message = $"Failed to retrieve database health: {ex.Message}";
-            }
-
-            return info;
+            
+            stopwatch.Stop();
+            healthInfo.ConnectionResponseTimeMs = stopwatch.ElapsedMilliseconds;
+            
+            // Get basic database info
+            await GetDatabaseInfoAsync(connection, healthInfo, cancellationToken);
+            
+            // Get database size
+            await GetDatabaseSizeAsync(connection, healthInfo, cancellationToken);
+            
+            // Get backup information
+            await GetBackupInfoAsync(connection, healthInfo, cancellationToken);
+            
+            // Get migration status
+            await GetMigrationStatusAsync(healthInfo, cancellationToken);
+            
+            // Calculate overall health
+            healthInfo.Status = CalculateDatabaseHealth(healthInfo);
+            healthInfo.Message = $"Database is {healthInfo.Status}.";
         }
-
-        public async Task<DiagnosticActionResult> TestDatabaseConnectionAsync()
+        catch (Exception ex)
         {
-            var result = new DiagnosticActionResult();
-            var stopwatch = Stopwatch.StartNew();
-            try
-            {
-                await _mongoClient.GetDatabase("admin").RunCommandAsync<MongoDB.Bson.BsonDocument>("{ ping: 1 }");
-                stopwatch.Stop();
-                result.Success = true;
-                result.Message = "Database connection successful.";
-                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                _logger.LogError(ex, "Database connection test failed.");
-                result.Success = false;
-                result.Message = $"Database connection failed: {ex.Message}";
-                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
-            }
-            return result;
+            _logger.LogError(ex, "Error getting database health");
+            healthInfo.Status = HealthStatus.Critical;
+            healthInfo.Message = $"Failed to retrieve database health: {ex.Message}";
         }
-
-        public async Task<DiagnosticActionResult> TestAgentApiConnectionAsync()
+        finally
         {
-            var result = new DiagnosticActionResult();
-            var stopwatch = Stopwatch.StartNew();
-            try
+            if (shouldCloseConnection && connection.State == ConnectionState.Open)
             {
-                // Assuming the AgentApiClient has a method to check health or make a simple request
-                var response = await _agentApiClient.GetAsync("health"); // Example endpoint
-                response.EnsureSuccessStatusCode();
-                stopwatch.Stop();
-                result.Success = true;
-                result.Message = "Agent API connection successful.";
-                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+                await connection.CloseAsync();
             }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                _logger.LogError(ex, "Agent API connection test failed.");
-                result.Success = false;
-                result.Message = $"Agent API connection failed: {ex.Message}";
-                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
-            }
-            return result;
         }
-
-        private HealthStatus CalculateHealthStatus(DatabaseHealthInfo info)
+        
+        return healthInfo;
+    }
+    
+    private async Task GetDatabaseInfoAsync(IDbConnection connection, DatabaseHealthInfo healthInfo, CancellationToken cancellationToken)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT @@SERVERNAME, DB_NAME()";
+        
+        using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
         {
-            if (info.ConnectionResponseTimeMs > 5000) return HealthStatus.Critical;
-            if (info.ConnectionResponseTimeMs > 1000) return HealthStatus.Warning;
-
-            if (info.LastBackupDate.HasValue)
-            {
-                if ((DateTime.UtcNow - info.LastBackupDate.Value).TotalDays > 7) return HealthStatus.Critical;
-                if ((DateTime.UtcNow - info.LastBackupDate.Value).TotalDays > 3) return HealthStatus.Warning;
-            }
-
-            if (info.HasPendingMigrations) return HealthStatus.Warning;
-
-            return HealthStatus.Healthy;
+            healthInfo.ServerName = reader.IsDBNull(0) ? "(unknown)" : reader.GetString(0);
+            healthInfo.DatabaseName = reader.IsDBNull(1) ? "(unknown)" : reader.GetString(1);
         }
+    }
+    
+    private async Task GetDatabaseSizeAsync(IDbConnection connection, DatabaseHealthInfo healthInfo, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT SUM(size) * 8 * 1024 
+                FROM sys.master_files 
+                WHERE database_id = DB_ID()";
+            
+            var result = await command.ExecuteScalarAsync(cancellationToken);
+            if (result != null && result != DBNull.Value)
+            {
+                healthInfo.DatabaseSizeBytes = Convert.ToInt64(result);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get database size");
+            healthInfo.DatabaseSizeBytes = 0;
+        }
+    }
+    
+    private async Task GetBackupInfoAsync(IDbConnection connection, DatabaseHealthInfo healthInfo, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT TOP 1 backup_finish_date 
+                FROM msdb.dbo.backupset 
+                WHERE database_name = DB_NAME() 
+                ORDER BY backup_finish_date DESC";
+            
+            var result = await command.ExecuteScalarAsync(cancellationToken);
+            if (result != null && result != DBNull.Value)
+            {
+                healthInfo.LastBackupDate = Convert.ToDateTime(result);
+                healthInfo.LastBackupSuccessful = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get backup info (might not have permissions)");
+            healthInfo.LastBackupDate = null;
+        }
+    }
+    
+    private async Task GetMigrationStatusAsync(DatabaseHealthInfo healthInfo, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var pendingMigrations = await _dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
+            var appliedMigrations = await _dbContext.Database.GetAppliedMigrationsAsync(cancellationToken);
+            
+            healthInfo.PendingMigrations = pendingMigrations.Count();
+            healthInfo.HasPendingMigrations = healthInfo.PendingMigrations > 0;
+            healthInfo.CurrentSchemaVersion = appliedMigrations.LastOrDefault() ?? "None";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get migration status");
+            healthInfo.HasPendingMigrations = false;
+            healthInfo.PendingMigrations = 0;
+            healthInfo.CurrentSchemaVersion = "Unknown";
+        }
+    }
+    
+    private HealthStatus CalculateDatabaseHealth(DatabaseHealthInfo healthInfo)
+    {
+        // Critical conditions
+        if (healthInfo.ConnectionResponseTimeMs > 5000)
+            return HealthStatus.Critical;
+        
+        if (healthInfo.HasPendingMigrations)
+            return HealthStatus.Warning;
+        
+        // Check backup status
+        if (healthInfo.LastBackupDate.HasValue)
+        {
+            var daysSinceBackup = (DateTime.UtcNow - healthInfo.LastBackupDate.Value).TotalDays;
+            if (daysSinceBackup > 7)
+                return HealthStatus.Critical;
+            if (daysSinceBackup > 3)
+                return HealthStatus.Warning;
+        }
+        
+        // Check connection time
+        if (healthInfo.ConnectionResponseTimeMs > 1000)
+            return HealthStatus.Warning;
+        
+        return HealthStatus.Healthy;
+    }
+    
+    public async Task<DiagnosticActionResult> TestDatabaseConnectionAsync()
+    {
+        var result = new DiagnosticActionResult
+        {
+            ActionName = "Database Connection Test",
+            ExecutedAt = DateTime.UtcNow
+        };
+        
+        var stopwatch = Stopwatch.StartNew();
+        
+        try
+        {
+            var canConnect = await _dbContext.Database.CanConnectAsync();
+            stopwatch.Stop();
+            
+            result.Success = canConnect;
+            result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+            result.Message = canConnect 
+                ? $"Successfully connected to database in {result.ResponseTimeMs}ms" 
+                : "Failed to connect to database";
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger.LogError(ex, "Database connection test failed");
+            result.Success = false;
+            result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+            result.Message = $"Connection test failed: {ex.Message}";
+        }
+        
+        return result;
+    }
+    
+    public async Task<DiagnosticActionResult> TestAgentApiConnectionAsync()
+    {
+        var result = new DiagnosticActionResult
+        {
+            ActionName = "Agent API Connection Test",
+            ExecutedAt = DateTime.UtcNow
+        };
+        
+        var stopwatch = Stopwatch.StartNew();
+        
+        try
+        {
+            var reachable = await _agentApiClient.PingAsync();
+            stopwatch.Stop();
+            
+            result.Success = reachable;
+            result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+            result.Message = reachable 
+                ? $"Agent API is reachable (responded in {result.ResponseTimeMs}ms)" 
+                : "Agent API is not reachable";
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            _logger.LogError(ex, "Agent API connection test failed");
+            result.Success = false;
+            result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+            result.Message = $"Agent API test failed: {ex.Message}";
+        }
+        
+        return result;
     }
 }
