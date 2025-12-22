@@ -259,7 +259,8 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<DuesPayment>(entity =>
         {
             entity.ToTable("DuesPayments");
-            entity.HasKey(d => new { d.MemberId, d.Year });
+            entity.HasKey(d => d.DuesPaymentID);
+            entity.HasIndex(d => new { d.MemberId, d.Year }).IsUnique();
             entity.Property(d => d.Amount).HasColumnType("decimal(18,2)");
         });
 
