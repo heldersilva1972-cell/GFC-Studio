@@ -1,0 +1,401 @@
+<!-- [NEW] - Camera Discovery Page -->
+@page "/cameras/discover"
+@using GFC.BlazorServer.Services.Camera
+@using GFC.BlazorServer.Services.Camera.Models
+@inject ICameraDiscoveryService DiscoveryService
+@inject ICameraAuditLogService AuditLogService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Discover Cameras - GFC Studio</PageTitle>
+
+<div class="camera-discovery-container">
+    <div class="page-header">
+        <h1><i class="bi bi-search"></i> Discover Cameras</h1>
+        <p class="text-muted">Automatically find IP cameras on your network</p>
+    </div>
+
+    <div class="discovery-controls mb-4">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label for="networkRange" class="form-label">Network Range (CIDR)</label>
+                <input type="text" 
+                       id="networkRange" 
+                       class="form-control" 
+                       @bind="_networkRange" 
+                       placeholder="192.168.1.0/24 (leave empty for auto-detect)" />
+                <small class="text-muted">Example: 192.168.1.0/24 scans 192.168.1.1 to 192.168.1.254</small>
+            </div>
+            <div class="col-md-3">
+                <label for="timeout" class="form-label">Timeout (seconds)</label>
+                <input type="number" 
+                       id="timeout" 
+                       class="form-control" 
+                       @bind="_timeoutSeconds" 
+                       min="10" 
+                       max="120" />
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-primary w-100" 
+                        @onclick="StartDiscovery" 
+                        disabled="@_isScanning">
+                    @if (_isScanning)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Scanning...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-radar me-2"></i>
+                        <span>Start Discovery</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (_isScanning)
+    {
+        <div class="alert alert-info">
+            <div class="d-flex align-items-center">
+                <div class="spinner-border spinner-border-sm me-3"></div>
+                <div>
+                    <strong>Scanning network for cameras...</strong><br />
+                    <small>This may take up to @_timeoutSeconds seconds. Please wait.</small>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show">
+            <i class="bi bi-exclamation-circle me-2"></i>
+            @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+
+    @if (_discoveredCameras != null && _discoveredCameras.Any())
+    {
+        <div class="discovered-cameras-section">
+            <h3 class="mb-3">
+                <i class="bi bi-camera-video-fill me-2"></i>
+                Found @_discoveredCameras.Count Camera(s)
+            </h3>
+
+            <div class="row g-3">
+                @foreach (var camera in _discoveredCameras)
+                {
+                    <div class="col-md-6 col-lg-4">
+                        <div class="card camera-card @(camera.IsAlreadyAdded ? "already-added" : "")">
+                            <div class="card-header">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">
+                                        @if (camera.SupportsOnvif)
+                                        {
+                                            <i class="bi bi-check-circle-fill text-success me-1" title="ONVIF Supported"></i>
+                                        }
+                                        @camera.Name
+                                    </h5>
+                                    @if (camera.IsAlreadyAdded)
+                                    {
+                                        <span class="badge bg-secondary">Already Added</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <dl class="row mb-0">
+                                    <dt class="col-sm-5">IP Address:</dt>
+                                    <dd class="col-sm-7"><code>@camera.IpAddress</code></dd>
+
+                                    @if (!string.IsNullOrEmpty(camera.Manufacturer))
+                                    {
+                                        <dt class="col-sm-5">Manufacturer:</dt>
+                                        <dd class="col-sm-7">@camera.Manufacturer</dd>
+                                    }
+
+                                    @if (!string.IsNullOrEmpty(camera.Model))
+                                    {
+                                        <dt class="col-sm-5">Model:</dt>
+                                        <dd class="col-sm-7">@camera.Model</dd>
+                                    }
+
+                                    <dt class="col-sm-5">Discovery:</dt>
+                                    <dd class="col-sm-7">
+                                        <span class="badge bg-info">@camera.DiscoveryMethod</span>
+                                    </dd>
+
+                                    @if (camera.AvailableStreams.Any())
+                                    {
+                                        <dt class="col-sm-5">Streams:</dt>
+                                        <dd class="col-sm-7">@camera.AvailableStreams.Count available</dd>
+                                    }
+                                </dl>
+
+                                @if (!camera.IsAlreadyAdded)
+                                {
+                                    <hr />
+                                    <button class="btn btn-sm btn-primary w-100" 
+                                            @onclick="() => ShowAddCameraModal(camera)">
+                                        <i class="bi bi-plus-circle me-1"></i>
+                                        Add to System
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (!_isScanning && _discoveredCameras != null && !_discoveredCameras.Any())
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            <strong>No cameras found.</strong> 
+            Make sure your cameras are powered on and connected to the same network.
+        </div>
+    }
+</div>
+
+@* Add Camera Modal *@
+@if (_showAddModal && _selectedCamera != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-plus-circle me-2"></i>
+                        Add Camera: @_selectedCamera.Name
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseAddModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="@_addRequest" OnValidSubmit="AddCameraToSystem">
+                        <div class="mb-3">
+                            <label for="cameraName" class="form-label">Camera Name</label>
+                            <InputText id="cameraName" 
+                                      class="form-control" 
+                                      @bind-Value="_addRequest.CustomName" 
+                                      placeholder="@_selectedCamera.Name" />
+                            <small class="text-muted">Leave empty to use discovered name</small>
+                        </div>
+
+                        @if (_selectedCamera.AvailableStreams.Any())
+                        {
+                            <div class="mb-3">
+                                <label for="streamProfile" class="form-label">Stream Profile</label>
+                                <select id="streamProfile" 
+                                        class="form-select" 
+                                        @bind="_addRequest.SelectedStreamPath">
+                                    @foreach (var stream in _selectedCamera.AvailableStreams)
+                                    {
+                                        <option value="@stream.RtspPath">
+                                            @stream.Name (@stream.Resolution)
+                                        </option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="username" class="form-label">Username</label>
+                                <InputText id="username" 
+                                          class="form-control" 
+                                          @bind-Value="_addRequest.Username" 
+                                          placeholder="admin" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="password" class="form-label">Password</label>
+                                <InputText id="password" 
+                                          type="password" 
+                                          class="form-control" 
+                                          @bind-Value="_addRequest.Password" 
+                                          placeholder="Enter camera password" />
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_selectedCamera.Manufacturer))
+                        {
+                            <div class="alert alert-info">
+                                <small>
+                                    <strong>Common @_selectedCamera.Manufacturer credentials:</strong><br />
+                                    @foreach (var cred in DiscoveryService.GetDefaultCredentials(_selectedCamera.Manufacturer))
+                                    {
+                                        <span class="me-3">@cred.Key / @cred.Value</span>
+                                    }
+                                </small>
+                            </div>
+                        }
+
+                        <div class="form-check mb-3">
+                            <InputCheckbox id="enableImmediately" 
+                                          class="form-check-input" 
+                                          @bind-Value="_addRequest.EnableImmediately" />
+                            <label for="enableImmediately" class="form-check-label">
+                                Enable camera immediately
+                            </label>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseAddModal">
+                                Cancel
+                            </button>
+                            <button type="submit" class="btn btn-primary" disabled="@_isAdding">
+                                @if (_isAdding)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <i class="bi bi-check-circle me-1"></i>
+                                Add Camera
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    private List<DiscoveredCamera> _discoveredCameras;
+    private string _networkRange = "";
+    private int _timeoutSeconds = 30;
+    private bool _isScanning = false;
+    private string _errorMessage;
+
+    private bool _showAddModal = false;
+    private DiscoveredCamera _selectedCamera;
+    private AddDiscoveredCameraRequest _addRequest = new();
+    private bool _isAdding = false;
+    private int _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var userIdClaim = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _currentUserId = int.TryParse(userIdClaim, out var userId) ? userId : 0;
+    }
+
+    private async Task StartDiscovery()
+    {
+        _isScanning = true;
+        _errorMessage = null;
+        _discoveredCameras = null;
+        StateHasChanged();
+
+        try
+        {
+            _discoveredCameras = await DiscoveryService.DiscoverCamerasAsync(_networkRange, _timeoutSeconds);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Discovery failed: {ex.Message}";
+        }
+        finally
+        {
+            _isScanning = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowAddCameraModal(DiscoveredCamera camera)
+    {
+        _selectedCamera = camera;
+        _addRequest = new AddDiscoveredCameraRequest
+        {
+            IpAddress = camera.IpAddress,
+            CustomName = camera.Name,
+            SelectedStreamPath = camera.AvailableStreams.FirstOrDefault()?.RtspPath,
+            Username = "admin",
+            Password = "",
+            EnableImmediately = true
+        };
+        _showAddModal = true;
+    }
+
+    private void CloseAddModal()
+    {
+        _showAddModal = false;
+        _selectedCamera = null;
+    }
+
+    private async Task AddCameraToSystem()
+    {
+        _isAdding = true;
+        _errorMessage = null;
+
+        try
+        {
+            var camera = await DiscoveryService.AddDiscoveredCameraAsync(_addRequest);
+            
+            await AuditLogService.LogActionAsync(
+                camera.Id, 
+                _currentUserId, 
+                "Camera Added via Discovery", 
+                $"Camera '{camera.Name}' was added from IP {_addRequest.IpAddress}");
+
+            // Mark as added in the list
+            _selectedCamera.IsAlreadyAdded = true;
+
+            CloseAddModal();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to add camera: {ex.Message}";
+        }
+        finally
+        {
+            _isAdding = false;
+        }
+    }
+}
+
+<style>
+    .camera-discovery-container {
+        padding: 20px;
+    }
+
+    .camera-card {
+        height: 100%;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .camera-card:hover:not(.already-added) {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .camera-card.already-added {
+        opacity: 0.7;
+        background-color: #f8f9fa;
+    }
+
+    .camera-card .card-header {
+        background-color: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .camera-card dl {
+        font-size: 0.9rem;
+    }
+
+    .camera-card dt {
+        font-weight: 600;
+        color: #6c757d;
+    }
+
+    .camera-card dd {
+        margin-bottom: 0.5rem;
+    }
+
+    .discovered-cameras-section {
+        margin-top: 30px;
+    }
+</style>

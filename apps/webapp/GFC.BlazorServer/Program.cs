@@ -106,6 +106,7 @@ public class Program
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();
         builder.Services.AddScoped<ICameraService, CameraService>();
+        builder.Services.AddScoped<ICameraDiscoveryService, CameraDiscoveryService>();
         builder.Services.AddScoped<IRecordingService, RecordingService>();
         builder.Services.AddScoped<ICameraEventService, CameraEventService>();
         builder.Services.AddScoped<ICameraPermissionService, CameraPermissionService>();
