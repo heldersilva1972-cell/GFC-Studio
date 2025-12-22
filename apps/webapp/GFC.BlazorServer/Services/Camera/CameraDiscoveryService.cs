@@ -8,6 +8,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Xml.Linq;
 
+using GFC.BlazorServer.Services;
+
 namespace GFC.BlazorServer.Services.Camera
 {
     /// <summary>
@@ -17,6 +19,7 @@ namespace GFC.BlazorServer.Services.Camera
     {
         private readonly GfcDbContext _context;
         private readonly ICameraService _cameraService;
+        private readonly ISystemSettingsService _systemSettingsService;
         private readonly ILogger<CameraDiscoveryService> _logger;
 
         // Common RTSP ports to scan
@@ -28,10 +31,12 @@ namespace GFC.BlazorServer.Services.Camera
         public CameraDiscoveryService(
             GfcDbContext context,
             ICameraService cameraService,
+            ISystemSettingsService systemSettingsService,
             ILogger<CameraDiscoveryService> logger)
         {
             _context = context;
             _cameraService = cameraService;
+            _systemSettingsService = systemSettingsService;
             _logger = logger;
         }
 
@@ -48,6 +53,10 @@ namespace GFC.BlazorServer.Services.Camera
 
                 // Get existing cameras to mark duplicates
                 var existingCameras = await _context.Cameras.ToListAsync();
+
+                // Method 0: NVR Discovery
+                var nvrCameras = await this.DiscoverCamerasFromNvrAsync(_systemSettingsService, _logger);
+                discoveredCameras.AddRange(nvrCameras);
 
                 // Method 1: ONVIF WS-Discovery (multicast)
                 var onvifCameras = await DiscoverOnvifCamerasAsync(timeoutSeconds);

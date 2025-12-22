@@ -9,7 +9,7 @@ SET
     NvrIpAddress = '192.168.1.64',
     NvrPort = 80,
     NvrUsername = 'admin',
-    NvrPassword = 'Gfcclub1923'
+    NvrPassword = 'Gcfclub1923'
 WHERE Id = 1;
 GO
 
