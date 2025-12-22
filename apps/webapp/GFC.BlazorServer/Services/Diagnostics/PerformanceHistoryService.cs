@@ -19,16 +19,15 @@ namespace GFC.BlazorServer.Services.Diagnostics
 
     public class PerformanceHistoryService : IPerformanceHistoryService
     {
-        private readonly IDbContextFactory<GfcDbContext> _dbContextFactory;
+        private readonly GfcDbContext _dbContext;
 
-        public PerformanceHistoryService(IDbContextFactory<GfcDbContext> dbContextFactory)
+        public PerformanceHistoryService(GfcDbContext dbContext)
         {
-            _dbContextFactory = dbContextFactory;
+            _dbContext = dbContext;
         }
 
         public async Task AddPerformanceSnapshotAsync(PerformanceMetrics metrics, CancellationToken cancellationToken = default)
         {
-            using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
             var snapshot = new PerformanceSnapshot
             {
@@ -45,14 +44,13 @@ namespace GFC.BlazorServer.Services.Diagnostics
                 Gen2Collections = metrics.Gen2Collections
             };
 
-            await dbContext.PerformanceSnapshots.AddAsync(snapshot, cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.PerformanceSnapshots.AddAsync(snapshot, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         public async Task<List<PerformanceSnapshot>> GetPerformanceSnapshotsAsync(DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default)
         {
-            using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            return await dbContext.PerformanceSnapshots
+            return await _dbContext.PerformanceSnapshots
                 .Where(s => s.Timestamp >= startDate && s.Timestamp <= endDate)
                 .OrderBy(s => s.Timestamp)
                 .ToListAsync(cancellationToken);
@@ -60,13 +58,12 @@ namespace GFC.BlazorServer.Services.Diagnostics
 
         public async Task PurgeOldSnapshotsAsync(int retentionDays = 7, CancellationToken cancellationToken = default)
         {
-            using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
             var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
-            var oldSnapshots = await dbContext.PerformanceSnapshots.Where(s => s.Timestamp < cutoffDate).ToListAsync(cancellationToken);
+            var oldSnapshots = await _dbContext.PerformanceSnapshots.Where(s => s.Timestamp < cutoffDate).ToListAsync(cancellationToken);
             if(oldSnapshots.Any())
             {
-                dbContext.PerformanceSnapshots.RemoveRange(oldSnapshots);
-                await dbContext.SaveChangesAsync(cancellationToken);
+                _dbContext.PerformanceSnapshots.RemoveRange(oldSnapshots);
+                await _dbContext.SaveChangesAsync(cancellationToken);
             }
         }
     }
