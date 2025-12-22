@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services.Camera
@@ -42,7 +43,7 @@ namespace GFC.BlazorServer.Services.Camera
             var response = await _httpClient.PostAsync($"{videoAgentBaseUrl}/record/start/{cameraId}", null);
             response.EnsureSuccessStatusCode();
 
-            var recording = await response.Content.ReadAsAsync<Recording>();
+            var recording = await response.Content.ReadFromJsonAsync<Recording>();
             _context.Recordings.Add(recording);
             await _context.SaveChangesAsync();
             return recording;
@@ -57,7 +58,7 @@ namespace GFC.BlazorServer.Services.Camera
                 var response = await _httpClient.PostAsync($"{videoAgentBaseUrl}/record/stop/{recording.CameraId}", null);
                 response.EnsureSuccessStatusCode();
 
-                var updatedRecording = await response.Content.ReadAsAsync<Recording>();
+                var updatedRecording = await response.Content.ReadFromJsonAsync<Recording>();
                 recording.EndTime = updatedRecording.EndTime;
                 recording.FileSize = updatedRecording.FileSize;
 

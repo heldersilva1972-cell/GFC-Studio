@@ -12,5 +12,6 @@ namespace GFC.BlazorServer.Services.Camera
         Task<GFC.Core.Models.Camera> CreateCameraAsync(GFC.Core.Models.Camera camera);
         Task UpdateCameraAsync(GFC.Core.Models.Camera camera);
         Task DeleteCameraAsync(int id);
+        Task<bool> SendPTZCommandAsync(int cameraId, PTZCommand command);
     }
 }

@@ -58,5 +58,12 @@ namespace GFC.BlazorServer.Services.Camera
                 await _context.SaveChangesAsync();
             }
         }
+
+        public async Task<bool> SendPTZCommandAsync(int cameraId, PTZCommand command)
+        {
+            // TODO: Implement PTZ command sending to Video Agent
+            await Task.CompletedTask;
+            return true;
+        }
     }
 }

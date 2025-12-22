@@ -17,7 +17,7 @@ namespace GFC.Core.Models
         public Camera Camera { get; set; }
 
         [Required]
-        public string UserId { get; set; }
+        public int UserId { get; set; }
 
         [ForeignKey("UserId")]
         public AppUser User { get; set; }

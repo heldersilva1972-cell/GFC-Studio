@@ -24,7 +24,7 @@ namespace GFC.Core.Models
         public Camera Camera { get; set; }
 
         [Required]
-        public string UserId { get; set; } // Or RoleId, depending on the access control strategy
+        public int UserId { get; set; }
 
         [ForeignKey("UserId")]
         public AppUser User { get; set; }
