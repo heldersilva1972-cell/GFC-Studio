@@ -165,7 +165,12 @@ namespace GFC.BlazorServer.Services.Camera
                     };
                 }
 
-                var httpClient = _httpClientFactory.CreateClient();
+                // Create HTTP client with SSL bypass for self-signed certificates
+                var handler = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+                };
+                var httpClient = new HttpClient(handler);
                 httpClient.Timeout = TimeSpan.FromSeconds(10);
                 
                 // Create basic auth header
@@ -173,25 +178,68 @@ namespace GFC.BlazorServer.Services.Camera
                 httpClient.DefaultRequestHeaders.Authorization = 
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
 
-                // Try to access NVR API
-                var response = await httpClient.GetAsync($"http://{nvrHost}:{nvrPort}/ISAPI/System/deviceInfo");
-                
-                if (response.IsSuccessStatusCode)
+                // Try multiple endpoints (different NVR brands use different APIs)
+                var endpoints = new[]
                 {
-                    return new VerificationResult 
-                    { 
-                        TestName = "Phase 0: NVR Authentication", 
-                        Success = true, 
-                        Message = $"Successfully authenticated with NVR as '{username}'" 
-                    };
+                    $"http://{nvrHost}:{nvrPort}/ISAPI/System/deviceInfo",  // Hikvision
+                    $"http://{nvrHost}:{nvrPort}/cgi-bin/magicBox.cgi?action=getSystemInfo",  // Dahua
+                    $"http://{nvrHost}:{nvrPort}/",  // Generic root
+                };
+
+                HttpResponseMessage? lastResponse = null;
+                Exception? lastException = null;
+
+                foreach (var endpoint in endpoints)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Trying NVR endpoint: {Endpoint}", endpoint);
+                        var response = await httpClient.GetAsync(endpoint);
+                        lastResponse = response;
+                        
+                        if (response.IsSuccessStatusCode)
+                        {
+                            return new VerificationResult 
+                            { 
+                                TestName = "Phase 0: NVR Authentication", 
+                                Success = true, 
+                                Message = $"Successfully authenticated with NVR at {nvrHost}:{nvrPort} as '{username}'" 
+                            };
+                        }
+                        else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                        {
+                            return new VerificationResult 
+                            { 
+                                TestName = "Phase 0: NVR Authentication", 
+                                Success = false, 
+                                Message = "Authentication failed - invalid username or password" 
+                            };
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lastException = ex;
+                        _logger.LogWarning(ex, "Failed to connect to {Endpoint}", endpoint);
+                    }
                 }
-                else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+
+                // If we get here, all endpoints failed
+                if (lastResponse != null)
                 {
                     return new VerificationResult 
                     { 
                         TestName = "Phase 0: NVR Authentication", 
                         Success = false, 
-                        Message = "Authentication failed - invalid credentials" 
+                        Message = $"NVR returned status {lastResponse.StatusCode}. The NVR may not support standard APIs." 
+                    };
+                }
+                else if (lastException != null)
+                {
+                    return new VerificationResult 
+                    { 
+                        TestName = "Phase 0: NVR Authentication", 
+                        Success = false, 
+                        Message = $"Connection error: {lastException.Message}. Check if NVR web interface is enabled on port {nvrPort}." 
                     };
                 }
                 else
@@ -200,18 +248,18 @@ namespace GFC.BlazorServer.Services.Camera
                     { 
                         TestName = "Phase 0: NVR Authentication", 
                         Success = false, 
-                        Message = $"NVR returned status {response.StatusCode}" 
+                        Message = "Unable to connect to NVR. Verify IP address and port." 
                     };
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to authenticate with NVR");
+                _logger.LogError(ex, "Failed to verify NVR authentication");
                 return new VerificationResult 
                 { 
                     TestName = "Phase 0: NVR Authentication", 
                     Success = false, 
-                    Message = $"Authentication error: {ex.Message}" 
+                    Message = $"Verification error: {ex.Message}" 
                 };
             }
         }
