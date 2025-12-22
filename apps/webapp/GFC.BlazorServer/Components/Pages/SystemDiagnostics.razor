@@ -3,6 +3,8 @@
 @using GFC.BlazorServer.Auth
 @attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
 @inject IDiagnosticsService DiagnosticsService
+@inject GFC.BlazorServer.Services.Diagnostics.IPerformanceHistoryService PerformanceHistoryService
+@inject GFC.BlazorServer.Services.Diagnostics.IAlertManagementService AlertManagementService
 @using GFC.Core.Models
 @using GFC.Core.Models.Diagnostics
 @using GFC.BlazorServer.Components.Shared.Diagnostics
@@ -37,6 +39,9 @@
         <!-- New Layout with Cards -->
         <div class="row mt-4">
             <div class="col-lg-12 mb-4">
+                <AlertPanel ActiveAlerts="@_activeAlerts" OnAlertAcknowledged="LoadActiveAlertsAsync" />
+            </div>
+            <div class="col-lg-12 mb-4">
                 <PerformanceMetricsCard Metrics="@_info.Performance" />
             </div>
             <div class="col-lg-12 mb-4">
@@ -47,6 +52,32 @@
             </div>
             <div class="col-lg-6 mb-4">
                 <CameraSystemCard CameraSystem="@_info.CameraSystem" />
+            </div>
+        </div>
+
+        <!-- Performance Charts -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0"><i class="fas fa-chart-line"></i> Performance History</h5>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn @(_performanceHistoryDays == 1 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SetPerformanceHistoryDays(1)">24 Hours</button>
+                    <button type="button" class="btn @(_performanceHistoryDays == 7 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SetPerformanceHistoryDays(7)">7 Days</button>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (_performanceSnapshots != null && _performanceSnapshots.Any())
+                {
+                    <div class="row">
+                        <div class="col-lg-6"><PerformanceChart Snapshots="@_performanceSnapshots" Metric="CPU" /></div>
+                        <div class="col-lg-6"><PerformanceChart Snapshots="@_performanceSnapshots" Metric="Memory" /></div>
+                        <div class="col-lg-6"><PerformanceChart Snapshots="@_performanceSnapshots" Metric="Connections" /></div>
+                        <div class="col-lg-6"><PerformanceChart Snapshots="@_performanceSnapshots" Metric="Requests" /></div>
+                    </div>
+                }
+                else
+                {
+                    <p>No performance history data available.</p>
+                }
             </div>
         </div>
 
@@ -98,10 +129,15 @@
     private Timer? _refreshTimer;
     private Timer? _updateDisplayTimer;
     private string _lastUpdatedRelative = "never";
+    private List<PerformanceSnapshot> _performanceSnapshots;
+    private List<DiagnosticAlert> _activeAlerts;
+    private int _performanceHistoryDays = 1;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDiagnosticsAsync(true);
+        await LoadPerformanceHistoryAsync();
+        await LoadActiveAlertsAsync();
         StartTimers();
     }
 
@@ -133,6 +169,24 @@
 
 
         _isLoading = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadPerformanceHistoryAsync()
+    {
+        _performanceSnapshots = await PerformanceHistoryService.GetPerformanceSnapshotsAsync(DateTime.UtcNow.AddDays(-_performanceHistoryDays), DateTime.UtcNow);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SetPerformanceHistoryDays(int days)
+    {
+        _performanceHistoryDays = days;
+        await LoadPerformanceHistoryAsync();
+    }
+
+    private async Task LoadActiveAlertsAsync()
+    {
+        _activeAlerts = await AlertManagementService.GetActiveAlertsAsync();
         await InvokeAsync(StateHasChanged);
     }
 

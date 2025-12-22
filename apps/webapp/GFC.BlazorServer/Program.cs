@@ -139,6 +139,9 @@ public class Program
         builder.Services.AddScoped<CameraDiagnosticsService>();
         builder.Services.AddScoped<DatabaseHealthService>();
         builder.Services.AddScoped<IDiagnosticsService, DiagnosticsService>();
+        builder.Services.AddScoped<IPerformanceHistoryService, PerformanceHistoryService>();
+        builder.Services.AddScoped<IAlertManagementService, AlertManagementService>();
+        builder.Services.AddHostedService<DiagnosticsBackgroundService>();
         builder.Services.AddScoped<ControllerRegistryService>();
         builder.Services.AddScoped<ControllerEventService>();
         builder.Services.AddScoped<CommandInfoService>();

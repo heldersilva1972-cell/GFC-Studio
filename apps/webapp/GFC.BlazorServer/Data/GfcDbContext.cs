@@ -1,4 +1,5 @@
 using GFC.BlazorServer.Data.Entities;
+using GFC.Core.Models.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Data;
@@ -46,6 +47,11 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
     public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
+
+    // Diagnostics
+    public DbSet<PerformanceSnapshot> PerformanceSnapshots => Set<PerformanceSnapshot>();
+    public DbSet<AlertThreshold> AlertThresholds => Set<AlertThreshold>();
+    public DbSet<DiagnosticAlert> DiagnosticAlerts => Set<DiagnosticAlert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -406,6 +412,29 @@ public class GfcDbContext : DbContext
             entity.HasOne(a => a.User)
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Diagnostics system configuration
+        modelBuilder.Entity<PerformanceSnapshot>(entity =>
+        {
+            entity.ToTable("PerformanceSnapshots");
+            entity.HasIndex(s => s.Timestamp);
+        });
+
+        modelBuilder.Entity<AlertThreshold>(entity =>
+        {
+            entity.ToTable("AlertThresholds");
+            entity.HasIndex(t => new { t.MetricType, t.AlertLevel }).IsUnique();
+        });
+
+        modelBuilder.Entity<DiagnosticAlert>(entity =>
+        {
+            entity.ToTable("DiagnosticAlerts");
+            entity.HasIndex(a => a.Timestamp);
+            entity.HasOne(a => a.AlertThreshold)
+                .WithMany()
+                .HasForeignKey(a => a.AlertThresholdId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
