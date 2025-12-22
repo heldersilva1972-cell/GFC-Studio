@@ -41,7 +41,6 @@ public class GfcDbContext : DbContext
     public DbSet<ReimbursementChangeLog> ReimbursementChangeLogs => Set<ReimbursementChangeLog>();
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
-    public DbSet<GFC.Core.Models.DuesYearSettings> DuesYearSettings => Set<GFC.Core.Models.DuesYearSettings>();
     
     // Camera System
     public DbSet<GFC.Core.Models.Camera> Cameras => Set<GFC.Core.Models.Camera>();
@@ -49,11 +48,6 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
     public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
-
-    // Diagnostics
-    public DbSet<PerformanceSnapshot> PerformanceSnapshots => Set<PerformanceSnapshot>();
-    public DbSet<AlertThreshold> AlertThresholds => Set<AlertThreshold>();
-    public DbSet<DiagnosticAlert> DiagnosticAlerts => Set<DiagnosticAlert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -259,9 +253,7 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<DuesPayment>(entity =>
         {
             entity.ToTable("DuesPayments");
-            entity.HasKey(d => d.DuesPaymentID);
-            entity.HasIndex(d => new { d.MemberId, d.Year }).IsUnique();
-            entity.Property(d => d.Amount).HasColumnType("decimal(18,2)");
+            entity.HasKey(d => new { d.MemberId, d.Year });
         });
 
         modelBuilder.Entity<Waiver>(entity =>
@@ -419,36 +411,6 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // Diagnostics system configuration
-        modelBuilder.Entity<PerformanceSnapshot>(entity =>
-        {
-            entity.ToTable("PerformanceSnapshots");
-            entity.HasIndex(s => s.Timestamp);
-        });
-
-        modelBuilder.Entity<AlertThreshold>(entity =>
-        {
-            entity.ToTable("AlertThresholds");
-            entity.HasIndex(t => new { t.MetricType, t.AlertLevel }).IsUnique();
-        });
-
-        modelBuilder.Entity<DiagnosticAlert>(entity =>
-        {
-            entity.ToTable("DiagnosticAlerts");
-            entity.HasIndex(a => a.Timestamp);
-            entity.HasOne(a => a.AlertThreshold)
-                .WithMany()
-                .HasForeignKey(a => a.AlertThresholdId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<GFC.Core.Models.DuesYearSettings>(entity =>
-        {
-            entity.ToTable("DuesYearSettings");
-            entity.HasKey(e => e.Year);
-            entity.Property(e => e.Year).ValueGeneratedNever();
-            entity.Property(e => e.StandardDues).HasColumnType("decimal(18,2)");
-        });
     }
 
     private static IEnumerable<ControllerCommandInfo> GetCommandSeedData()

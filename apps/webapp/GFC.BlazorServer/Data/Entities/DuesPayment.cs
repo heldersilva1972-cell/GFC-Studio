@@ -3,13 +3,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.BlazorServer.Data.Entities;
 
-[Table("DuesPayments")]
-public class DuesPayment
-{
-    [Key]
-    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
-    public int DuesPaymentID { get; set; }
-
     [Required]
     public int MemberId { get; set; }
 
