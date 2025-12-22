@@ -48,7 +48,6 @@ namespace GFC.Core.Models.Diagnostics
         /// </summary>
         public bool HasPendingMigrations { get; set; }
 
-        /// <summary>
         /// Gets or sets the database connection response time in milliseconds.
         /// </summary>
         public long ConnectionResponseTimeMs { get; set; }
@@ -56,6 +55,41 @@ namespace GFC.Core.Models.Diagnostics
         /// <summary>
         /// Gets or sets a message providing more details about the health status.
         /// </summary>
-        public string Message { get; set; }
+        public string Message { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the database provider name.
+        /// </summary>
+        public string Provider { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the server name.
+        /// </summary>
+        public string ServerName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the database name.
+        /// </summary>
+        public string DatabaseName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the database size in bytes.
+        /// </summary>
+        public long DatabaseSizeBytes { get; set; }
+
+        /// <summary>
+        /// Gets or sets the current schema version.
+        /// </summary>
+        public string CurrentSchemaVersion { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the number of pending migrations.
+        /// </summary>
+        public int PendingMigrations { get; set; }
+
+        /// <summary>
+        /// Gets or sets when this health info was collected.
+        /// </summary>
+        public DateTime CollectedAt { get; set; } = DateTime.UtcNow;
     }
 }
