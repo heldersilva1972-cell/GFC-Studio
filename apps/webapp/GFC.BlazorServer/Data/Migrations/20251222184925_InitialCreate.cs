@@ -1,13 +1,14 @@
-// [NEW]
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace GFC.BlazorServer.Migrations
+namespace GFC.BlazorServer.Data.Migrations
 {
-    public partial class AddDiagnosticsAndAlerts : Migration
+    /// <inheritdoc />
+    public partial class InitialCreate : Migration
     {
+        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -57,7 +58,7 @@ namespace GFC.BlazorServer.Migrations
                     TriggerValue = table.Column<double>(type: "float", nullable: false),
                     IsAcknowledged = table.Column<bool>(type: "bit", nullable: false),
                     AcknowledgedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    AcknowledgedBy = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                    AcknowledgedBy = table.Column<string>(type: "nvarchar(max)", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -90,19 +91,9 @@ namespace GFC.BlazorServer.Migrations
                 name: "IX_PerformanceSnapshots_Timestamp",
                 table: "PerformanceSnapshots",
                 column: "Timestamp");
-
-            migrationBuilder.InsertData(
-                table: "AlertThresholds",
-                columns: new[] { "Id", "MetricType", "AlertLevel", "ThresholdValue", "CooldownMinutes", "IsEnabled" },
-                values: new object[,]
-                {
-                    { Guid.NewGuid(), 0, 0, 80.0, 15, true },
-                    { Guid.NewGuid(), 0, 1, 95.0, 5, true },
-                    { Guid.NewGuid(), 1, 0, 85.0, 15, true },
-                    { Guid.NewGuid(), 1, 1, 95.0, 5, true }
-                });
         }
 
+        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

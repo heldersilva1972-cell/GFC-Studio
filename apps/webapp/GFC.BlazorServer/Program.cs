@@ -218,31 +218,9 @@ public class Program
             }
             catch (Exception ex)
             {
-                // [Self-Healing] In development, if migration fails (e.g. index conflicts, changed schema),
-                // we drop and recreate the database to unblock the developer.
-                if (app.Environment.IsDevelopment())
-                {
-                    Console.WriteLine(">>> DB MIGRATION FAILED. Attempting to reset database (Development mode)...");
-                    try
-                    {
-                        var dbContext = services.GetRequiredService<GfcDbContext>();
-                        dbContext.Database.EnsureDeleted();
-                        dbContext.Database.Migrate();
-                        Console.WriteLine(">>> DATABASE RESET SUCCESSFUL.");
-                    }
-                    catch (Exception recoveryEx)
-                    {
-                        Console.WriteLine(">>> DATABASE RESET FAILED:");
-                        Console.WriteLine(recoveryEx.ToString());
-                        throw; 
-                    }
-                }
-                else
-                {
-                    Console.WriteLine(">>> DB MIGRATION ERROR for GfcDbContext:");
-                    Console.WriteLine(ex.ToString());
-                    throw;
-                }
+                Console.WriteLine(">>> DB MIGRATION ERROR for GfcDbContext:");
+                Console.WriteLine(ex.ToString());
+                throw;
             }
         }
 

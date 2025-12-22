@@ -11,12 +11,12 @@ namespace GFC.BlazorServer.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "SimulationControllerTraces");
+            // migrationBuilder.DropTable(
+            //    name: "SimulationControllerTraces");
 
-            migrationBuilder.DropColumn(
-                name: "UseRealControllers",
-                table: "SystemSettings");
+            // migrationBuilder.DropColumn(
+            //     name: "UseRealControllers",
+            //     table: "SystemSettings");
 
             migrationBuilder.AddColumn<int>(
                 name: "ScannerControllerId",
@@ -273,33 +273,33 @@ namespace GFC.BlazorServer.Data.Migrations
                 nullable: false,
                 defaultValue: false);
 
-            migrationBuilder.CreateTable(
-                name: "SimulationControllerTraces",
-                columns: table => new
-                {
-                    Id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    CardNumber = table.Column<long>(type: "bigint", nullable: true),
-                    ControllerId = table.Column<int>(type: "int", nullable: true),
-                    DoorId = table.Column<int>(type: "int", nullable: true),
-                    ExpectedResponsePayloadJson = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    ExpectedResponseSummary = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
-                    IsSimulation = table.Column<bool>(type: "bit", nullable: false),
-                    MemberId = table.Column<int>(type: "int", nullable: true),
-                    Operation = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
-                    RequestPayloadJson = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    RequestPayloadRaw = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    RequestSummary = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
-                    ResultDetails = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    ResultStatus = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
-                    TimestampUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    TriggerPage = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
-                    UserId = table.Column<int>(type: "int", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_SimulationControllerTraces", x => x.Id);
-                });
+            // migrationBuilder.CreateTable(
+            //     name: "SimulationControllerTraces",
+            //     columns: table => new
+            //     {
+            //         Id = table.Column<long>(type: "bigint", nullable: false)
+            //             .Annotation("SqlServer:Identity", "1, 1"),
+            //         CardNumber = table.Column<long>(type: "bigint", nullable: true),
+            //         ControllerId = table.Column<int>(type: "int", nullable: true),
+            //         DoorId = table.Column<int>(type: "int", nullable: true),
+            //         ExpectedResponsePayloadJson = table.Column<string>(type: "nvarchar(max)", nullable: true),
+            //         ExpectedResponseSummary = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+            //         IsSimulation = table.Column<bool>(type: "bit", nullable: false),
+            //         MemberId = table.Column<int>(type: "int", nullable: true),
+            //         Operation = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+            //         RequestPayloadJson = table.Column<string>(type: "nvarchar(max)", nullable: true),
+            //         RequestPayloadRaw = table.Column<string>(type: "nvarchar(max)", nullable: true),
+            //         RequestSummary = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+            //         ResultDetails = table.Column<string>(type: "nvarchar(max)", nullable: true),
+            //         ResultStatus = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+            //         TimestampUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
+            //         TriggerPage = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+            //         UserId = table.Column<int>(type: "int", nullable: true)
+            //     },
+            //     constraints: table =>
+            //     {
+            //         table.PrimaryKey("PK_SimulationControllerTraces", x => x.Id);
+            //     });
 
             migrationBuilder.UpdateData(
                 table: "SystemSettings",
@@ -308,10 +308,10 @@ namespace GFC.BlazorServer.Data.Migrations
                 column: "UseRealControllers",
                 value: false);
 
-            migrationBuilder.CreateIndex(
-                name: "IX_SimulationControllerTraces_TimestampUtc",
-                table: "SimulationControllerTraces",
-                column: "TimestampUtc");
+            // migrationBuilder.CreateIndex(
+            //     name: "IX_SimulationControllerTraces_TimestampUtc",
+            //     table: "SimulationControllerTraces",
+            //     column: "TimestampUtc");
         }
     }
 }
