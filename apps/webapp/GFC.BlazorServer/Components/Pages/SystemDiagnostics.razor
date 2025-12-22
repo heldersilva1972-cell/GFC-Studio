@@ -12,71 +12,331 @@
 <PageTitle>System Diagnostics</PageTitle>
 
 <div class="container mt-4">
-    <h3>System Diagnostics - Debug View</h3>
-    
-    <div class="alert alert-info">
-        <h5>Diagnostic Information:</h5>
-        <p><strong>Loading State:</strong> @_isLoading</p>
-        <p><strong>Info is null:</strong> @(_info == null)</p>
-        @if (_info != null)
-        {
-            <p><strong>Performance is null:</strong> @(_info.Performance == null)</p>
-            <p><strong>DatabaseHealth is null:</strong> @(_info.DatabaseHealth == null)</p>
-            <p><strong>ControllerHealth is null:</strong> @(_info.ControllerHealth == null)</p>
-            <p><strong>CameraSystem is null:</strong> @(_info.CameraSystem == null)</p>
-            <p><strong>Overall Health:</strong> @_info.OverallHealth</p>
-            <p><strong>Uptime:</strong> @_info.Uptime</p>
-        }
-        @if (!string.IsNullOrEmpty(_errorMessage))
-        {
-            <hr />
-            <h6 class="text-danger">Error Details:</h6>
-            <pre style="white-space: pre-wrap; max-height: 400px; overflow-y: auto;">@_errorMessage</pre>
-        }
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="bi bi-heart-pulse-fill"></i> System Diagnostics</h3>
+        <div>
+            <span class="badge bg-success me-2">
+                <i class="bi bi-circle-fill"></i> Background Monitoring Active
+            </span>
+            <span class="text-muted me-3">Last Updated: @_lastUpdatedRelative</span>
+            <button class="btn btn-primary" @onclick="() => LoadDiagnosticsAsync(true)" disabled="@_isLoading">
+                <i class="bi bi-arrow-clockwise @(_isLoading ? "spinning" : "")"></i>
+                @(_isLoading ? "Refreshing..." : "Refresh")
+            </button>
+        </div>
     </div>
-    
-    @if (_info != null && string.IsNullOrEmpty(_errorMessage))
+
+    @if (_isLoading && _info == null)
     {
-        <div class="alert alert-success">
-            <h5>✅ Data Loaded Successfully!</h5>
-            <p>All services are working correctly. The issue is likely in the component rendering.</p>
+        <div class="text-center mt-5">
+            <div class="spinner-border" style="width: 3rem; height: 3rem;" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <h4>Loading diagnostics data...</h4>
+        </div>
+    }
+    else if (_info != null)
+    {
+        <div class="row">
+            <!-- Alert Panel -->
+            <div class="col-12 mb-4">
+                @try
+                {
+                    @if (_activeAlerts != null)
+                    {
+                        <AlertPanel ActiveAlerts="@_activeAlerts" OnAlertAcknowledged="LoadActiveAlertsAsync" />
+                    }
+                }
+                catch (Exception ex)
+                {
+                    <div class="alert alert-danger">AlertPanel Error: @ex.Message</div>
+                }
+            </div>
+
+            <!-- Performance Metrics Card -->
+            <div class="col-12 mb-4">
+                @try
+                {
+                    @if (_info.Performance != null)
+                    {
+                        <PerformanceMetricsCard Metrics="@_info.Performance" />
+                    }
+                }
+                catch (Exception ex)
+                {
+                    <div class="alert alert-danger">PerformanceMetricsCard Error: @ex.Message</div>
+                }
+            </div>
+
+            <!-- Database Health Card -->
+            <div class="col-12 mb-4">
+                @try
+                {
+                    @if (_info.DatabaseHealth != null)
+                    {
+                        <DatabaseHealthCard HealthInfo="@_info.DatabaseHealth" />
+                    }
+                }
+                catch (Exception ex)
+                {
+                    <div class="alert alert-danger">DatabaseHealthCard Error: @ex.Message</div>
+                }
+            </div>
+
+            <!-- Controller Health Card -->
+            <div class="col-lg-6 mb-4">
+                @try
+                {
+                    @if (_info.ControllerHealth != null)
+                    {
+                        <ControllerHealthCard ControllerHealth="@_info.ControllerHealth" />
+                    }
+                }
+                catch (Exception ex)
+                {
+                    <div class="alert alert-danger">ControllerHealthCard Error: @ex.Message</div>
+                }
+            </div>
+
+            <!-- Camera System Card -->
+            <div class="col-lg-6 mb-4">
+                @try
+                {
+                    @if (_info.CameraSystem != null)
+                    {
+                        <CameraSystemCard CameraSystem="@_info.CameraSystem" />
+                    }
+                }
+                catch (Exception ex)
+                {
+                    <div class="alert alert-danger">CameraSystemCard Error: @ex.Message</div>
+                }
+            </div>
+        </div>
+
+        <!-- Performance Charts -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0"><i class="bi bi-graph-up"></i> Performance History</h5>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn @(_performanceHistoryDays == 1 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SetPerformanceHistoryDays(1)">24 Hours</button>
+                    <button type="button" class="btn @(_performanceHistoryDays == 7 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SetPerformanceHistoryDays(7)">7 Days</button>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (_performanceSnapshots != null && _performanceSnapshots.Any())
+                {
+                    <div class="row">
+                        <div class="col-lg-6 mb-3">
+                            @try
+                            {
+                                <PerformanceChart Snapshots="@_performanceSnapshots" Metric="CPU" />
+                            }
+                            catch (Exception ex)
+                            {
+                                <div class="alert alert-danger">CPU Chart Error: @ex.Message</div>
+                            }
+                        </div>
+                        <div class="col-lg-6 mb-3">
+                            @try
+                            {
+                                <PerformanceChart Snapshots="@_performanceSnapshots" Metric="Memory" />
+                            }
+                            catch (Exception ex)
+                            {
+                                <div class="alert alert-danger">Memory Chart Error: @ex.Message</div>
+                            }
+                        </div>
+                        <div class="col-lg-6 mb-3">
+                            @try
+                            {
+                                <PerformanceChart Snapshots="@_performanceSnapshots" Metric="Connections" />
+                            }
+                            catch (Exception ex)
+                            {
+                                <div class="alert alert-danger">Connections Chart Error: @ex.Message</div>
+                            }
+                        </div>
+                        <div class="col-lg-6 mb-3">
+                            @try
+                            {
+                                <PerformanceChart Snapshots="@_performanceSnapshots" Metric="Requests" />
+                            }
+                            catch (Exception ex)
+                            {
+                                <div class="alert alert-danger">Requests Chart Error: @ex.Message</div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted">No performance history data available yet. Data will be collected by the background service.</p>
+                }
+            </div>
+        </div>
+
+        <!-- General Information -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="card-title"><i class="bi bi-info-circle"></i> General Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item"><strong>Overall Health:</strong> <StatusBadge Status="@_info.OverallHealth" /></li>
+                            <li class="list-group-item"><strong>Uptime:</strong> @FormatUptime(_info.Uptime)</li>
+                            <li class="list-group-item"><strong>.NET Version:</strong> @_info.DotNetVersion</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item"><strong>OS:</strong> @_info.OsDescription</li>
+                            <li class="list-group-item"><strong>OS Architecture:</strong> @_info.OsArchitecture</li>
+                            <li class="list-group-item"><strong>Process Architecture:</strong> @_info.ProcessArchitecture</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <strong>Connection String:</strong>
+                        <div class="input-group">
+                            <input type="text" class="form-control" value="@_info.ConnectionString" readonly>
+                            <CopyButton TextToCopy="@_info.ConnectionString" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-danger mt-4" role="alert">
+            Failed to load system diagnostics. Please try refreshing the page.
         </div>
     }
 </div>
 
+<style>
+    .spinning {
+        animation: spin 1s linear infinite;
+    }
+    
+    @@keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+</style>
+
 @code {
     private SystemDiagnosticsInfo? _info;
     private bool _isLoading = false;
-    private string _errorMessage = "";
-    
+    private Timer? _refreshTimer;
+    private Timer? _updateDisplayTimer;
+    private string _lastUpdatedRelative = "never";
+    private List<PerformanceSnapshot> _performanceSnapshots = new();
+    private List<DiagnosticAlert> _activeAlerts = new();
+    private int _performanceHistoryDays = 1;
+
     protected override async Task OnInitializedAsync()
     {
-        try
+        await LoadDiagnosticsAsync(true);
+        await LoadPerformanceHistoryAsync();
+        await LoadActiveAlertsAsync();
+        StartTimers();
+    }
+
+    private void StartTimers()
+    {
+        _refreshTimer = new Timer(async _ => await LoadDiagnosticsAsync(false), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _updateDisplayTimer = new Timer(_ => UpdateTimeDisplay(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private async Task LoadDiagnosticsAsync(bool showLoadingIndicator = false)
+    {
+        if (showLoadingIndicator)
         {
             _isLoading = true;
-            StateHasChanged();
-            
+            await InvokeAsync(StateHasChanged);
+        }
+
+        try
+        {
             _info = await DiagnosticsService.GetDiagnosticsAsync();
-            _errorMessage = "";
+            UpdateTimeDisplay();
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Exception Type: {ex.GetType().Name}\n\n" +
-                          $"Message: {ex.Message}\n\n" +
-                          $"Stack Trace:\n{ex.StackTrace}\n\n";
-            
-            if (ex.InnerException != null)
-            {
-                _errorMessage += $"Inner Exception: {ex.InnerException.Message}\n\n" +
-                               $"Inner Stack Trace:\n{ex.InnerException.StackTrace}";
-            }
+            Console.WriteLine($"Error loading diagnostics: {ex.Message}");
+            _info = null;
         }
-        finally
+
+        _isLoading = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadPerformanceHistoryAsync()
+    {
+        try
         {
-            _isLoading = false;
-            StateHasChanged();
+            _performanceSnapshots = await PerformanceHistoryService.GetPerformanceSnapshotsAsync(
+                DateTime.UtcNow.AddDays(-_performanceHistoryDays), 
+                DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading performance history: {ex.Message}");
+            _performanceSnapshots = new();
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SetPerformanceHistoryDays(int days)
+    {
+        _performanceHistoryDays = days;
+        await LoadPerformanceHistoryAsync();
+    }
+
+    private async Task LoadActiveAlertsAsync()
+    {
+        try
+        {
+            _activeAlerts = await AlertManagementService.GetActiveAlertsAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading alerts: {ex.Message}");
+            _activeAlerts = new();
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateTimeDisplay()
+    {
+        if (_info != null)
+        {
+            var timeSince = DateTime.UtcNow - _info.LastUpdated;
+            if (timeSince < TimeSpan.FromSeconds(5)) _lastUpdatedRelative = "just now";
+            else if (timeSince < TimeSpan.FromMinutes(1)) _lastUpdatedRelative = $"{(int)timeSince.TotalSeconds}s ago";
+            else if (timeSince < TimeSpan.FromHours(1)) _lastUpdatedRelative = $"{(int)timeSince.TotalMinutes}m ago";
+            else _lastUpdatedRelative = $"{(int)timeSince.TotalHours}h ago";
+
+            InvokeAsync(StateHasChanged);
         }
     }
-    
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    private string FormatUptime(TimeSpan uptime)
+    {
+        return $"{(int)uptime.TotalDays}d {uptime.Hours}h {uptime.Minutes}m";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_refreshTimer is IAsyncDisposable refreshTimerAsync) await refreshTimerAsync.DisposeAsync();
+        else _refreshTimer?.Dispose();
+
+        if (_updateDisplayTimer is IAsyncDisposable updateTimerAsync) await updateTimerAsync.DisposeAsync();
+        else _updateDisplayTimer?.Dispose();
+    }
 }
