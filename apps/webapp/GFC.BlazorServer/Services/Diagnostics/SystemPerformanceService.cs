@@ -16,14 +16,14 @@ namespace GFC.BlazorServer.Services.Diagnostics
     public class SystemPerformanceService : ISystemPerformanceService
     {
         private readonly Process _currentProcess;
-        private readonly IDatabaseHealthService _dbHealthService;
+        private readonly DatabaseHealthService _dbHealthService;
         private DateTime _lastCpuSampleTime;
         private TimeSpan _lastTotalProcessorTime;
         private int _requestsSinceLastSample;
         private DateTime _lastRequestSampleTime;
         private int _requestsPerMinute;
 
-        public SystemPerformanceService(IDatabaseHealthService dbHealthService)
+        public SystemPerformanceService(DatabaseHealthService dbHealthService)
         {
             _currentProcess = Process.GetCurrentProcess();
             _dbHealthService = dbHealthService;

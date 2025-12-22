@@ -19,12 +19,12 @@ namespace GFC.BlazorServer.Services
     public class DiagnosticsService : IDiagnosticsService
     {
         private readonly ISystemPerformanceService _performanceService;
-        private readonly IDatabaseHealthService _databaseHealthService;
+        private readonly DatabaseHealthService _databaseHealthService;
         private readonly IConfiguration _configuration;
 
         public DiagnosticsService(
             ISystemPerformanceService performanceService,
-            IDatabaseHealthService databaseHealthService,
+            DatabaseHealthService databaseHealthService,
             IConfiguration configuration)
         {
             _performanceService = performanceService;
