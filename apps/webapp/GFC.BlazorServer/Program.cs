@@ -134,7 +134,7 @@ public class Program
         builder.Services.AddScoped<IDataExportService, DataExportService>();
         builder.Services.AddScoped<IPhysicalKeyService, PhysicalKeyService>();
         builder.Services.AddScoped<IVersionService, VersionService>();
-        builder.Services.AddSingleton<ISystemPerformanceService, SystemPerformanceService>();
+        builder.Services.AddScoped<ISystemPerformanceService, SystemPerformanceService>();
         builder.Services.AddScoped<DatabaseHealthService>();
         builder.Services.AddScoped<IDiagnosticsService, DiagnosticsService>();
         builder.Services.AddScoped<ControllerRegistryService>();
