@@ -149,7 +149,7 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.HasIndex("Key")
                         .IsUnique();
 
-                    b.ToTable("ControllerCommandInfos");
+                    b.ToTable("ControllerCommandInfos", (string)null);
 
                     b.HasData(
                         new
@@ -556,7 +556,7 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.HasIndex("ControllerId")
                         .IsUnique();
 
-                    b.ToTable("ControllerLastIndexes");
+                    b.ToTable("ControllerLastIndexes", (string)null);
                 });
 
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.ControllerNetworkConfig", b =>
@@ -1390,7 +1390,7 @@ namespace GFC.BlazorServer.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("UserNotificationPreferences");
+                    b.ToTable("UserNotificationPreferences", (string)null);
                 });
 
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.Waiver", b =>
@@ -1589,112 +1589,6 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("CameraPermissions", (string)null);
-                });
-
-            modelBuilder.Entity("GFC.Core.Models.Diagnostics.AlertThreshold", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("AlertLevel")
-                        .HasColumnType("int");
-
-                    b.Property<int>("CooldownMinutes")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("bit");
-
-                    b.Property<int>("MetricType")
-                        .HasColumnType("int");
-
-                    b.Property<double>("ThresholdValue")
-                        .HasColumnType("float");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MetricType", "AlertLevel")
-                        .IsUnique();
-
-                    b.ToTable("AlertThresholds", (string)null);
-                });
-
-            modelBuilder.Entity("GFC.Core.Models.Diagnostics.DiagnosticAlert", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("AcknowledgedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("AcknowledgedBy")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("AlertThresholdId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("IsAcknowledged")
-                        .HasColumnType("bit");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("datetime2");
-
-                    b.Property<double>("TriggerValue")
-                        .HasColumnType("float");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AlertThresholdId");
-
-                    b.HasIndex("Timestamp");
-
-                    b.ToTable("DiagnosticAlerts", (string)null);
-                });
-
-            modelBuilder.Entity("GFC.Core.Models.Diagnostics.PerformanceSnapshot", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("ActiveConnections")
-                        .HasColumnType("int");
-
-                    b.Property<int>("ActiveThreads")
-                        .HasColumnType("int");
-
-                    b.Property<double>("CpuUsage")
-                        .HasColumnType("float");
-
-                    b.Property<int>("Gen0Collections")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Gen1Collections")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Gen2Collections")
-                        .HasColumnType("int");
-
-                    b.Property<double>("MemoryUsageGb")
-                        .HasColumnType("float");
-
-                    b.Property<double>("MemoryUsagePercentage")
-                        .HasColumnType("float");
-
-                    b.Property<int>("RequestsPerMinute")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Timestamp");
-
-                    b.ToTable("PerformanceSnapshots", (string)null);
                 });
 
             modelBuilder.Entity("GFC.Core.Models.Recording", b =>
@@ -1987,17 +1881,6 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.Navigation("Camera");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("GFC.Core.Models.Diagnostics.DiagnosticAlert", b =>
-                {
-                    b.HasOne("GFC.Core.Models.Diagnostics.AlertThreshold", "AlertThreshold")
-                        .WithMany()
-                        .HasForeignKey("AlertThresholdId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AlertThreshold");
                 });
 
             modelBuilder.Entity("GFC.Core.Models.Recording", b =>

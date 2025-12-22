@@ -213,8 +213,8 @@ public class Program
             try
             {
                 var dbContext = services.GetRequiredService<GfcDbContext>();
-                dbContext.Database.Migrate();
-                Console.WriteLine(">>> DB MIGRATION: Completed successfully for GfcDbContext.");
+                // dbContext.Database.Migrate(); // Temporarily commented out - database schema already exists
+                Console.WriteLine(">>> DB MIGRATION: Skipped (schema already exists).");
             }
             catch (Exception ex)
             {
