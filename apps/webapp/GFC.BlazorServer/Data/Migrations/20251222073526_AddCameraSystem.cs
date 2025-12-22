@@ -18,11 +18,52 @@ namespace GFC.BlazorServer.Data.Migrations
             //     name: "UseRealControllers",
             //     table: "SystemSettings");
 
-            migrationBuilder.AddColumn<int>(
-                name: "ScannerControllerId",
-                table: "SystemSettings",
-                type: "int",
-                nullable: true);
+            migrationBuilder.Sql(@"
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND type in (N'U'))
+                BEGIN
+                    CREATE TABLE [dbo].[SystemSettings](
+                        [Id] [int] IDENTITY(1,1) NOT NULL,
+                        [LastUpdatedUtc] [datetime2](7) NULL,
+                        [ScannerControllerId] [int] NULL,
+                        CONSTRAINT [PK_SystemSettings] PRIMARY KEY CLUSTERED ([Id] ASC)
+                    );
+                    -- Ensure at least one row exists
+                    IF NOT EXISTS (SELECT 1 FROM [dbo].[SystemSettings])
+                    BEGIN
+                        SET IDENTITY_INSERT [dbo].[SystemSettings] ON;
+                        INSERT INTO [dbo].[SystemSettings] (Id, ScannerControllerId, LastUpdatedUtc) VALUES (1, NULL, GETUTCDATE());
+                        SET IDENTITY_INSERT [dbo].[SystemSettings] OFF;
+                    END
+                END
+                ELSE
+                BEGIN
+                    -- Drop UseRealControllers if exists
+                    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'UseRealControllers')
+                    BEGIN
+                        ALTER TABLE [dbo].[SystemSettings] DROP COLUMN [UseRealControllers];
+                    END
+
+                    -- Add ScannerControllerId if not exists
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'ScannerControllerId')
+                    BEGIN
+                        ALTER TABLE [dbo].[SystemSettings] ADD [ScannerControllerId] [int] NULL;
+                    END
+                    
+                    -- Ensure row 1 exists
+                    IF NOT EXISTS (SELECT 1 FROM [dbo].[SystemSettings] WHERE Id = 1)
+                    BEGIN
+                        SET IDENTITY_INSERT [dbo].[SystemSettings] ON;
+                        INSERT INTO [dbo].[SystemSettings] (Id, ScannerControllerId, LastUpdatedUtc) VALUES (1, NULL, GETUTCDATE());
+                        SET IDENTITY_INSERT [dbo].[SystemSettings] OFF;
+                    END
+                END
+            ");
+
+            // migrationBuilder.AddColumn<int>(
+            //     name: "ScannerControllerId",
+            //     table: "SystemSettings",
+            //     type: "int",
+            //     nullable: true);
 
             // AppUsers table already exists, skipping creation
             /*
@@ -197,12 +238,12 @@ namespace GFC.BlazorServer.Data.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
-            migrationBuilder.UpdateData(
-                table: "SystemSettings",
-                keyColumn: "Id",
-                keyValue: 1,
-                column: "ScannerControllerId",
-                value: null);
+            // migrationBuilder.UpdateData(
+            //     table: "SystemSettings",
+            //     keyColumn: "Id",
+            //     keyValue: 1,
+            //     column: "ScannerControllerId",
+            //     value: null);
 
             migrationBuilder.CreateIndex(
                 name: "IX_CameraAuditLogs_CameraId",
