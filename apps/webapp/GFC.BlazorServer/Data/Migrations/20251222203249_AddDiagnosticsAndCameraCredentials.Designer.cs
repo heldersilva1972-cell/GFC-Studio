@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GFC.BlazorServer.Data.Migrations
 {
     [DbContext(typeof(GfcDbContext))]
-    [Migration("20251222202934_AddCameraCredentials")]
-    partial class AddCameraCredentials
+    [Migration("20251222203249_AddDiagnosticsAndCameraCredentials")]
+    partial class AddDiagnosticsAndCameraCredentials
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

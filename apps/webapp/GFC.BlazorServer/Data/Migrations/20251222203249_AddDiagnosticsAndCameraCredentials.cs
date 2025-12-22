@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace GFC.BlazorServer.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class AddCameraCredentials : Migration
+    public partial class AddDiagnosticsAndCameraCredentials : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

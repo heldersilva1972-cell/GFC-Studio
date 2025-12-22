@@ -213,8 +213,8 @@ public class Program
             try
             {
                 var dbContext = services.GetRequiredService<GfcDbContext>();
-                dbContext.Database.Migrate();
-                Console.WriteLine(">>> DB MIGRATION: Completed successfully for GfcDbContext.");
+                // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
+                Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }
             catch (Exception ex)
             {
