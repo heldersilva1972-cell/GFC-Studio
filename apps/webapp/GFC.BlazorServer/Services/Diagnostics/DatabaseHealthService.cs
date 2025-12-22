@@ -89,7 +89,7 @@ public class DatabaseHealthService
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT @@SERVERNAME, DB_NAME()";
         
-        using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        using var reader = await ((System.Data.Common.DbCommand)command).ExecuteReaderAsync(cancellationToken);
         if (await reader.ReadAsync(cancellationToken))
         {
             healthInfo.ServerName = reader.IsDBNull(0) ? "(unknown)" : reader.GetString(0);
@@ -107,7 +107,7 @@ public class DatabaseHealthService
                 FROM sys.master_files 
                 WHERE database_id = DB_ID()";
             
-            var result = await command.ExecuteScalarAsync(cancellationToken);
+            var result = await ((System.Data.Common.DbCommand)command).ExecuteScalarAsync(cancellationToken);
             if (result != null && result != DBNull.Value)
             {
                 healthInfo.DatabaseSizeBytes = Convert.ToInt64(result);
@@ -131,7 +131,7 @@ public class DatabaseHealthService
                 WHERE database_name = DB_NAME() 
                 ORDER BY backup_finish_date DESC";
             
-            var result = await command.ExecuteScalarAsync(cancellationToken);
+            var result = await ((System.Data.Common.DbCommand)command).ExecuteScalarAsync(cancellationToken);
             if (result != null && result != DBNull.Value)
             {
                 healthInfo.LastBackupDate = Convert.ToDateTime(result);
