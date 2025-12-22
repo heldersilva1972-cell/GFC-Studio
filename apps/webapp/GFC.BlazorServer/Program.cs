@@ -136,7 +136,7 @@ public class Program
         builder.Services.AddScoped<IVersionService, VersionService>();
         builder.Services.AddScoped<ISystemPerformanceService, SystemPerformanceService>();
         builder.Services.AddScoped<ControllerDiagnosticsService>();
-        // builder.Services.AddScoped<CameraDiagnosticsService>();
+        builder.Services.AddScoped<CameraDiagnosticsService>();
         builder.Services.AddScoped<DatabaseHealthService>();
         builder.Services.AddScoped<IDiagnosticsService, DiagnosticsService>();
         builder.Services.AddScoped<IPerformanceHistoryService, PerformanceHistoryService>();
