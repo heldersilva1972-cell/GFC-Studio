@@ -1,6 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
-using GFC.Data;
+using GFC.BlazorServer.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,9 +10,9 @@ namespace GFC.BlazorServer.Services.Camera
 {
     public class CameraPermissionService : ICameraPermissionService
     {
-        private readonly ApplicationDbContext _context;
+        private readonly GfcDbContext _context;
 
-        public CameraPermissionService(ApplicationDbContext context)
+        public CameraPermissionService(GfcDbContext context)
         {
             _context = context;
         }

@@ -1,6 +1,6 @@
 // [NEW]
 using GFC.Core.Models;
-using GFC.Data;
+using GFC.BlazorServer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using System;
@@ -14,11 +14,11 @@ namespace GFC.BlazorServer.Services.Camera
 {
     public class RecordingService : IRecordingService
     {
-        private readonly ApplicationDbContext _context;
+        private readonly GfcDbContext _context;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
 
-        public RecordingService(ApplicationDbContext context, HttpClient httpClient, IConfiguration configuration)
+        public RecordingService(GfcDbContext context, HttpClient httpClient, IConfiguration configuration)
         {
             _context = context;
             _httpClient = httpClient;
