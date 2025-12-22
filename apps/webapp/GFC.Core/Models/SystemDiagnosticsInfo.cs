@@ -57,12 +57,14 @@ namespace GFC.Core.Models
         /// <summary>
         /// Gets or sets the timestamp of the last update.
         /// </summary>
-        public DateTime LastUpdated { get; set; }
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 
         /// <summary>
         /// Gets or sets the health information for the hardware controllers.
         /// </summary>
         public ControllerHealthInfo ControllerHealth { get; set; }
+
+        public List<ControllerHealthInfo> Controllers { get; set; } = new();
 
         /// <summary>
         /// Gets or sets the health information for the camera system.

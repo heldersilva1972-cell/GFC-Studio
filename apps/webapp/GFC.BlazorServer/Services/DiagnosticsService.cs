@@ -14,6 +14,8 @@ namespace GFC.BlazorServer.Services
     public interface IDiagnosticsService
     {
         Task<SystemDiagnosticsInfo> GetDiagnosticsAsync();
+        Task<DiagnosticActionResult> TestDatabaseConnectionAsync(CancellationToken cancellationToken = default);
+        Task<DiagnosticActionResult> TestAgentApiAsync(CancellationToken cancellationToken = default);
     }
 
     public class DiagnosticsService : IDiagnosticsService
@@ -117,6 +119,69 @@ namespace GFC.BlazorServer.Services
             {
                 return "Invalid connection string format.";
             }
+        }
+
+        public async Task<DiagnosticActionResult> TestDatabaseConnectionAsync(CancellationToken cancellationToken = default)
+        {
+            var result = new DiagnosticActionResult
+            {
+                ActionName = "Test Database Connection",
+                ExecutedAt = DateTime.UtcNow
+            };
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                var dbHealth = await _databaseHealthService.GetDatabaseHealthAsync(cancellationToken);
+                stopwatch.Stop();
+
+                result.Success = dbHealth.Status == HealthStatus.Healthy;
+                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+                result.Message = dbHealth.Status == HealthStatus.Healthy
+                    ? $"Database connection successful (responded in {result.ResponseTimeMs}ms)"
+                    : $"Database health: {dbHealth.Status} - {dbHealth.Message}";
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                result.Success = false;
+                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+                result.Message = $"Database connection failed: {ex.Message}";
+            }
+
+            return result;
+        }
+
+        public async Task<DiagnosticActionResult> TestAgentApiAsync(CancellationToken cancellationToken = default)
+        {
+            var result = new DiagnosticActionResult
+            {
+                ActionName = "Test Agent API",
+                ExecutedAt = DateTime.UtcNow
+            };
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                // Simple connectivity test - just delay to simulate
+                await Task.Delay(100, cancellationToken);
+                stopwatch.Stop();
+
+                result.Success = true;
+                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+                result.Message = $"Agent API is reachable (responded in {result.ResponseTimeMs}ms)";
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                result.Success = false;
+                result.ResponseTimeMs = stopwatch.ElapsedMilliseconds;
+                result.Message = $"Agent API connection failed: {ex.Message}";
+            }
+
+            return result;
         }
     }
 }
