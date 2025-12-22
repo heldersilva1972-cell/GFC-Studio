@@ -3,6 +3,8 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.BlazorServer.Data.Entities;
 
+public class DuesPayment
+{
     [Required]
     public int MemberId { get; set; }
 
