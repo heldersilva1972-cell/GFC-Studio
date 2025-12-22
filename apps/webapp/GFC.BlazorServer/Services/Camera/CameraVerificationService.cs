@@ -17,15 +17,18 @@ namespace GFC.BlazorServer.Services.Camera
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly ILogger<CameraVerificationService> _logger;
+        private readonly ISystemSettingsService _systemSettingsService;
 
         public CameraVerificationService(
             IHttpClientFactory httpClientFactory,
             IConfiguration configuration,
-            ILogger<CameraVerificationService> logger)
+            ILogger<CameraVerificationService> logger,
+            ISystemSettingsService systemSettingsService)
         {
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
             _logger = logger;
+            _systemSettingsService = systemSettingsService;
         }
 
         public async Task<List<VerificationResult>> RunAllVerificationsAsync()
@@ -144,10 +147,13 @@ namespace GFC.BlazorServer.Services.Camera
         {
             try
             {
-                var nvrHost = _configuration["NvrSettings:Host"] ?? "192.168.1.64";
-                var nvrPort = _configuration.GetValue<int>("NvrSettings:Port", 80);
-                var username = _configuration["NvrSettings:Username"];
-                var password = _configuration["NvrSettings:Password"];
+                // Read from database instead of appsettings.json
+                var settings = await _systemSettingsService.GetAsync();
+                
+                var nvrHost = settings?.NvrIpAddress ?? "192.168.1.64";
+                var nvrPort = settings?.NvrPort ?? 8000;
+                var username = settings?.NvrUsername;
+                var password = settings?.NvrPassword;
 
                 if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
                 {
@@ -155,7 +161,7 @@ namespace GFC.BlazorServer.Services.Camera
                     { 
                         TestName = "Phase 0: NVR Authentication", 
                         Success = false, 
-                        Message = "NVR credentials not configured in appsettings.json" 
+                        Message = "NVR credentials not configured. Please go to Settings and enter your NVR credentials." 
                     };
                 }
 
