@@ -18,7 +18,7 @@ namespace GFC.BlazorServer.Services.Diagnostics
                 OfflineCameras = 1,
                 ActiveStreams = 10,
                 StorageUsagePercentage = 75.5,
-                NvrStatus = GFC.Core.Models.HealthStatus.Healthy,
+                NvrStatus = HealthStatus.Healthy,
                 OldestRecording = System.DateTime.UtcNow.AddDays(-30),
                 NewestRecording = System.DateTime.UtcNow,
                 EventsLast24h = 120
