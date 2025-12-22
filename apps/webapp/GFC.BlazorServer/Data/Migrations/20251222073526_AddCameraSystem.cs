@@ -65,29 +65,56 @@ namespace GFC.BlazorServer.Data.Migrations
             //     type: "int",
             //     nullable: true);
 
+            migrationBuilder.Sql(@"
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[AppUsers]') AND type in (N'U'))
+                BEGIN
+                    CREATE TABLE [dbo].[AppUsers](
+                        [UserId] [int] IDENTITY(1,1) NOT NULL,
+                        [Username] [nvarchar](max) NOT NULL,
+                        [PasswordHash] [nvarchar](max) NOT NULL,
+                        [IsAdmin] [bit] NOT NULL,
+                        [IsActive] [bit] NOT NULL,
+                        [MemberId] [int] NULL,
+                        [CreatedDate] [datetime2](7) NOT NULL,
+                        [LastLoginDate] [datetime2](7) NULL,
+                        [CreatedBy] [nvarchar](max) NULL,
+                        [Notes] [nvarchar](max) NULL,
+                        [PasswordChangeRequired] [bit] NOT NULL,
+                        CONSTRAINT [PK_AppUsers] PRIMARY KEY CLUSTERED ([UserId] ASC)
+                    );
+
+                    -- Seed Key History Table if needed or other initial data from original script
+                    -- Create default admin user (username: admin, password: admin)
+                    IF NOT EXISTS (SELECT 1 FROM [dbo].[AppUsers] WHERE [Username] = 'admin')
+                    BEGIN
+                        INSERT INTO [dbo].[AppUsers] (Username, PasswordHash, IsAdmin, IsActive, CreatedDate, PasswordChangeRequired, CreatedBy)
+                        VALUES ('admin', 'jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=', 1, 1, GETUTCDATE(), 0, 'System');
+                    END
+                END
+            ");
             // AppUsers table already exists, skipping creation
             /*
-            migrationBuilder.CreateTable(
-                name: "AppUsers",
-                columns: table => new
-                {
-                    UserId = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    Username = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    PasswordHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    IsAdmin = table.Column<bool>(type: "bit", nullable: false),
-                    IsActive = table.Column<bool>(type: "bit", nullable: false),
-                    MemberId = table.Column<int>(type: "int", nullable: true),
-                    CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    LastLoginDate = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    CreatedBy = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Notes = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    PasswordChangeRequired = table.Column<bool>(type: "bit", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_AppUsers", x => x.UserId);
-                });
+            // migrationBuilder.CreateTable(
+            //     name: "AppUsers",
+            //     columns: table => new
+            //     {
+            //         UserId = table.Column<int>(type: "int", nullable: false)
+            //             .Annotation("SqlServer:Identity", "1, 1"),
+            //         Username = table.Column<string>(type: "nvarchar(max)", nullable: false),
+            //         PasswordHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
+            //         IsAdmin = table.Column<bool>(type: "bit", nullable: false),
+            //         IsActive = table.Column<bool>(type: "bit", nullable: false),
+            //         MemberId = table.Column<int>(type: "int", nullable: true),
+            //         CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+            //         LastLoginDate = table.Column<DateTime>(type: "datetime2", nullable: true),
+            //         CreatedBy = table.Column<string>(type: "nvarchar(max)", nullable: true),
+            //         Notes = table.Column<string>(type: "nvarchar(max)", nullable: true),
+            //         PasswordChangeRequired = table.Column<bool>(type: "bit", nullable: false)
+            //     },
+            //     constraints: table =>
+            //     {
+            //         table.PrimaryKey("PK_AppUsers", x => x.UserId);
+            //     });
             */
 
             migrationBuilder.CreateTable(
