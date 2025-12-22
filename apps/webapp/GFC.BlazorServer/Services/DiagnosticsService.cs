@@ -20,15 +20,21 @@ namespace GFC.BlazorServer.Services
     {
         private readonly ISystemPerformanceService _performanceService;
         private readonly DatabaseHealthService _databaseHealthService;
+        private readonly ControllerDiagnosticsService _controllerDiagnosticsService;
+        private readonly CameraDiagnosticsService _cameraDiagnosticsService;
         private readonly IConfiguration _configuration;
 
         public DiagnosticsService(
             ISystemPerformanceService performanceService,
             DatabaseHealthService databaseHealthService,
+            ControllerDiagnosticsService controllerDiagnosticsService,
+            CameraDiagnosticsService cameraDiagnosticsService,
             IConfiguration configuration)
         {
             _performanceService = performanceService;
             _databaseHealthService = databaseHealthService;
+            _controllerDiagnosticsService = controllerDiagnosticsService;
+            _cameraDiagnosticsService = cameraDiagnosticsService;
             _configuration = configuration;
         }
 
@@ -39,13 +45,17 @@ namespace GFC.BlazorServer.Services
 
             var performanceTask = _performanceService.GetPerformanceMetricsAsync();
             var databaseHealthTask = _databaseHealthService.GetDatabaseHealthAsync();
+            var controllerHealthTask = _controllerDiagnosticsService.GetControllerHealthAsync();
+            var cameraSystemInfoTask = _cameraDiagnosticsService.GetCameraSystemInfoAsync();
 
-            await Task.WhenAll(performanceTask, databaseHealthTask);
+            await Task.WhenAll(performanceTask, databaseHealthTask, controllerHealthTask, cameraSystemInfoTask);
 
             var diagnostics = new SystemDiagnosticsInfo
             {
                 Performance = await performanceTask,
                 DatabaseHealth = await databaseHealthTask,
+                ControllerHealth = await controllerHealthTask,
+                CameraSystem = await cameraSystemInfoTask,
                 Uptime = uptime,
                 DotNetVersion = RuntimeInformation.FrameworkDescription,
                 OsArchitecture = RuntimeInformation.OSArchitecture.ToString(),
@@ -64,13 +74,15 @@ namespace GFC.BlazorServer.Services
         {
             var perf = diagnostics.Performance;
             var db = diagnostics.DatabaseHealth;
+            var controller = diagnostics.ControllerHealth;
+            var camera = diagnostics.CameraSystem;
 
-            if (db.Status == HealthStatus.Critical || perf.CpuUsage > 90 || perf.MemoryUsagePercentage > 90)
+            if (db.Status == HealthStatus.Critical || controller.Status == HealthStatus.Critical || camera.NvrStatus == HealthStatus.Critical || perf.CpuUsage > 90 || perf.MemoryUsagePercentage > 90)
             {
                 return HealthStatus.Critical;
             }
 
-            if (db.Status == HealthStatus.Warning || perf.CpuUsage > 75 || perf.MemoryUsagePercentage > 75)
+            if (db.Status == HealthStatus.Warning || controller.Status == HealthStatus.Warning || camera.NvrStatus == HealthStatus.Warning || perf.CpuUsage > 75 || perf.MemoryUsagePercentage > 75)
             {
                 return HealthStatus.Warning;
             }
