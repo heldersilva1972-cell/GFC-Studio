@@ -14,7 +14,7 @@ namespace GFC.BlazorServer.Services.Diagnostics
             return new ControllerHealthInfo
             {
                 IsConnected = true,
-                Status = GFC.Core.Models.HealthStatus.Healthy,
+                Status = HealthStatus.Healthy,
                 Name = "Main Controller",
                 ResponseTime = System.TimeSpan.FromMilliseconds(50),
                 DoorCount = 10,
