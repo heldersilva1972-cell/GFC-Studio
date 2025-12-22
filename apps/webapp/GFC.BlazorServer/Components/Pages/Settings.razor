@@ -369,6 +369,7 @@
         }
     }
 
+
     private async Task SaveNvrCredentials()
     {
         _savingNvrConfig = true;
@@ -377,16 +378,73 @@
 
         try
         {
-            // Save to SystemSettings
-            await SystemSettingsService.UpdateNvrCredentialsAsync(
-                _nvrConfig.NvrIpAddress,
-                _nvrConfig.NvrPort,
-                _nvrConfig.Username,
-                _nvrConfig.Password
-            );
+            // Path to Video Agent appsettings.json
+            var videoAgentPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "services", "GFC.VideoAgent", "appsettings.json");
+            
+            if (!File.Exists(videoAgentPath))
+            {
+                _nvrErrorMessage = $"Video Agent config file not found at: {videoAgentPath}";
+                _savingNvrConfig = false;
+                return;
+            }
 
+            // Read the existing config
+            var jsonText = await File.ReadAllTextAsync(videoAgentPath);
+            var config = System.Text.Json.JsonDocument.Parse(jsonText);
+            
+            // Create updated config
+            using var stream = new MemoryStream();
+            using (var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                
+                // Copy VideoAgent section
+                if (config.RootElement.TryGetProperty("VideoAgent", out var videoAgent))
+                {
+                    writer.WritePropertyName("VideoAgent");
+                    videoAgent.WriteTo(writer);
+                }
+                
+                // Write updated NvrSettings
+                writer.WritePropertyName("NvrSettings");
+                writer.WriteStartObject();
+                writer.WriteString("IpAddress", _nvrConfig.NvrIpAddress);
+                writer.WriteNumber("RtspPort", 554); // RTSP port is always 554
+                writer.WriteString("Username", _nvrConfig.Username);
+                writer.WriteString("Password", _nvrConfig.Password);
+                
+                // Copy existing Cameras array if it exists
+                if (config.RootElement.TryGetProperty("NvrSettings", out var nvrSettings) && 
+                    nvrSettings.TryGetProperty("Cameras", out var cameras))
+                {
+                    writer.WritePropertyName("Cameras");
+                    cameras.WriteTo(writer);
+                }
+                else
+                {
+                    writer.WritePropertyName("Cameras");
+                    writer.WriteStartArray();
+                    writer.WriteEndArray();
+                }
+                
+                writer.WriteEndObject(); // End NvrSettings
+                
+                // Copy Logging section
+                if (config.RootElement.TryGetProperty("Logging", out var logging))
+                {
+                    writer.WritePropertyName("Logging");
+                    logging.WriteTo(writer);
+                }
+                
+                writer.WriteEndObject(); // End root
+            }
+            
+            // Write back to file
+            var updatedJson = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+            await File.WriteAllTextAsync(videoAgentPath, updatedJson);
+            
             _showNvrSuccessMessage = true;
-            Logger.LogInformation("NVR credentials saved successfully");
+            Logger.LogInformation("NVR credentials saved to Video Agent config: {Path}", videoAgentPath);
             
             // Clear password field after save for security
             _nvrConfig.Password = "";
