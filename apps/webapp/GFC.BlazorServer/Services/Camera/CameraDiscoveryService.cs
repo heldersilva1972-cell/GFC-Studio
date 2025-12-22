@@ -119,7 +119,9 @@ namespace GFC.BlazorServer.Services.Camera
                         if (Uri.TryCreate(c.RtspUrl, UriKind.Absolute, out var existingUri) && 
                             Uri.TryCreate(camera.RtspUrl, UriKind.Absolute, out var newUri))
                         {
-                            return existingUri.Host == newUri.Host && existingUri.PathAndQuery == newUri.PathAndQuery;
+                            // Compare Host and AbsolutePath (ignores query string and credentials)
+                            return existingUri.Host == newUri.Host && 
+                                   existingUri.AbsolutePath.Equals(newUri.AbsolutePath, StringComparison.OrdinalIgnoreCase);
                         }
                         
                         return false;
