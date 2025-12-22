@@ -346,6 +346,68 @@ public class GfcDbContext : DbContext
                 NotificationRecipients = null
             });
         });
+
+        // AppUser configuration
+        modelBuilder.Entity<GFC.Core.Models.AppUser>(entity =>
+        {
+            entity.ToTable("AppUsers");
+            entity.HasKey(u => u.UserId);
+        });
+
+        // Camera system configuration
+        modelBuilder.Entity<GFC.Core.Models.Camera>(entity =>
+        {
+            entity.ToTable("Cameras");
+            entity.HasKey(c => c.Id);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.CameraEvent>(entity =>
+        {
+            entity.ToTable("CameraEvents");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Camera)
+                .WithMany()
+                .HasForeignKey(e => e.CameraId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.Recording>(entity =>
+        {
+            entity.ToTable("Recordings");
+            entity.HasKey(r => r.Id);
+            entity.HasOne(r => r.Camera)
+                .WithMany()
+                .HasForeignKey(r => r.CameraId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.CameraPermission>(entity =>
+        {
+            entity.ToTable("CameraPermissions");
+            entity.HasKey(p => p.Id);
+            entity.HasOne(p => p.Camera)
+                .WithMany()
+                .HasForeignKey(p => p.CameraId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.CameraAuditLog>(entity =>
+        {
+            entity.ToTable("CameraAuditLogs");
+            entity.HasKey(a => a.Id);
+            entity.HasOne(a => a.Camera)
+                .WithMany()
+                .HasForeignKey(a => a.CameraId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static IEnumerable<ControllerCommandInfo> GetCommandSeedData()
