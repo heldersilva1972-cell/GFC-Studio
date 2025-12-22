@@ -150,19 +150,32 @@ namespace GFC.BlazorServer.Services.Camera
                 {
                     try
                     {
-                        var result = await udpClient.ReceiveAsync();
-                        var response = Encoding.UTF8.GetString(result.Buffer);
+                        var receiveTask = udpClient.ReceiveAsync();
+                        var delayTask = Task.Delay(1000); // 1 second timeout per receive attempt
                         
-                        var camera = ParseOnvifResponse(response, result.RemoteEndPoint.Address.ToString());
-                        if (camera != null && !cameras.Any(c => c.IpAddress == camera.IpAddress))
+                        var completedTask = await Task.WhenAny(receiveTask, delayTask);
+                        
+                        if (completedTask == receiveTask)
                         {
-                            cameras.Add(camera);
-                            _logger.LogInformation($"Discovered ONVIF camera: {camera.Name} at {camera.IpAddress}");
+                            var result = await receiveTask;
+                            var response = Encoding.UTF8.GetString(result.Buffer);
+                            
+                            var camera = ParseOnvifResponse(response, result.RemoteEndPoint.Address.ToString());
+                            if (camera != null && !cameras.Any(c => c.IpAddress == camera.IpAddress))
+                            {
+                                cameras.Add(camera);
+                                _logger.LogInformation($"Discovered ONVIF camera: {camera.Name} at {camera.IpAddress}");
+                            }
+                        }
+                        else
+                        {
+                            // Timeout for this receive attempt, loop will check total time
+                            continue;
                         }
                     }
-                    catch (SocketException)
+                    catch (Exception ex)
                     {
-                        // Timeout or no more responses
+                        _logger.LogWarning(ex, "Error receiving ONVIF response");
                         break;
                     }
                 }

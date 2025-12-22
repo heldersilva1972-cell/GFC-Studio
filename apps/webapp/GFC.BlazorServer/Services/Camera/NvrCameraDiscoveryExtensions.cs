@@ -69,6 +69,9 @@ namespace GFC.BlazorServer.Services.Camera
                     if (response.IsSuccessStatusCode)
                     {
                         var xmlContent = await response.Content.ReadAsStringAsync();
+                        logger.LogInformation($"NVR Response Length: {xmlContent.Length} chars");
+                        onStatusUpdate?.Invoke($"Received response from NVR ({xmlContent.Length} bytes). Parsing...");
+                        
                         cameras = ParseHikvisionChannelList(xmlContent, nvrHost, username, password, logger);
                         
                         logger.LogInformation($"Found {cameras.Count} cameras from NVR");
@@ -107,13 +110,14 @@ namespace GFC.BlazorServer.Services.Camera
             try
             {
                 var doc = XDocument.Parse(xmlContent);
-                var channels = doc.Descendants("VideoInputChannel");
+                // Use LocalName to ignore namespaces which often cause issues
+                var channels = doc.Descendants().Where(x => x.Name.LocalName == "VideoInputChannel");
 
                 foreach (var channel in channels)
                 {
-                    var channelId = channel.Element("id")?.Value;
-                    var channelName = channel.Element("name")?.Value ?? $"Camera {channelId}";
-                    var enabled = channel.Element("enabled")?.Value == "true";
+                    var channelId = channel.Elements().FirstOrDefault(x => x.Name.LocalName == "id")?.Value;
+                    var channelName = channel.Elements().FirstOrDefault(x => x.Name.LocalName == "name")?.Value ?? $"Camera {channelId}";
+                    var enabled = channel.Elements().FirstOrDefault(x => x.Name.LocalName == "enabled")?.Value == "true";
 
                     if (!string.IsNullOrEmpty(channelId) && int.TryParse(channelId, out int chId))
                     {
