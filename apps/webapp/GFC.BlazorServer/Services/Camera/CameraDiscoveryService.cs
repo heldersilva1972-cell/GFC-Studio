@@ -64,8 +64,7 @@ namespace GFC.BlazorServer.Services.Camera
                    foreach(var cam in nvrCameras)
                    {
                        cam.IsAlreadyAdded = existingCameras.Any(c => 
-                          (c.RtspUrl != null && c.RtspUrl.Contains(cam.RtspUrl)) || 
-                          (c.IpAddress == cam.IpAddress && c.Port == cam.Port && c.Name == cam.Name));
+                          c.RtspUrl != null && c.RtspUrl.Contains(cam.RtspUrl));
                        
                        onCameraFound?.Invoke(cam);
                    }
