@@ -8,6 +8,7 @@ using GFC.BlazorServer.Services.Core;
 using GFC.BlazorServer.Services.Dashboard;
 using GFC.BlazorServer.Services.Members;
 using GFC.BlazorServer.Services.Controllers;
+using GFC.BlazorServer.Services.Diagnostics;
 using GFC.BlazorServer.Data.Repositories;
 using GFC.Data;
 using GFC.Core.Helpers;
@@ -15,6 +16,7 @@ using GFC.Core.Interfaces;
 using GFC.Core.Services;
 using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
+using GFC.BlazorServer.Middleware;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -132,7 +134,9 @@ public class Program
         builder.Services.AddScoped<IDataExportService, DataExportService>();
         builder.Services.AddScoped<IPhysicalKeyService, PhysicalKeyService>();
         builder.Services.AddScoped<IVersionService, VersionService>();
-        builder.Services.AddScoped<DiagnosticsService>();
+        builder.Services.AddSingleton<ISystemPerformanceService, SystemPerformanceService>();
+        builder.Services.AddScoped<IDatabaseHealthService, DatabaseHealthService>();
+        builder.Services.AddScoped<IDiagnosticsService, DiagnosticsService>();
         builder.Services.AddScoped<ControllerRegistryService>();
         builder.Services.AddScoped<ControllerEventService>();
         builder.Services.AddScoped<CommandInfoService>();
@@ -186,6 +190,9 @@ public class Program
 
         app.UseHttpsRedirection();
         app.UseStaticFiles();
+
+        app.UseMiddleware<RequestLoggingMiddleware>();
+
         app.UseRouting();
 
         if (app.Environment.IsDevelopment())
