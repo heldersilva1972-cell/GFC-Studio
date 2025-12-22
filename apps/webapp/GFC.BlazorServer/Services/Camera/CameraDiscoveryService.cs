@@ -53,7 +53,16 @@ namespace GFC.BlazorServer.Services.Camera
                 onStatusUpdate?.Invoke("Starting discovery process...");
 
                 // Get existing cameras to mark duplicates
-                var existingCameras = await _context.Cameras.ToListAsync();
+                List<GFC.Core.Models.Camera> existingCameras = new();
+                try 
+                {
+                    existingCameras = await _context.Cameras.ToListAsync();
+                }
+                catch (Exception dbEx)
+                {
+                    _logger.LogError(dbEx, "Failed to load existing cameras for duplicate checking");
+                    onStatusUpdate?.Invoke($"Warning: Database unavailable ({dbEx.Message}). Duplicates won't be marked.");
+                }
 
                 // Method 0: NVR Discovery
                 onStatusUpdate?.Invoke("Checking configured NVR...");
@@ -106,6 +115,7 @@ namespace GFC.BlazorServer.Services.Camera
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during camera discovery");
+                onStatusUpdate?.Invoke($"Critical Error: {ex.Message}");
             }
 
             return discoveredCameras;
