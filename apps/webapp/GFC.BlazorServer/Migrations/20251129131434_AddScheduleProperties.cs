@@ -11,10 +11,10 @@ namespace GFC.BlazorServer.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.RenameIndex(
-                name: "IX_ControllerEvents_ControllerId_RawIndex",
-                table: "ControllerEvents",
-                newName: "IX_ControllerEvents_Controller_RawIndex");
+            // migrationBuilder.RenameIndex(
+            //     name: "IX_ControllerEvents_ControllerId_RawIndex",
+            //     table: "ControllerEvents",
+            //     newName: "IX_ControllerEvents_Controller_RawIndex");
 
             migrationBuilder.CreateTable(
                 name: "DoorConfigs",
