@@ -65,6 +65,7 @@ namespace GFC.BlazorServer.Data.Migrations
             //     type: "int",
             //     nullable: true);
 
+            migrationBuilder.Sql(@"
                 -- Ensure Members table exists FIRST as it is referenced by AppUsers
                 IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Members]') AND type in (N'U'))
                 BEGIN
