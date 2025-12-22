@@ -91,6 +91,23 @@ namespace GFC.BlazorServer.Data.Migrations
                         VALUES ('admin', 'jGl25bVBBBW96Qi9Te4V37Fnqchz/Eu4qB9vKrRIqRg=', 1, 1, GETUTCDATE(), 0, 'System');
                     END
                 END
+
+                -- Ensure DuesPayments table exists
+                IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DuesPayments]') AND type in (N'U'))
+                BEGIN
+                    CREATE TABLE [dbo].[DuesPayments](
+                        [MemberId] [int] NOT NULL,
+                        [Year] [int] NOT NULL,
+                        [Amount] [decimal](18, 2) NULL,
+                        [PaidDate] [datetime2](7) NULL,
+                        [Notes] [nvarchar](500) NULL,
+                        CONSTRAINT [PK_DuesPayments] PRIMARY KEY CLUSTERED 
+                        (
+                            [MemberId] ASC,
+                            [Year] ASC
+                        )
+                    );
+                END
             ");
             // AppUsers table already exists, skipping creation
             /*
