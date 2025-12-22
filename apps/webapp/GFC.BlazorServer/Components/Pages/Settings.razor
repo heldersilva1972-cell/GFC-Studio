@@ -255,12 +255,10 @@
                             <label class="form-label" for="nvr-port">
                                 NVR Port
                             </label>
-                            <input type="number" 
-                                   id="nvr-port" 
-                                   class="form-control" 
-                                   @bind="_nvrConfig.NvrPort" 
-                                   @bind:event="oninput"
-                                   placeholder="80" />
+                            <InputText id="nvr-port" 
+                                       class="form-control" 
+                                       @bind-Value="_nvrPortText" 
+                                       placeholder="80" />
                             <small class="form-text text-muted">
                                 HTTP port (default: 80)
                             </small>
@@ -337,6 +335,7 @@
 
     // [NEW] NVR Credentials fields
     private NvrConfig _nvrConfig = new();
+    private string _nvrPortText = "80"; // Port as string for proper binding
     private bool _savingNvrConfig = false;
     private bool _showNvrSuccessMessage = false;
     private string _nvrErrorMessage = string.Empty;
@@ -352,20 +351,22 @@
     {
         try
         {
-            // Load from appsettings or database
+            // Load from database
             var config = SystemSettingsService.GetSettings();
             _nvrConfig = new NvrConfig
             {
                 NvrIpAddress = config?.NvrIpAddress ?? "192.168.1.64",
-                NvrPort = config?.NvrPort ?? 8000,
+                NvrPort = config?.NvrPort ?? 80,
                 Username = config?.NvrUsername ?? "admin",
                 Password = "" // Never load password for security
             };
+            _nvrPortText = _nvrConfig.NvrPort.ToString();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading NVR settings");
             _nvrConfig = new NvrConfig();
+            _nvrPortText = "80";
         }
     }
 
@@ -378,6 +379,23 @@
 
         try
         {
+            // Parse port from text field
+            if (!int.TryParse(_nvrPortText, out int port) || port < 1 || port > 65535)
+            {
+                _nvrErrorMessage = "Invalid port number. Please enter a number between 1 and 65535.";
+                _savingNvrConfig = false;
+                return;
+            }
+            _nvrConfig.NvrPort = port;
+
+            // Save to database first
+            await SystemSettingsService.UpdateNvrCredentialsAsync(
+                _nvrConfig.NvrIpAddress,
+                _nvrConfig.NvrPort,
+                _nvrConfig.Username,
+                _nvrConfig.Password
+            );
+
             // Path to Video Agent appsettings.json
             var videoAgentPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "services", "GFC.VideoAgent", "appsettings.json");
             
