@@ -71,5 +71,26 @@ namespace GFC.BlazorServer.Services.Camera
             // TODO: Implement stream quality setting via Video Agent
             await Task.CompletedTask;
         }
+
+        public async Task<CameraCapabilities> GetCameraCapabilitiesAsync(int cameraId)
+        {
+            // TODO: Implement getting capabilities from Video Agent
+            await Task.CompletedTask;
+            return new CameraCapabilities
+            {
+                SupportsPTZ = false,
+                SupportsZoom = false,
+                SupportsPresets = false,
+                AvailablePresets = new List<int>(),
+                AvailableQualities = new List<StreamQuality> { StreamQuality.HD, StreamQuality.SD, StreamQuality.Low }
+            };
+        }
+
+        public async Task<byte[]> CaptureSnapshotAsync(int cameraId)
+        {
+            // TODO: Implement snapshot capture via Video Agent
+            await Task.CompletedTask;
+            return new byte[0];
+        }
     }
 }

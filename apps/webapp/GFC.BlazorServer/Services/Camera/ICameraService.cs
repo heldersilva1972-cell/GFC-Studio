@@ -14,5 +14,7 @@ namespace GFC.BlazorServer.Services.Camera
         Task DeleteCameraAsync(int id);
         Task<bool> SendPTZCommandAsync(int cameraId, PTZCommand command);
         Task SetStreamQualityAsync(int cameraId, StreamQuality quality);
+        Task<CameraCapabilities> GetCameraCapabilitiesAsync(int cameraId);
+        Task<byte[]> CaptureSnapshotAsync(int cameraId);
     }
 }
