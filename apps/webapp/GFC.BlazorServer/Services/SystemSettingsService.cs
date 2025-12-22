@@ -29,26 +29,18 @@ public class SystemSettingsService : ISystemSettingsService
             settings = new SystemSettings
             {
                 Id = 1,
-                UseRealControllers = false,
+
                 LastUpdatedUtc = null
             };
             
             _dbContext.SystemSettings.Add(settings);
             await _dbContext.SaveChangesAsync();
-            _logger.LogInformation("Created default SystemSettings with UseRealControllers=false");
+            _logger.LogInformation("Created default SystemSettings");
         }
         
         return settings;
     }
 
-    public async Task SetUseRealControllersAsync(bool value)
-    {
-        var settings = await GetAsync();
-        settings.UseRealControllers = value;
-        settings.LastUpdatedUtc = DateTime.UtcNow;
-        
-        await _dbContext.SaveChangesAsync();
-        _logger.LogInformation("Updated UseRealControllers to {Value}", value);
-    }
+
 }
 

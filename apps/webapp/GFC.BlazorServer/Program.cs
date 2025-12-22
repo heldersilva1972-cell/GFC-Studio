@@ -164,8 +164,7 @@ public class Program
 
         var app = builder.Build();
 
-        var accessControlOptions = app.Services.GetRequiredService<IOptions<AccessControlSimulationOptions>>().Value;
-        app.Logger.LogInformation("Access Control Simulation Mode: {Mode}", accessControlOptions.UseAccessControlSimulation ? "ON" : "OFF");
+
 
         // Configure the HTTP request pipeline.
         if (app.Environment.IsDevelopment())

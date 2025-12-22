@@ -12,9 +12,6 @@ public interface ISystemSettingsService
     /// </summary>
     Task<SystemSettings> GetAsync();
 
-    /// <summary>
-    /// Updates the UseRealControllers setting.
-    /// </summary>
-    Task SetUseRealControllersAsync(bool value);
+
 }
 
