@@ -957,7 +957,7 @@ namespace GFC.BlazorServer.Migrations
                     b.Navigation("Controller");
                 });
 
-            modelBuilder..Entity("GFC.BlazorServer.Data.Entities.DoorAutoOpenSchedule", b =>
+            modelBuilder.Entity("GFC.BlazorServer.Data.Entities.DoorAutoOpenSchedule", b =>
                 {
                     b.HasOne("GFC.BlazorServer.Data.Entities.Door", "Door")
                         .WithMany()
