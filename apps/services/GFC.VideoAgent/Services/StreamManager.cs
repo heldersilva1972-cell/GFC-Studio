@@ -86,6 +86,24 @@ namespace GFC.VideoAgent.Services
         {
             return _ffmpegService.GetStreamStatus(cameraId);
         }
+
+        public void SetStreamQuality(int cameraId, StreamQuality quality)
+        {
+            var stream = _streams.FirstOrDefault(s => s.CameraId == cameraId);
+            if (stream != null)
+            {
+                _ffmpegService.SetStreamQuality(stream, quality);
+            }
+            else
+            {
+                _logger.LogWarning($"Attempted to set quality for non-existent camera stream: {cameraId}");
+            }
+        }
+
+        public StreamQuality GetStreamQuality(int cameraId)
+        {
+            return _ffmpegService.GetStreamQuality(cameraId);
+        }
     }
 
     public class CameraConfig

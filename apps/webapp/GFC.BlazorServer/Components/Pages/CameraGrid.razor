@@ -1,42 +1,79 @@
 <!-- [MODIFIED] -->
 @page "/cameras/grid"
+@using GFC.BlazorServer.Services.Camera
 @using GFC.BlazorServer.Components.Shared
+@inject ICameraService CameraService
+@inject IJSRuntime JS
 
-<div class="camera-grid-header">
-    <h3>
-        <i class="bi bi-grid-3x3-gap-fill me-2"></i>
-        Multi-Camera Grid
-    </h3>
-    <p class="text-muted">Live view of all security cameras.</p>
+<PageTitle>Camera Grid - GFC Cameras</PageTitle>
+
+<div class="camera-grid-container">
+    <div class="camera-grid-header">
+        <h1>Live Camera Grid</h1>
+        <div class="grid-controls">
+            <select @bind="GridLayout" class="form-select" @bind:after="OnGridLayoutChange">
+                <option value="1">1 Camera</option>
+                <option value="4">2x2 Grid</option>
+                <option value="9">3x3 Grid</option>
+                <option value="16">4x4 Grid</option>
+            </select>
+            <button class="btn btn-primary" @onclick="RefreshAll">
+                <i class="bi bi-arrow-clockwise"></i> Refresh All
+            </button>
+        </div>
+    </div>
+
+    @if (Cameras.Any())
+    {
+        <div class="camera-grid grid-layout-@GridLayout">
+            @foreach (var camera in Cameras.Take(GridLayout))
+            {
+                <div class="camera-grid-item">
+                    <CameraFeedEnhanced
+                        CameraId="@camera.Id"
+                        CameraName="@camera.Name"
+                        ShowControls="true"
+                        EnablePTZ="true"
+                        OnFullscreen="@(() => EnterFullscreen(camera.Id))" />
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            Loading cameras...
+        </div>
+    }
 </div>
 
-<div class="camera-grid">
-    <div class="camera-grid-cell">
-        <CameraFeed CameraId="1" />
-    </div>
-    <div class="camera-grid-cell">
-        <CameraFeed CameraId="2" />
-    </div>
-    <div class="camera-grid-cell">
-        <CameraFeed CameraId="3" />
-    </div>
-    <div class="camera-grid-cell">
-        <CameraFeed CameraId="4" />
-    </div>
-</div>
+@code {
+    private int GridLayout { get; set; } = 4;
+    private List<Camera> Cameras { get; set; } = new();
 
-<style>
-    .camera-grid-header {
-        margin-bottom: 20px;
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCameras();
     }
 
-    .camera-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-        gap: 20px;
+    private async Task LoadCameras()
+    {
+        Cameras = await CameraService.GetAllCamerasAsync();
+        StateHasChanged();
     }
 
-    .camera-grid-cell {
-        min-width: 0;
+    private async Task RefreshAll()
+    {
+        await LoadCameras();
     }
-</style>
+
+    private async Task EnterFullscreen(int cameraId)
+    {
+        await JS.InvokeVoidAsync("CameraGrid.enterFullscreen", $"camera-{cameraId}");
+    }
+
+    private void OnGridLayoutChange()
+    {
+        StateHasChanged();
+    }
+}

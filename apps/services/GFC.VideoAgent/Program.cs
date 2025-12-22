@@ -30,6 +30,7 @@ public class Startup
     {
         services.AddSingleton<StreamManager>();
         services.AddSingleton<FFmpegService>();
+        services.AddSingleton<NvrService>();
         services.AddHostedService<StreamManager>();
 
         services.AddCors(options =>
@@ -111,6 +112,8 @@ public class Startup
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(new { cameraId, status = status.ToString(), timestamp = DateTime.UtcNow });
             });
+
+            endpoints.MapControllers();
         });
     }
 }
