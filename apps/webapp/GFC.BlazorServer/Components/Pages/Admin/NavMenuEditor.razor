@@ -1,0 +1,124 @@
+// [NEW]
+@page "/admin/nav-menu-editor"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject INavMenuService NavMenuService
+
+<h3>Navigation Menu Editor <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
+
+@if (_entries == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Label</th>
+                <th>URL</th>
+                <th>Parent ID</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var entry in _entries)
+            {
+                <tr>
+                    <td>@entry.Label</td>
+                    <td>@entry.Url</td>
+                    <td>@entry.ParentId</td>
+                    <td>
+                        <button class="btn btn-primary btn-sm" @onclick="() => EditEntry(entry)">Edit</button>
+                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteEntry(entry.Id)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<hr />
+
+<h4>@(_isEditing ? "Edit Entry" : "Create Entry")</h4>
+
+<EditForm Model="@_editedEntry" OnValidSubmit="@HandleValidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label for="label" class="form-label">Label</label>
+        <InputText id="label" class="form-control" @bind-Value="_editedEntry.Label" />
+    </div>
+
+    <div class="mb-3">
+        <label for="url" class="form-label">URL</label>
+        <InputText id="url" class="form-control" @bind-Value="_editedEntry.Url" />
+    </div>
+
+    <div class="mb-3">
+        <label for="parentId" class="form-label">Parent</label>
+        <InputSelect id="parentId" class="form-select" @bind-Value="_editedEntry.ParentId">
+            <option value="">-- None --</option>
+            @foreach (var entry in _entries.Where(e => e.Id != _editedEntry.Id))
+            {
+                <option value="@entry.Id">@entry.Label</option>
+            }
+        </InputSelect>
+    </div>
+
+    <button type="submit" class="btn btn-success">@(_isEditing ? "Update" : "Create")</button>
+    @if (_isEditing)
+    {
+        <button type="button" class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>
+    }
+</EditForm>
+
+@code {
+    private IEnumerable<NavMenuEntry> _entries;
+    private NavMenuEntry _editedEntry = new();
+    private bool _isEditing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEntries();
+    }
+
+    private async Task LoadEntries()
+    {
+        _entries = await NavMenuService.GetNavMenuEntriesAsync();
+    }
+
+    private void EditEntry(NavMenuEntry entry)
+    {
+        _editedEntry = entry;
+        _isEditing = true;
+    }
+
+    private void CancelEdit()
+    {
+        _editedEntry = new();
+        _isEditing = false;
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (_isEditing)
+        {
+            await NavMenuService.UpdateNavMenuEntryAsync(_editedEntry);
+        }
+        else
+        {
+            await NavMenuService.CreateNavMenuEntryAsync(_editedEntry);
+        }
+
+        CancelEdit();
+        await LoadEntries();
+    }
+
+    private async Task DeleteEntry(int id)
+    {
+        await NavMenuService.DeleteNavMenuEntryAsync(id);
+        await LoadEntries();
+    }
+}

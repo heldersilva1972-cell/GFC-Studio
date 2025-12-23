@@ -63,6 +63,10 @@ public class GfcDbContext : DbContext
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
     public DbSet<ShiftReport> ShiftReports => Set<ShiftReport>();
     public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
+    public DbSet<AvailabilityCalendar> AvailabilityCalendars => Set<AvailabilityCalendar>();
+    public DbSet<EventPromotion> EventPromotions => Set<EventPromotion>();
+    public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
+    public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

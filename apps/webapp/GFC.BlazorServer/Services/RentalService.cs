@@ -47,5 +47,21 @@ namespace GFC.BlazorServer.Services
                 await _context.SaveChangesAsync();
             }
         }
+
+        public async Task UpdateCalendarAvailabilityAsync(DateTime date, string status)
+        {
+            var calendarEntry = await _context.AvailabilityCalendars.FirstOrDefaultAsync(c => c.Date.Date == date.Date);
+
+            if (calendarEntry != null)
+            {
+                calendarEntry.Status = status;
+            }
+            else
+            {
+                _context.AvailabilityCalendars.Add(new AvailabilityCalendar { Date = date, Status = status });
+            }
+
+            await _context.SaveChangesAsync();
+        }
     }
 }
