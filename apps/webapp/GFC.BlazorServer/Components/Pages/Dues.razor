@@ -25,11 +25,8 @@
             <option value="@year">@year</option>
         }
     </select>
-    <div class="pill-tabs">
-        <button class="@(!_showPaid ? "active" : null)" @onclick="() => ChangeTab(false)">Unpaid</button>
-        <button class="@(_showPaid ? "active" : null)" @onclick="() => ChangeTab(true)">Paid</button>
-    </div>
-    <div class="search-input">
+    
+    <div class="search-input ms-auto">
         <input class="form-control dues-search"
                placeholder="Search by member name"
                @bind="_searchText"
@@ -67,7 +64,7 @@ else
     <div class="dues-summary-grid mb-4">
         @if (_summary is not null)
         {
-            <div class="metric-tile metric-tile-success">
+            <div class="metric-tile metric-tile-success @(_activeFilter == DuesFilter.Paid ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Paid)">
                 <div class="metric-tile-icon">
                     <i class="bi bi-check-circle-fill"></i>
                 </div>
@@ -77,7 +74,7 @@ else
                 </div>
             </div>
 
-            <div class="metric-tile metric-tile-warning">
+            <div class="metric-tile metric-tile-warning @(_activeFilter == DuesFilter.Unpaid ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Unpaid)">
                 <div class="metric-tile-icon">
                     <i class="bi bi-clock-fill"></i>
                 </div>
@@ -87,7 +84,7 @@ else
                 </div>
             </div>
 
-            <div class="metric-tile metric-tile-info">
+            <div class="metric-tile metric-tile-info @(_activeFilter == DuesFilter.Waived ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Waived)">
                 <div class="metric-tile-icon">
                     <i class="bi bi-shield-fill-check"></i>
                 </div>
@@ -125,14 +122,14 @@ else
                 @if (!FilteredItems.Any())
                 {
                     <tr>
-                        <td colspan="6" class="text-center text-muted py-4">No dues records.</td>
+                        <td colspan="6" class="text-center text-muted py-4">No records found for @(_activeFilter) filter.</td>
                     </tr>
                 }
                 else
                 {
                     @foreach (var item in FilteredItems)
                     {
-                        var overdueClass = !_showPaid && item.MonthsOverdue >= 15 ? "overdue-flag" : string.Empty;
+                        var overdueClass = (_activeFilter == DuesFilter.Unpaid) && item.MonthsOverdue >= 15 ? "overdue-flag" : string.Empty;
                         <tr class="@GetRowClass(item)">
                             <td>@item.FullName</td>
                             <td>
@@ -153,9 +150,9 @@ else
                                 </div>
                             </td>
                             <td>@(item.Amount?.ToString("C") ?? "--")</td>
-                            <td>@(item.PaidDate?.ToString("MMM d, yyyy") ?? (_showPaid ? "--" : "Pending"))</td>
+                            <td>@(item.PaidDate?.ToString("MMM d, yyyy") ?? (_activeFilter == DuesFilter.Paid ? "--" : "Pending"))</td>
                             <td>
-                                @if (!_showPaid)
+                                @if (_activeFilter == DuesFilter.Unpaid)
                                 {
                                     <span class="@overdueClass">@FormatOverdueText(item.MonthsOverdue)</span>
                                 }
@@ -168,6 +165,10 @@ else
                                 @if (IsExempt(item))
                                 {
                                     <span class="text-muted small">No payment required</span>
+                                }
+                                else if (IsPaid(item))
+                                {
+                                    <span class="text-muted small">Paid</span>
                                 }
                                 else
                                 {
@@ -251,11 +252,13 @@ else
 }
 
 @code {
+    private enum DuesFilter { Unpaid, Paid, Waived }
+    
     private List<int> _years = new();
     private int _selectedYear;
-    private bool _showPaid;
+    private DuesFilter _activeFilter = DuesFilter.Unpaid;
     private bool _loading = true;
-    private List<DuesListItemDto> _items = new();
+    private List<DuesListItemDto> _allItems = new(); // Contains both Paid and Unpaid fetched from repo
     private DuesSummaryDto? _summary;
     private string? _errorMessage;
     private string? _operationMessage;
@@ -298,15 +301,10 @@ else
         await LoadDataInternal();
     }
 
-    private async Task ChangeTab(bool paid)
+    private void SetFilter(DuesFilter filter)
     {
-        if (_showPaid == paid)
-        {
-            return;
-        }
-        _showPaid = paid;
+        _activeFilter = filter;
         _operationMessage = null;
-        await LoadDataInternal();
     }
 
     private async Task LoadDataInternal()
@@ -315,21 +313,26 @@ else
         _errorMessage = null;
         try
         {
-            var duesTask = DuesService.GetDuesAsync(_selectedYear, _showPaid);
-            var summaryTask = DuesService.GetSummaryAsync(_selectedYear);
-            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(_selectedYear));
+            // Execute sequentially to avoid EF Core concurrency issues on the shared DbContext
+            var unpaidItems = await DuesService.GetDuesAsync(_selectedYear, false);
+            var paidItems = await DuesService.GetDuesAsync(_selectedYear, true);
+            _summary = await DuesService.GetSummaryAsync(_selectedYear);
+            
+            // Offload synchronous repo call to thread pool, but strictly after async calls to ensure Context isn't busy
+            _currentYearSettings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(_selectedYear));
 
-            await Task.WhenAll(duesTask, summaryTask, settingsTask);
-
-            _items = duesTask.Result.ToList();
-            _summary = summaryTask.Result;
-            _currentYearSettings = settingsTask.Result;
+            // Combine distinct items
+            var combined = new List<DuesListItemDto>();
+            if (unpaidItems != null) combined.AddRange(unpaidItems);
+            if (paidItems != null) combined.AddRange(paidItems);
+            
+            _allItems = combined.GroupBy(x => x.MemberId).Select(g => g.First()).ToList();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Dues] Failed to load dues data");
             _errorMessage = "Unable to load dues details right now.";
-            _items = new List<DuesListItemDto>();
+            _allItems = new List<DuesListItemDto>();
             _summary = null;
         }
         finally
@@ -477,11 +480,15 @@ else
     private bool IsExempt(DuesListItemDto item) =>
         item.Status == MemberStatus.Life || item.IsBoardMember || item.IsWaived;
 
+    // Helper to determine if an item counts as "Paid" in the business rule (has paid date and not explicitly waived)
+    private bool IsPaid(DuesListItemDto item) =>
+        item.PaidDate.HasValue && !item.IsWaived;
+
     private bool CanRecordPayment(DuesListItemDto item) =>
-        !_showPaid && !IsExempt(item) && !_operationInProgress;
+        !IsPaid(item) && !IsExempt(item) && !_operationInProgress;
 
     private bool CanSetInactive(DuesListItemDto item) =>
-        !_showPaid && !IsExempt(item) && item.MonthsOverdue >= 15 && !_operationInProgress;
+        !IsPaid(item) && !IsExempt(item) && item.MonthsOverdue >= 15 && !_operationInProgress;
 
     private static string FormatOverdueText(int months) =>
         $"{months} month{(months == 1 ? string.Empty : "s")}";
@@ -513,11 +520,25 @@ else
             _ => "Unknown"
         };
 
-    private IEnumerable<DuesListItemDto> FilteredItems =>
-        string.IsNullOrWhiteSpace(_searchText)
-            ? _items
-            : _items.Where(item =>
-                item.FullName.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<DuesListItemDto> FilteredItems
+    {
+        get
+        {
+            // 1. Filter by search text
+            var items = string.IsNullOrWhiteSpace(_searchText)
+                ? _allItems
+                : _allItems.Where(item => item.FullName.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+            
+            // 2. Filter by Active Filter
+            return _activeFilter switch
+            {
+                DuesFilter.Paid => items.Where(i => i.PaidDate.HasValue && !i.IsWaived),
+                DuesFilter.Unpaid => items.Where(i => !i.PaidDate.HasValue && !IsExempt(i)),
+                DuesFilter.Waived => items.Where(i => IsExempt(i)),
+                _ => items
+            };
+        }
+    }
 
     private void ClearDuesSearch()
     {
