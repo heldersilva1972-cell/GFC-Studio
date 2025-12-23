@@ -163,6 +163,7 @@ public class Program
 
         // GFC Ecosystem Foundation
         builder.Services.AddScoped<IStudioService, StudioService>();
+        builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
