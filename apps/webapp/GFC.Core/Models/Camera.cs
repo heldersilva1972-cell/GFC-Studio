@@ -17,6 +17,12 @@ namespace GFC.Core.Models
         [StringLength(500)]
         public string RtspUrl { get; set; }
 
+        [StringLength(45)]
+        public string IpAddress { get; set; }
+
+        [StringLength(100)]
+        public string Manufacturer { get; set; }
+
         [StringLength(100)]
         public string Username { get; set; }
 
