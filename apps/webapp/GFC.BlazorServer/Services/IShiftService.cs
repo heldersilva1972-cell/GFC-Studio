@@ -16,7 +16,15 @@ namespace GFC.BlazorServer.Services
         Task DeleteStaffShiftAsync(int id);
         Task SubmitShiftReportAsync(ShiftReport report);
         Task<ShiftReport> GetShiftReportAsync(int shiftId);
-        Task<IEnumerable<AppUser>> GetAssignableStaffAsync();
+        Task<IEnumerable<StaffMember>> GetAssignableStaffAsync();
         Task<IEnumerable<StaffShift>> GetShiftsForTomorrowAsync();
+        
+        // Staff Member Management
+        Task<StaffMember> GetStaffMemberAsync(int id);
+        Task<IEnumerable<StaffMember>> GetAllStaffMembersAsync();
+        Task<IEnumerable<StaffMember>> GetActiveStaffMembersAsync();
+        Task CreateStaffMemberAsync(StaffMember staffMember);
+        Task UpdateStaffMemberAsync(StaffMember staffMember);
+        Task DeleteStaffMemberAsync(int id);
     }
 }

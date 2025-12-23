@@ -29,6 +29,6 @@ namespace GFC.Core.Models
         public DateTime EndTime => ShiftType == 1 ? Date.AddHours(17) : Date.AddHours(26);
 
         [ForeignKey("StaffMemberId")]
-        public virtual AppUser StaffMember { get; set; }
+        public virtual StaffMember? StaffMember { get; set; }
     }
 }

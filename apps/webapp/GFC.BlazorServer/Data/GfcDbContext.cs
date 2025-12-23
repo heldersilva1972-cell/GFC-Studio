@@ -63,6 +63,7 @@ public class GfcDbContext : DbContext
     public DbSet<HallRental> HallRentals => Set<HallRental>();
     public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
+    public DbSet<StaffMember> StaffMembers => Set<StaffMember>();
     public DbSet<ShiftReport> ShiftReports => Set<ShiftReport>();
     public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
     public DbSet<AvailabilityCalendar> AvailabilityCalendars => Set<AvailabilityCalendar>();
