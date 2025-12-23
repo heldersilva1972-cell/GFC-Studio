@@ -56,7 +56,19 @@ namespace GFC.BlazorServer.Services
 
         public async Task<IEnumerable<StaffShift>> GetStaffShiftsAsync()
         {
-            return await _context.StaffShifts.ToListAsync();
+            var shifts = await _context.StaffShifts
+                .Include(s => s.StaffMember)
+                .ToListAsync();
+
+            foreach (var shift in shifts)
+            {
+                if (shift.StaffMember != null)
+                {
+                    shift.StaffName = shift.StaffMember.Username; // Or a display name if available
+                }
+            }
+
+            return shifts;
         }
     }
 }
