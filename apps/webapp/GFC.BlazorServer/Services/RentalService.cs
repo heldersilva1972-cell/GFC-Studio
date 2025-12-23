@@ -17,23 +17,23 @@ namespace GFC.BlazorServer.Services
             _context = context;
         }
 
-        public async Task<HallRental> GetRentalRequestAsync(int id)
+        public async Task<HallRentalRequest> GetRentalRequestAsync(int id)
         {
-            return await _context.HallRentals.FindAsync(id);
+            return await _context.HallRentalRequests.FindAsync(id);
         }
 
-        public async Task<IEnumerable<HallRental>> GetRentalRequestsAsync()
+        public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsAsync()
         {
-            return await _context.HallRentals.ToListAsync();
+            return await _context.HallRentalRequests.ToListAsync();
         }
 
-        public async Task CreateRentalRequestAsync(HallRental request)
+        public async Task CreateRentalRequestAsync(HallRentalRequest request)
         {
-            _context.HallRentals.Add(request);
+            _context.HallRentalRequests.Add(request);
             await _context.SaveChangesAsync();
         }
 
-        public async Task UpdateRentalRequestAsync(HallRental request)
+        public async Task UpdateRentalRequestAsync(HallRentalRequest request)
         {
             _context.Entry(request).State = EntityState.Modified;
             await _context.SaveChangesAsync();
@@ -41,10 +41,10 @@ namespace GFC.BlazorServer.Services
 
         public async Task DeleteRentalRequestAsync(int id)
         {
-            var request = await _context.HallRentals.FindAsync(id);
+            var request = await _context.HallRentalRequests.FindAsync(id);
             if (request != null)
             {
-                _context.HallRentals.Remove(request);
+                _context.HallRentalRequests.Remove(request);
                 await _context.SaveChangesAsync();
             }
         }

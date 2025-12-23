@@ -60,6 +60,7 @@ public class GfcDbContext : DbContext
     public DbSet<StudioSection> StudioSections => Set<StudioSection>();
     public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
     public DbSet<HallRental> HallRentals => Set<HallRental>();
+    public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
     public DbSet<ShiftReport> ShiftReports => Set<ShiftReport>();
     public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
@@ -453,6 +454,11 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<HallRental>(entity =>
         {
             entity.ToTable("HallRentals");
+        });
+
+        modelBuilder.Entity<HallRentalRequest>(entity =>
+        {
+            entity.ToTable("HallRentalRequests");
         });
 
         modelBuilder.Entity<StaffShift>(entity =>
