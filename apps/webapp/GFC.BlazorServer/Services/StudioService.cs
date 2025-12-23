@@ -37,6 +37,13 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
+        public async Task<IEnumerable<StudioPage>> GetAllPagesAsync()
+        {
+            return await _context.StudioPages
+                .Include(p => p.Sections)
+                .ToListAsync();
+        }
+
         public async Task SaveDraftAsync(StudioDraft draft)
         {
             if (draft.Id > 0)
@@ -109,6 +116,31 @@ namespace GFC.BlazorServer.Services
             {
                 _logger.LogError(ex, "An error occurred while publishing draft for PageId {PageId}", pageId);
                 throw;
+            }
+        }
+
+        public async Task<StudioPage> CreatePageAsync(StudioPage page)
+        {
+            _context.StudioPages.Add(page);
+            await _context.SaveChangesAsync();
+            return page;
+        }
+
+        public async Task DeletePageAsync(int id)
+        {
+            var page = await _context.StudioPages.FindAsync(id);
+            if (page != null)
+            {
+                // Sections should be deleted automatically if CASCADE is on, 
+                // but let's be safe.
+                var sections = await _context.StudioSections.Where(s => s.StudioPageId == id).ToListAsync();
+                _context.StudioSections.RemoveRange(sections);
+                
+                var drafts = await _context.StudioDrafts.Where(d => d.PageId == id).ToListAsync();
+                _context.StudioDrafts.RemoveRange(drafts);
+
+                _context.StudioPages.Remove(page);
+                await _context.SaveChangesAsync();
             }
         }
     }
