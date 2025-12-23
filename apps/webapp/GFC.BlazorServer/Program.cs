@@ -158,6 +158,12 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
+
+        // GFC Ecosystem Foundation
+        builder.Services.AddScoped<IStudioService, StudioService>();
+        builder.Services.AddScoped<IRentalService, RentalService>();
+        builder.Services.AddScoped<IShiftService, ShiftService>();
+        builder.Services.AddScoped<INotificationService, NotificationService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
