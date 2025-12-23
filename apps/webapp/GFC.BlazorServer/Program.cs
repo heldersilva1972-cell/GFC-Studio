@@ -67,6 +67,7 @@ public class Program
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
         builder.Services.AddDbContext<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
+        builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
 
         // BEGIN ProtocolCapture feature wiring
         // Delete the following line (and the ProtocolCapture folder) to remove the feature.
