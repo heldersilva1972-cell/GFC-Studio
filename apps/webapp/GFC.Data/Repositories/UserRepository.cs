@@ -347,13 +347,13 @@ public class UserRepository : IUserRepository
     {
         return new AppUser
         {
-            UserId = (int)reader["UserId"],
-            Username = (string)reader["Username"],
-            PasswordHash = (string)reader["PasswordHash"],
-            IsAdmin = (bool)reader["IsAdmin"],
-            IsActive = (bool)reader["IsActive"],
+            UserId = reader["UserId"] != DBNull.Value ? (int)reader["UserId"] : 0,
+            Username = reader["Username"] != DBNull.Value ? reader["Username"].ToString() ?? string.Empty : string.Empty,
+            PasswordHash = reader["PasswordHash"] != DBNull.Value ? reader["PasswordHash"].ToString() ?? string.Empty : string.Empty,
+            IsAdmin = reader["IsAdmin"] != DBNull.Value && (bool)reader["IsAdmin"],
+            IsActive = reader["IsActive"] != DBNull.Value && (bool)reader["IsActive"],
             MemberId = reader["MemberId"] as int?,
-            CreatedDate = (DateTime)reader["CreatedDate"],
+            CreatedDate = reader["CreatedDate"] != DBNull.Value ? (DateTime)reader["CreatedDate"] : DateTime.UtcNow,
             LastLoginDate = reader["LastLoginDate"] as DateTime?,
             CreatedBy = reader["CreatedBy"] as string,
             Notes = reader["Notes"] as string,
@@ -365,13 +365,13 @@ public class UserRepository : IUserRepository
     {
         return new AppUser
         {
-            UserId = (int)reader["UserId"],
-            Username = (string)reader["Username"],
-            PasswordHash = (string)reader["PasswordHash"],
-            IsAdmin = (bool)reader["IsAdmin"],
-            IsActive = (bool)reader["IsActive"],
+            UserId = reader["UserId"] != DBNull.Value ? (int)reader["UserId"] : 0,
+            Username = reader["Username"] != DBNull.Value ? reader["Username"].ToString() ?? string.Empty : string.Empty,
+            PasswordHash = reader["PasswordHash"] != DBNull.Value ? reader["PasswordHash"].ToString() ?? string.Empty : string.Empty,
+            IsAdmin = reader["IsAdmin"] != DBNull.Value && (bool)reader["IsAdmin"],
+            IsActive = reader["IsActive"] != DBNull.Value && (bool)reader["IsActive"],
             MemberId = reader["MemberId"] as int?,
-            CreatedDate = (DateTime)reader["CreatedDate"],
+            CreatedDate = reader["CreatedDate"] != DBNull.Value ? (DateTime)reader["CreatedDate"] : DateTime.UtcNow,
             LastLoginDate = reader["LastLoginDate"] as DateTime?,
             CreatedBy = reader["CreatedBy"] as string,
             Notes = reader["Notes"] as string,
