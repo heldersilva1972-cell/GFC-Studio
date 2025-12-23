@@ -64,7 +64,13 @@ We will remove the following obsolete or redundant pages/components to clean the
 
 ## 4. Implementation Steps
 
-1.  **Execute Cleanup:** Delete the 5 obsolete razor files and update `NavMenu`.
-2.  **Build Configuration Page:** Refactor `CameraDiscovery.razor` into the new master `CameraConfiguration.razor`.
-3.  **Build View Page:** Create the new `ViewCameras.razor` with the `DynamicMatrix` component.
-4.  **Polish:** Implement Digital Zoom and standard styling (Dark Mode default for View page).
+- [x] 1.  **Execute Cleanup:** Delete the 5 obsolete razor files and update `NavMenu`.
+- [x] 2.  **Build Configuration Page:** Refactor `CameraDiscovery.razor` into the new master `CameraConfiguration.razor`.
+- [x] 3.  **Build View Page:** Create the new `ViewCameras.razor` with the `DynamicMatrix` component.
+- [ ] 4.  **Polish:** Implement Digital Zoom and standard styling (Dark Mode default for View page).
+
+## Status: In Progress
+- Cleanup: **Complete**
+- Configuration Page: **Complete**
+- View Page: **Complete**
+- Polish: **Pending**
