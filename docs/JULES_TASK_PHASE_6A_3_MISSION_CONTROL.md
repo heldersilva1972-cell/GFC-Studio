@@ -74,37 +74,58 @@ Implement the operational backend dashboards for Hall Rentals and Staff Shift ma
 
 **Requirements**:
 - Route: `/admin/staff-shifts`
-- Weekly grid view (7 days × 2 shifts = 14 slots)
-- Columns: Day of Week
-- Rows: Day Shift, Night Shift
-- Each cell shows:
-  - Assigned staff member name (if any)
-  - Shift status badge
-  - Quick action buttons (Edit, Clear)
+- Basic page layout with title and description
+- Display current week's shifts in a simple table/list format
+- Columns: Date, Shift Type, Assigned Staff, Status
+- Filter options:
+  - Week selector (dropdown or date picker)
+  - Shift type filter (All, Day, Night)
+  - Status filter (All, Scheduled, Completed, No-Show)
+- Action buttons:
+  - "Add Shift Assignment" (opens modal)
+  - "View Reports" (navigates to report section)
 
 #### 2.2 Shift Assignment Interface
 **Component**: `ShiftAssignmentModal.razor`
 
 **Requirements**:
-- Dropdown to select staff member from Members table
-- Date picker for shift date
-- Radio buttons for shift type (Day/Night)
-- Status dropdown (Scheduled, Completed, No-Show)
-- Save and Cancel buttons
+- Modal dialog for creating/editing shift assignments
+- Fields:
+  - Date picker for shift date
+  - Radio buttons for shift type (Day/Night)
+  - Dropdown to select staff member from Members table
+  - Status dropdown (Scheduled, Completed, No-Show)
+- Validation:
+  - All fields required
+  - Prevent duplicate assignments (same staff, same date/shift)
+- Actions:
+  - Save button (creates or updates shift)
+  - Cancel button (closes modal)
+  - Delete button (edit mode only, removes assignment)
 
 #### 2.3 Shift Report Viewer
 **Component**: `ShiftReportViewer.razor` (embedded in StaffShifts page)
 
 **Requirements**:
-- Read-only display of submitted shift reports
-- Filter by date range and staff member
-- Display fields:
-  - Bartender name
-  - Date and shift type
-  - Bar sales, Lotto sales, Total deposit
-  - Submission timestamp
-  - Late submission flag (if submitted >24hrs after shift)
-- Export to Excel button
+- Separate section on the page (below shift grid)
+- Display submitted shift reports in a table
+- Columns:
+  - Date
+  - Shift Type
+  - Bartender Name
+  - Bar Sales
+  - Lotto Sales
+  - Total Deposit
+  - Submitted At
+  - Status (On Time / Late)
+- Filter options:
+  - Date range picker
+  - Staff member dropdown
+  - Apply/Clear buttons
+- Export button: Download filtered results to Excel
+- Late flag logic: Mark as "Late" if submitted >24 hours after shift end
+
+**Note**: Advanced UI/UX enhancements (weekly grid, hover actions, mobile responsiveness) will be implemented in Phase 6A-4.
 
 ---
 
