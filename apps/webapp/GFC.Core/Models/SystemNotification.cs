@@ -8,6 +8,10 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
+        public string? RecipientEmail { get; set; }
+        
+        public string? Subject { get; set; }
+
         [Required]
         public string Message { get; set; }
 
@@ -15,5 +19,7 @@ namespace GFC.Core.Models
         public string Channel { get; set; } // e.g., "Email", "SMS", "InApp"
 
         public string Status { get; set; } // e.g., "Pending", "Sent", "Failed"
+        
+        public DateTime? SentAt { get; set; }
     }
 }

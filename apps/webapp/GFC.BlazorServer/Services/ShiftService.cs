@@ -85,7 +85,7 @@ namespace GFC.BlazorServer.Services
             return await _context.ShiftReports
                 .Include(r => r.StaffShift)
                 .ThenInclude(s => s.StaffMember)
-                .Where(r => r.StaffShift.ShiftDate >= startDate && r.StaffShift.ShiftDate <= endDate)
+                .Where(r => r.StaffShift.Date >= startDate && r.StaffShift.Date <= endDate)
                 .ToListAsync();
         }
 
