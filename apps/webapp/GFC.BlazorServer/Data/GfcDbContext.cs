@@ -59,7 +59,7 @@ public class GfcDbContext : DbContext
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();
     public DbSet<StudioSection> StudioSections => Set<StudioSection>();
     public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
-    public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
+    public DbSet<HallRental> HallRentals => Set<HallRental>();
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
     public DbSet<ShiftReport> ShiftReports => Set<ShiftReport>();
     public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
@@ -450,9 +450,9 @@ public class GfcDbContext : DbContext
             entity.ToTable("StudioDrafts");
         });
 
-        modelBuilder.Entity<HallRentalRequest>(entity =>
+        modelBuilder.Entity<HallRental>(entity =>
         {
-            entity.ToTable("HallRentalRequests");
+            entity.ToTable("HallRentals");
         });
 
         modelBuilder.Entity<StaffShift>(entity =>

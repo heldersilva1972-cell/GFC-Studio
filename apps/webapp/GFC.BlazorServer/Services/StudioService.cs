@@ -47,7 +47,7 @@ namespace GFC.BlazorServer.Services
 
         public async Task<StudioDraft> GetDraftAsync(int pageId)
         {
-            return await _context.StudioDrafts.FirstOrDefaultAsync(d => d.StudioPageId == pageId);
+            return await _context.StudioDrafts.FirstOrDefaultAsync(d => d.PageId == pageId);
         }
     }
 }

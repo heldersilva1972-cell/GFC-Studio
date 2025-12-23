@@ -51,7 +51,7 @@ namespace GFC.BlazorServer.Services
 
         public async Task<ShiftReport> GetShiftReportAsync(int shiftId)
         {
-            return await _context.ShiftReports.FirstOrDefaultAsync(r => r.StaffShiftId == shiftId);
+            return await _context.ShiftReports.FirstOrDefaultAsync(r => r.ShiftId == shiftId);
         }
 
         public async Task<IEnumerable<StaffShift>> GetStaffShiftsAsync()
