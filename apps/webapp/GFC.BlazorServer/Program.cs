@@ -66,8 +66,8 @@ public class Program
             var opts = sp.GetRequiredService<IOptions<AgentApiOptions>>().Value;
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
-        builder.Services.AddDbContext<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
+        builder.Services.AddScoped<GfcDbContext>(p => p.GetRequiredService<IDbContextFactory<GfcDbContext>>().CreateDbContext());
 
         // BEGIN ProtocolCapture feature wiring
         // Delete the following line (and the ProtocolCapture folder) to remove the feature.
