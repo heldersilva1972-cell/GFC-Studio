@@ -16,6 +16,7 @@
 @inject ISystemSettingsService SystemSettingsService
 @inject NavigationManager NavMgr
 @inject IControllerClient ControllerClient
+@inject DashboardSessionState SessionState
 
 @if (_showSplash)
 {
@@ -167,11 +168,17 @@
             </div>
         </div>
 
-        @if (_isLoading)
+        @if (_isLoading && !_showSplash)
         {
-            <div class="loading-state">
-                <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-                Loading dashboard...
+            <div class="dash-loader-wrapper dash-fade-in">
+                <div class="dash-loader-spinner">
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-monogram">GFC</div>
+                </div>
+                <div class="dash-loader-text">Refreshing Control Center</div>
+                <div class="dash-loader-progress">
+                    <div class="dash-loader-bar"></div>
+                </div>
             </div>
         }
         else if (!string.IsNullOrWhiteSpace(_errorMessage))
@@ -491,14 +498,84 @@
         outline-offset: 2px;
     }
 
-    .dash-quick-action {
-        transition: transform .12s ease, box-shadow .12s ease;
-    }
-
     .dash-quick-action:hover,
     .dash-quick-action:focus-visible {
         transform: scale(1.04);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    }
+
+    /* Modern Simple Loader */
+    .dash-loader-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 4rem 2rem;
+        gap: 1.5rem;
+    }
+
+    .dash-loader-spinner {
+        position: relative;
+        width: 80px;
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .spinner-ring {
+        position: absolute;
+        inset: 0;
+        border: 3px solid rgba(14, 165, 233, 0.1);
+        border-top: 3px solid var(--accent-primary, #0ea5e9);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .spinner-monogram {
+        font-weight: 800;
+        font-size: 1.2rem;
+        color: var(--accent-primary);
+        letter-spacing: -1px;
+        animation: pulse-op 2s ease-in-out infinite;
+    }
+
+    @@keyframes pulse-op {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(0.95); }
+    }
+
+    .dash-loader-text {
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .dash-loader-progress {
+        width: 160px;
+        height: 4px;
+        background: var(--bg-surface-hover);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .dash-loader-bar {
+        width: 40%;
+        height: 100%;
+        background: var(--accent-primary);
+        border-radius: 999px;
+        animation: progress-flow 1.5s infinite ease-in-out;
+    }
+
+    @@keyframes progress-flow {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(250%); }
     }
 </style>
 
@@ -562,7 +639,13 @@
         public const int BackupStaleDaysCritical = 30;
     }
 
-    protected override async Task OnInitializedAsync() => await LoadDashboardAsync(includeSplash: true);
+    protected override async Task OnInitializedAsync()
+    {
+        bool showSplash = !SessionState.HasShownSplash;
+        if (showSplash) SessionState.HasShownSplash = true;
+        
+        await LoadDashboardAsync(includeSplash: showSplash);
+    }
 
     private async Task LoadDashboardAsync(bool includeSplash)
     {
