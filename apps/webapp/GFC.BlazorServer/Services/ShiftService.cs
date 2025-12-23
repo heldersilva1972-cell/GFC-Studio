@@ -70,5 +70,38 @@ namespace GFC.BlazorServer.Services
 
             return shifts;
         }
+
+        public async Task<IEnumerable<StaffShift>> GetShiftsForWeekAsync(System.DateTime startDate)
+        {
+            var endDate = startDate.AddDays(7);
+            return await _context.StaffShifts
+                .Include(s => s.StaffMember)
+                .Where(s => s.ShiftDate >= startDate && s.ShiftDate < endDate)
+                .ToListAsync();
+        }
+
+        public async Task<IEnumerable<ShiftReport>> GetShiftReportsForExportAsync(System.DateTime startDate, System.DateTime endDate)
+        {
+            return await _context.ShiftReports
+                .Include(r => r.Shift)
+                .ThenInclude(s => s.StaffMember)
+                .Where(r => r.Shift.ShiftDate >= startDate && r.Shift.ShiftDate <= endDate)
+                .ToListAsync();
+        }
+
+        public async Task<IEnumerable<AppUser>> GetAssignableStaffAsync()
+        {
+            // In a real app, you might filter this to users with a 'Staff' role.
+            return await _context.Users.ToListAsync();
+        }
+
+        public async Task<IEnumerable<StaffShift>> GetShiftsForTomorrowAsync()
+        {
+            var tomorrow = DateTime.Today.AddDays(1);
+            return await _context.StaffShifts
+                .Include(s => s.StaffMember)
+                .Where(s => s.ShiftDate.Date == tomorrow)
+                .ToListAsync();
+        }
     }
 }
