@@ -1,4 +1,4 @@
-// [NEW]
+// [MODIFIED]
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -11,13 +11,19 @@ namespace GFC.Core.Models
         public int Id { get; set; }
 
         [ForeignKey("StaffShift")]
-        public int StaffShiftId { get; set; }
+        public int ShiftId { get; set; }
         public virtual StaffShift StaffShift { get; set; }
 
-        public decimal SalesAmount { get; set; }
+        public int BartenderId { get; set; }
 
-        public string Notes { get; set; }
+        public decimal BarSales { get; set; }
 
-        public DateTime ReportTime { get; set; }
+        public decimal LottoSales { get; set; }
+
+        public decimal TotalDeposit { get; set; }
+
+        public DateTime SubmittedAt { get; set; }
+
+        public bool IsLate { get; set; }
     }
 }

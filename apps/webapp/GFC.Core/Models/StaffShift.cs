@@ -1,4 +1,4 @@
-// [NEW]
+// [MODIFIED]
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -11,10 +11,12 @@ namespace GFC.Core.Models
         public int Id { get; set; }
 
         [Required]
-        public string StaffName { get; set; }
+        public int StaffMemberId { get; set; }
 
-        public DateTime StartTime { get; set; }
+        public DateTime Date { get; set; }
 
-        public DateTime EndTime { get; set; }
+        public int ShiftType { get; set; } // 1=Day, 2=Night
+
+        public string Status { get; set; }
     }
 }

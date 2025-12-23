@@ -1,7 +1,8 @@
-// [NEW]
+// [MODIFIED]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -16,23 +17,23 @@ namespace GFC.BlazorServer.Services
             _context = context;
         }
 
-        public async Task<HallRentalRequest> GetRentalRequestAsync(int id)
+        public async Task<HallRental> GetRentalRequestAsync(int id)
         {
-            return await _context.HallRentalRequests.FindAsync(id);
+            return await _context.HallRentals.FindAsync(id);
         }
 
-        public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsAsync()
+        public async Task<IEnumerable<HallRental>> GetRentalRequestsAsync()
         {
-            return await _context.HallRentalRequests.ToListAsync();
+            return await _context.HallRentals.ToListAsync();
         }
 
-        public async Task CreateRentalRequestAsync(HallRentalRequest request)
+        public async Task CreateRentalRequestAsync(HallRental request)
         {
-            _context.HallRentalRequests.Add(request);
+            _context.HallRentals.Add(request);
             await _context.SaveChangesAsync();
         }
 
-        public async Task UpdateRentalRequestAsync(HallRentalRequest request)
+        public async Task UpdateRentalRequestAsync(HallRental request)
         {
             _context.Entry(request).State = EntityState.Modified;
             await _context.SaveChangesAsync();
@@ -40,10 +41,10 @@ namespace GFC.BlazorServer.Services
 
         public async Task DeleteRentalRequestAsync(int id)
         {
-            var request = await _context.HallRentalRequests.FindAsync(id);
+            var request = await _context.HallRentals.FindAsync(id);
             if (request != null)
             {
-                _context.HallRentalRequests.Remove(request);
+                _context.HallRentals.Remove(request);
                 await _context.SaveChangesAsync();
             }
         }

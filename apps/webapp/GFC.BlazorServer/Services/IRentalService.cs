@@ -1,4 +1,4 @@
-// [NEW]
+// [MODIFIED]
 using GFC.Core.Models;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -7,11 +7,11 @@ namespace GFC.BlazorServer.Services
 {
     public interface IRentalService
     {
-        Task<HallRentalRequest> GetRentalRequestAsync(int id);
-        Task<IEnumerable<HallRentalRequest>> GetRentalRequestsAsync();
-        Task CreateRentalRequestAsync(HallRentalRequest request);
-        Task UpdateRentalRequestAsync(HallRentalRequest request);
+        Task<HallRental> GetRentalRequestAsync(int id);
+        Task<IEnumerable<HallRental>> GetRentalRequestsAsync();
+        Task CreateRentalRequestAsync(HallRental request);
+        Task UpdateRentalRequestAsync(HallRental request);
         Task DeleteRentalRequestAsync(int id);
-        Task UpdateCalendarAvailabilityAsync(DateTime date, string status);
+        Task UpdateCalendarAvailabilityAsync(System.DateTime date, string status);
     }
 }
