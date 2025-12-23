@@ -79,7 +79,7 @@ namespace GFC.BlazorServer.Services
             await _context.SaveChangesAsync();
 
             // Fire and forget email notification
-            _ = _notificationService.SendRentalConfirmationEmailAsync(request.Id);
+            _ = _notificationService.SendRentalConfirmationEmailAsync(request);
 
             return true;
         }

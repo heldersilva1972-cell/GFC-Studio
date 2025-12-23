@@ -91,8 +91,9 @@ namespace GFC.BlazorServer.Services
 
         public async Task<IEnumerable<AppUser>> GetAssignableStaffAsync()
         {
-            // In a real app, you might filter this to users with a 'Staff' role.
-            return await _context.Users.ToListAsync();
+            // Return empty list for now - this would need proper user management
+            // In a real app, you might filter this to users with a 'Staff' role
+            return new List<AppUser>();
         }
 
         public async Task<IEnumerable<StaffShift>> GetShiftsForTomorrowAsync()
