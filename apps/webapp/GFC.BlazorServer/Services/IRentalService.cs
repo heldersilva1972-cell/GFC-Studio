@@ -10,7 +10,7 @@ namespace GFC.BlazorServer.Services
         Task<HallRentalRequest> GetRentalRequestAsync(int id);
         Task<IEnumerable<HallRentalRequest>> GetRentalRequestsAsync();
         Task CreateRentalRequestAsync(HallRentalRequest request);
-        Task UpdateRentalRequestAsync(HallRentalRequest request);
+        Task<bool> UpdateRentalRequestAsync(HallRentalRequest request);
         Task DeleteRentalRequestAsync(int id);
         Task UpdateCalendarAvailabilityAsync(System.DateTime date, string status);
     }

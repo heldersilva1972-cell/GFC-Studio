@@ -2,8 +2,11 @@
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
@@ -11,10 +14,12 @@ namespace GFC.BlazorServer.Services
     public class StudioService : IStudioService
     {
         private readonly GfcDbContext _context;
+        private readonly ILogger<StudioService> _logger;
 
-        public StudioService(GfcDbContext context)
+        public StudioService(GfcDbContext context, ILogger<StudioService> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         public async Task<StudioPage> GetPublishedPageAsync(int id)
@@ -48,6 +53,63 @@ namespace GFC.BlazorServer.Services
         public async Task<StudioDraft> GetDraftAsync(int pageId)
         {
             return await _context.StudioDrafts.FirstOrDefaultAsync(d => d.PageId == pageId);
+        }
+
+        public async Task PublishDraftAsync(int pageId)
+        {
+            var draft = await _context.StudioDrafts.FirstOrDefaultAsync(d => d.PageId == pageId);
+            if (draft == null)
+            {
+                _logger.LogWarning("PublishDraftAsync: No draft found for PageId {PageId}", pageId);
+                return; // Or throw an exception
+            }
+
+            var page = await _context.StudioPages.Include(p => p.Sections).FirstOrDefaultAsync(p => p.Id == pageId);
+            if (page == null)
+            {
+                _logger.LogError("PublishDraftAsync: StudioPage with Id {PageId} not found.", pageId);
+                throw new InvalidOperationException($"Could not find the page to publish to.");
+            }
+
+            try
+            {
+                var newSections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson);
+
+                // Simple merge: Remove old sections, add new ones.
+                _context.StudioSections.RemoveRange(page.Sections);
+                page.Sections.Clear();
+
+                foreach (var section in newSections)
+                {
+                    page.Sections.Add(new StudioSection
+                    {
+                        // Ensure client-side IDs are not persisted
+                        ClientId = Guid.Empty,
+                        Title = section.Title,
+                        Content = section.Content,
+                        PageIndex = section.PageIndex,
+                        StudioPageId = page.Id,
+                        AnimationSettings = section.AnimationSettings
+                    });
+                }
+
+                // Delete the draft after publishing
+                _context.StudioDrafts.Remove(draft);
+
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Successfully published draft for PageId {PageId}", pageId);
+            }
+            catch (JsonException jsonEx)
+            {
+                _logger.LogError(jsonEx, "Failed to deserialize draft content for PageId {PageId}", pageId);
+                // Handle the error, maybe by not proceeding with the publish
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while publishing draft for PageId {PageId}", pageId);
+                throw;
+            }
         }
     }
 }

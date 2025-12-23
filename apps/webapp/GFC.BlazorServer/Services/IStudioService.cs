@@ -11,5 +11,6 @@ namespace GFC.BlazorServer.Services
         Task<IEnumerable<StudioPage>> GetPublishedPagesAsync();
         Task SaveDraftAsync(StudioDraft draft);
         Task<StudioDraft> GetDraftAsync(int pageId);
+        Task PublishDraftAsync(int pageId);
     }
 }

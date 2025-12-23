@@ -1,16 +1,17 @@
-@page "/studio"
 @page "/studio/{PageId:int}"
-@inject IJSRuntime JSRuntime
-@inject IDbContextFactory<GfcDbContext> DbFactory
-@inject ILogger<Studio> Logger
+@using System.Text.Json
 @using GFC.Core.Models
-@using GFC.BlazorServer.Data
-@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Services
+@inject IJSRuntime JSRuntime
+@inject IStudioService StudioService
+@inject ILogger<Studio> Logger
+@inject NavigationManager NavigationManager
 
 <div class="studio-container">
     <div class="top-command-bar">
         <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
-        <button class="btn btn-success" @onclick="SavePage">Save Page</button>
+        <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
+        <button class="btn btn-info" @onclick="PublishPage">Publish</button>
         <div class="viewport-toggle">
             <button class="btn @(currentViewport == "desktop" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("desktop")'>Desktop</button>
             <button class="btn @(currentViewport == "tablet" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("tablet")'>Tablet</button>
@@ -76,7 +77,7 @@
     [Parameter]
     public int PageId { get; set; }
 
-    private StudioPage page;
+    private StudioDraft draft;
     private List<StudioSection> sections = new();
     private StudioSection selectedSection;
     private string lastWizardAction = "";
@@ -89,23 +90,30 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            if (PageId > 0)
+            if (PageId == 0)
             {
-                page = await db.StudioPages
-                    .Include(p => p.Sections)
-                    .FirstOrDefaultAsync(p => p.Id == PageId);
+                // Redirect or show an error if no PageId is provided
+                errorMessage = "No page specified. Please select a page to edit.";
+                return;
             }
 
-            if (page == null)
+            draft = await StudioService.GetDraftAsync(PageId);
+
+            if (draft == null)
             {
-                page = new StudioPage { Title = "New Page" };
-                db.StudioPages.Add(page);
-                await db.SaveChangesAsync();
-                PageId = page.Id;
+                draft = new StudioDraft
+                {
+                    PageId = PageId,
+                    ContentSnapshotJson = "[]", // Start with an empty array of sections
+                    CreatedBy = "System", // TODO: Replace with actual user
+                    CreatedAt = DateTime.UtcNow
+                };
             }
 
-            sections = page.Sections.OrderBy(s => s.PageIndex).ToList();
+            if (!string.IsNullOrEmpty(draft.ContentSnapshotJson))
+            {
+                sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson);
+            }
         }
         catch (Exception ex)
         {
@@ -188,18 +196,32 @@
         }
     }
 
-    private async Task SavePage()
+    private async Task SaveDraft()
     {
-        try 
+        try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            db.Update(page);
-            await db.SaveChangesAsync();
+            draft.ContentSnapshotJson = JsonSerializer.Serialize(sections);
+            await StudioService.SaveDraftAsync(draft);
+            // Optionally, provide user feedback, e.g., a toast notification
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to save page");
-            errorMessage = "Failed to save: " + ex.Message;
+            Logger.LogError(ex, "Failed to save draft");
+            errorMessage = "Failed to save draft: " + ex.Message;
+        }
+    }
+
+    private async Task PublishPage()
+    {
+        try
+        {
+            await SaveDraft();
+            await StudioService.PublishDraftAsync(draft.PageId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to publish page");
+            errorMessage = "Failed to publish page: " + ex.Message;
         }
     }
 
@@ -215,13 +237,13 @@
     {
         var newSection = new StudioSection
         {
+            ClientId = Guid.NewGuid(),
             Title = "New Section",
             Content = "New Section",
             PageIndex = sections.Count,
-            StudioPageId = page.Id
+            StudioPageId = PageId,
         };
         sections.Add(newSection);
-        page.Sections.Add(newSection);
     }
 
     [JSInvokable]
