@@ -105,16 +105,16 @@ BEGIN
 END
 GO
 
--- Step 4: Insert sample staff members (optional - remove if not needed)
+-- Step 4: Insert sample bartenders (optional - remove if not needed)
 IF NOT EXISTS (SELECT * FROM [dbo].[StaffMembers])
 BEGIN
     INSERT INTO [dbo].[StaffMembers] ([Name], [Role], [IsActive], [HireDate])
     VALUES 
         ('John Smith', 'Bartender', 1, GETUTCDATE()),
-        ('Sarah Johnson', 'Manager', 1, GETUTCDATE()),
-        ('Mike Davis', 'Server', 1, GETUTCDATE());
+        ('Sarah Johnson', 'Bartender', 1, GETUTCDATE()),
+        ('Mike Davis', 'Bartender', 1, GETUTCDATE());
     
-    PRINT 'Inserted sample staff members';
+    PRINT 'Inserted sample bartenders';
 END
 GO
 
