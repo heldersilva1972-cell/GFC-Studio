@@ -66,6 +66,7 @@ public class GfcDbContext : DbContext
     public DbSet<AvailabilityCalendar> AvailabilityCalendars => Set<AvailabilityCalendar>();
     public DbSet<EventPromotion> EventPromotions => Set<EventPromotion>();
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
+    public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

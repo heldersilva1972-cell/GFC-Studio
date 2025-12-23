@@ -30,5 +30,7 @@ namespace GFC.Core.Models
         public DateTime RequestedDate { get; set; }
 
         public string Status { get; set; } // e.g., Pending, Approved, Denied
+
+        public decimal CalculatedRate { get; set; }
     }
 }

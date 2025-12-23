@@ -166,6 +166,7 @@ public class Program
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
+        builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
