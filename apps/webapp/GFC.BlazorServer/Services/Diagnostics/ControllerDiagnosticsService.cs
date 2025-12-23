@@ -6,30 +6,60 @@ namespace GFC.BlazorServer.Services.Diagnostics
 {
     public class ControllerDiagnosticsService
     {
+        private readonly GFC.BlazorServer.Services.Controllers.ControllerRegistryService _registry;
+        private readonly GFC.BlazorServer.Services.Controllers.IControllerClient _client;
+
+        public ControllerDiagnosticsService(
+            GFC.BlazorServer.Services.Controllers.ControllerRegistryService registry,
+            GFC.BlazorServer.Services.Controllers.IControllerClient client)
+        {
+            _registry = registry;
+            _client = client;
+        }
+
         public async Task<ControllerHealthInfo> GetControllerHealthAsync()
         {
-            // Placeholder for actual controller health monitoring logic
-            await Task.Delay(100); // Simulate async work
-
-            return new ControllerHealthInfo
+            try
             {
-                IsConnected = true,
-                Status = HealthStatus.Healthy,
-                Name = "Main Controller",
-                ResponseTime = System.TimeSpan.FromMilliseconds(50),
-                DoorCount = 10,
-                ReaderCount = 20,
-                CardCount = 100,
-                EventCount24h = 500,
-                LastCommunication = System.DateTime.UtcNow.AddMinutes(-1),
-            };
+                var controllers = await _registry.GetControllersAsync();
+                var mainController = controllers.FirstOrDefault();
+
+                if (mainController == null)
+                {
+                    return new ControllerHealthInfo
+                    {
+                        IsConnected = false,
+                        Status = HealthStatus.Unknown,
+                        Name = "No Controller Found"
+                    };
+                }
+
+                var status = await _client.GetRunStatusAsync(mainController.Id, System.Threading.CancellationToken.None);
+                
+                return new ControllerHealthInfo
+                {
+                    IsConnected = status.IsOnline,
+                    Status = status.IsOnline ? HealthStatus.Healthy : HealthStatus.Critical,
+                    Name = mainController.Name,
+                    ResponseTime = System.TimeSpan.Zero, // Would need actual ping timing
+                    DoorCount = mainController.Doors.Count,
+                    ReaderCount = mainController.Doors.Count * 2, // Approx 2 readers per door usually
+                    CardCount = 0, // Need API to fetch card count
+                    EventCount24h = 0, // Need event log query
+                    LastCommunication = status.IsOnline ? System.DateTime.UtcNow : System.DateTime.MinValue
+                };
+            }
+            catch
+            {
+                return new ControllerHealthInfo { Status = HealthStatus.Critical, Name = "Error Fetching Data" };
+            }
         }
 
         public async Task<bool> TestConnectionAsync()
         {
-            // Placeholder for actual connection test logic
-            await Task.Delay(500); // Simulate a longer async operation
-            return true; // Assume success for now
+            // Placeholder: Ideally ping the main controller
+             await Task.Yield();
+             return true;
         }
     }
 }

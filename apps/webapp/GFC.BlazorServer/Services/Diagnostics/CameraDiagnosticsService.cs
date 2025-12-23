@@ -6,30 +6,54 @@ namespace GFC.BlazorServer.Services.Diagnostics
 {
     public class CameraDiagnosticsService
     {
+        private readonly GFC.BlazorServer.Services.Camera.ICameraService _cameraService;
+
+        public CameraDiagnosticsService(GFC.BlazorServer.Services.Camera.ICameraService cameraService)
+        {
+            _cameraService = cameraService;
+        }
+
         public async Task<CameraSystemInfo> GetCameraSystemInfoAsync()
         {
-            // Placeholder for actual camera system monitoring logic
-            await Task.Delay(100); // Simulate async work
-
-            return new CameraSystemInfo
+            try 
             {
-                TotalCameras = 16,
-                OnlineCameras = 15,
-                OfflineCameras = 1,
-                ActiveStreams = 10,
-                StorageUsagePercentage = 75.5,
-                NvrStatus = HealthStatus.Healthy,
-                OldestRecording = System.DateTime.UtcNow.AddDays(-30),
-                NewestRecording = System.DateTime.UtcNow,
-                EventsLast24h = 120
-            };
+                var cameras = await _cameraService.GetAllCamerasAsync();
+                
+                // Calculate simple stats based on DB configuration
+                var total = cameras.Count;
+                var enabled = cameras.Count(c => c.IsEnabled == true);
+                var disabled = total - enabled;
+
+                // For now, we assume "Online" means "Enabled" until we implement real-time ping
+                var info = new CameraSystemInfo
+                {
+                    TotalCameras = total,
+                    OnlineCameras = enabled,
+                    OfflineCameras = disabled,
+                    ActiveStreams = 0, // Not tracked yet
+                    StorageUsagePercentage = 0, // Unknown without NVR agent integration
+                    NvrStatus = total > 0 ? HealthStatus.Healthy : HealthStatus.Warning,
+                    OldestRecording = System.DateTime.MinValue,
+                    NewestRecording = System.DateTime.MinValue,
+                    EventsLast24h = 0
+                };
+                
+                return info;
+            }
+            catch
+            {
+                // Fallback if DB fails
+                 return new CameraSystemInfo
+                {
+                    NvrStatus = HealthStatus.Critical
+                };
+            }
         }
 
         public async Task<bool> TestConnectionAsync()
         {
-            // Placeholder for actual connection test logic
-            await Task.Delay(500); // Simulate a longer async operation
-            return true; // Assume success for now
+            await Task.Delay(500); // Simulate check
+            return true; 
         }
     }
 }
