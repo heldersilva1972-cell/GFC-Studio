@@ -12,6 +12,24 @@
 
 <h3>Bartender Schedule</h3>
 
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <strong>Error:</strong> @errorMessage
+        <button type="button" class="btn-close" @onclick="() => errorMessage = string.Empty"></button>
+        <hr>
+        <p class="mb-0">
+            <strong>Possible solutions:</strong>
+        </p>
+        <ul class="mb-0">
+            <li>Run the database migration script: <code>Database_Migration_StaffManagement.sql</code></li>
+            <li>Check that the database connection is working</li>
+            <li>Verify that StaffMembers and StaffShifts tables exist</li>
+        </ul>
+    </div>
+}
+
 <!-- Staff Management Section -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -423,64 +441,120 @@
     private int selectedMemberId = 0;
     
     private ViewMode viewMode = ViewMode.Week;
+    private string errorMessage = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
-        // Start week on a Sunday
-        currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
-        await LoadData();
+        try
+        {
+            // Start week on a Sunday
+            currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error initializing page: {ex.Message}";
+            _isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadData()
     {
-        await LoadShifts();
-        await LoadStaffMembers();
-        await LoadActiveMembers();
+        try
+        {
+            await LoadShifts();
+            await LoadStaffMembers();
+            await LoadActiveMembers();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading data: {ex.Message}";
+            await ToastService.ShowError(errorMessage);
+        }
     }
 
     private async Task LoadShifts()
     {
-        _isLoading = true;
-        
-        if (viewMode == ViewMode.Week)
+        try
         {
-            weeklyShifts = (await ShiftService.GetShiftsForWeekAsync(currentDate)).ToList();
+            _isLoading = true;
+            
+            if (viewMode == ViewMode.Week)
+            {
+                weeklyShifts = (await ShiftService.GetShiftsForWeekAsync(currentDate)).ToList();
+            }
+            else
+            {
+                // Load entire month
+                var firstDayOfMonth = new DateTime(currentDate.Year, currentDate.Month, 1);
+                var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
+                
+                // Get first Sunday before or on first day of month
+                var startDate = firstDayOfMonth.AddDays(-(int)firstDayOfMonth.DayOfWeek);
+                // Get last Saturday after or on last day of month
+                var endDate = lastDayOfMonth.AddDays(6 - (int)lastDayOfMonth.DayOfWeek);
+                
+                monthlyShifts = (await ShiftService.GetShiftsForWeekAsync(startDate))
+                    .Where(s => s.Date >= startDate && s.Date <= endDate)
+                    .ToList();
+            }
+            
+            _isLoading = false;
         }
-        else
+        catch (Exception ex)
         {
-            // Load entire month
-            var firstDayOfMonth = new DateTime(currentDate.Year, currentDate.Month, 1);
-            var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
-            
-            // Get first Sunday before or on first day of month
-            var startDate = firstDayOfMonth.AddDays(-(int)firstDayOfMonth.DayOfWeek);
-            // Get last Saturday after or on last day of month
-            var endDate = lastDayOfMonth.AddDays(6 - (int)lastDayOfMonth.DayOfWeek);
-            
-            monthlyShifts = (await ShiftService.GetShiftsForWeekAsync(startDate))
-                .Where(s => s.Date >= startDate && s.Date <= endDate)
-                .ToList();
+            _isLoading = false;
+            errorMessage = $"Error loading shifts: {ex.Message}";
+            await ToastService.ShowError("Failed to load shifts. Please ensure the database tables exist.");
+            weeklyShifts = new List<StaffShift>();
+            monthlyShifts = new List<StaffShift>();
         }
-        
-        _isLoading = false;
-        StateHasChanged();
+        finally
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task LoadStaffMembers()
     {
-        staffMembers = (await ShiftService.GetAssignableStaffAsync()).ToList();
-        StateHasChanged();
+        try
+        {
+            staffMembers = (await ShiftService.GetAssignableStaffAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading staff members: {ex.Message}";
+            await ToastService.ShowError("Failed to load bartenders. Please ensure the database tables exist.");
+            staffMembers = new List<StaffMember>();
+        }
+        finally
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task LoadActiveMembers()
     {
-        await Task.Run(() =>
+        try
         {
-            activeMembers = MemberRepository.GetAllMembers()
-                .Where(m => m.Status == "Active")
-                .ToList();
-        });
-        StateHasChanged();
+            await Task.Run(() =>
+            {
+                activeMembers = MemberRepository.GetAllMembers()
+                    .Where(m => m.Status == "Active")
+                    .ToList();
+            });
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading members: {ex.Message}";
+            await ToastService.ShowError("Failed to load GFC members.");
+            activeMembers = new List<Member>();
+        }
+        finally
+        {
+            StateHasChanged();
+        }
     }
 
     // View Mode Methods
