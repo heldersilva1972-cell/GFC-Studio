@@ -162,6 +162,7 @@ public class Program
         builder.Services.AddScoped<ThemeService>();
 
         // GFC Ecosystem Foundation
+        builder.Services.AddSingleton<ToastService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IRentalService, RentalService>();

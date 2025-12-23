@@ -1,43 +1,72 @@
 // [NEW]
 @page "/admin/rental-management"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "RequireAdmin")]
 @using GFC.Core.Models
 @using GFC.BlazorServer.Services
-@using GFC.BlazorServer.Components.Shared
 @inject IRentalService RentalService
+@inject ToastService ToastService
+@inject IJSRuntime JSRuntime
 
-<h3>Hall Rental Management <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
+<h3>Hall Rental Management</h3>
 
-@if (!string.IsNullOrEmpty(_errorMessage))
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
+<div class="card">
+    <div class="card-header">
+        Filters
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4">
+                <label for="statusFilter">Status</label>
+                <InputSelect id="statusFilter" class="form-control" @bind-Value="selectedStatus">
+                    <option value="">All</option>
+                    <option value="@RentalStatus.Pending">Pending</option>
+                    <option value="@RentalStatus.Approved">Approved</option>
+                    <option value="@RentalStatus.Denied">Denied</option>
+                </InputSelect>
+            </div>
+            <div class="col-md-4">
+                <label for="startDate">Start Date</label>
+                <InputDate id="startDate" class="form-control" @bind-Value="startDate" />
+            </div>
+            <div class="col-md-4">
+                <label for="endDate">End Date</label>
+                <InputDate id="endDate" class="form-control" @bind-Value="endDate" />
+            </div>
+        </div>
+        <button class="btn btn-primary mt-2" @onclick="ApplyFilters">Apply</button>
+        <button class="btn btn-secondary mt-2" @onclick="ClearFilters">Clear</button>
+    </div>
+</div>
 
-@if (_rentalRequests == null)
+@if (_isLoading)
 {
     <p><em>Loading...</em></p>
 }
 else
 {
-    <table class="table table-striped">
+    <table class="table table-striped mt-4">
         <thead>
             <tr>
-                <th>Requester Name</th>
+                <th>Applicant</th>
                 <th>Requested Date</th>
                 <th>Status</th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody>
-            @foreach (var request in _rentalRequests)
+            @foreach (var request in filteredRequests)
             {
                 <tr>
-                    <td>@request.RequesterName</td>
+                    <td>@request.ApplicantName</td>
                     <td>@request.RequestedDate.ToShortDateString()</td>
-                    <td>@request.Status</td>
+                    <td><span class="badge @GetStatusBadgeClass(request.Status)">@request.Status</span></td>
                     <td>
-                        <button class="btn btn-primary btn-sm" @onclick="() => ShowDetailsModal(request)">Details</button>
-                        <button class="btn btn-success btn-sm" @onclick="() => UpdateRequestStatus(request, RentalStatus.Approved)">Approve</button>
-                        <button class="btn btn-danger btn-sm" @onclick="() => UpdateRequestStatus(request, RentalStatus.Denied)">Deny</button>
+                        <button class="btn btn-sm btn-info" @onclick="() => ViewRequestDetails(request)">Details</button>
+                        @if (request.Status == RentalStatus.Pending)
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="() => ApproveRequest(request)">Approve</button>
+                            <button class="btn btn-sm btn-danger" @onclick="() => DenyRequest(request)">Deny</button>
+                        }
                     </td>
                 </tr>
             }
@@ -45,59 +74,190 @@ else
     </table>
 }
 
-<RentalRequestDetailsModal @ref="_detailsModal" Request="_selectedRequest" OnClose="@(() => { _selectedRequest = null; StateHasChanged(); })" />
+
+@if (selectedRequest != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block;" role="dialog">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Rental Request Details</h5>
+                    <button type="button" class="btn-close" @onclick="CloseDetailsModal"></button>
+                </div>
+                <div class="modal-body">
+                    <p><strong>Applicant:</strong> @selectedRequest.ApplicantName</p>
+                    <p><strong>Date:</strong> @selectedRequest.RequestedDate.ToShortDateString()</p>
+                    <p><strong>Status:</strong> @selectedRequest.Status</p>
+                    <div class="mb-3">
+                        <label for="internalNotes" class="form-label">Internal Notes</label>
+                        <textarea id="internalNotes" class="form-control" rows="3" @bind="selectedRequest.InternalNotes"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseDetailsModal">Close</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveChanges">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <button class="btn btn-secondary" @onclick="() => ChangeMonth(-1)">‹</button>
+        <h5 class="mb-0">@currentMonth.ToString("MMMM yyyy")</h5>
+        <button class="btn btn-secondary" @onclick="() => ChangeMonth(1)">›</button>
+    </div>
+    <div class="card-body">
+        <div class="d-grid" style="grid-template-columns: repeat(7, 1fr);">
+            @foreach (var day in new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" })
+            {
+                <div class="text-center fw-bold p-2">@day</div>
+            }
+            @for (int i = 0; i < firstDayOfMonthOffset; i++)
+            {
+                <div class="border p-2"></div>
+            }
+            @for (int day = 1; day <= daysInMonth; day++)
+            {
+                var currentDate = new DateTime(currentMonth.Year, currentMonth.Month, day);
+                var isBooked = approvedRentals.Any(r => r.RequestedDate.Date == currentDate.Date);
+                <div class="border p-2 text-center calendar-day @(isBooked ? "booked" : "")">
+                    @day
+                </div>
+            }
+        </div>
+    </div>
+</div>
 
 @code {
-    private IEnumerable<HallRentalRequest> _rentalRequests;
-    private RentalRequestDetailsModal _detailsModal;
-    private HallRentalRequest _selectedRequest;
-    private string _errorMessage;
+    private bool _isLoading = true;
+    private List<HallRentalRequest> allRequests = new();
+    private List<HallRentalRequest> filteredRequests = new();
+    private HallRentalRequest selectedRequest;
+    private List<HallRentalRequest> approvedRentals = new();
+
+    private DateTime currentMonth = DateTime.Today;
+    private int firstDayOfMonthOffset = 0;
+    private int daysInMonth = 0;
+
+    private string selectedStatus = "";
+    private DateTime? startDate;
+    private DateTime? endDate;
 
     protected override async Task OnInitializedAsync()
     {
-        _rentalRequests = await RentalService.GetRentalRequestsAsync();
+        await LoadRequests();
+        await LoadApprovedRentals();
+        RenderCalendar();
     }
 
-    private void ShowDetailsModal(HallRentalRequest request)
+    private async Task LoadRequests()
     {
-        _selectedRequest = request;
-        _detailsModal.Show();
+        _isLoading = true;
+        allRequests = (await RentalService.GetRentalRequestsAsync()).ToList();
+        ApplyFilters();
+        _isLoading = false;
+        StateHasChanged();
     }
 
-    private async Task UpdateRequestStatus(HallRentalRequest request, string status)
+    private async Task LoadApprovedRentals()
     {
-        _errorMessage = null;
-        var originalStatus = request.Status;
-        request.Status = status;
+        approvedRentals = (await RentalService.GetApprovedRentalsAsync()).ToList();
+    }
 
-        var success = await RentalService.UpdateRentalRequestAsync(request);
+    private void RenderCalendar()
+    {
+        daysInMonth = DateTime.DaysInMonth(currentMonth.Year, currentMonth.Month);
+        var firstDayOfMonth = new DateTime(currentMonth.Year, currentMonth.Month, 1);
+        firstDayOfMonthOffset = (int)firstDayOfMonth.DayOfWeek;
+    }
 
+    private void ChangeMonth(int direction)
+    {
+        currentMonth = currentMonth.AddMonths(direction);
+        RenderCalendar();
+        StateHasChanged();
+    }
+
+    private void ApplyFilters()
+    {
+        filteredRequests = allRequests;
+
+        if (!string.IsNullOrEmpty(selectedStatus))
+        {
+            filteredRequests = filteredRequests.Where(r => r.Status == selectedStatus).ToList();
+        }
+
+        if (startDate.HasValue)
+        {
+            filteredRequests = filteredRequests.Where(r => r.RequestedDate.Date >= startDate.Value.Date).ToList();
+        }
+
+        if (endDate.HasValue)
+        {
+            filteredRequests = filteredRequests.Where(r => r.RequestedDate.Date <= endDate.Value.Date).ToList();
+        }
+        StateHasChanged();
+    }
+
+    private async Task ClearFilters()
+    {
+        selectedStatus = "";
+        startDate = null;
+        endDate = null;
+        await LoadRequests();
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        RentalStatus.Approved => "bg-success",
+        RentalStatus.Denied => "bg-danger",
+        RentalStatus.Pending => "bg-warning",
+        _ => "bg-secondary"
+    };
+
+    private void ViewRequestDetails(HallRentalRequest request)
+    {
+        selectedRequest = request;
+        StateHasChanged();
+    }
+
+    private void CloseDetailsModal()
+    {
+        selectedRequest = null;
+        StateHasChanged();
+    }
+
+    private async Task SaveChanges()
+    {
+        if (selectedRequest != null)
+        {
+            await RentalService.UpdateRentalRequestAsync(selectedRequest);
+            CloseDetailsModal();
+            await LoadRequests();
+        }
+    }
+
+    private async Task ApproveRequest(HallRentalRequest request)
+    {
+        var success = await RentalService.ApproveRentalRequestAsync(request.Id, "Approved via admin panel.");
         if (success)
         {
-            if (status == RentalStatus.Approved)
-            {
-                await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Booked");
-            }
-            else if (originalStatus == RentalStatus.Approved && status == RentalStatus.Denied) // If an approved request is now denied
-            {
-                // Check if any OTHER request for that date is still approved.
-                var otherApprovedRequests = _rentalRequests.Any(r => r.Id != request.Id
-                                                                 && r.RequestedDate.Date == request.RequestedDate.Date
-                                                                 && r.Status == RentalStatus.Approved);
-                if (!otherApprovedRequests)
-                {
-                    // Only free up the slot if no other approved requests exist for that day.
-                    await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Available");
-                }
-            }
+            await ToastService.ShowToastAsync($"Request for {request.ApplicantName} approved.", ToastLevel.Success);
         }
         else
         {
-            // Revert the status on the UI and show an error
-            request.Status = originalStatus;
-            _errorMessage = $"Could not approve the request for {request.RequesterName} on {request.RequestedDate.ToShortDateString()} because the date is already booked.";
+            await ToastService.ShowToastAsync("Failed to approve request. The date is already booked.", ToastLevel.Error);
         }
+        await LoadRequests();
+    }
 
-        StateHasChanged();
+    private async Task DenyRequest(HallRentalRequest request)
+    {
+        await RentalService.DenyRentalRequestAsync(request.Id, "Denied via admin panel.");
+        await ToastService.ShowToastAsync($"Request for {request.ApplicantName} denied.", ToastLevel.Info);
+        await LoadRequests();
     }
 }

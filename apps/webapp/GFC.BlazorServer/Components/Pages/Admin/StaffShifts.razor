@@ -1,52 +1,237 @@
 // [NEW]
 @page "/admin/staff-shifts"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "RequireAdmin")]
 @using GFC.Core.Models
 @using GFC.BlazorServer.Services
 @inject IShiftService ShiftService
+@inject ToastService ToastService
+@inject IJSRuntime JSRuntime
 
-<h3>Staff Shifts <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
+<h3>Staff Shift Scheduler</h3>
 
-@if (_shifts == null)
+<div class="card">
+    <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <button class="btn btn-primary" @onclick="() => ChangeWeek(-7)">Previous Week</button>
+            <h4>@currentDate.ToString("MMMM yyyy")</h4>
+            <button class="btn btn-primary" @onclick="() => ChangeWeek(7)">Next Week</button>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (_isLoading)
+        {
+            <p><em>Loading shifts...</em></p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-bordered text-center">
+                    <thead>
+                        <tr>
+                            @for (int i = 0; i < 7; i++)
+                            {
+                                <th scope="col">@currentDate.AddDays(i).ToString("ddd, MMM dd")</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            @for (int i = 0; i < 7; i++)
+                            {
+                                var day = currentDate.AddDays(i);
+                                var dayShift = weeklyShifts.FirstOrDefault(s => s.ShiftDate.Date == day.Date && s.ShiftType == "Day");
+                                <td>
+                                    <strong>Day Shift</strong><br>
+                                    @if (dayShift != null)
+                                    {
+                                        <div class="shift-card" @onclick="() => ViewShiftDetails(dayShift)">
+                                            @dayShift.StaffName
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-success" @onclick="() => AssignShift(day, "Day")">+ Assign</button>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                        <tr>
+                            @for (int i = 0; i < 7; i++)
+                            {
+                                var day = currentDate.AddDays(i);
+                                var nightShift = weeklyShifts.FirstOrDefault(s => s.ShiftDate.Date == day.Date && s.ShiftType == "Night");
+                                <td>
+                                    <strong>Night Shift</strong><br>
+                                    @if (nightShift != null)
+                                    {
+                                        <div class="shift-card" @onclick="() => ViewShiftDetails(nightShift)">
+                                            @nightShift.StaffName
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-success" @onclick="() => AssignShift(day, "Night")">+ Assign</button>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+     <div class="card-footer">
+        <button class="btn btn-info" @onclick="ExportReports">Export Shift Reports</button>
+    </div>
+</div>
+
+@if (showAssignmentModal)
 {
-    <p><em>Loading...</em></p>
+    <div class="modal fade show" tabindex="-1" style="display: block;" role="dialog">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Assign Shift</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Assigning shift for <strong>@newShift.ShiftDate.ToShortDateString() (@newShift.ShiftType shift)</strong></p>
+                    <div class="mb-3">
+                        <label for="staffMember" class="form-label">Staff Member</label>
+                        <InputText id="staffMember" class="form-control" @bind-Value="newShift.StaffName" />
+                    </div>
+                     <div class="mb-3">
+                        <label for="shiftRole" class="form-label">Role</label>
+                        <InputText id="shiftRole" class="form-control" @bind-Value="newShift.Role" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModals">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveShiftAssignment">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
 }
-else
+
+@if (selectedShiftReport != null)
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Staff Name</th>
-                <th>Start Time</th>
-                <th>End Time</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var shift in _shifts)
-            {
-                <tr>
-                    <td>@shift.StaffName</td>
-                    <td>@shift.StartTime.ToString("g")</td>
-                    <td>@shift.EndTime.ToString("g")</td>
-                    <td>
-                        <button class="btn btn-primary btn-sm" @onclick="() => ViewShiftReport(shift)">View Report</button>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <div class="modal fade show" tabindex="-1" style="display: block;" role="dialog">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Shift Report</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body">
+                    <p><strong>Staff:</strong> @selectedShiftReport.Shift.StaffName</p>
+                    <p><strong>Date:</strong> @selectedShiftReport.Shift.ShiftDate.ToShortDateString()</p>
+                    <p><strong>Shift:</strong> @selectedShiftReport.Shift.ShiftType</p>
+                    <hr />
+                    <h6>Report Details</h6>
+                    <p>@selectedShiftReport.ReportContent</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModals">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
 }
 
 @code {
-    private IEnumerable<StaffShift> _shifts;
+    private bool _isLoading = true;
+    private DateTime currentDate = DateTime.Today;
+    private List<StaffShift> weeklyShifts = new();
+
+    private bool showAssignmentModal = false;
+    private StaffShift newShift;
+    private ShiftReport selectedShiftReport;
 
     protected override async Task OnInitializedAsync()
     {
-        _shifts = await ShiftService.GetStaffShiftsAsync();
+        // Start week on a Sunday
+        currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
+        await LoadShifts();
     }
 
-    private void ViewShiftReport(StaffShift shift)
+    private async Task LoadShifts()
     {
-        // TODO: Implement a modal to display the shift report
+        _isLoading = true;
+        weeklyShifts = (await ShiftService.GetShiftsForWeekAsync(currentDate)).ToList();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ChangeWeek(int days)
+    {
+        currentDate = currentDate.AddDays(days);
+        await LoadShifts();
+    }
+
+    private void AssignShift(DateTime date, string shiftType)
+    {
+        newShift = new StaffShift { ShiftDate = date, ShiftType = shiftType };
+        showAssignmentModal = true;
+        StateHasChanged();
+    }
+
+    private async Task SaveShiftAssignment()
+    {
+        if (newShift != null)
+        {
+            await ShiftService.CreateStaffShiftAsync(newShift);
+            CloseModals();
+            await LoadShifts();
+        }
+    }
+
+    private async Task ViewShiftDetails(StaffShift shift)
+    {
+        selectedShiftReport = await ShiftService.GetShiftReportAsync(shift.Id);
+        if (selectedShiftReport == null)
+        {
+            // If no report, create a dummy one for display
+            selectedShiftReport = new ShiftReport { Shift = shift, ReportContent = "No report submitted for this shift." };
+        }
+        StateHasChanged();
+    }
+
+    private void CloseModals()
+    {
+        showAssignmentModal = false;
+        newShift = null;
+        selectedShiftReport = null;
+        StateHasChanged();
+    }
+
+    private async Task ExportReports()
+    {
+        var reports = await ShiftService.GetShiftReportsForExportAsync(currentDate, currentDate.AddDays(6));
+        if (!reports.Any())
+        {
+            await ToastService.ShowToastAsync("No shift reports available for the current week.", ToastLevel.Warning);
+            return;
+        }
+
+        var csvBuilder = new System.Text.StringBuilder();
+        csvBuilder.AppendLine("ShiftDate,ShiftType,StaffMember,ReportContent");
+
+        foreach (var report in reports)
+        {
+            var date = report.Shift.ShiftDate.ToString("yyyy-MM-dd");
+            var type = report.Shift.ShiftType;
+            var staff = report.Shift.StaffName;
+            var content = $"\"{report.ReportContent.Replace("\"", "\"\"")}\""; // Escape quotes
+            csvBuilder.AppendLine($"{date},{type},{staff},{content}");
+        }
+
+        var csvBytes = System.Text.Encoding.UTF8.GetBytes(csvBuilder.ToString());
+        var base64 = System.Convert.ToBase64String(csvBytes);
+
+        var fileName = $"ShiftReports_{currentDate:yyyy-MM-dd}.csv";
+        await JSRuntime.InvokeVoidAsync("saveAsFile", fileName, base64);
     }
 }
