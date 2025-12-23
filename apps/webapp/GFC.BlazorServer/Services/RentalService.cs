@@ -97,7 +97,7 @@ namespace GFC.BlazorServer.Services
             await _context.SaveChangesAsync();
 
             // Fire and forget email notification
-            _ = _notificationService.SendRentalDenialEmailAsync(request.Id);
+            _ = _notificationService.SendRentalDenialEmailAsync(request, "Request denied by administrator");
 
             return true;
         }
