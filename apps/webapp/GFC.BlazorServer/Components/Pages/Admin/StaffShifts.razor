@@ -4,8 +4,9 @@
 @using GFC.Core.Models
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Interfaces
 @inject IShiftService ShiftService
-@inject IMemberService MemberService
+@inject IMemberRepository MemberRepository
 @inject ToastService ToastService
 @inject IJSRuntime JSRuntime
 
@@ -399,6 +400,13 @@
 }
 
 @code {
+    // View mode enum
+    public enum ViewMode
+    {
+        Week,
+        Month
+    }
+
     private bool _isLoading = true;
     private DateTime currentDate = DateTime.Today;
     private List<StaffShift> weeklyShifts = new();
@@ -466,7 +474,12 @@
 
     private async Task LoadActiveMembers()
     {
-        activeMembers = (await MemberService.GetActiveMembersAsync()).ToList();
+        await Task.Run(() =>
+        {
+            activeMembers = MemberRepository.GetAllMembers()
+                .Where(m => m.Status == "Active")
+                .ToList();
+        });
         StateHasChanged();
     }
 
@@ -746,19 +759,30 @@
     private async Task ExportReports()
     {
         var reports = await ShiftService.GetShiftReportsForExportAsync(currentDate, currentDate.AddDays(7));
+        
+        if (!reports.Any())
+        {
+            await ToastService.ShowWarning("No shift reports available for export");
+            return;
+        }
+
+        var csvBuilder = new System.Text.StringBuilder();
+        csvBuilder.AppendLine("Date,ShiftType,Bartender,BarSales,LottoSales,TotalDeposit,SubmittedAt,Status");
+        
         foreach (var report in reports)
         {
             var date = report.StaffShift.Date.ToString("yyyy-MM-dd");
             var type = report.StaffShift.ShiftType == 1 ? "Day" : "Night";
             var staff = report.StaffShift.StaffName;
-            var sales = $"Bar: {report.BarSales:C}, Lotto: {report.LottoSales:C}, Total: {report.TotalDeposit:C}";
-            csvBuilder.AppendLine($"{date},{type},{staff},\"{sales}\"");
+            var status = report.IsLate ? "Late" : "On Time";
+            csvBuilder.AppendLine($"{date},{type},{staff},{report.BarSales},{report.LottoSales},{report.TotalDeposit},{report.SubmittedAt:yyyy-MM-dd HH:mm},{status}");
         }
 
         var csvBytes = System.Text.Encoding.UTF8.GetBytes(csvBuilder.ToString());
         var base64 = System.Convert.ToBase64String(csvBytes);
 
-        var fileName = $"ShiftReports_{currentDate:yyyy-MM-dd}.csv";
+        var fileName = $"BartenderShiftReports_{currentDate:yyyy-MM-dd}.csv";
         await JSRuntime.InvokeVoidAsync("saveAsFile", fileName, base64);
+        await ToastService.ShowSuccess($"Exported {reports.Count()} shift reports");
     }
 }
