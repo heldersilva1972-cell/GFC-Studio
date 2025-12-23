@@ -6,11 +6,11 @@ namespace GFC.BlazorServer.Services.Diagnostics
 {
     public class ControllerDiagnosticsService
     {
-        private readonly GFC.BlazorServer.Services.Controllers.ControllerRegistryService _registry;
+        private readonly GFC.BlazorServer.Services.ControllerRegistryService _registry;
         private readonly GFC.BlazorServer.Services.Controllers.IControllerClient _client;
 
         public ControllerDiagnosticsService(
-            GFC.BlazorServer.Services.Controllers.ControllerRegistryService registry,
+            GFC.BlazorServer.Services.ControllerRegistryService registry,
             GFC.BlazorServer.Services.Controllers.IControllerClient client)
         {
             _registry = registry;
