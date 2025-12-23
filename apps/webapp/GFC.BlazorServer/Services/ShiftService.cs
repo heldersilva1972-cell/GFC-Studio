@@ -64,7 +64,11 @@ namespace GFC.BlazorServer.Services
             {
                 if (shift.StaffMember != null)
                 {
-                    shift.StaffName = shift.StaffMember.Name;
+                    shift.StaffName = shift.StaffMember.Name ?? "Unknown";
+                }
+                else
+                {
+                    shift.StaffName = "Unassigned";
                 }
             }
 
@@ -74,10 +78,25 @@ namespace GFC.BlazorServer.Services
         public async Task<IEnumerable<StaffShift>> GetShiftsForWeekAsync(System.DateTime startDate)
         {
             var endDate = startDate.AddDays(7);
-            return await _context.StaffShifts
+            var shifts = await _context.StaffShifts
                 .Include(s => s.StaffMember)
                 .Where(s => s.Date >= startDate && s.Date < endDate)
                 .ToListAsync();
+
+            // Populate StaffName from StaffMember
+            foreach (var shift in shifts)
+            {
+                if (shift.StaffMember != null)
+                {
+                    shift.StaffName = shift.StaffMember.Name ?? "Unknown";
+                }
+                else
+                {
+                    shift.StaffName = "Unassigned";
+                }
+            }
+
+            return shifts;
         }
 
         public async Task<IEnumerable<ShiftReport>> GetShiftReportsForExportAsync(System.DateTime startDate, System.DateTime endDate)
