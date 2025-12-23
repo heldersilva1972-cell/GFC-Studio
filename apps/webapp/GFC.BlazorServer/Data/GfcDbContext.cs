@@ -1,4 +1,6 @@
+// [MODIFIED]
 using GFC.BlazorServer.Data.Entities;
+using GFC.Core.Models;
 using GFC.Core.Models.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 
@@ -52,6 +54,15 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
     public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
+
+    // GFC Ecosystem Foundation
+    public DbSet<StudioPage> StudioPages => Set<StudioPage>();
+    public DbSet<StudioSection> StudioSections => Set<StudioSection>();
+    public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
+    public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
+    public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
+    public DbSet<ShiftReport> ShiftReports => Set<ShiftReport>();
+    public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -415,6 +426,45 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        // GFC Ecosystem Foundation
+        modelBuilder.Entity<StudioPage>(entity =>
+        {
+            entity.ToTable("StudioPages");
+            entity.HasMany(p => p.Sections)
+                .WithOne(s => s.StudioPage)
+                .HasForeignKey(s => s.StudioPageId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StudioSection>(entity =>
+        {
+            entity.ToTable("StudioSections");
+        });
+
+        modelBuilder.Entity<StudioDraft>(entity =>
+        {
+            entity.ToTable("StudioDrafts");
+        });
+
+        modelBuilder.Entity<HallRentalRequest>(entity =>
+        {
+            entity.ToTable("HallRentalRequests");
+        });
+
+        modelBuilder.Entity<StaffShift>(entity =>
+        {
+            entity.ToTable("StaffShifts");
+        });
+
+        modelBuilder.Entity<ShiftReport>(entity =>
+        {
+            entity.ToTable("ShiftReports");
+        });
+
+        modelBuilder.Entity<SystemNotification>(entity =>
+        {
+            entity.ToTable("SystemNotifications");
+        });
     }
 
     private static IEnumerable<ControllerCommandInfo> GetCommandSeedData()
@@ -679,4 +729,3 @@ public class GfcDbContext : DbContext
         };
     }
 }
-
