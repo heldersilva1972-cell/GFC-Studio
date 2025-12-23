@@ -1,0 +1,329 @@
+<!-- [NEW] -->
+@page "/cameras/configure"
+@using GFC.Core.Models
+@inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
+@inject GFC.BlazorServer.Services.Camera.ICameraAuditLogService AuditLogService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@using GFC.BlazorServer.Services.Camera.Models
+@inject GFC.BlazorServer.Services.Camera.ICameraDiscoveryService DiscoveryService
+
+<PageTitle>Camera Configuration</PageTitle>
+
+<h1><i class="bi bi-gear-wide-connected"></i> Camera Configuration</h1>
+<p class="text-muted">Manage existing cameras and discover new ones on the network.</p>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h3>Managed Cameras</h3>
+    </div>
+    <div class="card-body">
+        <button class="btn btn-primary mb-3" @onclick="ShowAddModal">
+            <i class="bi bi-plus-circle"></i> Add Camera Manually
+        </button>
+
+        @if (_cameras == null)
+        {
+            <p><em>Loading...</em></p>
+        }
+        else
+        {
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Name</th>
+                        <th>IP Address / URL</th>
+                        <th>Manufacturer</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var cam in _cameras)
+                    {
+                        <tr>
+                            <td><span class="status-dot @(cam.IsEnabled ? "status-green" : "status-red")"></span></td>
+                            <td>@cam.Name</td>
+                            <td>@cam.RtspUrl</td>
+                            <td>@(cam.Manufacturer ?? "N/A")</td>
+                            <td>
+                                <button class="btn btn-sm btn-primary" @onclick="() => ShowEditModal(cam)"><i class="bi bi-pencil-fill"></i> Edit</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteCamera(cam.Id)"><i class="bi bi-trash-fill"></i> Remove</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Discover New Cameras</h3>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label for="networkRange" class="form-label">Network Range (CIDR)</label>
+                <input type="text" id="networkRange" class="form-control" @bind="_networkRange" placeholder="e.g., 192.168.1.0/24" />
+            </div>
+            <div class="col-md-3">
+                <label for="timeout" class="form-label">Timeout (seconds)</label>
+                <input type="number" id="timeout" class="form-control" @bind="_timeoutSeconds" min="10" max="120" />
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-secondary w-100" @onclick="StartDiscovery" disabled="@_isScanning">
+                    @if (_isScanning)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Scanning...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-radar me-2"></i>
+                        <span>Scan Network</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_discoveryErrorMessage))
+        {
+            <div class="alert alert-danger">@_discoveryErrorMessage</div>
+        }
+
+        @if (_discoveredCameras != null && _discoveredCameras.Any())
+        {
+            <h4>Discovered Cameras</h4>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>IP Address</th>
+                        <th>Manufacturer</th>
+                        <th>Model</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var camera in _discoveredCameras)
+                    {
+                        <tr>
+                            <td>@camera.IpAddress</td>
+                            <td>@camera.Manufacturer</td>
+                            <td>@camera.Model</td>
+                            <td>
+                                @if (camera.IsAlreadyAdded)
+                                {
+                                    <span class="badge bg-secondary">Already Added</span>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-success" @onclick="() => AddDiscoveredCamera(camera)">
+                                        <i class="bi bi-plus-circle"></i> Add to System
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else if (_isScanning)
+        {
+            <p><em>Scanning for cameras...</em></p>
+        }
+        else if (_discoveredCameras != null)
+        {
+            <p><em>No new cameras found on the network.</em></p>
+        }
+    </div>
+</div>
+
+@if (_showModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(_isEditMode ? "Edit" : "Add") Camera</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="@_camera" OnValidSubmit="SaveChanges">
+                        <DataAnnotationsValidator />
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Name</label>
+                            <InputText id="name" class="form-control" @bind-Value="_camera.Name" />
+                            <ValidationMessage For="@(() => _camera.Name)" />
+                        </div>
+                        <div class="mb-3">
+                            <label for="rtspUrl" class="form-label">RTSP URL</label>
+                            <InputText id="rtspUrl" class="form-control" @bind-Value="_camera.RtspUrl" />
+                            <ValidationMessage For="@(() => _camera.RtspUrl)" />
+                            <small class="form-text text-muted">Example: rtsp://192.168.1.100:554/stream1</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username</label>
+                            <InputText id="username" class="form-control" @bind-Value="_camera.Username" />
+                            <ValidationMessage For="@(() => _camera.Username)" />
+                        </div>
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <InputText id="password" type="password" class="form-control" @bind-Value="_camera.Password" />
+                            <ValidationMessage For="@(() => _camera.Password)" />
+                        </div>
+                         <div class="mb-3">
+                            <label for="manufacturer" class="form-label">Manufacturer</label>
+                            <InputText id="manufacturer" class="form-control" @bind-Value="_camera.Manufacturer" />
+                        </div>
+                        <div class="form-check mb-3">
+                            <input type="checkbox" id="isEnabled" class="form-check-input" @bind="_camera.IsEnabled" />
+                            <label for="isEnabled" class="form-check-label">Enabled</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+
+@code {
+    private List<Camera> _cameras;
+    private Camera _camera;
+    private bool _showModal = false;
+    private bool _isEditMode = false;
+    private int _currentUserId;
+
+    // Discovery properties
+    private List<DiscoveredCamera> _discoveredCameras;
+    private string _networkRange = "192.168.1.0/24";
+    private int _timeoutSeconds = 20;
+    private bool _isScanning = false;
+    private string _discoveryErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCameras();
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var userIdClaim = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _currentUserId = int.TryParse(userIdClaim, out var userId) ? userId : 0;
+    }
+
+    private async Task LoadCameras()
+    {
+        _cameras = await CameraService.GetAllCamerasAsync();
+    }
+
+    private void ShowAddModal()
+    {
+        _camera = new Camera { IsEnabled = true };
+        _isEditMode = false;
+        _showModal = true;
+    }
+
+    private void ShowEditModal(Camera camera)
+    {
+        _camera = new Camera { Id = camera.Id, Name = camera.Name, RtspUrl = camera.RtspUrl, IsEnabled = camera.IsEnabled, Username = camera.Username, Password = camera.Password, Manufacturer = camera.Manufacturer };
+        _isEditMode = true;
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+    }
+
+    private async Task SaveChanges()
+    {
+        if (_isEditMode)
+        {
+            await CameraService.UpdateCameraAsync(_camera);
+            await AuditLogService.LogActionAsync(_camera.Id, _currentUserId, "Camera Updated", $"Camera '{_camera.Name}' was updated.");
+        }
+        else
+        {
+            var newCam = await CameraService.CreateCameraAsync(_camera);
+            await AuditLogService.LogActionAsync(newCam.Id, _currentUserId, "Camera Created", $"Camera '{newCam.Name}' was created.");
+        }
+
+        CloseModal();
+        await LoadCameras();
+    }
+
+    private async Task DeleteCamera(int id)
+    {
+        var cam = _cameras.FirstOrDefault(c => c.Id == id);
+        if(cam != null)
+        {
+            await CameraService.DeleteCameraAsync(id);
+            await AuditLogService.LogActionAsync(id, _currentUserId, "Camera Deleted", $"Camera '{cam.Name}' was deleted.");
+            await LoadCameras();
+        }
+    }
+
+    private async Task StartDiscovery()
+    {
+        _isScanning = true;
+        _discoveryErrorMessage = null;
+        _discoveredCameras = new List<DiscoveredCamera>();
+        StateHasChanged();
+
+        try
+        {
+            await DiscoveryService.DiscoverCamerasAsync(_networkRange, _timeoutSeconds,
+                status => InvokeAsync(StateHasChanged),
+                camera =>
+                {
+                    // Check if camera is already managed
+                    camera.IsAlreadyAdded = _cameras.Any(c => c.IpAddress == camera.IpAddress);
+                    _discoveredCameras.Add(camera);
+                    InvokeAsync(StateHasChanged);
+                });
+        }
+        catch (Exception ex)
+        {
+            _discoveryErrorMessage = $"Discovery failed: {ex.Message}";
+        }
+        finally
+        {
+            _isScanning = false;
+            StateHasChanged();
+        }
+    }
+
+    private void AddDiscoveredCamera(DiscoveredCamera discoveredCamera)
+    {
+        _camera = new Camera
+        {
+            Name = discoveredCamera.Name ?? "New Camera",
+            RtspUrl = discoveredCamera.AvailableStreams.FirstOrDefault()?.RtspPath,
+            IpAddress = discoveredCamera.IpAddress,
+            Manufacturer = discoveredCamera.Manufacturer,
+            IsEnabled = true
+        };
+        _isEditMode = false;
+        _showModal = true;
+    }
+}
+<style>
+    .status-dot {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+
+    .status-green {
+        background-color: #28a745;
+    }
+
+    .status-red {
+        background-color: #dc3545;
+    }
+</style>
