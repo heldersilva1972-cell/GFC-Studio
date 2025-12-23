@@ -469,6 +469,26 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("SystemNotifications");
         });
+
+        modelBuilder.Entity<AvailabilityCalendar>(entity =>
+        {
+            entity.ToTable("AvailabilityCalendars");
+        });
+
+        modelBuilder.Entity<EventPromotion>(entity =>
+        {
+            entity.ToTable("EventPromotions");
+        });
+
+        modelBuilder.Entity<NavMenuEntry>(entity =>
+        {
+            entity.ToTable("NavMenuEntries");
+        });
+
+        modelBuilder.Entity<WebsiteSettings>(entity =>
+        {
+            entity.ToTable("WebsiteSettings");
+        });
     }
 
     private static IEnumerable<ControllerCommandInfo> GetCommandSeedData()
