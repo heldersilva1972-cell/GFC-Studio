@@ -2,6 +2,7 @@
 @page "/studio/{PageId:int}"
 @inject IJSRuntime JSRuntime
 @inject IDbContextFactory<GfcDbContext> DbFactory
+@inject ILogger<Studio> Logger
 @using GFC.Core.Models
 @using GFC.BlazorServer.Data
 @using Microsoft.EntityFrameworkCore
@@ -16,6 +17,16 @@
             <button class="btn @(currentViewport == "mobile" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("mobile")'>Mobile</button>
         </div>
     </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger m-3">
+            <h4>Error Loading Studio</h4>
+            <p>@errorMessage</p>
+            <pre>@errorDetails</pre>
+        </div>
+    }
+
     <div class="studio-workspace">
         <div class="left-toolbox">
             <p>Toolbox</p>
@@ -71,26 +82,37 @@
     private string lastWizardAction = "";
     private StudioSection lastUndoState;
     private string currentViewport = "desktop";
+    private string errorMessage;
+    private string errorDetails;
 
     protected override async Task OnInitializedAsync()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        if (PageId > 0)
+        try
         {
-            page = await db.StudioPages
-                .Include(p => p.Sections)
-                .FirstOrDefaultAsync(p => p.Id == PageId);
-        }
+            await using var db = await DbFactory.CreateDbContextAsync();
+            if (PageId > 0)
+            {
+                page = await db.StudioPages
+                    .Include(p => p.Sections)
+                    .FirstOrDefaultAsync(p => p.Id == PageId);
+            }
 
-        if (page == null)
+            if (page == null)
+            {
+                page = new StudioPage { Title = "New Page" };
+                db.StudioPages.Add(page);
+                await db.SaveChangesAsync();
+                PageId = page.Id;
+            }
+
+            sections = page.Sections.OrderBy(s => s.PageIndex).ToList();
+        }
+        catch (Exception ex)
         {
-            page = new StudioPage { Title = "New Page" };
-            db.StudioPages.Add(page);
-            await db.SaveChangesAsync();
-            PageId = page.Id;
+            Logger.LogError(ex, "Failed to initialize Studio");
+            errorMessage = ex.Message;
+            errorDetails = ex.ToString();
         }
-
-        sections = page.Sections.OrderBy(s => s.PageIndex).ToList();
     }
 
     private void setViewport(string viewport)
@@ -153,17 +175,32 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender && string.IsNullOrEmpty(errorMessage))
         {
-            await JSRuntime.InvokeVoidAsync("initializeDnd", DotNetObjectReference.Create(this));
+            try 
+            {
+                await JSRuntime.InvokeVoidAsync("initializeDnd", DotNetObjectReference.Create(this));
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize Drag and Drop");
+            }
         }
     }
 
     private async Task SavePage()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.Update(page);
-        await db.SaveChangesAsync();
+        try 
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.Update(page);
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save page");
+            errorMessage = "Failed to save: " + ex.Message;
+        }
     }
 
     private void AddKeyframe()
