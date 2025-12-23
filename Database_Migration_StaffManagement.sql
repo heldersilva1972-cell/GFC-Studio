@@ -11,6 +11,7 @@ BEGIN
         [Id] INT IDENTITY(1,1) NOT NULL,
         [Name] NVARCHAR(100) NOT NULL,
         [Role] NVARCHAR(50) NULL,
+        [MemberId] INT NULL, -- Optional link to existing GFC Member
         [PhoneNumber] NVARCHAR(20) NULL,
         [Email] NVARCHAR(100) NULL,
         [HourlyRate] DECIMAL(10,2) NULL,

@@ -19,6 +19,11 @@ namespace GFC.Core.Models
         [MaxLength(50)]
         public string? Role { get; set; }
 
+        /// <summary>
+        /// Optional link to an existing GFC Member
+        /// </summary>
+        public int? MemberId { get; set; }
+
         [MaxLength(20)]
         public string? PhoneNumber { get; set; }
 

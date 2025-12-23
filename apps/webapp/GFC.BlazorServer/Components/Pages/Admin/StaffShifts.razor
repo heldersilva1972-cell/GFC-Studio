@@ -3,18 +3,20 @@
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "RequireAdmin")]
 @using GFC.Core.Models
 @using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Data.Entities
 @inject IShiftService ShiftService
+@inject IMemberService MemberService
 @inject ToastService ToastService
 @inject IJSRuntime JSRuntime
 
-<h3>Staff Shift Scheduler</h3>
+<h3>Bartender Schedule</h3>
 
 <!-- Staff Management Section -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">Staff Roster</h5>
+        <h5 class="mb-0">Bartender Roster</h5>
         <button class="btn btn-success btn-sm" @onclick="OpenAddStaffModal">
-            <i class="bi bi-plus-circle"></i> Add Staff Member
+            <i class="bi bi-plus-circle"></i> Add Bartender
         </button>
     </div>
     <div class="card-body">
@@ -27,7 +29,12 @@
                         <div class="card">
                             <div class="card-body">
                                 <h6 class="card-title">@staff.Name</h6>
-                                <p class="card-text text-muted mb-2">@staff.Role</p>
+                                @if (staff.MemberId.HasValue)
+                                {
+                                    <p class="card-text text-muted mb-2">
+                                        <i class="bi bi-person-badge"></i> GFC Member
+                                    </p>
+                                }
                                 <div class="btn-group btn-group-sm">
                                     <button class="btn btn-outline-primary" @onclick="() => EditStaff(staff)">
                                         <i class="bi bi-pencil"></i> Edit
@@ -45,7 +52,7 @@
         else
         {
             <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> No staff members added yet. Click "Add Staff Member" to get started.
+                <i class="bi bi-info-circle"></i> No bartenders added yet. Click "Add Bartender" to get started.
             </div>
         }
     </div>
@@ -54,13 +61,21 @@
 <!-- Shift Schedule Section -->
 <div class="card">
     <div class="card-header">
-        <div class="d-flex justify-content-between align-items-center">
-            <button class="btn btn-primary" @onclick="() => ChangeWeek(-7)">
-                <i class="bi bi-chevron-left"></i> Previous Week
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <button class="btn btn-primary" @onclick="NavigatePrevious">
+                <i class="bi bi-chevron-left"></i> Previous @(viewMode == ViewMode.Week ? "Week" : "Month")
             </button>
-            <h4 class="mb-0">@currentDate.ToString("MMMM yyyy")</h4>
-            <button class="btn btn-primary" @onclick="() => ChangeWeek(7)">
-                Next Week <i class="bi bi-chevron-right"></i>
+            <h4 class="mb-0">@GetCurrentPeriodTitle()</h4>
+            <button class="btn btn-primary" @onclick="NavigateNext">
+                Next @(viewMode == ViewMode.Week ? "Week" : "Month") <i class="bi bi-chevron-right"></i>
+            </button>
+        </div>
+        <div class="btn-group w-100" role="group">
+            <button type="button" class="btn @(viewMode == ViewMode.Week ? "btn-primary" : "btn-outline-primary")" @onclick="() => SwitchView(ViewMode.Week)">
+                <i class="bi bi-calendar-week"></i> Week View
+            </button>
+            <button type="button" class="btn @(viewMode == ViewMode.Month ? "btn-primary" : "btn-outline-primary")" @onclick="() => SwitchView(ViewMode.Month)">
+                <i class="bi bi-calendar-month"></i> Month View
             </button>
         </div>
     </div>
@@ -76,64 +91,137 @@
         }
         else
         {
-            <div class="table-responsive">
-                <table class="table table-bordered text-center">
-                    <thead class="table-light">
-                        <tr>
-                            @for (int i = 0; i < 7; i++)
+            @if (viewMode == ViewMode.Week)
+            {
+                <!-- Week View -->
+                <div class="table-responsive">
+                    <table class="table table-bordered text-center">
+                        <thead class="table-light">
+                            <tr>
+                                @for (int i = 0; i < 7; i++)
+                                {
+                                    <th scope="col">@currentDate.AddDays(i).ToString("ddd, MMM dd")</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                @for (int i = 0; i < 7; i++)
+                                {
+                                    var day = currentDate.AddDays(i);
+                                    var dayShift = weeklyShifts.FirstOrDefault(s => s.Date.Date == day.Date && s.ShiftType == 1);
+                                    <td>
+                                        <strong class="text-primary">Day Shift</strong><br>
+                                        @if (dayShift != null)
+                                        {
+                                            <div class="shift-card mt-2 p-2 bg-light border rounded" @onclick="() => ViewShiftDetails(dayShift)" style="cursor: pointer;">
+                                                <i class="bi bi-person-fill"></i> @dayShift.StaffName
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-outline-success mt-2" @onclick="@(() => AssignDayShift(day))">
+                                                <i class="bi bi-plus-circle"></i> Assign
+                                            </button>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                            <tr>
+                                @for (int i = 0; i < 7; i++)
+                                {
+                                    var day = currentDate.AddDays(i);
+                                    var nightShift = weeklyShifts.FirstOrDefault(s => s.Date.Date == day.Date && s.ShiftType == 2);
+                                    <td>
+                                        <strong class="text-info">Night Shift</strong><br>
+                                        @if (nightShift != null)
+                                        {
+                                            <div class="shift-card mt-2 p-2 bg-light border rounded" @onclick="() => ViewShiftDetails(nightShift)" style="cursor: pointer;">
+                                                <i class="bi bi-moon-fill"></i> @nightShift.StaffName
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-outline-success mt-2" @onclick="@(() => AssignNightShift(day))">
+                                                <i class="bi bi-plus-circle"></i> Assign
+                                            </button>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <!-- Month View -->
+                <div class="month-calendar">
+                    <table class="table table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-center">Sunday</th>
+                                <th class="text-center">Monday</th>
+                                <th class="text-center">Tuesday</th>
+                                <th class="text-center">Wednesday</th>
+                                <th class="text-center">Thursday</th>
+                                <th class="text-center">Friday</th>
+                                <th class="text-center">Saturday</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var week in GetMonthWeeks())
                             {
-                                <th scope="col">@currentDate.AddDays(i).ToString("ddd, MMM dd")</th>
+                                <tr>
+                                    @foreach (var day in week)
+                                    {
+                                        var isCurrentMonth = day.Month == currentDate.Month;
+                                        var dayShift = monthlyShifts.FirstOrDefault(s => s.Date.Date == day.Date && s.ShiftType == 1);
+                                        var nightShift = monthlyShifts.FirstOrDefault(s => s.Date.Date == day.Date && s.ShiftType == 2);
+                                        
+                                        <td class="@(isCurrentMonth ? "" : "text-muted bg-light")" style="vertical-align: top; height: 120px;">
+                                            <div class="fw-bold mb-2">@day.Day</div>
+                                            @if (isCurrentMonth)
+                                            {
+                                                <div class="small">
+                                                    <div class="mb-1">
+                                                        @if (dayShift != null)
+                                                        {
+                                                            <div class="badge bg-primary text-truncate w-100" @onclick="() => ViewShiftDetails(dayShift)" style="cursor: pointer;">
+                                                                <i class="bi bi-sun"></i> @dayShift.StaffName
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button class="btn btn-sm btn-outline-primary w-100 py-0" @onclick="@(() => AssignDayShift(day))">
+                                                                <i class="bi bi-plus"></i> Day
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                    <div>
+                                                        @if (nightShift != null)
+                                                        {
+                                                            <div class="badge bg-info text-truncate w-100" @onclick="() => ViewShiftDetails(nightShift)" style="cursor: pointer;">
+                                                                <i class="bi bi-moon"></i> @nightShift.StaffName
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button class="btn btn-sm btn-outline-info w-100 py-0" @onclick="@(() => AssignNightShift(day))">
+                                                                <i class="bi bi-plus"></i> Night
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        </td>
+                                    }
+                                </tr>
                             }
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            @for (int i = 0; i < 7; i++)
-                            {
-                                var day = currentDate.AddDays(i);
-                                var dayShift = weeklyShifts.FirstOrDefault(s => s.Date.Date == day.Date && s.ShiftType == 1);
-                                <td>
-                                    <strong class="text-primary">Day Shift</strong><br>
-                                    @if (dayShift != null)
-                                    {
-                                        <div class="shift-card mt-2 p-2 bg-light border rounded" @onclick="() => ViewShiftDetails(dayShift)" style="cursor: pointer;">
-                                            <i class="bi bi-person-fill"></i> @dayShift.StaffName
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-outline-success mt-2" @onclick="@(() => AssignDayShift(day))">
-                                            <i class="bi bi-plus-circle"></i> Assign
-                                        </button>
-                                    }
-                                </td>
-                            }
-                        </tr>
-                        <tr>
-                            @for (int i = 0; i < 7; i++)
-                            {
-                                var day = currentDate.AddDays(i);
-                                var nightShift = weeklyShifts.FirstOrDefault(s => s.Date.Date == day.Date && s.ShiftType == 2);
-                                <td>
-                                    <strong class="text-info">Night Shift</strong><br>
-                                    @if (nightShift != null)
-                                    {
-                                        <div class="shift-card mt-2 p-2 bg-light border rounded" @onclick="() => ViewShiftDetails(nightShift)" style="cursor: pointer;">
-                                            <i class="bi bi-moon-fill"></i> @nightShift.StaffName
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-outline-success mt-2" @onclick="@(() => AssignNightShift(day))">
-                                            <i class="bi bi-plus-circle"></i> Assign
-                                        </button>
-                                    }
-                                </td>
-                            }
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+                        </tbody>
+                    </table>
+                </div>
+            }
         }
     </div>
      <div class="card-footer">
@@ -150,25 +238,44 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">@(editingStaff?.Id > 0 ? "Edit" : "Add") Staff Member</h5>
+                    <h5 class="modal-title">@(editingStaff?.Id > 0 ? "Edit" : "Add") Bartender</h5>
                     <button type="button" class="btn-close" @onclick="CloseModals"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="staffName" class="form-label">Name <span class="text-danger">*</span></label>
-                        <input type="text" id="staffName" class="form-control" @bind="editingStaff.Name" placeholder="Enter staff member name" />
+                        <label class="form-label">Bartender Type <span class="text-danger">*</span></label>
+                        <div class="btn-group w-100" role="group">
+                            <button type="button" class="btn @(selectedMemberId == 0 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectBartenderType(false)">
+                                <i class="bi bi-person-plus"></i> New Bartender
+                            </button>
+                            <button type="button" class="btn @(selectedMemberId > 0 ? "btn-primary" : "btn-outline-primary")" @onclick="() => SelectBartenderType(true)">
+                                <i class="bi bi-person-badge"></i> Existing Member
+                            </button>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="staffRole" class="form-label">Role</label>
-                        <select id="staffRole" class="form-select" @bind="editingStaff.Role">
-                            <option value="">Select role...</option>
-                            <option value="Bartender">Bartender</option>
-                            <option value="Manager">Manager</option>
-                            <option value="Server">Server</option>
-                            <option value="Cook">Cook</option>
-                            <option value="Cleaner">Cleaner</option>
-                        </select>
-                    </div>
+
+                    @if (selectedMemberId > 0)
+                    {
+                        <div class="mb-3">
+                            <label for="memberSelect" class="form-label">Select GFC Member <span class="text-danger">*</span></label>
+                            <select id="memberSelect" class="form-select" @bind="selectedMemberId" @bind:after="OnMemberSelected">
+                                <option value="0">-- Select a member --</option>
+                                @foreach (var member in activeMembers)
+                                {
+                                    <option value="@member.MemberId">@member.FirstName @member.LastName</option>
+                                }
+                            </select>
+                            <div class="form-text">Link this bartender position to an existing GFC member</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label for="staffName" class="form-label">Bartender Name <span class="text-danger">*</span></label>
+                            <input type="text" id="staffName" class="form-control" @bind="editingStaff.Name" placeholder="Enter bartender name" />
+                            <div class="form-text">For non-member bartenders</div>
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="CloseModals">Cancel</button>
@@ -295,7 +402,9 @@
     private bool _isLoading = true;
     private DateTime currentDate = DateTime.Today;
     private List<StaffShift> weeklyShifts = new();
+    private List<StaffShift> monthlyShifts = new();
     private List<StaffMember> staffMembers = new();
+    private List<Member> activeMembers = new();
 
     private bool showAssignmentModal = false;
     private bool showStaffModal = false;
@@ -303,6 +412,9 @@
     private ShiftReport selectedShiftReport;
     private StaffMember editingStaff = new();
     private int selectedStaffId = 0;
+    private int selectedMemberId = 0;
+    
+    private ViewMode viewMode = ViewMode.Week;
 
     protected override async Task OnInitializedAsync()
     {
@@ -315,12 +427,33 @@
     {
         await LoadShifts();
         await LoadStaffMembers();
+        await LoadActiveMembers();
     }
 
     private async Task LoadShifts()
     {
         _isLoading = true;
-        weeklyShifts = (await ShiftService.GetShiftsForWeekAsync(currentDate)).ToList();
+        
+        if (viewMode == ViewMode.Week)
+        {
+            weeklyShifts = (await ShiftService.GetShiftsForWeekAsync(currentDate)).ToList();
+        }
+        else
+        {
+            // Load entire month
+            var firstDayOfMonth = new DateTime(currentDate.Year, currentDate.Month, 1);
+            var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
+            
+            // Get first Sunday before or on first day of month
+            var startDate = firstDayOfMonth.AddDays(-(int)firstDayOfMonth.DayOfWeek);
+            // Get last Saturday after or on last day of month
+            var endDate = lastDayOfMonth.AddDays(6 - (int)lastDayOfMonth.DayOfWeek);
+            
+            monthlyShifts = (await ShiftService.GetShiftsForWeekAsync(startDate))
+                .Where(s => s.Date >= startDate && s.Date <= endDate)
+                .ToList();
+        }
+        
         _isLoading = false;
         StateHasChanged();
     }
@@ -331,16 +464,102 @@
         StateHasChanged();
     }
 
-    private async Task ChangeWeek(int days)
+    private async Task LoadActiveMembers()
     {
-        currentDate = currentDate.AddDays(days);
+        activeMembers = (await MemberService.GetActiveMembersAsync()).ToList();
+        StateHasChanged();
+    }
+
+    // View Mode Methods
+    private async Task SwitchView(ViewMode mode)
+    {
+        viewMode = mode;
+        
+        if (mode == ViewMode.Month)
+        {
+            // Adjust to first day of current month
+            currentDate = new DateTime(currentDate.Year, currentDate.Month, 1);
+        }
+        else
+        {
+            // Adjust to Sunday of current week
+            currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
+        }
+        
         await LoadShifts();
+    }
+
+    private async Task NavigatePrevious()
+    {
+        if (viewMode == ViewMode.Week)
+        {
+            currentDate = currentDate.AddDays(-7);
+        }
+        else
+        {
+            currentDate = currentDate.AddMonths(-1);
+        }
+        await LoadShifts();
+    }
+
+    private async Task NavigateNext()
+    {
+        if (viewMode == ViewMode.Week)
+        {
+            currentDate = currentDate.AddDays(7);
+        }
+        else
+        {
+            currentDate = currentDate.AddMonths(1);
+        }
+        await LoadShifts();
+    }
+
+    private string GetCurrentPeriodTitle()
+    {
+        if (viewMode == ViewMode.Week)
+        {
+            var weekEnd = currentDate.AddDays(6);
+            return $"{currentDate:MMM dd} - {weekEnd:MMM dd, yyyy}";
+        }
+        else
+        {
+            return currentDate.ToString("MMMM yyyy");
+        }
+    }
+
+    private List<List<DateTime>> GetMonthWeeks()
+    {
+        var weeks = new List<List<DateTime>>();
+        var firstDayOfMonth = new DateTime(currentDate.Year, currentDate.Month, 1);
+        var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
+        
+        // Start from the Sunday before or on the first day of the month
+        var startDate = firstDayOfMonth.AddDays(-(int)firstDayOfMonth.DayOfWeek);
+        
+        // End on the Saturday after or on the last day of the month
+        var endDate = lastDayOfMonth.AddDays(6 - (int)lastDayOfMonth.DayOfWeek);
+        
+        var currentDay = startDate;
+        while (currentDay <= endDate)
+        {
+            var week = new List<DateTime>();
+            for (int i = 0; i < 7; i++)
+            {
+                week.Add(currentDay);
+                currentDay = currentDay.AddDays(1);
+            }
+            weeks.Add(week);
+        }
+        
+        return weeks;
     }
 
     // Staff Management Methods
     private void OpenAddStaffModal()
     {
-        editingStaff = new StaffMember();
+        editingStaff = new StaffMember { Role = "Bartender" };
+        selectedMemberId = 0;
         showStaffModal = true;
         StateHasChanged();
     }
@@ -351,39 +570,75 @@
         { 
             Id = staff.Id, 
             Name = staff.Name, 
-            Role = staff.Role,
+            Role = "Bartender",
             PhoneNumber = staff.PhoneNumber,
             Email = staff.Email,
             HourlyRate = staff.HourlyRate,
             IsActive = staff.IsActive,
             HireDate = staff.HireDate,
-            Notes = staff.Notes
+            Notes = staff.Notes,
+            MemberId = staff.MemberId
         };
+        selectedMemberId = staff.MemberId ?? 0;
         showStaffModal = true;
         StateHasChanged();
+    }
+
+    private void SelectBartenderType(bool isExistingMember)
+    {
+        if (isExistingMember)
+        {
+            selectedMemberId = activeMembers.Any() ? activeMembers.First().MemberId : -1;
+            OnMemberSelected();
+        }
+        else
+        {
+            selectedMemberId = 0;
+            editingStaff.Name = "";
+            editingStaff.MemberId = null;
+        }
+        StateHasChanged();
+    }
+
+    private void OnMemberSelected()
+    {
+        if (selectedMemberId > 0)
+        {
+            var member = activeMembers.FirstOrDefault(m => m.MemberId == selectedMemberId);
+            if (member != null)
+            {
+                editingStaff.Name = $"{member.FirstName} {member.LastName}";
+                editingStaff.MemberId = member.MemberId;
+                editingStaff.Email = member.Email;
+                editingStaff.PhoneNumber = member.PhoneNumber;
+            }
+        }
     }
 
     private async Task SaveStaff()
     {
         if (string.IsNullOrWhiteSpace(editingStaff?.Name))
         {
-            ToastService.ShowError("Staff name is required");
+            await ToastService.ShowError("Bartender name is required");
             return;
         }
 
         try
         {
+            // Always set role to Bartender
+            editingStaff.Role = "Bartender";
+            
             if (editingStaff.Id > 0)
             {
                 // Update existing staff
                 await ShiftService.UpdateStaffMemberAsync(editingStaff);
-                ToastService.ShowSuccess("Staff member updated successfully");
+                await ToastService.ShowSuccess("Bartender updated successfully");
             }
             else
             {
                 // Add new staff
                 await ShiftService.CreateStaffMemberAsync(editingStaff);
-                ToastService.ShowSuccess("Staff member added successfully");
+                await ToastService.ShowSuccess("Bartender added successfully");
             }
 
             await LoadStaffMembers();
@@ -391,7 +646,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Error saving staff member: {ex.Message}");
+            await ToastService.ShowError($"Error saving bartender: {ex.Message}");
         }
     }
 
@@ -403,13 +658,13 @@
             if (staff != null)
             {
                 await ShiftService.DeleteStaffMemberAsync(staffId);
-                ToastService.ShowSuccess($"{staff.Name} removed from staff roster");
+                await ToastService.ShowSuccess($"{staff.Name} removed from bartender roster");
                 await LoadStaffMembers();
             }
         }
         catch (Exception ex)
         {
-            ToastService.ShowError($"Error deleting staff member: {ex.Message}");
+            await ToastService.ShowError($"Error deleting bartender: {ex.Message}");
         }
     }
 
@@ -418,7 +673,7 @@
     {
         if (!staffMembers.Any())
         {
-            ToastService.ShowWarning("Please add staff members before assigning shifts");
+            ToastService.ShowWarning("Please add bartenders before assigning shifts");
             return;
         }
 
@@ -451,14 +706,14 @@
                     newShift.StaffMemberId = selectedStaff.Id;
                     
                     await ShiftService.CreateStaffShiftAsync(newShift);
-                    ToastService.ShowSuccess($"Shift assigned to {selectedStaff.Name}");
+                    await ToastService.ShowSuccess($"Shift assigned to {selectedStaff.Name}");
                     CloseModals();
                     await LoadShifts();
                 }
             }
             catch (Exception ex)
             {
-                ToastService.ShowError($"Error assigning shift: {ex.Message}");
+                await ToastService.ShowError($"Error assigning shift: {ex.Message}");
             }
         }
     }
@@ -473,7 +728,7 @@
         }
         else
         {
-            ToastService.ShowInfo("No report available for this shift yet");
+            await ToastService.ShowInfo("No report available for this shift yet");
         }
     }
 
@@ -484,21 +739,13 @@
         selectedShiftReport = null;
         editingStaff = new();
         selectedStaffId = 0;
+        selectedMemberId = 0;
         StateHasChanged();
     }
 
     private async Task ExportReports()
     {
         var reports = await ShiftService.GetShiftReportsForExportAsync(currentDate, currentDate.AddDays(7));
-        if (!reports.Any())
-        {
-            await ToastService.ShowToastAsync("No shift reports available for the current week.", ToastLevel.Warning);
-            return;
-        }
-
-        var csvBuilder = new System.Text.StringBuilder();
-        csvBuilder.AppendLine("ShiftDate,ShiftType,StaffMember,ReportContent");
-
         foreach (var report in reports)
         {
             var date = report.StaffShift.Date.ToString("yyyy-MM-dd");
