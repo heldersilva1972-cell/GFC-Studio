@@ -7,6 +7,11 @@
 
 <h3>Hall Rental Management <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
 
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
 @if (_rentalRequests == null)
 {
     <p><em>Loading...</em></p>
@@ -46,6 +51,7 @@ else
     private IEnumerable<HallRentalRequest> _rentalRequests;
     private RentalRequestDetailsModal _detailsModal;
     private HallRentalRequest _selectedRequest;
+    private string _errorMessage;
 
     protected override async Task OnInitializedAsync()
     {
@@ -60,20 +66,38 @@ else
 
     private async Task UpdateRequestStatus(HallRentalRequest request, string status)
     {
+        _errorMessage = null;
+        var originalStatus = request.Status;
         request.Status = status;
-        await RentalService.UpdateRentalRequestAsync(request);
 
-        if (status == RentalStatus.Approved)
+        var success = await RentalService.UpdateRentalRequestAsync(request);
+
+        if (success)
         {
-            await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Booked");
-        }
-        else if (status == RentalStatus.Denied)
-        {
-            var otherApprovedRequests = _rentalRequests.Any(r => r.Id != request.Id && r.RequestedDate.Date == request.RequestedDate.Date && r.Status == RentalStatus.Approved);
-            if (!otherApprovedRequests)
+            if (status == RentalStatus.Approved)
             {
-                await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Available");
+                await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Booked");
+            }
+            else if (originalStatus == RentalStatus.Approved && status == RentalStatus.Denied) // If an approved request is now denied
+            {
+                // Check if any OTHER request for that date is still approved.
+                var otherApprovedRequests = _rentalRequests.Any(r => r.Id != request.Id
+                                                                 && r.RequestedDate.Date == request.RequestedDate.Date
+                                                                 && r.Status == RentalStatus.Approved);
+                if (!otherApprovedRequests)
+                {
+                    // Only free up the slot if no other approved requests exist for that day.
+                    await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Available");
+                }
             }
         }
+        else
+        {
+            // Revert the status on the UI and show an error
+            request.Status = originalStatus;
+            _errorMessage = $"Could not approve the request for {request.RequesterName} on {request.RequestedDate.ToShortDateString()} because the date is already booked.";
+        }
+
+        StateHasChanged();
     }
 }

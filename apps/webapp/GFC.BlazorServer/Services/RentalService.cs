@@ -33,10 +33,29 @@ namespace GFC.BlazorServer.Services
             await _context.SaveChangesAsync();
         }
 
-        public async Task UpdateRentalRequestAsync(HallRentalRequest request)
+        public async Task<bool> UpdateRentalRequestAsync(HallRentalRequest request)
         {
+            if (request.Status == RentalStatus.Approved)
+            {
+                var calendarEntry = await _context.AvailabilityCalendars
+                    .FirstOrDefaultAsync(c => c.Date.Date == request.RequestedDate.Date);
+
+                if (calendarEntry != null && calendarEntry.Status == "Booked")
+                {
+                    var existingRequest = await _context.HallRentalRequests
+                        .FirstOrDefaultAsync(r => r.RequestedDate.Date == request.RequestedDate.Date
+                                             && r.Status == RentalStatus.Approved
+                                             && r.Id != request.Id);
+                    if (existingRequest != null)
+                    {
+                        return false; // Indicate failure due to double booking
+                    }
+                }
+            }
+
             _context.Entry(request).State = EntityState.Modified;
             await _context.SaveChangesAsync();
+            return true; // Indicate success
         }
 
         public async Task DeleteRentalRequestAsync(int id)
