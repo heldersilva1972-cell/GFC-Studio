@@ -164,6 +164,8 @@ public class Program
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
+        builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
+        builder.Services.AddScoped<INavMenuService, NavMenuService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();

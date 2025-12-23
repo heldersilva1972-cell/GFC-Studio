@@ -1,0 +1,77 @@
+// [NEW]
+@page "/admin/rental-management"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Components.Shared
+@inject IRentalService RentalService
+
+<h3>Hall Rental Management <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
+
+@if (_rentalRequests == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Requester Name</th>
+                <th>Requested Date</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var request in _rentalRequests)
+            {
+                <tr>
+                    <td>@request.RequesterName</td>
+                    <td>@request.RequestedDate.ToShortDateString()</td>
+                    <td>@request.Status</td>
+                    <td>
+                        <button class="btn btn-primary btn-sm" @onclick="() => ShowDetailsModal(request)">Details</button>
+                        <button class="btn btn-success btn-sm" @onclick="() => UpdateRequestStatus(request, "Approved")">Approve</button>
+                        <button class="btn btn-danger btn-sm" @onclick="() => UpdateRequestStatus(request, "Denied")">Deny</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<RentalRequestDetailsModal @ref="_detailsModal" Request="_selectedRequest" OnClose="@(() => { _selectedRequest = null; StateHasChanged(); })" />
+
+@code {
+    private IEnumerable<HallRentalRequest> _rentalRequests;
+    private RentalRequestDetailsModal _detailsModal;
+    private HallRentalRequest _selectedRequest;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _rentalRequests = await RentalService.GetRentalRequestsAsync();
+    }
+
+    private void ShowDetailsModal(HallRentalRequest request)
+    {
+        _selectedRequest = request;
+        _detailsModal.Show();
+    }
+
+    private async Task UpdateRequestStatus(HallRentalRequest request, string status)
+    {
+        request.Status = status;
+        await RentalService.UpdateRentalRequestAsync(request);
+
+        if (status == "Approved")
+        {
+            await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Booked");
+        }
+        else if (status == "Denied")
+        {
+            await RentalService.UpdateCalendarAvailabilityAsync(request.RequestedDate, "Available");
+        }
+
+        StateHasChanged();
+    }
+}

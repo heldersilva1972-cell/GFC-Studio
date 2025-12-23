@@ -12,5 +12,6 @@ namespace GFC.BlazorServer.Services
         Task CreateRentalRequestAsync(HallRentalRequest request);
         Task UpdateRentalRequestAsync(HallRentalRequest request);
         Task DeleteRentalRequestAsync(int id);
+        Task UpdateCalendarAvailabilityAsync(DateTime date, string status);
     }
 }

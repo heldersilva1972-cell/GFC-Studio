@@ -29,6 +29,8 @@ public class Member
     public DateTime? InactiveDate { get; set; }
     public bool AddressInvalid { get; set; }
     public DateTime? AddressInvalidDate { get; set; }
+
+    public bool ShowOnWebsite { get; set; }
     
     /// <summary>
     /// Gets the date when the member became REGULAR status.
