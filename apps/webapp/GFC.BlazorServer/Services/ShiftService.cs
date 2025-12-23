@@ -76,7 +76,7 @@ namespace GFC.BlazorServer.Services
             var endDate = startDate.AddDays(7);
             return await _context.StaffShifts
                 .Include(s => s.StaffMember)
-                .Where(s => s.ShiftDate >= startDate && s.ShiftDate < endDate)
+                .Where(s => s.Date >= startDate && s.Date < endDate)
                 .ToListAsync();
         }
 
@@ -101,7 +101,7 @@ namespace GFC.BlazorServer.Services
             var tomorrow = DateTime.Today.AddDays(1);
             return await _context.StaffShifts
                 .Include(s => s.StaffMember)
-                .Where(s => s.ShiftDate.Date == tomorrow)
+                .Where(s => s.Date.Date == tomorrow)
                 .ToListAsync();
         }
     }
