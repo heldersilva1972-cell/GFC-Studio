@@ -9,12 +9,16 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
+        public Guid ClientId { get; set; } = Guid.NewGuid();
+
         [Required]
         public string Title { get; set; }
 
         public string Content { get; set; }
 
-        public int Order { get; set; }
+        public int PageIndex { get; set; }
+
+        public string AnimationSettings { get; set; }
 
         [ForeignKey("StudioPage")]
         public int StudioPageId { get; set; }
