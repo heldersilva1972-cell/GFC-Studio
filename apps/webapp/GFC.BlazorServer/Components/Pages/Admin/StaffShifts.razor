@@ -3,8 +3,8 @@
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "RequireAdmin")]
 @using GFC.Core.Models
 @using GFC.BlazorServer.Services
-@inject IShiftService ShiftService;
-@inject ToastService ToastService;
+@inject IShiftService ShiftService
+@inject ToastService ToastService
 @inject IJSRuntime JSRuntime
 
 <h3>Staff Shift Scheduler</h3>
@@ -39,7 +39,7 @@
                             @for (int i = 0; i < 7; i++)
                             {
                                 var day = currentDate.AddDays(i);
-                                var dayShift = weeklyShifts.FirstOrDefault(s => s.ShiftDate.Date == day.Date && s.ShiftType == "Day");
+                                var dayShift = weeklyShifts.FirstOrDefault(s => s.ShiftDate.Date == day.Date && s.ShiftType == 1);
                                 <td>
                                     <strong>Day Shift</strong><br>
                                     @if (dayShift != null)
@@ -59,7 +59,7 @@
                             @for (int i = 0; i < 7; i++)
                             {
                                 var day = currentDate.AddDays(i);
-                                var nightShift = weeklyShifts.FirstOrDefault(s => s.ShiftDate.Date == day.Date && s.ShiftType == "Night");
+                                var nightShift = weeklyShifts.FirstOrDefault(s => s.ShiftDate.Date == day.Date && s.ShiftType == 2);
                                 <td>
                                     <strong>Night Shift</strong><br>
                                     @if (nightShift != null)
@@ -125,12 +125,16 @@
                     <button type="button" class="btn-close" @onclick="CloseModals"></button>
                 </div>
                 <div class="modal-body">
-                    <p><strong>Staff:</strong> @selectedShiftReport.Shift.StaffName</p>
-                    <p><strong>Date:</strong> @selectedShiftReport.Shift.ShiftDate.ToShortDateString()</p>
-                    <p><strong>Shift:</strong> @selectedShiftReport.Shift.ShiftType</p>
+                    <p><strong>Staff:</strong> @selectedShiftReport.StaffShift.StaffName</p>
+                    <p><strong>Date:</strong> @selectedShiftReport.StaffShift.ShiftDate.ToShortDateString()</p>
+                    <p><strong>Shift:</strong> @(selectedShiftReport.StaffShift.ShiftType == 1 ? "Day" : "Night")</p>
                     <hr />
                     <h6>Report Details</h6>
-                    <p>@selectedShiftReport.ReportContent</p>
+                    <p><strong>Bar Sales:</strong> @selectedShiftReport.BarSales.ToString("C")</p>
+                    <p><strong>Lotto Sales:</strong> @selectedShiftReport.LottoSales.ToString("C")</p>
+                    <p><strong>Total Deposit:</strong> @selectedShiftReport.TotalDeposit.ToString("C")</p>
+                    <p><strong>Submitted:</strong> @selectedShiftReport.SubmittedAt.ToString("g")</p>
+                    <p><strong>Status:</strong> @(selectedShiftReport.IsLate ? "Late" : "On Time")</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="CloseModals">Close</button>
@@ -173,7 +177,7 @@
 
     private void AssignShift(DateTime date, string shiftType)
     {
-        newShift = new StaffShift { ShiftDate = date, ShiftType = shiftType };
+        newShift = new StaffShift { ShiftDate = date, ShiftType = shiftType == "Day" ? 1 : 2 };
         showAssignmentModal = true;
         StateHasChanged();
     }
@@ -193,8 +197,9 @@
         selectedShiftReport = await ShiftService.GetShiftReportAsync(shift.Id);
         if (selectedShiftReport == null)
         {
-            // If no report, create a dummy one for display
-            selectedShiftReport = new ShiftReport { Shift = shift, ReportContent = "No report submitted for this shift." };
+            // If no report, show message via toast
+            await ToastService.ShowToastAsync("No report submitted for this shift.", ToastLevel.Info);
+            return;
         }
         StateHasChanged();
     }
@@ -221,11 +226,11 @@
 
         foreach (var report in reports)
         {
-            var date = report.Shift.ShiftDate.ToString("yyyy-MM-dd");
-            var type = report.Shift.ShiftType;
-            var staff = report.Shift.StaffName;
-            var content = $"\"{report.ReportContent.Replace("\"", "\"\"")}\""; // Escape quotes
-            csvBuilder.AppendLine($"{date},{type},{staff},{content}");
+            var date = report.StaffShift.ShiftDate.ToString("yyyy-MM-dd");
+            var type = report.StaffShift.ShiftType == 1 ? "Day" : "Night";
+            var staff = report.StaffShift.StaffName;
+            var sales = $"Bar: {report.BarSales:C}, Lotto: {report.LottoSales:C}, Total: {report.TotalDeposit:C}";
+            csvBuilder.AppendLine($"{date},{type},{staff},\"{sales}\"");
         }
 
         var csvBytes = System.Text.Encoding.UTF8.GetBytes(csvBuilder.ToString());
