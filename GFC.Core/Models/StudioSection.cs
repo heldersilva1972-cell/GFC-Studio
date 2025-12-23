@@ -1,26 +1,11 @@
 // [NEW]
-using System.ComponentModel.DataAnnotations;
+namespace GFC.Core.Models;
 
-namespace GFC.Core.Models
+public class StudioSection
 {
-    /// <summary>
-    /// Represents a section within a Studio page.
-    /// </summary>
-    public class StudioSection
-    {
-        [Key]
-        public int Id { get; set; }
-
-        public Guid ClientId { get; set; } = Guid.NewGuid();
-
-        [Required]
-        public int PageIndex { get; set; }
-
-        public string Content { get; set; }
-
-        public string AnimationSettings { get; set; }
-
-        public int StudioPageId { get; set; }
-        public StudioPage StudioPage { get; set; }
-    }
+    public int Id { get; set; }
+    public string Content { get; set; }
+    public int Order { get; set; }
+    public int StudioPageId { get; set; }
+    public StudioPage Page { get; set; }
 }
