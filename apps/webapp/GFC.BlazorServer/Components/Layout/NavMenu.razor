@@ -1,3 +1,5 @@
+@implements IDisposable
+@inject NavigationManager Navigation
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Routing
 @using GFC.BlazorServer.Components.Shared
@@ -31,7 +33,7 @@
         @if (ShouldShowSection("Members"))
         {
             <li class="nav-group @(IsSectionExpanded("Members") ? "expanded" : "")">
-                <div class="nav-group-header" @onclick="@(() => ToggleSection("Members"))">
+                <div class="nav-group-header @(IsSectionActive("Members") ? "active" : "")" @onclick="@(() => ToggleSection("Members"))">
                     <span class="group-title">Members</span>
                     <i class="bi bi-chevron-right group-arrow"></i>
                 </div>
@@ -72,7 +74,7 @@
         @if (IsAdmin && ShouldShowSection("Cameras"))
         {
             <li class="nav-group @(IsSectionExpanded("Cameras") ? "expanded" : "")">
-                <div class="nav-group-header" @onclick="@(() => ToggleSection("Cameras"))">
+                <div class="nav-group-header @(IsSectionActive("Cameras") ? "active" : "")" @onclick="@(() => ToggleSection("Cameras"))">
                     <span class="group-title">Camera System</span>
                     <i class="bi bi-chevron-right group-arrow"></i>
                 </div>
@@ -98,7 +100,7 @@
         @if (IsAdmin && ShouldShowSection("Controllers"))
         {
             <li class="nav-group @(IsSectionExpanded("Controllers") ? "expanded" : "")">
-                <div class="nav-group-header" @onclick="@(() => ToggleSection("Controllers"))">
+                <div class="nav-group-header @(IsSectionActive("Controllers") ? "active" : "")" @onclick="@(() => ToggleSection("Controllers"))">
                     <span class="group-title">Controllers</span>
                     <i class="bi bi-chevron-right group-arrow"></i>
                 </div>
@@ -115,7 +117,7 @@
         @if (ShouldShowSection("Finance"))
         {
             <li class="nav-group @(IsSectionExpanded("Finance") ? "expanded" : "")">
-                <div class="nav-group-header" @onclick="@(() => ToggleSection("Finance"))">
+                <div class="nav-group-header @(IsSectionActive("Finance") ? "active" : "")" @onclick="@(() => ToggleSection("Finance"))">
                     <span class="group-title">Finance & Ops</span>
                     <i class="bi bi-chevron-right group-arrow"></i>
                 </div>
@@ -151,7 +153,7 @@
         @if (IsAdmin && ShouldShowSection("Admin"))
         {
             <li class="nav-group @(IsSectionExpanded("Admin") ? "expanded" : "")">
-                <div class="nav-group-header" @onclick="@(() => ToggleSection("Admin"))">
+                <div class="nav-group-header @(IsSectionActive("Admin") ? "active" : "")" @onclick="@(() => ToggleSection("Admin"))">
                     <span class="group-title">Administration</span>
                     <i class="bi bi-chevron-right group-arrow"></i>
                 </div>
@@ -193,16 +195,39 @@
 
     private string SearchTerm { get; set; } = "";
     
-    // Track expanded state of groups. Default to Members open? Or all closed?
-    // Let's keep Members open by default as it's the most used.
+    // Track expanded state of groups.
     private Dictionary<string, bool> ExpandedSections = new()
     {
-        { "Members", true },
+        { "Members", false },
         { "Cameras", false },
         { "Controllers", false },
         { "Finance", false },
         { "Admin", false }
     };
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += HandleLocationChanged;
+        
+        // Auto-expand the section that is currently active on first load
+        foreach (var section in ExpandedSections.Keys.ToList())
+        {
+            if (IsSectionActive(section))
+            {
+                ExpandedSections[section] = true;
+            }
+        }
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= HandleLocationChanged;
+    }
 
     private void ToggleSection(string sectionName)
     {
@@ -223,37 +248,39 @@
 
     private bool IsSectionExpanded(string sectionName)
     {
-        // If searching, everything matches is "expanded" implicitly to show results
         if (!string.IsNullOrWhiteSpace(SearchTerm)) return true;
-
         return ExpandedSections.ContainsKey(sectionName) && ExpandedSections[sectionName];
     }
-    
-    // Very simple search filter simulation:
-    // If search is active, we only show sections that MIGHT contain the item.
-    // However, for this simple implementation, we'll just check if the section name OR any meaningful keyword matches.
-    // Improved logic: We rely on CSS purely for hiding? No, Blazor logic is cleaner.
-    // Let's keep it simple: If searching, show all sections, expand all.
-    // Ideally, we'd filter the inner items too, but that requires extracting items to data structures.
-    // For now, "Search" just expands everything so the user can see matching highlights? 
-    // No, that's messy. 
-    // Let's implement a helper that returns true/false if the section should be visible.
+
+    private bool IsSectionActive(string sectionName)
+    {
+        var currentPath = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var path = "/" + currentPath.ToLowerInvariant();
+
+        return sectionName switch
+        {
+            "Members" => path.StartsWith("/members") || path.StartsWith("/dues") || path.StartsWith("/np-queue") || path.StartsWith("/life-eligibility") || path.StartsWith("/directors") || path.StartsWith("/keycards") || path.StartsWith("/physicalkeys"),
+            "Cameras" => path.StartsWith("/cameras"),
+            "Controllers" => path.StartsWith("/controllers"),
+            "Finance" => path.StartsWith("/reimbursements") || path.StartsWith("/lottery") || path.StartsWith("/export"),
+            "Admin" => path.StartsWith("/users") || path.StartsWith("/admin") || path.StartsWith("/maintenance") || path.StartsWith("/settings"),
+            _ => false
+        };
+    }
     
     private bool ShouldShowSection(string sectionName)
     {
         if (string.IsNullOrWhiteSpace(SearchTerm)) return true;
         
-        // Simple string matching against keywords known to be in that section
-        // This is a rough heuristic to avoid complex object mapping for now.
         var term = SearchTerm.ToLowerInvariant();
         
         return sectionName switch
         {
             "Members" => "members dues queue directors key cards keys".Contains(term),
-            "Cameras" => "camera video record lens grid live".Contains(term),
-            "Controllers" => "controller access door maintenance".Contains(term),
-            "Finance" => "finance reimbursement lottery export data money".Contains(term),
-            "Admin" => "admin user settings log diagnostics".Contains(term),
+            "Cameras" => "camera video record lens grid live audit monitor setup".Contains(term),
+            "Controllers" => "controller access door maintenance hardware".Contains(term),
+            "Finance" => "finance reimbursement lottery export data money ops".Contains(term),
+            "Admin" => "admin user settings log diagnostics notification system maintenance status".Contains(term),
             _ => true
         };
     }
