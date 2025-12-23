@@ -17,8 +17,8 @@ namespace GFC.Core.Models
         public string Category { get; set; }
 
         [Required]
-        public string ContentJson { get; set; }
+        public string ContentJson { get; set; } = "[]";
 
-        public string ThumbnailUrl { get; set; }
+        public string? ThumbnailUrl { get; set; }
     }
 }

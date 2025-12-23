@@ -10,11 +10,11 @@ namespace GFC.Core.Models
         public int Id { get; set; }
 
         [Required]
-        public string Title { get; set; }
+        public string Title { get; set; } = "New Page";
 
-        public string Content { get; set; }
+        public string? Content { get; set; }
 
-        public bool IsPublished { get; set; }
+        public bool IsPublished { get; set; } = false;
 
         public virtual ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
     }

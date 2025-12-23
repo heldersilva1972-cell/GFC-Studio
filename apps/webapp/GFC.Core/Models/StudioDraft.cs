@@ -14,11 +14,11 @@ namespace GFC.Core.Models
         public int PageId { get; set; }
         public virtual StudioPage StudioPage { get; set; }
 
-        public string ContentSnapshotJson { get; set; }
+        public string? ContentSnapshotJson { get; set; }
 
         [Required]
-        public string CreatedBy { get; set; }
+        public string CreatedBy { get; set; } = "System";
 
-        public DateTime CreatedAt { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }
