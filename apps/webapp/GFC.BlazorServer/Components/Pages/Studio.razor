@@ -1,0 +1,200 @@
+@page "/studio"
+@page "/studio/{PageId:int}"
+@inject IJSRuntime JSRuntime
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@using GFC.Core.Models
+@using Microsoft.EntityFrameworkCore
+
+<div class="studio-container">
+    <div class="top-command-bar">
+        <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
+        <button class="btn btn-success" @onclick="SavePage">Save Page</button>
+        <div class="viewport-toggle">
+            <button class="btn @(currentViewport == "desktop" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("desktop")'>Desktop</button>
+            <button class="btn @(currentViewport == "tablet" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("tablet")'>Tablet</button>
+            <button class="btn @(currentViewport == "mobile" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("mobile")'>Mobile</button>
+        </div>
+    </div>
+    <div class="studio-workspace">
+        <div class="left-toolbox">
+            <p>Toolbox</p>
+        </div>
+        <div class="canvas-container @($"viewport-{currentViewport}")">
+            <div class="center-canvas">
+                @foreach (var section in sections)
+                {
+                    <div class="studio-section @(selectedSection == section ? "selected" : "")" data-id="@section.ClientId" @onclick="() => selectedSection = section">
+                    <p contenteditable="true" @oninput="(e) => section.Content = e.Value.ToString()">@section.Content</p>
+                </div>
+            }
+        </div>
+        <div class="right-inspector">
+            <h5>Wizards</h5>
+            <div class="wizard-buttons">
+                <button class="btn btn-info" @onclick="RunLayoutDoctor">Layout Doctor</button>
+                <button class="btn btn-info" @onclick="RunSeoHealthBar">SEO Health Bar</button>
+                <button class="btn btn-info" @onclick="RunTouchTargetCheck">Touch Target Check</button>
+            </div>
+            <hr />
+            @if (!string.IsNullOrEmpty(lastWizardAction))
+            {
+                <div class="undo-section">
+                    <p>Last action: @lastWizardAction</p>
+                    <button class="btn btn-warning" @onclick="UndoLastAction">Undo</button>
+                </div>
+            }
+        </div>
+    </div>
+    <div class="animation-orchestrator">
+        @if (selectedSection != null)
+        {
+            <h5>Animation for Section @selectedSection.Id</h5>
+            <button class="btn btn-secondary" @onclick="AddKeyframe">Add Keyframe</button>
+            <p>@selectedSection.AnimationSettings</p>
+        }
+        else
+        {
+            <p>Select a section to animate.</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int PageId { get; set; }
+
+    private StudioPage page;
+    private List<StudioSection> sections = new();
+    private StudioSection selectedSection;
+    private string lastWizardAction = "";
+    private StudioSection lastUndoState;
+    private string currentViewport = "desktop";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (PageId > 0)
+        {
+            page = await db.StudioPages
+                .Include(p => p.Sections)
+                .FirstOrDefaultAsync(p => p.Id == PageId);
+        }
+
+        if (page == null)
+        {
+            page = new StudioPage { Title = "New Page" };
+            db.StudioPages.Add(page);
+            await db.SaveChangesAsync();
+            PageId = page.Id;
+        }
+
+        sections = page.Sections.OrderBy(s => s.PageIndex).ToList();
+    }
+
+    private void setViewport(string viewport)
+    {
+        currentViewport = viewport;
+    }
+
+    private void RunLayoutDoctor()
+    {
+        if (selectedSection != null)
+        {
+            lastUndoState = new StudioSection
+            {
+                Content = selectedSection.Content,
+                AnimationSettings = selectedSection.AnimationSettings
+            };
+            selectedSection.Content = "Layout Doctor Applied!";
+            lastWizardAction = "Layout Doctor";
+        }
+    }
+
+    private void RunSeoHealthBar()
+    {
+        if (selectedSection != null)
+        {
+            lastUndoState = new StudioSection
+            {
+                Content = selectedSection.Content,
+                AnimationSettings = selectedSection.AnimationSettings
+            };
+            selectedSection.Content = "SEO Health Bar Applied!";
+            lastWizardAction = "SEO Health Bar";
+        }
+    }
+
+    private void RunTouchTargetCheck()
+    {
+        if (selectedSection != null)
+        {
+            lastUndoState = new StudioSection
+            {
+                Content = selectedSection.Content,
+                AnimationSettings = selectedSection.AnimationSettings
+            };
+            selectedSection.Content = "Touch Target Check Applied!";
+            lastWizardAction = "Touch Target Check";
+        }
+    }
+
+    private void UndoLastAction()
+    {
+        if (selectedSection != null && lastUndoState != null)
+        {
+            selectedSection.Content = lastUndoState.Content;
+            selectedSection.AnimationSettings = lastUndoState.AnimationSettings;
+            lastWizardAction = "";
+            lastUndoState = null;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("initializeDnd", DotNetObjectReference.Create(this));
+        }
+    }
+
+    private async Task SavePage()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Update(page);
+        await db.SaveChangesAsync();
+    }
+
+    private void AddKeyframe()
+    {
+        if (selectedSection != null)
+        {
+            selectedSection.AnimationSettings += "Keyframe @ " + DateTime.Now.ToLongTimeString() + "; ";
+        }
+    }
+
+    private void AddSection()
+    {
+        var newSection = new StudioSection
+        {
+            Content = "New Section",
+            PageIndex = sections.Count,
+            StudioPageId = page.Id
+        };
+        sections.Add(newSection);
+        page.Sections.Add(newSection);
+    }
+
+    [JSInvokable]
+    public void UpdateSectionOrder(string[] clientIds)
+    {
+        var newSections = new List<StudioSection>();
+        foreach (var id in clientIds)
+        {
+            var section = sections.First(s => s.ClientId == Guid.Parse(id));
+            section.PageIndex = newSections.Count;
+            newSections.Add(section);
+        }
+        sections = newSections;
+        StateHasChanged();
+    }
+}
