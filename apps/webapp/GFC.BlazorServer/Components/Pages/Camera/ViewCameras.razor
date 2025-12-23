@@ -1,5 +1,6 @@
 @page "/cameras/view"
 @using GFC.Core.Models
+@inject GFC.BlazorServer.Services.Diagnostics.CameraDiagnosticsService DiagnosticsService
 @inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
 @inject IJSRuntime JSRuntime
 @inject IConfiguration Configuration
@@ -11,6 +12,9 @@
         <div class="sidebar-header">
             <h3><i class="bi bi-camera-video"></i> Cameras</h3>
             <span class="badge bg-secondary">@(_cameras?.Count ?? 0)</span>
+            <button class="btn btn-sm btn-link text-light ms-auto" @onclick="RefreshStatuses" title="Check Connection" style="margin-left: auto;">
+                <i class="bi bi-arrow-repeat"></i>
+            </button>
         </div>
         <div class="camera-list">
             @if (_errorMessage != null)
@@ -29,10 +33,13 @@
             {
                 @foreach (var cam in _cameras)
                 {
+                    var isOnline = _cameraStatuses.ContainsKey(cam.Id) && _cameraStatuses[cam.Id];
+                    var statusClass = cam.IsEnabled == true ? (isOnline ? "online" : "offline") : "disabled";
+                    
                     <div class="camera-pill @(IsSelected(cam.Id) ? "active" : "")" @onclick="() => ToggleCamera(cam.Id)">
                         <div class="d-flex align-items-center justify-content-between w-100">
                             <div class="d-flex align-items-center">
-                                <span class="status-dot @(cam.IsEnabled == true ? "online" : "offline")" title="@(cam.IsEnabled == true ? "Enabled" : "Disabled")"></span>
+                                <span class="status-dot @statusClass" title="@(cam.IsEnabled == true ? (isOnline ? "Online" : "Offline") : "Disabled")"></span>
                                 <span class="camera-name text-truncate">@cam.Name</span>
                             </div>
                             @if (IsSelected(cam.Id))
@@ -125,6 +132,7 @@
 
 @code {
     private List<Camera> _cameras = new();
+    private Dictionary<int, bool> _cameraStatuses = new();
     private HashSet<int> _selectedCameraIds = new();
     private string _activeTab = "live";
     private string _gridClass = "grid-1";
@@ -135,11 +143,25 @@
         try
         {
             _cameras = await CameraService.GetAllCamerasAsync();
+            _ = RefreshStatuses();
         }
         catch (Exception ex)
         {
             _errorMessage = $"Error loading cameras: {ex.Message}";
             _cameras = new List<Camera>(); // Ensure it's not null to prevent other crashes
+        }
+    }
+    
+    private async Task RefreshStatuses()
+    {
+        try 
+        {
+            _cameraStatuses = await DiagnosticsService.GetCameraOnlineStatusesAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Fail silently
         }
     }
 

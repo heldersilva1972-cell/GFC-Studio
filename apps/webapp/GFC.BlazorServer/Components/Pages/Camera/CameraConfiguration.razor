@@ -1,6 +1,7 @@
 <!-- [NEW] -->
 @page "/cameras/configure"
 @using GFC.Core.Models
+@inject GFC.BlazorServer.Services.Diagnostics.CameraDiagnosticsService DiagnosticsService
 @inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
 @inject GFC.BlazorServer.Services.Camera.ICameraAuditLogService AuditLogService
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -19,6 +20,9 @@
     <div class="card-body">
         <button class="btn btn-primary mb-3" @onclick="ShowAddModal">
             <i class="bi bi-plus-circle"></i> Add Camera Manually
+        </button>
+        <button class="btn btn-outline-secondary mb-3 ms-2" @onclick="RefreshStatuses" title="Check connection status">
+            <i class="bi bi-arrow-repeat"></i> Check Status
         </button>
 
         @if (_errorMessage != null)
@@ -45,8 +49,12 @@
                 <tbody>
                     @foreach (var cam in _cameras)
                     {
+                        var isOnline = _cameraStatuses.ContainsKey(cam.Id) && _cameraStatuses[cam.Id];
+                        var statusClass = cam.IsEnabled == true ? (isOnline ? "status-green" : "status-red") : "status-gray";
+                        var statusTitle = cam.IsEnabled == true ? (isOnline ? "Online" : "Offline") : "Disabled";
+                        
                         <tr>
-                            <td><span class="status-dot @(cam.IsEnabled == true ? "status-green" : "status-red")"></span></td>
+                            <td><span class="status-dot @statusClass" title="@statusTitle"></span></td>
                             <td>@cam.Name</td>
                             <td>@cam.RtspUrl</td>
                             <td>@(cam.Manufacturer ?? "N/A")</td>
@@ -202,6 +210,7 @@
 
 @code {
     private List<Camera> _cameras;
+    private Dictionary<int, bool> _cameraStatuses = new();
     private Camera _camera;
     private bool _showModal = false;
     private bool _isEditMode = false;
@@ -221,6 +230,8 @@
         try
         {
             await LoadCameras();
+            // Don't await status check to prevent UI blocking, just start it
+            _ = RefreshStatuses();
         }
         catch (Exception ex)
         {
@@ -244,6 +255,19 @@
     private async Task LoadCameras()
     {
         _cameras = await CameraService.GetAllCamerasAsync();
+    }
+    
+    private async Task RefreshStatuses()
+    {
+        try 
+        {
+            _cameraStatuses = await DiagnosticsService.GetCameraOnlineStatusesAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Fail silently
+        }
     }
 
     private void ShowAddModal()
