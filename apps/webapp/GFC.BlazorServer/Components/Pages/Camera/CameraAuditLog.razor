@@ -37,9 +37,20 @@
     </div>
 </div>
 
-@if (_logs == null)
+@if (_logs == null && !_hasError)
 {
     <p><em>Loading logs...</em></p>
+}
+else if (_hasError)
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill"></i> @_errorMessage
+        <button class="btn btn-link" @onclick="ReloadData">Try Again</button>
+    </div>
+}
+else if (_logs == null || !_logs.Any())
+{
+    <p class="text-muted">No audit logs found for the selected criteria.</p>
 }
 else
 {
@@ -70,22 +81,39 @@ else
 
 @code {
     private List<GFC.Core.Models.CameraAuditLog> _logs;
-    private List<GFC.Core.Models.Camera> _cameras;
-    private List<GFC.Core.Models.AppUser> _users;
+    private List<GFC.Core.Models.Camera> _cameras = new();
+    private List<GFC.Core.Models.AppUser> _users = new();
+    private bool _hasError = false;
+    private string _errorMessage = "";
 
     private int? _selectedCameraId;
     private int? _selectedUserId;
 
     protected override async Task OnInitializedAsync()
     {
-        _cameras = await CameraService.GetAllCamerasAsync();
-        _users = await Task.Run(() => UserRepository.GetAllUsers());
-        await LoadLogs();
+        await ReloadData();
+    }
+
+    private async Task ReloadData()
+    {
+        _hasError = false;
+        _logs = null;
+        try
+        {
+            _cameras = await CameraService.GetAllCamerasAsync() ?? new();
+            _users = await Task.Run(() => UserRepository.GetAllUsers()) ?? new();
+            await LoadLogs();
+        }
+        catch (Exception ex)
+        {
+            _hasError = true;
+            _errorMessage = $"Failed to load data: {ex.Message}";
+        }
     }
 
     private async Task OnCameraFilterChanged(ChangeEventArgs e)
     {
-        if (int.TryParse(e.Value.ToString(), out int cameraId) && cameraId > 0)
+        if (int.TryParse(e.Value?.ToString(), out int cameraId) && cameraId > 0)
         {
             _selectedCameraId = cameraId;
         }
@@ -112,43 +140,51 @@ else
 
     private async Task LoadLogs()
     {
-        var allLogs = new List<GFC.Core.Models.CameraAuditLog>();
+        try
+        {
+            var allLogs = new List<GFC.Core.Models.CameraAuditLog>();
 
-        if (_selectedCameraId.HasValue && _selectedUserId.HasValue)
-        {
-            // Filter by both camera and user
-            var logs = await AuditLogService.GetLogsForCameraAsync(_selectedCameraId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow);
-            allLogs.AddRange(logs.Where(l => l.UserId == _selectedUserId.Value));
-        }
-        else if (_selectedCameraId.HasValue)
-        {
-            // Filter by camera only
-            allLogs.AddRange(await AuditLogService.GetLogsForCameraAsync(_selectedCameraId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
-        }
-        else if (_selectedUserId.HasValue)
-        {
-            // Filter by user only
-            allLogs.AddRange(await AuditLogService.GetLogsForUserAsync(_selectedUserId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
-        }
-        else
-        {
-            // Load all logs
-            if (_cameras != null)
+            if (_selectedCameraId.HasValue && _selectedUserId.HasValue)
             {
-                foreach (var cam in _cameras)
+                var logs = await AuditLogService.GetLogsForCameraAsync(_selectedCameraId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow);
+                allLogs.AddRange(logs.Where(l => l.UserId == _selectedUserId.Value));
+            }
+            else if (_selectedCameraId.HasValue)
+            {
+                allLogs.AddRange(await AuditLogService.GetLogsForCameraAsync(_selectedCameraId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
+            }
+            else if (_selectedUserId.HasValue)
+            {
+                allLogs.AddRange(await AuditLogService.GetLogsForUserAsync(_selectedUserId.Value, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
+            }
+            else
+            {
+                if (_cameras != null && _cameras.Any())
                 {
-                    allLogs.AddRange(await AuditLogService.GetLogsForCameraAsync(cam.Id, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow));
+                    foreach (var cam in _cameras)
+                    {
+                        var logs = await AuditLogService.GetLogsForCameraAsync(cam.Id, DateTime.UtcNow.AddDays(-30), DateTime.UtcNow);
+                        if (logs != null) allLogs.AddRange(logs);
+                    }
                 }
             }
-        }
 
-        // Manually load user and camera for display
-        foreach(var l in allLogs)
+            // Manually load user and camera for display
+            foreach (var l in allLogs)
+            {
+                if (_users != null)
+                    l.User = _users.FirstOrDefault(u => u.UserId == l.UserId);
+                
+                if (_cameras != null)
+                    l.Camera = _cameras.FirstOrDefault(c => c.Id == l.CameraId);
+            }
+
+            _logs = allLogs.OrderByDescending(l => l.Timestamp).ToList();
+        }
+        catch (Exception ex)
         {
-            l.User = _users.FirstOrDefault(u => u.UserId == l.UserId);
-            l.Camera = _cameras.FirstOrDefault(c => c.Id == l.CameraId);
+            _hasError = true;
+            _errorMessage = $"Error loading log entries: {ex.Message}";
         }
-
-        _logs = allLogs.OrderByDescending(l => l.Timestamp).ToList();
     }
 }
