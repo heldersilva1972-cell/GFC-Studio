@@ -567,6 +567,7 @@
     private async Task LoadDashboardAsync(bool includeSplash)
     {
         _showSplash = includeSplash;
+        _isSplashFadingOut = false;
         _isLoading = true;
         _metricsLoading = true;
         _alertsLoading = true;
@@ -574,26 +575,21 @@
         _metricsError = null;
         _alertsError = null;
         
+        // 1. Kick off all data fetching tasks IMMEDIATELY
         var metricsTask = DashboardMetricsService.GetMetricsAsync();
         var controllerModeTask = LoadControllerModeAsync();
-        
-        if (includeSplash)
-        {
-            await Task.Delay(1800);
-            _isSplashFadingOut = true;
-            StateHasChanged();
-            await Task.Delay(600); // Match CSS transition duration
-            _showSplash = false;
-        }
-        
+        var memberTask = DashboardService.GetMemberSummaryAsync();
+        var duesTask = DashboardService.GetCurrentYearDuesSummaryAsync();
+        var alertsTask = DashboardService.GetAlertSummaryAsync();
+        var backupTask = DashboardService.GetBackupStatusAsync();
+
+        // 2. Define minimum splash duration if needed
+        var minSplashDelay = includeSplash ? Task.Delay(1600) : Task.CompletedTask;
+
         try
         {
-            var memberTask = DashboardService.GetMemberSummaryAsync();
-            var duesTask = DashboardService.GetCurrentYearDuesSummaryAsync();
-            var alertsTask = DashboardService.GetAlertSummaryAsync();
-            var backupTask = DashboardService.GetBackupStatusAsync();
-
-            await Task.WhenAll(memberTask, duesTask, alertsTask, backupTask);
+            // 3. Wait for critical data and internal delays in parallel
+            await Task.WhenAll(memberTask, duesTask, alertsTask, backupTask, minSplashDelay);
 
             _memberSummary = memberTask.Result;
             _duesSummary = duesTask.Result;
@@ -605,33 +601,33 @@
             var important = BuildAlertPreview(_alerts);
             _alertPreview.AddRange(important);
             _importantAlerts.AddRange(important);
+            
+            _isLoading = false; // Data is ready
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[Dashboard] {ex}");
             _errorMessage = "We couldn't load the dashboard metrics right now. Please try again shortly.";
-            _importantAlerts.Clear();
-            _alertPreview.Clear();
-        }
-        finally
-        {
             _isLoading = false;
         }
 
-        try
+        // 4. Handle the smooth transition out
+        if (includeSplash)
         {
-            _metrics = await metricsTask;
+            _isSplashFadingOut = true;
+            StateHasChanged();
+            await Task.Delay(500); // Wait for fade-out to complete
+            _showSplash = false;
         }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[Dashboard:metrics] {ex}");
-        }
-
+        
+        // 5. Cleanup metrics and controllers (secondary)
+        try { _metrics = await metricsTask; } catch { /* log handled elsewhere */ }
         await controllerModeTask;
         _isSimulationMode = !_useRealControllers;
         await LoadControllerStatusSafeAsync();
-
+        
         Alerts ??= new List<DashboardAlert>();
+        StateHasChanged();
     }
 
     private async Task RefreshAsync()
