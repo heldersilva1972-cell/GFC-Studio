@@ -64,7 +64,7 @@ namespace GFC.BlazorServer.Services
             {
                 if (shift.StaffMember != null)
                 {
-                    shift.StaffName = shift.StaffMember.Username; // Or a display name if available
+                    shift.StaffName = shift.StaffMember.Name;
                 }
             }
 
@@ -89,11 +89,13 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
-        public async Task<IEnumerable<AppUser>> GetAssignableStaffAsync()
+
+        public async Task<IEnumerable<StaffMember>> GetAssignableStaffAsync()
         {
-            // Return empty list for now - this would need proper user management
-            // In a real app, you might filter this to users with a 'Staff' role
-            return new List<AppUser>();
+            return await _context.StaffMembers
+                .Where(s => s.IsActive)
+                .OrderBy(s => s.Name)
+                .ToListAsync();
         }
 
         public async Task<IEnumerable<StaffShift>> GetShiftsForTomorrowAsync()
@@ -103,6 +105,51 @@ namespace GFC.BlazorServer.Services
                 .Include(s => s.StaffMember)
                 .Where(s => s.Date.Date == tomorrow)
                 .ToListAsync();
+        }
+
+        // Staff Member Management Methods
+        public async Task<StaffMember> GetStaffMemberAsync(int id)
+        {
+            return await _context.StaffMembers.FindAsync(id);
+        }
+
+        public async Task<IEnumerable<StaffMember>> GetAllStaffMembersAsync()
+        {
+            return await _context.StaffMembers
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+        }
+
+        public async Task<IEnumerable<StaffMember>> GetActiveStaffMembersAsync()
+        {
+            return await _context.StaffMembers
+                .Where(s => s.IsActive)
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+        }
+
+        public async Task CreateStaffMemberAsync(StaffMember staffMember)
+        {
+            staffMember.CreatedAt = DateTime.UtcNow;
+            _context.StaffMembers.Add(staffMember);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task UpdateStaffMemberAsync(StaffMember staffMember)
+        {
+            staffMember.UpdatedAt = DateTime.UtcNow;
+            _context.Entry(staffMember).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task DeleteStaffMemberAsync(int id)
+        {
+            var staffMember = await _context.StaffMembers.FindAsync(id);
+            if (staffMember != null)
+            {
+                _context.StaffMembers.Remove(staffMember);
+                await _context.SaveChangesAsync();
+            }
         }
     }
 }

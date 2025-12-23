@@ -351,7 +351,13 @@
         { 
             Id = staff.Id, 
             Name = staff.Name, 
-            Role = staff.Role 
+            Role = staff.Role,
+            PhoneNumber = staff.PhoneNumber,
+            Email = staff.Email,
+            HourlyRate = staff.HourlyRate,
+            IsActive = staff.IsActive,
+            HireDate = staff.HireDate,
+            Notes = staff.Notes
         };
         showStaffModal = true;
         StateHasChanged();
@@ -365,37 +371,45 @@
             return;
         }
 
-        if (editingStaff.Id > 0)
+        try
         {
-            // Update existing staff
-            var existingStaff = staffMembers.FirstOrDefault(s => s.Id == editingStaff.Id);
-            if (existingStaff != null)
+            if (editingStaff.Id > 0)
             {
-                existingStaff.Name = editingStaff.Name;
-                existingStaff.Role = editingStaff.Role;
+                // Update existing staff
+                await ShiftService.UpdateStaffMemberAsync(editingStaff);
+                ToastService.ShowSuccess("Staff member updated successfully");
             }
-            ToastService.ShowSuccess("Staff member updated successfully");
-        }
-        else
-        {
-            // Add new staff
-            editingStaff.Id = staffMembers.Any() ? staffMembers.Max(s => s.Id) + 1 : 1;
-            staffMembers.Add(editingStaff);
-            ToastService.ShowSuccess("Staff member added successfully");
-        }
+            else
+            {
+                // Add new staff
+                await ShiftService.CreateStaffMemberAsync(editingStaff);
+                ToastService.ShowSuccess("Staff member added successfully");
+            }
 
-        CloseModals();
-        StateHasChanged();
+            await LoadStaffMembers();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error saving staff member: {ex.Message}");
+        }
     }
 
     private async Task DeleteStaff(int staffId)
     {
-        var staff = staffMembers.FirstOrDefault(s => s.Id == staffId);
-        if (staff != null)
+        try
         {
-            staffMembers.Remove(staff);
-            ToastService.ShowSuccess($"{staff.Name} removed from staff roster");
-            StateHasChanged();
+            var staff = staffMembers.FirstOrDefault(s => s.Id == staffId);
+            if (staff != null)
+            {
+                await ShiftService.DeleteStaffMemberAsync(staffId);
+                ToastService.ShowSuccess($"{staff.Name} removed from staff roster");
+                await LoadStaffMembers();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error deleting staff member: {ex.Message}");
         }
     }
 
@@ -428,16 +442,23 @@
     {
         if (newShift != null && selectedStaffId > 0)
         {
-            var selectedStaff = staffMembers.FirstOrDefault(s => s.Id == selectedStaffId);
-            if (selectedStaff != null)
+            try
             {
-                newShift.StaffName = selectedStaff.Name;
-                newShift.StaffMemberId = selectedStaff.Id;
-                
-                await ShiftService.CreateStaffShiftAsync(newShift);
-                ToastService.ShowSuccess($"Shift assigned to {selectedStaff.Name}");
-                CloseModals();
-                await LoadShifts();
+                var selectedStaff = staffMembers.FirstOrDefault(s => s.Id == selectedStaffId);
+                if (selectedStaff != null)
+                {
+                    newShift.StaffName = selectedStaff.Name;
+                    newShift.StaffMemberId = selectedStaff.Id;
+                    
+                    await ShiftService.CreateStaffShiftAsync(newShift);
+                    ToastService.ShowSuccess($"Shift assigned to {selectedStaff.Name}");
+                    CloseModals();
+                    await LoadShifts();
+                }
+            }
+            catch (Exception ex)
+            {
+                ToastService.ShowError($"Error assigning shift: {ex.Message}");
             }
         }
     }
@@ -468,7 +489,7 @@
 
     private async Task ExportReports()
     {
-        var reports = await ShiftService.GetShiftReportsForExportAsync(currentDate, currentDate.AddDays(6));
+        var reports = await ShiftService.GetShiftReportsForExportAsync(currentDate, currentDate.AddDays(7));
         if (!reports.Any())
         {
             await ToastService.ShowToastAsync("No shift reports available for the current week.", ToastLevel.Warning);
