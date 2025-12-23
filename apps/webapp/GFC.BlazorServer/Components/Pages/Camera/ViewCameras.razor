@@ -1,147 +1,212 @@
-<!-- [NEW] -->
 @page "/cameras/view"
 @using GFC.Core.Models
 @inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
+@inject IJSRuntime JSRuntime
+@inject IConfiguration Configuration
 
-<PageTitle>View Cameras</PageTitle>
+<PageTitle>Camera Monitor</PageTitle>
 
-<div class="camera-view-container">
-    <div class="camera-sidebar">
-        <h4 class="mb-3">Cameras</h4>
-        @if (_allCameras == null)
-        {
-            <p><em>Loading cameras...</em></p>
-        }
-        else
-        {
-            <div class="list-group">
-                @foreach (var camera in _allCameras)
+<div class="camera-monitor-container">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h3><i class="bi bi-camera-video"></i> Cameras</h3>
+            <span class="badge bg-secondary">@_cameras.Count</span>
+        </div>
+        <div class="camera-list">
+            @if (_cameras == null)
+            {
+                <div class="p-3 text-center">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                </div>
+            }
+            else
+            {
+                @foreach (var cam in _cameras)
                 {
-                    <button class="list-group-item list-group-item-action @(IsCameraSelected(camera) ? "active" : "")"
-                            @onclick="() => ToggleCameraSelection(camera)">
-                        <span class="status-dot @(camera.IsEnabled ?? false ? "status-green" : "status-red")"></span>
-                        @camera.Name
+                    <div class="camera-pill @(IsSelected(cam.Id) ? "active" : "")" @onclick="() => ToggleCamera(cam.Id)">
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <div class="d-flex align-items-center">
+                                <span class="status-dot @(cam.IsEnabled == true ? "online" : "offline")" title="@(cam.IsEnabled == true ? "Enabled" : "Disabled")"></span>
+                                <span class="camera-name text-truncate">@cam.Name</span>
+                            </div>
+                            @if (IsSelected(cam.Id))
+                            {
+                                <i class="bi bi-check-circle-fill text-primary"></i>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+        <div class="sidebar-footer">
+            <small class="text-muted">Select cameras to view</small>
+        </div>
+    </div>
+
+    <div class="main-stage">
+        <div class="stage-header">
+            <div class="view-mode-tabs">
+                <button class="btn btn-sm @(_activeTab == "live" ? "btn-primary" : "btn-outline-secondary")" @onclick="@(() => SetTab("live"))">
+                    <i class="bi bi-broadcast"></i> Live
+                </button>
+                <button class="btn btn-sm @(_activeTab == "recorded" ? "btn-primary" : "btn-outline-secondary")" @onclick="@(() => SetTab("recorded"))">
+                    <i class="bi bi-skip-backward-fill"></i> Recorded
+                </button>
+            </div>
+            <div class="layout-controls">
+                @if (_selectedCameraIds.Count > 0)
+                {
+                    <button class="btn btn-sm btn-outline-danger" @onclick="ClearSelection" title="Clear All">
+                        <i class="bi bi-x-lg"></i>
                     </button>
                 }
+                <div class="btn-group">
+                     <button class="btn btn-sm btn-outline-secondary disabled">
+                        <i class="bi bi-grid-fill"></i> Grid: @GetGridSizeName()
+                     </button>
+                </div>
             </div>
-        }
-    </div>
-    <div class="camera-main-stage">
-        <div class="camera-tabs">
-            <button class="tab-button active">Live</button>
-            <button class="tab-button">Recorded</button>
         </div>
-        <div class="camera-grid @_gridClass">
-            @foreach (var camera in _selectedCameras)
+
+        <div class="stage-content">
+            @if (_selectedCameraIds.Count == 0)
             {
-                <GFC.BlazorServer.Components.Shared.CameraFeed Camera="camera" />
+                <div class="empty-state">
+                    <i class="bi bi-camera-video display-1 text-muted"></i>
+                    <h3 class="mt-3 text-muted">Select cameras to start monitoring</h3>
+                    <p class="text-muted">Use the sidebar to select one or more cameras.</p>
+                </div>
+            }
+            else if (_activeTab == "live")
+            {
+                <div class="video-grid @_gridClass">
+                    @foreach (var camId in _selectedCameraIds)
+                    {
+                        var cam = _cameras.FirstOrDefault(c => c.Id == camId);
+                        if (cam != null)
+                        {
+                            <div class="video-cell">
+                                <div class="video-wrapper">
+                                    <video id="video-player-@cam.Id" class="video-element" muted autoplay playsinline></video>
+                                    <div class="video-overlay">
+                                        <div class="cam-info">
+                                            <span class="badge bg-dark opacity-75">@cam.Name</span>
+                                        </div>
+                                        <div class="cam-controls">
+                                            <button class="btn btn-sm btn-dark opacity-75" title="Snapshot" @onclick="@(() => TakeSnapshot(cam.Id))"><i class="bi bi-camera"></i></button>
+                                            <button class="btn btn-sm btn-dark opacity-75" title="Fullscreen" @onclick="@(() => ToggleFullscreen(cam.Id))"><i class="bi bi-arrows-fullscreen"></i></button>
+                                        </div>
+                                    </div>
+                                    <div class="loading-overlay" id="loading-@cam.Id">
+                                        <div class="spinner-border text-light" role="status"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="recorded-placeholder">
+                    <h2><i class="bi bi-film"></i> Recorded Footage</h2>
+                    <p>Timeline playback feature coming soon.</p>
+                </div>
             }
         </div>
     </div>
 </div>
 
 @code {
-    private List<Camera> _allCameras;
-    private List<Camera> _selectedCameras = new();
-    private string _gridClass = "";
+    private List<Camera> _cameras = new();
+    private HashSet<int> _selectedCameraIds = new();
+    private string _activeTab = "live";
+    private string _gridClass = "grid-1";
 
     protected override async Task OnInitializedAsync()
     {
-        _allCameras = await CameraService.GetAllCamerasAsync();
-        // Select the first camera by default
-        if (_allCameras != null && _allCameras.Any())
+        _cameras = await CameraService.GetAllCamerasAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_activeTab == "live" && _selectedCameraIds.Count > 0)
         {
-            ToggleCameraSelection(_allCameras.First());
+            // Initialize players for all selected cameras
+            foreach (var camId in _selectedCameraIds)
+            {
+                var cam = _cameras.FirstOrDefault(c => c.Id == camId);
+                if (cam != null)
+                {
+                    // Construct HLS URL - assuming Video Agent is at port 8888 or configured
+                    var videoAgentUrl = Configuration["VideoAgent:BaseUrl"] ?? "http://localhost:8888";
+                    var hlsUrl = $"{videoAgentUrl}/live/{cam.Id}/index.m3u8";
+                    
+                    // Call JS to init player (with simple debouncing or check if already init?)
+                    // For now simplest is to re-init. The JS helper should handle idempotency or we rely on Blazor not re-rendering too much.
+                    // Actually, re-init on every render might be bad. We should track init state.
+                    // But for this MVP, we call it.
+                    await JSRuntime.InvokeVoidAsync("initializeHlsPlayer", $"video-player-{cam.Id}", hlsUrl);
+                }
+            }
         }
     }
 
-    private void ToggleCameraSelection(Camera camera)
+    private bool IsSelected(int cameraId) => _selectedCameraIds.Contains(cameraId);
+
+    private void ToggleCamera(int cameraId)
     {
-        if (IsCameraSelected(camera))
+        if (_selectedCameraIds.Contains(cameraId))
         {
-            _selectedCameras.Remove(camera);
+            _selectedCameraIds.Remove(cameraId);
         }
         else
         {
-            _selectedCameras.Add(camera);
+            _selectedCameraIds.Add(cameraId);
         }
         UpdateGridClass();
     }
 
-    private bool IsCameraSelected(Camera camera)
+    private void ClearSelection()
     {
-        return _selectedCameras.Contains(camera);
+        _selectedCameraIds.Clear();
+        UpdateGridClass();
+    }
+
+    private void SetTab(string tab)
+    {
+        _activeTab = tab;
     }
 
     private void UpdateGridClass()
     {
-        _gridClass = _selectedCameras.Count switch
-        {
-            1 => "grid-1x1",
-            2 => "grid-1x2",
-            <= 4 => "grid-2x2",
-            _ => "grid-3x3"
-        };
+        var count = _selectedCameraIds.Count;
+        if (count <= 1) _gridClass = "grid-1";
+        else if (count <= 2) _gridClass = "grid-2"; // 1x2 or 2x1 generally side by side
+        else if (count <= 4) _gridClass = "grid-2x2";
+        else if (count <= 9) _gridClass = "grid-3x3";
+        else _gridClass = "grid-4x4";
+    }
+
+    private string GetGridSizeName()
+    {
+        var count = _selectedCameraIds.Count;
+        if (count == 0) return "None";
+        if (count == 1) return "Single";
+        if (count == 2) return "Split";
+        if (count <= 4) return "2x2";
+        if (count <= 9) return "3x3";
+        return "Many";
+    }
+
+    private async Task TakeSnapshot(int videoId)
+    {
+        // Simple client-side snapshot from video element
+        await JSRuntime.InvokeVoidAsync("captureVideoSnapshot", $"video-player-{videoId}", $"snapshot-{videoId}.jpg");
+    }
+
+    private async Task ToggleFullscreen(int videoId)
+    {
+        await JSRuntime.InvokeVoidAsync("toggleFullscreen", $"video-player-{videoId}");
     }
 }
-
-<style>
-    .camera-view-container {
-        display: flex;
-        height: calc(100vh - 80px); /* Full height minus nav bar */
-    }
-
-    .camera-sidebar {
-        width: 250px;
-        padding: 1rem;
-        background-color: #f8f9fa;
-        border-right: 1px solid #dee2e6;
-        overflow-y: auto;
-    }
-
-    .camera-main-stage {
-        flex-grow: 1;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .camera-tabs {
-        padding: 0.5rem 1rem;
-        border-bottom: 1px solid #dee2e6;
-    }
-
-    .tab-button {
-        background-color: transparent;
-        border: none;
-        padding: 0.5rem 1rem;
-        cursor: pointer;
-    }
-
-    .tab-button.active {
-        border-bottom: 2px solid #0d6efd;
-        font-weight: bold;
-    }
-
-    .camera-grid {
-        flex-grow: 1;
-        background-color: #000;
-        display: grid;
-        gap: 2px;
-    }
-
-    .grid-1x1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-    .grid-1x2 { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr; }
-    .grid-2x2 { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
-    .grid-3x3 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
-
-    .status-dot {
-        display: inline-block;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        margin-right: 8px;
-    }
-
-    .status-green { background-color: #28a745; }
-    .status-red { background-color: #dc3545; }
-</style>
