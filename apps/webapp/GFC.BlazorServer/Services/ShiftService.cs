@@ -83,9 +83,9 @@ namespace GFC.BlazorServer.Services
         public async Task<IEnumerable<ShiftReport>> GetShiftReportsForExportAsync(System.DateTime startDate, System.DateTime endDate)
         {
             return await _context.ShiftReports
-                .Include(r => r.Shift)
+                .Include(r => r.StaffShift)
                 .ThenInclude(s => s.StaffMember)
-                .Where(r => r.Shift.ShiftDate >= startDate && r.Shift.ShiftDate <= endDate)
+                .Where(r => r.StaffShift.ShiftDate >= startDate && r.StaffShift.ShiftDate <= endDate)
                 .ToListAsync();
         }
 

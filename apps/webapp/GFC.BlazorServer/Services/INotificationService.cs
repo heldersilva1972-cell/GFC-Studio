@@ -10,5 +10,9 @@ namespace GFC.BlazorServer.Services
         void EnabbleMasterKillSwitch();
         void DisableMasterKillSwitch();
         bool IsMasterKillSwitchEnabled();
+        
+        // Rental notification methods
+        Task SendRentalConfirmationEmailAsync(HallRentalRequest request);
+        Task SendRentalDenialEmailAsync(HallRentalRequest request, string reason);
     }
 }

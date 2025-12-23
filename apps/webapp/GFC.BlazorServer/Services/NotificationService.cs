@@ -44,5 +44,51 @@ namespace GFC.BlazorServer.Services
         {
             return _masterKillSwitchEnabled;
         }
+
+        public async Task SendRentalConfirmationEmailAsync(HallRentalRequest request)
+        {
+            if (_masterKillSwitchEnabled)
+            {
+                // Email blocked by kill switch
+                return;
+            }
+
+            // TODO: Implement actual email sending logic
+            // For now, just create a notification record
+            var notification = new SystemNotification
+            {
+                RecipientEmail = request.RequesterEmail,
+                Subject = "Hall Rental Request Approved",
+                Message = $"Your rental request for {request.EventDate:MMMM dd, yyyy} has been approved.",
+                Status = "Sent",
+                SentAt = DateTime.UtcNow
+            };
+
+            _context.SystemNotifications.Add(notification);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task SendRentalDenialEmailAsync(HallRentalRequest request, string reason)
+        {
+            if (_masterKillSwitchEnabled)
+            {
+                // Email blocked by kill switch
+                return;
+            }
+
+            // TODO: Implement actual email sending logic
+            // For now, just create a notification record
+            var notification = new SystemNotification
+            {
+                RecipientEmail = request.RequesterEmail,
+                Subject = "Hall Rental Request Denied",
+                Message = $"Your rental request for {request.EventDate:MMMM dd, yyyy} has been denied. Reason: {reason}",
+                Status = "Sent",
+                SentAt = DateTime.UtcNow
+            };
+
+            _context.SystemNotifications.Add(notification);
+            await _context.SaveChangesAsync();
+        }
     }
 }
