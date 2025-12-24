@@ -81,10 +81,24 @@ namespace GFC.BlazorServer.Services
             {
                 var endDate = startDate.AddDays(7);
                 
+                Console.WriteLine($"=== GetShiftsForWeekAsync ===");
+                Console.WriteLine($"Start Date: {startDate:yyyy-MM-dd HH:mm:ss}");
+                Console.WriteLine($"End Date: {endDate:yyyy-MM-dd HH:mm:ss}");
+                
                 // Load shifts without navigation properties first
                 var shifts = await _context.StaffShifts
                     .Where(s => s.Date >= startDate && s.Date < endDate)
                     .ToListAsync();
+
+                Console.WriteLine($"Found {shifts.Count} shifts in database for this date range");
+                
+                // Also check ALL shifts to see what dates exist
+                var allShifts = await _context.StaffShifts.ToListAsync();
+                Console.WriteLine($"Total shifts in database: {allShifts.Count}");
+                foreach (var s in allShifts.Take(10))
+                {
+                    Console.WriteLine($"  DB Shift {s.Id}: Date={s.Date:yyyy-MM-dd}, StaffMemberId={s.StaffMemberId}");
+                }
 
                 // Manually load StaffMember for each shift
                 foreach (var shift in shifts)
@@ -93,11 +107,15 @@ namespace GFC.BlazorServer.Services
                     
                     try
                     {
+                        Console.WriteLine($"Processing shift {shift.Id}, Date={shift.Date:yyyy-MM-dd}, StaffMemberId={shift.StaffMemberId}");
+                        
                         // Try to load the StaffMember
                         if (shift.StaffMemberId > 0)
                         {
                             shift.StaffMember = await _context.StaffMembers
                                 .FirstOrDefaultAsync(sm => sm.Id == shift.StaffMemberId);
+                            
+                            Console.WriteLine($"  StaffMember loaded: {shift.StaffMember?.Name ?? "NULL"}");
                         }
                         
                         // Set StaffName based on what we found
@@ -109,6 +127,8 @@ namespace GFC.BlazorServer.Services
                         {
                             shift.StaffName = "Unassigned";
                         }
+                        
+                        Console.WriteLine($"  Final StaffName: {shift.StaffName}");
                     }
                     catch (Exception ex)
                     {
@@ -118,6 +138,7 @@ namespace GFC.BlazorServer.Services
                     }
                 }
 
+                Console.WriteLine($"Returning {shifts.Count} shifts");
                 return shifts.Where(s => s != null).ToList();
             }
             catch (Exception ex)

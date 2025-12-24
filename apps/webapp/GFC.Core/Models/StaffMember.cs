@@ -12,9 +12,8 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
-        [Required]
         [MaxLength(100)]
-        public string Name { get; set; } = string.Empty;
+        public string? Name { get; set; }
 
         [MaxLength(50)]
         public string? Role { get; set; }
