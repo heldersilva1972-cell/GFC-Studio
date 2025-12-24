@@ -8,7 +8,7 @@ using GFC.Core.Interfaces;
 
 namespace GFC.BlazorServer.Services
 {
-    public class TemplateService : ITemplateService
+    public class TemplateService : GFC.Core.Interfaces.ITemplateService
     {
         private readonly IDbContextFactory<GfcDbContext> _dbContextFactory;
 
