@@ -7,12 +7,14 @@
 @inject IJSRuntime JSRuntime
 @inject IStudioService StudioService
 @inject ITemplateService TemplateService
+@inject IContentIngestionService ContentIngestionService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
 
 <div class="studio-container">
     <div class="top-command-bar">
         <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
+        <button class="btn btn-secondary" @onclick="() => showUrlImportModal = true">[NEW] Import from URL</button>
         <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
         <button class="btn btn-info" @onclick="PublishPage">Publish</button>
         
@@ -188,9 +190,57 @@
     <div class="modal-backdrop fade show"></div>
 }
 
+@if (showUrlImportModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Import from URL</h5>
+                    <button type="button" class="close" @onclick="CloseImportModal">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    @if (isImporting)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p>Scraping content, please wait...</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrEmpty(importErrorMessage))
+                        {
+                            <div class="alert alert-danger">@importErrorMessage</div>
+                        }
+                        <div class="form-group">
+                            <label for="urlInput">URL to Scrape</label>
+                            <input type="text" class="form-control" id="urlInput" @bind="urlToImport" />
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseImportModal" disabled="@isImporting">Close</button>
+                    <button type="button" class="btn btn-primary" @onclick="ImportFromUrl" disabled="@isImporting">Import</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
 @code {
     [Parameter]
     public int PageId { get; set; }
+
+    private bool showUrlImportModal = false;
+    private string urlToImport = "";
+    private bool isImporting = false;
+    private string importErrorMessage = "";
 
     private StudioDraft draft;
     private List<StudioSection> sections = new();
@@ -545,5 +595,56 @@
         }
         sections = newSections;
         StateHasChanged();
+    }
+
+    private void CloseImportModal()
+    {
+        showUrlImportModal = false;
+        importErrorMessage = "";
+        urlToImport = "";
+    }
+
+    private async Task ImportFromUrl()
+    {
+        if (string.IsNullOrWhiteSpace(urlToImport))
+        {
+            importErrorMessage = "Please enter a URL to import.";
+            return;
+        }
+
+        isImporting = true;
+        importErrorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var newSections = await ContentIngestionService.ScrapeUrlAsync(urlToImport);
+            if (newSections.Any())
+            {
+                // Set page index correctly
+                int startingIndex = sections.Count;
+                foreach (var section in newSections)
+                {
+                    section.PageIndex = startingIndex++;
+                    section.StudioPageId = PageId;
+                }
+                sections.AddRange(newSections);
+                CloseImportModal();
+            }
+            else
+            {
+                importErrorMessage = "No content (headings, paragraphs, or images) could be found at the specified URL.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to import from URL {Url}", urlToImport);
+            importErrorMessage = $"Failed to import content. Error: {ex.Message}";
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
     }
 }

@@ -18,6 +18,8 @@ namespace GFC.Core.Models
 
         public int PageIndex { get; set; } = 0;
 
+        public string ComponentType { get; set; } = "TextBlock";
+
         public string? AnimationSettings { get; set; }
 
         [ForeignKey("StudioPage")]
