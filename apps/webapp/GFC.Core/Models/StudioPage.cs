@@ -12,6 +12,9 @@ namespace GFC.Core.Models
         [Required]
         public string Title { get; set; } = "New Page";
 
+        [Required]
+        public string Slug { get; set; } = string.Empty;
+
         public string? Content { get; set; }
 
         public bool IsPublished { get; set; } = false;

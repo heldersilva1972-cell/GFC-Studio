@@ -8,6 +8,7 @@ namespace GFC.BlazorServer.Services
     public interface IStudioService
     {
         Task<StudioPage> GetPublishedPageAsync(int id);
+        Task<StudioPage> GetPublishedPageAsync(string slug);
         Task<IEnumerable<StudioPage>> GetPublishedPagesAsync();
         Task<IEnumerable<StudioPage>> GetAllPagesAsync();
         

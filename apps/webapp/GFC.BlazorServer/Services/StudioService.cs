@@ -29,6 +29,13 @@ namespace GFC.BlazorServer.Services
                 .FirstOrDefaultAsync(p => p.Id == id && p.IsPublished);
         }
 
+        public async Task<StudioPage> GetPublishedPageAsync(string slug)
+        {
+            return await _context.StudioPages
+                .Include(p => p.Sections)
+                .FirstOrDefaultAsync(p => p.Slug == slug && p.IsPublished);
+        }
+
         public async Task<IEnumerable<StudioPage>> GetPublishedPagesAsync()
         {
             return await _context.StudioPages
