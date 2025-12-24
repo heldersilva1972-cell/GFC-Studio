@@ -1,20 +1,29 @@
-// [NEW]
+// [MODIFIED]
 using GFC.Core.Models;
 using GFC.BlazorServer.Data;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using GFC.Core.Interfaces;
+using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Http;
 
 namespace GFC.BlazorServer.Services.Camera
 {
     public class CameraService : ICameraService
     {
         private readonly GfcDbContext _context;
+        private readonly IStreamSecurityService _streamSecurityService;
+        private readonly IConfiguration _configuration;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public CameraService(GfcDbContext context)
+        public CameraService(GfcDbContext context, IStreamSecurityService streamSecurityService, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
+            _streamSecurityService = streamSecurityService;
+            _configuration = configuration;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task<List<GFC.Core.Models.Camera>> GetAllCamerasAsync()
@@ -144,6 +153,26 @@ namespace GFC.BlazorServer.Services.Camera
             {
                 Console.WriteLine($"Failed to sync cameras to Video Agent: {ex.Message}");
             }
+        }
+
+        public async Task<string> GetSecureStreamUrlAsync(int cameraId)
+        {
+            var camera = await GetCameraByIdAsync(cameraId);
+            if (camera == null)
+            {
+                throw new KeyNotFoundException($"Camera with ID {cameraId} not found.");
+            }
+
+            var userIpAddress = _httpContextAccessor.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+            var token = _streamSecurityService.GenerateStreamToken(cameraId, userIpAddress);
+
+            var videoAgentBaseUrl = _configuration["VideoAgent:BaseUrl"] ?? "http://localhost:8888";
+
+            // The request path should match what the Video Agent expects for HLS streams.
+            // Let's assume it's `/live/{cameraId}/index.m3u8` as seen in ViewCameras.razor
+            var streamPath = $"live/{camera.Id}/index.m3u8";
+
+            return $"{videoAgentBaseUrl}/{streamPath}?token={Uri.EscapeDataString(token)}";
         }
     }
 }
