@@ -10,7 +10,7 @@ namespace GFC.Core.Interfaces
         Task<StudioTemplate> GetTemplateAsync(int id);
         Task<List<StudioTemplate>> GetAllTemplatesAsync();
         Task<List<StudioTemplate>> GetTemplatesByCategoryAsync(string category);
-        Task CreateTemplateAsync(StudioTemplate template);
+        Task<StudioTemplate> CreateTemplateAsync(StudioTemplate template);
         Task UpdateTemplateAsync(StudioTemplate template);
         Task DeleteTemplateAsync(int id);
     }

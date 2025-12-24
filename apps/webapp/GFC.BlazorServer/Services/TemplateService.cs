@@ -37,11 +37,12 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
-        public async Task CreateTemplateAsync(StudioTemplate template)
+        public async Task<StudioTemplate> CreateTemplateAsync(StudioTemplate template)
         {
             using var context = _dbContextFactory.CreateDbContext();
             context.StudioTemplates.Add(template);
             await context.SaveChangesAsync();
+            return template;
         }
 
         public async Task UpdateTemplateAsync(StudioTemplate template)
