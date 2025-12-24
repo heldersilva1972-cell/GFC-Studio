@@ -61,11 +61,24 @@
             <div class="toolbox-content">
                 @if (activeToolboxTab == "templates")
                 {
+                    <div class="template-filter mb-2">
+                        <select class="form-control form-control-sm" @onchange="FilterTemplates">
+                            <option value="">All Categories</option>
+                            @foreach (var category in templateCategories)
+                            {
+                                <option value="@category">@category</option>
+                            }
+                        </select>
+                    </div>
                     <div class="template-list">
-                        @foreach (var template in templates)
+                        @foreach (var template in filteredTemplates)
                         {
                             <div class="template-item" draggable="true" @ondragstart="@(() => HandleDragStart(template))">
-                                @template.Name
+                                <img src="@(template.ThumbnailUrl ?? "https://via.placeholder.com/300x150?text=" + template.Category)" alt="@template.Name" class="template-thumb" />
+                                <div class="template-name">@template.Name</div>
+                                <button class="btn btn-sm btn-danger template-delete-btn" @onclick="() => DeleteTemplate(template.Id)">
+                                    <i class="fas fa-trash"></i>
+                                </button>
                             </div>
                         }
                     </div>
@@ -90,36 +103,56 @@
             </div>
         </div>
         <div class="right-inspector">
-            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" />
+            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnContentFixed="@(args => HandleContentFixed(args.newContent, args.fixName))" />
+            @if (!string.IsNullOrEmpty(lastWizardAction))
+            {
+                <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
+            }
         </div>
     </div>
     <div class="animation-orchestrator">
         @if (selectedSection != null)
         {
-            <h5>Animation for Section: @selectedSection.Title</h5>
-            <div class="row">
-                <div class="col">
-                    <label>Effect</label>
-                    <select class="form-control" @bind="currentAnimation.Effect">
-                        <option value="fadeIn">Fade In</option>
-                        <option value="slideInUp">Slide In Up</option>
-                        <option value="bounceIn">Bounce In</option>
-                    </select>
-                </div>
-                <div class="col">
-                    <label>Duration: @currentAnimation.Duration.ToString("0.0")s</label>
-                    <input type="range" class="form-control-range" min="0.1" max="5.0" step="0.1" @bind="currentAnimation.Duration" />
-                </div>
-                <div class="col">
-                    <label>Delay: @currentAnimation.Delay.ToString("0.0")s</label>
-                    <input type="range" class="form-control-range" min="0.0" max="5.0" step="0.1" @bind="currentAnimation.Delay" />
-                </div>
+            <h5>Animation Timeline for: "@selectedSection.Title"</h5>
+            <div class="timeline-bar" @ref="_timelineElement">
+                @for (int i = 0; i <= 5; i++)
+                {
+                    <div class="time-marker">@i</div>
+                }
+                @foreach (var keyframe in currentAnimationKeyframes)
+                {
+                    <div class="animation-block" style="@GetAnimationBlockStyle(keyframe)" id="@keyframe.Id">
+                        @keyframe.Effect
+                    </div>
+                }
             </div>
-            <button class="btn btn-primary mt-2" @onclick="PreviewAnimation">Play</button>
+            <div class="keyframe-editor mt-3">
+                @foreach (var keyframe in currentAnimationKeyframes)
+                {
+                    <div class="keyframe-controls" id="@keyframe.Id">
+                         <select class="form-control form-control-sm" @bind="keyframe.Effect">
+                            <option value="fadeIn">Fade In</option>
+                            <option value="slideInUp">Slide Up</option>
+                            <option value="bounceIn">Bounce In</option>
+                        </select>
+                        <label>D:</label>
+                        <input type="range" class="form-control-range" min="0.1" max="5" step="0.1" @bind="keyframe.Duration" />
+                        <span>@keyframe.Duration.ToString("0.0")s</span>
+                        <label>W:</label>
+                        <input type="range" class="form-control-range" min="0" max="5" step="0.1" @bind="keyframe.Delay" />
+                        <span>@keyframe.Delay.ToString("0.0")s</span>
+                        <button class="btn btn-sm btn-danger" @onclick="() => RemoveKeyframe(keyframe.Id)">X</button>
+                    </div>
+                }
+                <button class="btn btn-sm btn-info" @onclick="AddKeyframe">+ Add Keyframe</button>
+            </div>
+            <div class="mt-2">
+                <button class="btn btn-primary" @onclick="PreviewAnimation">▶ Preview</button>
+            </div>
         }
         else
         {
-            <p>Select a section to animate.</p>
+            <p class="text-muted">Select a section to configure its animation timeline.</p>
         }
     </div>
 </div>
@@ -163,6 +196,9 @@
     private List<StudioSection> sections = new();
     private StudioSection selectedSection;
     private List<StudioTemplate> templates = new();
+    private List<StudioTemplate> filteredTemplates = new();
+    private List<string> templateCategories = new();
+    private string selectedTemplateCategory = "";
     private string activeToolboxTab = "templates";
     private StudioSection sectionToSave;
     private bool showSaveAsTemplateModal = false;
@@ -173,12 +209,44 @@
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
-    private AnimationModel currentAnimation = new AnimationModel();
+    private List<AnimationKeyframe> currentAnimationKeyframes = new();
     private StudioWizard studioWizard;
-    private List<string> wizardWarnings => studioWizard?.Warnings ?? new List<string>();
+    private List<StudioWizard.WizardWarning> wizardWarnings = new();
+    private ElementReference _timelineElement;
 
-    public class AnimationModel
+    protected override void OnParametersSet()
     {
+        if (studioWizard != null)
+        {
+            wizardWarnings = studioWizard.Warnings;
+        }
+    }
+
+    private void HandleContentFixed(string newContent, string fixName)
+    {
+        if (selectedSection != null)
+        {
+            lastUndoState = new StudioSection { Content = selectedSection.Content };
+            selectedSection.Content = newContent;
+            lastWizardAction = $"Auto-Fix: {fixName}";
+            StateHasChanged();
+        }
+    }
+
+    private void UndoLastAction()
+    {
+        if (selectedSection != null && lastUndoState != null)
+        {
+            selectedSection.Content = lastUndoState.Content;
+            lastWizardAction = "";
+            lastUndoState = null;
+            StateHasChanged();
+        }
+    }
+
+    public class AnimationKeyframe
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
         public string Effect { get; set; } = "fadeIn";
         public double Duration { get; set; } = 1.0;
         public double Delay { get; set; } = 0.0;
@@ -193,16 +261,21 @@
         {
             try
             {
-                currentAnimation = JsonSerializer.Deserialize<AnimationModel>(selectedSection.AnimationSettings) ?? new AnimationModel();
+                currentAnimationKeyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(selectedSection.AnimationSettings) ?? new List<AnimationKeyframe>();
             }
             catch
             {
-                currentAnimation = new AnimationModel();
+                currentAnimationKeyframes = new List<AnimationKeyframe>();
             }
         }
         else
         {
-            currentAnimation = new AnimationModel();
+            currentAnimationKeyframes = new List<AnimationKeyframe>();
+        }
+
+        if (!currentAnimationKeyframes.Any())
+        {
+            currentAnimationKeyframes.Add(new AnimationKeyframe());
         }
     }
 
@@ -221,8 +294,30 @@
     {
         if (selectedSection != null)
         {
-            await JSRuntime.InvokeVoidAsync("previewAnimation", selectedSection.ClientId, currentAnimation);
+            await JSRuntime.InvokeVoidAsync("previewAnimation", selectedSection.ClientId, currentAnimationKeyframes);
         }
+    }
+
+    private void AddKeyframe()
+    {
+        currentAnimationKeyframes.Add(new AnimationKeyframe { Delay = currentAnimationKeyframes.LastOrDefault()?.Delay + currentAnimationKeyframes.LastOrDefault()?.Duration ?? 0 });
+    }
+
+    private void RemoveKeyframe(Guid id)
+    {
+        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == id);
+        if (keyframe != null)
+        {
+            currentAnimationKeyframes.Remove(keyframe);
+        }
+    }
+
+    private string GetAnimationBlockStyle(AnimationKeyframe keyframe)
+    {
+        // Assuming timeline is 5s long and 100% width. Each second is 20%.
+        var left = keyframe.Delay * 20;
+        var width = keyframe.Duration * 20;
+        return $"left: {left}%; width: {width}%;";
     }
 
     private void HandleDragStart(StudioTemplate template)
@@ -281,6 +376,27 @@
     private async Task LoadTemplates()
     {
         templates = await TemplateService.GetAllTemplatesAsync();
+        templateCategories = templates.Select(t => t.Category).Distinct().OrderBy(c => c).ToList();
+        FilterTemplates(new ChangeEventArgs { Value = "" });
+    }
+
+    private void FilterTemplates(ChangeEventArgs e)
+    {
+        selectedTemplateCategory = e.Value.ToString();
+        if (string.IsNullOrEmpty(selectedTemplateCategory))
+        {
+            filteredTemplates = templates;
+        }
+        else
+        {
+            filteredTemplates = templates.Where(t => t.Category == selectedTemplateCategory).ToList();
+        }
+    }
+
+    private async Task DeleteTemplate(int id)
+    {
+        await TemplateService.DeleteTemplateAsync(id);
+        await LoadTemplates();
     }
 
     protected override async Task OnInitializedAsync()
@@ -378,7 +494,7 @@
     {
         if (firstRender && string.IsNullOrEmpty(errorMessage))
         {
-            try 
+            try
             {
                 await JSRuntime.InvokeVoidAsync("initializeDnd", DotNetObjectReference.Create(this));
             }
@@ -386,6 +502,22 @@
             {
                 Logger.LogError(ex, "Failed to initialize Drag and Drop");
             }
+        }
+        if (selectedSection != null)
+        {
+            await JSRuntime.InvokeVoidAsync("initializeTimeline", _timelineElement, DotNetObjectReference.Create(this));
+        }
+    }
+
+    [JSInvokable]
+    public void UpdateKeyframe(string keyframeId, double newDuration, double newDelay)
+    {
+        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == Guid.Parse(keyframeId));
+        if (keyframe != null)
+        {
+            keyframe.Duration = newDuration;
+            keyframe.Delay = newDelay;
+            StateHasChanged();
         }
     }
 
@@ -400,7 +532,7 @@
         {
             if (selectedSection != null)
             {
-                selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimation);
+                selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimationKeyframes);
             }
             
             var json = JsonSerializer.Serialize(sections);
