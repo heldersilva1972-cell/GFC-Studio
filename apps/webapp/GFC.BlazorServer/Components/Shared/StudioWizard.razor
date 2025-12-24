@@ -1,5 +1,5 @@
-// [NEW]
 @using GFC.Core.Models
+@using System.Text.RegularExpressions
 
 <div class="studio-wizard">
     <h5>Wizard Assistant</h5>
@@ -8,7 +8,15 @@
         <ul class="list-group">
             @foreach (var warning in Warnings)
             {
-                <li class="list-group-item list-group-item-warning">@warning</li>
+                <li class="list-group-item list-group-item-warning d-flex justify-content-between align-items-center">
+                    @warning.Message
+                    @if (warning.CanAutoFix)
+                    {
+                        <button class="btn btn-sm btn-success" @onclick="() => ApplyFix(warning)">
+                            ✨ Fix It
+                        </button>
+                    }
+                </li>
             }
         </ul>
     }
@@ -22,7 +30,19 @@
     [Parameter]
     public StudioSection TargetSection { get; set; }
 
-    public List<string> Warnings { get; private set; } = new List<string>();
+    [Parameter]
+    public EventCallback<(string newContent, string fixName)> OnContentFixed { get; set; }
+
+    public List<WizardWarning> Warnings { get; private set; } = new List<WizardWarning>();
+
+    public enum FixType { None, MissingH1, MissingAltText, TooManyColumns }
+
+    public class WizardWarning
+    {
+        public string Message { get; set; }
+        public bool CanAutoFix { get; set; }
+        public FixType FixType { get; set; }
+    }
 
     protected override void OnParametersSet()
     {
@@ -32,26 +52,68 @@
     private void AnalyzeSection()
     {
         Warnings.Clear();
-        if (TargetSection == null)
+        if (TargetSection == null || string.IsNullOrEmpty(TargetSection.Content))
         {
             return;
         }
 
-        // SEO Health Bar
+        // SEO: Missing H1
         if (!TargetSection.Content.Contains("<h1>"))
         {
-            Warnings.Add("SEO: Missing H1 tag.");
-        }
-        if (TargetSection.Content.Contains("<img") && !TargetSection.Content.Contains("alt="))
-        {
-            Warnings.Add("SEO: Image is missing alt text.");
+            Warnings.Add(new WizardWarning { Message = "SEO: Missing H1 tag.", CanAutoFix = true, FixType = FixType.MissingH1 });
         }
 
-        // Layout Doctor
-        // This is a naive check. A real implementation would be more robust.
+        // SEO: Missing Alt Text
+        if (Regex.IsMatch(TargetSection.Content, @"<img(?![^>]*\balt\s*=)[^>]*>"))
+        {
+            Warnings.Add(new WizardWarning { Message = "SEO: Image is missing alt text.", CanAutoFix = true, FixType = FixType.MissingAltText });
+        }
+
+        // Layout: Too Many Columns
         if (TargetSection.Content.Split(new string[] { "<div class=\"col" }, StringSplitOptions.None).Length - 1 > 4)
         {
-            Warnings.Add("Layout: More than 4 columns may not be mobile-friendly.");
+            Warnings.Add(new WizardWarning { Message = "Layout: More than 4 columns detected.", CanAutoFix = false, FixType = FixType.TooManyColumns });
         }
+    }
+
+    private async Task ApplyFix(WizardWarning warning)
+    {
+        string originalContent = TargetSection.Content;
+        string modifiedContent = originalContent;
+
+        switch (warning.FixType)
+        {
+            case FixType.MissingH1:
+                modifiedContent = FixMissingH1(originalContent);
+                break;
+            case FixType.MissingAltText:
+                modifiedContent = FixMissingAltText(originalContent);
+                break;
+        }
+
+        if (modifiedContent != originalContent)
+        {
+            await OnContentFixed.InvokeAsync((modifiedContent, warning.Message));
+            AnalyzeSection(); // Re-analyze after fixing
+        }
+    }
+
+    private string FixMissingH1(string content)
+    {
+        // A simple fix: wrap the first non-empty line in <h1> tags if no h1 exists.
+        var lines = content.Trim().Split('\n');
+        var firstLineIndex = Array.FindIndex(lines, line => !string.IsNullOrWhiteSpace(line));
+        if (firstLineIndex != -1)
+        {
+            lines[firstLineIndex] = $"<h1>{lines[firstLineIndex].Trim()}</h1>";
+            return string.Join('\n', lines);
+        }
+        return content;
+    }
+
+    private string FixMissingAltText(string content)
+    {
+        // Find all <img> tags without an alt attribute and add a default one.
+        return Regex.Replace(content, @"<img(?![^>]*\balt\s*=)([^>]*)>", @"<img alt=""Image""$1>");
     }
 }
