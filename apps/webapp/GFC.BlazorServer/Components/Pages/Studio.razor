@@ -6,20 +6,27 @@
 @using GFC.BlazorServer.Components.Shared
 @inject IJSRuntime JSRuntime
 @inject IStudioService StudioService
+@inject IPageService PageService
 @inject ITemplateService TemplateService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
 @inject IConfiguration Configuration
 
+@if (showNewPageModal)
+{
+    <NewPageModal ExistingPages="allPages" OnCancel="() => showNewPageModal = false" OnConfirm="CreateNewPage" ErrorMessage="@_newPageErrorMessage" />
+}
+
 <div class="studio-container">
     <div class="top-command-bar">
-        <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
+        <PageNavigator CurrentPage="currentPage" OnPageSelected="HandlePageSelected" OnNewPageClicked="() => showNewPageModal = true" />
+        <button class="btn btn-primary ms-3" @onclick="AddSection">Add Section</button>
         <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
         <button class="btn btn-info" @onclick="PublishPage">Publish</button>
         
         <div class="dropdown d-inline-block ms-3">
             <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
-                Draft History @(draft != null ? $" (v{draft.Version})" : "")
+                History
             </button>
             @if (showHistory)
             {
@@ -188,6 +195,9 @@
     [Parameter]
     public int PageId { get; set; }
 
+    private bool showNewPageModal = false;
+    private List<StudioPage> allPages = new();
+    private StudioPage currentPage;
     private StudioDraft draft;
     private List<StudioSection> sections = new();
     private StudioSection selectedSection;
@@ -293,6 +303,41 @@
         if (!currentAnimationKeyframes.Any())
         {
             currentAnimationKeyframes.Add(new AnimationKeyframe());
+        }
+    }
+
+    private async Task HandlePageSelected(StudioPage page)
+    {
+        if (page != null && page.Id != PageId)
+        {
+            // Update the URL in the browser's address bar without forcing a reload
+            NavigationManager.NavigateTo($"/studio/{page.Id}");
+
+            // Now, reload the component's state with the new page's data
+            await LoadPageAsync(page.Id);
+        }
+    }
+
+    private string _newPageErrorMessage = null;
+
+    private async Task CreateNewPage(StudioPage pageStub)
+    {
+        _newPageErrorMessage = null;
+        try
+        {
+            int? cloneFromId = pageStub.Id > 0 ? pageStub.Id : null;
+            var newPage = await PageService.CreatePageAsync(pageStub.Title, cloneFromId);
+
+            if (newPage != null)
+            {
+                showNewPageModal = false;
+                NavigationManager.NavigateTo($"/studio/{newPage.Id}", forceLoad: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create new page");
+            _newPageErrorMessage = ex.Message;
         }
     }
 
@@ -419,56 +464,6 @@
         await LoadTemplates();
     }
 
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            if (PageId == 0)
-            {
-                // Redirect or show an error if no PageId is provided
-                errorMessage = "No page specified. Please select a page to edit.";
-                return;
-            }
-
-            var page = await StudioService.GetPageAsync(PageId);
-            if (page == null)
-            {
-                errorMessage = "The page could not be found.";
-                return;
-            }
-            _pageSlug = page.Slug;
-
-            var previewUrlBase = Configuration["NEXTJS_PREVIEW_URL"];
-            if (string.IsNullOrEmpty(previewUrlBase))
-            {
-                errorMessage = "Next.js preview URL is not configured.";
-                return;
-            }
-
-            _previewUrl = $"{previewUrlBase}/studio-preview/{_pageSlug}";
-
-            draft = await StudioService.GetLatestDraftAsync(PageId);
-
-            if (draft != null && !string.IsNullOrEmpty(draft.ContentJson))
-            {
-                sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson) ?? new List<StudioSection>();
-            }
-            else
-            {
-                sections = new List<StudioSection>();
-            }
-
-            await LoadHistory();
-            await LoadTemplates();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to initialize Studio");
-            errorMessage = ex.Message;
-            errorDetails = ex.ToString();
-        }
-    }
-
     private void setViewport(string viewport)
     {
         currentViewport = viewport;
@@ -490,6 +485,70 @@
                 Logger.LogError(ex, "Failed to initialize Studio Interop");
             }
         }
+    }
+
+    private async Task LoadPageAsync(int pageId)
+    {
+        errorMessage = null;
+        errorDetails = null;
+        sections = new();
+        draft = null;
+        currentPage = null;
+
+        try
+        {
+            currentPage = await PageService.GetPageAsync(pageId);
+            if (currentPage == null)
+            {
+                errorMessage = "The requested page could not be found.";
+                return;
+            }
+
+            PageId = pageId; // Update the component's parameter
+            _pageSlug = currentPage.Slug;
+            var previewUrlBase = Configuration["NEXTJS_PREVIEW_URL"];
+            _previewUrl = $"{previewUrlBase}/studio-preview/{_pageSlug}";
+
+            draft = await StudioService.GetLatestDraftAsync(PageId);
+            sections = !string.IsNullOrEmpty(draft?.ContentSnapshotJson)
+                ? JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson)
+                : new List<StudioSection>();
+
+            await LoadHistory();
+            await LoadTemplates(); // Consider if this needs to be reloaded every time
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load page data for page {PageId}", pageId);
+            errorMessage = "An unexpected error occurred while loading the page.";
+            errorDetails = ex.Message;
+        }
+
+        StateHasChanged(); // Ensure the UI updates
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        allPages = await PageService.GetAllPagesAsync();
+
+        var effectivePageId = PageId;
+        if (effectivePageId == 0)
+        {
+            var firstPage = allPages.FirstOrDefault();
+            if (firstPage != null)
+            {
+                effectivePageId = firstPage.Id;
+                // Update URL without forcing a reload, just to be clean
+                NavigationManager.NavigateTo($"/studio/{effectivePageId}", replace: true);
+            }
+            else
+            {
+                errorMessage = "No pages found. Create a new page to begin.";
+                return;
+            }
+        }
+
+        await LoadPageAsync(effectivePageId);
     }
 
     [JSInvokable]

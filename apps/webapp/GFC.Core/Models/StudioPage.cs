@@ -13,16 +13,13 @@ namespace GFC.Core.Models
         [StringLength(100)]
         public string Title { get; set; }
 
-        [Required]
         [StringLength(100)]
         public string Slug { get; set; }
 
-        [Required]
-        [StringLength(20)]
-        public string Status { get; set; }
-
-        public string ThemeConfig { get; set; }
+        public bool IsPublished { get; set; }
 
         public ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
+
+        public ICollection<StudioDraft> Drafts { get; set; } = new List<StudioDraft>();
     }
 }

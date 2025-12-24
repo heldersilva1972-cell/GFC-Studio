@@ -1,0 +1,108 @@
+// [NEW]
+@using GFC.Core.Models
+
+<div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create a New Page</h5>
+                <button type="button" class="close" @onclick="Cancel">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="pageTitle">Page Title</label>
+                    <input type="text" class="form-control" id="pageTitle" @bind="PageTitle" placeholder="e.g., Contact Us" />
+                </div>
+                <div class="form-group mt-3">
+                    <label for="cloneFrom">Clone from Existing Page (Optional)</label>
+                    <select class="form-control" id="cloneFrom" @bind="CloneFromPageId">
+                        <option value="0">-- Start with a blank page --</option>
+                        @foreach (var page in ExistingPages)
+                        {
+                            <option value="@page.Id">@page.Title</option>
+                        }
+                    </select>
+                </div>
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger mt-3">@ErrorMessage</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="Confirm" disabled="@isProcessing">
+                    @if (isProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        <span> Creating...</span>
+                    }
+                    else
+                    {
+                        <span>Create Page</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal-backdrop fade show"></div>
+
+@code {
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    [Parameter]
+    public EventCallback<StudioPage> OnConfirm { get; set; }
+
+    [Parameter]
+    public List<StudioPage> ExistingPages { get; set; } = new();
+
+    [Parameter]
+    public string ErrorMessage { get; set; }
+
+    private string PageTitle { get; set; }
+    private int CloneFromPageId { get; set; }
+
+    private bool isProcessing = false;
+
+    private void Cancel()
+    {
+        OnCancel.InvokeAsync();
+    }
+
+    private async Task Confirm()
+    {
+        if (string.IsNullOrWhiteSpace(PageTitle))
+        {
+            ErrorMessage = "Page Title is required.";
+            return;
+        }
+
+        isProcessing = true;
+        ErrorMessage = "";
+
+        try
+        {
+            // The actual creation logic is in the parent component that calls this.
+            // Here, we just bundle up the data.
+            var newPageStub = new StudioPage
+            {
+                Title = this.PageTitle,
+                // The Id of the page to clone from is passed via this property.
+                // It's a bit of a hack, but avoids creating a whole new DTO for this modal.
+                Id = this.CloneFromPageId
+            };
+            await OnConfirm.InvokeAsync(newPageStub);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"An error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+}
