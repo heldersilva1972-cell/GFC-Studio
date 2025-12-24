@@ -17,9 +17,18 @@ namespace GFC.BlazorServer.Services
         Task<IEnumerable<StudioDraft>> GetDraftHistoryAsync(int pageId);
         Task<StudioDraft> GetDraftAsync(int draftId);
         Task<StudioDraft> GetLatestDraftAsync(int pageId);
+        Task<StudioDraft> NameDraftAsync(int draftId, string name);
         Task PublishDraftAsync(int draftId);
+        Task UnpublishPageAsync(int pageId);
         
         Task<StudioPage> CreatePageAsync(StudioPage page);
+        Task<StudioPage> ClonePageAsync(int pageId, string newTitle);
         Task DeletePageAsync(int id);
+
+        // Locking
+        Task<bool> AcquireLockAsync(int pageId, string username);
+        Task ReleaseLockAsync(int pageId, string username);
+        Task ForceReleaseLockAsync(int pageId);
+        Task<StudioLock> GetLockAsync(int pageId);
     }
 }

@@ -1,0 +1,91 @@
+// [NEW]
+@using GFC.Core.Models
+@inject IStudioService StudioService
+@inject NavigationManager NavigationManager
+
+<div class="page-navigator">
+    <div class="dropdown">
+        <button class="btn btn-secondary dropdown-toggle" type="button" @onclick="ToggleDropdown">
+            @CurrentPageTitle
+        </button>
+        <div class="dropdown-menu @(isDropdownOpen ? "show" : "")">
+            <input type="text" class="form-control" placeholder="Search pages..." @oninput="FilterPages" />
+            <div class="page-list">
+                @foreach (var page in filteredPages)
+                {
+                    <a class="dropdown-item @(page.Id == CurrentPageId ? "active" : "")" href="/studio/@page.Id">
+                        @page.Title
+                        <span class="badge @(page.IsPublished ? "bg-success" : "bg-secondary")">
+                            @(page.IsPublished ? "Live" : "Draft")
+                        </span>
+                    </a>
+                }
+            </div>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" @onclick="CreateNewPage">New Page</button>
+            <button class="dropdown-item" @onclick="ClonePage">Clone this Page</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int CurrentPageId { get; set; }
+
+    private List<StudioPage> allPages = new();
+    private List<StudioPage> filteredPages = new();
+    private string searchTerm = "";
+    private bool isDropdownOpen = false;
+
+    private string CurrentPageTitle => allPages.FirstOrDefault(p => p.Id == CurrentPageId)?.Title ?? "Select a Page";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPagesAsync();
+    }
+
+    private async Task LoadPagesAsync()
+    {
+        allPages = (await StudioService.GetAllPagesAsync()).OrderBy(p => p.Title).ToList();
+        FilterPages(new ChangeEventArgs { Value = "" });
+    }
+
+    private void ToggleDropdown()
+    {
+        isDropdownOpen = !isDropdownOpen;
+    }
+
+    private void FilterPages(ChangeEventArgs e)
+    {
+        searchTerm = e.Value.ToString().ToLower();
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            filteredPages = allPages;
+        }
+        else
+        {
+            filteredPages = allPages.Where(p => p.Title.ToLower().Contains(searchTerm)).ToList();
+        }
+    }
+
+    private async Task CreateNewPage()
+    {
+        var newPage = new StudioPage
+        {
+            Title = "Untitled Page",
+            Slug = $"untitled-{Guid.NewGuid().ToString().Substring(0, 8)}"
+        };
+        var createdPage = await StudioService.CreatePageAsync(newPage);
+        NavigationManager.NavigateTo($"/studio/{createdPage.Id}", forceLoad: true);
+    }
+
+    private async Task ClonePage()
+    {
+        var originalPage = allPages.FirstOrDefault(p => p.Id == CurrentPageId);
+        if (originalPage == null) return;
+
+        var newTitle = $"Copy of {originalPage.Title}";
+        var clonedPage = await StudioService.ClonePageAsync(CurrentPageId, newTitle);
+        NavigationManager.NavigateTo($"/studio/{clonedPage.Id}", forceLoad: true);
+    }
+}

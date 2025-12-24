@@ -21,6 +21,9 @@ namespace GFC.Core.Models
 
         public DateTime? LastPublishedAt { get; set; }
 
+        public string? LockedBy { get; set; }
+        public DateTime? LockedAt { get; set; }
+
         public virtual ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
     }
 }

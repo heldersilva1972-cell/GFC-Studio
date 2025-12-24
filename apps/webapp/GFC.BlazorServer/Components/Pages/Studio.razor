@@ -9,29 +9,34 @@
 @inject ITemplateService TemplateService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@implements IDisposable
 
 <div class="studio-container">
-    <div class="top-command-bar">
-        <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
-        <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
-        <button class="btn btn-info" @onclick="PublishPage">Publish</button>
-        
-        <div class="dropdown d-inline-block ms-3">
-            <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
-                Draft History @(draft != null ? $" (v{draft.Version})" : "")
-            </button>
-            @if (showHistory)
+    @if (isLocked)
+    {
+        <div class="alert alert-warning m-3">
+            <h4>Page Locked</h4>
+            <p>This page is currently being edited by <strong>@lockedBy</strong>.</p>
+            @if (canForceUnlock)
             {
-                <div class="dropdown-menu show" style="max-height: 300px; overflow-y: auto;">
-                    @foreach (var h in draftHistory)
-                    {
-                        <button class="dropdown-item" @onclick="() => LoadDraft(h)">
-                            v@h.Version - @h.CreatedAt.ToLocalTime().ToString("g") (@h.CreatedBy)
-                        </button>
-                    }
-                </div>
+                <button class="btn btn-danger" @onclick="ForceUnlock">Force Unlock</button>
             }
         </div>
+    }
+    else
+    {
+        <div class="top-command-bar">
+        <PageNavigator CurrentPageId="PageId" />
+        <span class="save-status">@saveStatus</span>
+        <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
+        <button class="btn btn-info" @onclick="OpenPublishWizard">Publish</button>
+        @if (allPages.FirstOrDefault(p => p.Id == PageId)?.IsPublished ?? false)
+        {
+            <button class="btn btn-warning" @onclick="UnpublishPage">Unpublish</button>
+        }
+        <button class="btn btn-secondary" @onclick="ToggleVersionHistory">Version History</button>
         @if (wizardWarnings.Any())
         {
             <span class="badge bg-warning text-dark ms-3">@wizardWarnings.Count Wizard Warnings</span>
@@ -53,6 +58,10 @@
     }
 
     <div class="studio-workspace">
+        @if (showVersionHistory)
+        {
+            <VersionHistorySidebar Versions="draftHistory" OnPreview="PreviewVersion" OnRestore="RestoreVersion" OnNameVersion="NameVersion" />
+        }
         <div class="left-toolbox">
             <div class="toolbox-tabs">
                 <button class="tab-button @(activeToolboxTab == "templates" ? "active" : "")" @onclick='() => activeToolboxTab = "templates"'>Templates</button>
@@ -97,7 +106,7 @@
                         <div class="section-toolbar">
                             <button class="btn btn-sm btn-outline-light" @onclick="() => OpenSaveAsTemplateModal(item)">Save as Template</button>
                         </div>
-                        <p contenteditable="true" @oninput="(e) => item.Content = e.Value.ToString()">@item.Content</p>
+                        <p contenteditable="true" @oninput="(e) => { item.Content = e.Value.ToString(); MarkAsDirty(); }">@item.Content</p>
                     </div>
                 }
             </div>
@@ -130,16 +139,16 @@
                 @foreach (var keyframe in currentAnimationKeyframes)
                 {
                     <div class="keyframe-controls" id="@keyframe.Id">
-                         <select class="form-control form-control-sm" @bind="keyframe.Effect">
+                         <select class="form-control form-control-sm" @bind="keyframe.Effect" @onchange="MarkAsDirty">
                             <option value="fadeIn">Fade In</option>
                             <option value="slideInUp">Slide Up</option>
                             <option value="bounceIn">Bounce In</option>
                         </select>
                         <label>D:</label>
-                        <input type="range" class="form-control-range" min="0.1" max="5" step="0.1" @bind="keyframe.Duration" />
+                        <input type="range" class="form-control-range" min="0.1" max="5" step="0.1" @bind="keyframe.Duration" @oninput="MarkAsDirty"/>
                         <span>@keyframe.Duration.ToString("0.0")s</span>
                         <label>W:</label>
-                        <input type="range" class="form-control-range" min="0" max="5" step="0.1" @bind="keyframe.Delay" />
+                        <input type="range" class="form-control-range" min="0" max="5" step="0.1" @bind="keyframe.Delay" @oninput="MarkAsDirty"/>
                         <span>@keyframe.Delay.ToString("0.0")s</span>
                         <button class="btn btn-sm btn-danger" @onclick="() => RemoveKeyframe(keyframe.Id)">X</button>
                     </div>
@@ -187,12 +196,19 @@
     </div>
     <div class="modal-backdrop fade show"></div>
 }
+}
+
+@if (showPublishingWizard)
+{
+    <PublishingWizard Page="allPages.FirstOrDefault(p => p.Id == PageId)" OnCancel="() => showPublishingWizard = false" OnConfirm="HandlePublish" />
+}
 
 @code {
     [Parameter]
     public int PageId { get; set; }
 
     private StudioDraft draft;
+    private List<StudioPage> allPages = new();
     private List<StudioSection> sections = new();
     private StudioSection selectedSection;
     private List<StudioTemplate> templates = new();
@@ -206,6 +222,7 @@
     private string newTemplateCategory = "";
     private string lastWizardAction = "";
     private bool showHistory = false;
+    private bool showVersionHistory = false;
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
@@ -213,6 +230,18 @@
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
     private ElementReference _timelineElement;
+    private Timer autoSaveTimer;
+    private bool isDirty = false;
+    private string saveStatus = "All changes saved";
+    private bool isLocked = false;
+    private string lockedBy = "";
+    private bool canForceUnlock = false;
+    private bool showPublishingWizard = false;
+
+    protected override void OnInitialized()
+    {
+        autoSaveTimer = new Timer(AutoSave, null, Timeout.Infinite, Timeout.Infinite);
+    }
 
     protected override void OnParametersSet()
     {
@@ -222,6 +251,14 @@
         }
     }
 
+    private void MarkAsDirty()
+    {
+        isDirty = true;
+        saveStatus = "Saving...";
+        autoSaveTimer.Change(2000, Timeout.Infinite); // Debounce for 2 seconds
+        InvokeAsync(StateHasChanged);
+    }
+
     private void HandleContentFixed(string newContent, string fixName)
     {
         if (selectedSection != null)
@@ -229,6 +266,7 @@
             lastUndoState = new StudioSection { Content = selectedSection.Content };
             selectedSection.Content = newContent;
             lastWizardAction = $"Auto-Fix: {fixName}";
+            MarkAsDirty();
             StateHasChanged();
         }
     }
@@ -241,6 +279,7 @@
             selectedSection.AnimationSettings = lastUndoState.AnimationSettings;
             lastWizardAction = "";
             lastUndoState = null;
+            MarkAsDirty();
             StateHasChanged();
         }
     }
@@ -254,6 +293,32 @@
     }
 
     private void ToggleHistory() => showHistory = !showHistory;
+
+    private void ToggleVersionHistory() => showVersionHistory = !showVersionHistory;
+
+    private async Task PreviewVersion(StudioDraft version)
+    {
+        // For now, preview will just load the draft into a separate, temporary state.
+        // A full implementation would render this in the iframe without touching the editor state.
+        var previewSections = JsonSerializer.Deserialize<List<StudioSection>>(version.ContentJson);
+        // This is a simplified preview. In a real app, you'd send this to the iframe via JS interop.
+        await JSRuntime.InvokeVoidAsync("updatePreview", previewSections);
+    }
+
+    private async Task RestoreVersion(StudioDraft version)
+    {
+        await LoadDraft(version);
+        MarkAsDirty();
+    }
+
+    private async Task NameVersion(string name)
+    {
+        if (draft != null && !string.IsNullOrWhiteSpace(name))
+        {
+            await StudioService.NameDraftAsync(draft.Id, name);
+            await LoadHistory();
+        }
+    }
 
     private void SelectSection(StudioSection section)
     {
@@ -302,6 +367,7 @@
     private void AddKeyframe()
     {
         currentAnimationKeyframes.Add(new AnimationKeyframe { Delay = currentAnimationKeyframes.LastOrDefault()?.Delay + currentAnimationKeyframes.LastOrDefault()?.Duration ?? 0 });
+        MarkAsDirty();
     }
 
     private void RemoveKeyframe(Guid id)
@@ -310,6 +376,7 @@
         if (keyframe != null)
         {
             currentAnimationKeyframes.Remove(keyframe);
+            MarkAsDirty();
         }
     }
 
@@ -336,6 +403,7 @@
             newSection.PageIndex = sections.Count;
             sections.Add(newSection);
             draggedTemplate = null;
+            MarkAsDirty();
         }
     }
 
@@ -406,8 +474,21 @@
         {
             if (PageId == 0)
             {
-                // Redirect or show an error if no PageId is provided
                 errorMessage = "No page specified. Please select a page to edit.";
+                return;
+            }
+
+            var lockResult = await StudioService.AcquireLockAsync(PageId, "System"); // TODO: Use real user
+            if (!lockResult)
+            {
+                var currentLock = await StudioService.GetLockAsync(PageId);
+                isLocked = true;
+                lockedBy = currentLock?.LockedBy ?? "another user";
+
+                var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User;
+                canForceUnlock = (await AuthorizationService.AuthorizeAsync(user, AppPolicies.CanForceUnlock)).Succeeded;
+
                 return;
             }
 
@@ -424,6 +505,7 @@
 
             await LoadHistory();
             await LoadTemplates();
+            allPages = (await StudioService.GetAllPagesAsync()).ToList();
         }
         catch (Exception ex)
         {
@@ -497,25 +579,50 @@
         }
     }
 
-    private async Task PublishPage()
+    private void OpenPublishWizard()
+    {
+        showPublishingWizard = true;
+    }
+
+    private async Task HandlePublish(string notes)
     {
         try
         {
             if (draft == null || draft.Id == 0)
             {
+                // Auto-save before publishing
                 await SaveDraft();
             }
             
             if (draft != null)
             {
                 await StudioService.PublishDraftAsync(draft.Id);
-                // After publishing, we might want to refresh the page or show success
+                showPublishingWizard = false;
+                // In a real app, you would also trigger the Next.js cache purge here.
+                // For now, we'll just log it.
+                Logger.LogInformation("Page published! Cache purge would be triggered for page: {PageSlug}", allPages.FirstOrDefault(p => p.Id == PageId)?.Slug);
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to publish page");
             errorMessage = "Failed to publish page: " + ex.Message;
+        }
+    }
+
+    private async Task UnpublishPage()
+    {
+        try
+        {
+            await StudioService.UnpublishPageAsync(PageId);
+            // In a real app, you would also trigger the Next.js cache purge here.
+            Logger.LogInformation("Page unpublished! Cache purge would be triggered for page: {PageSlug}", allPages.FirstOrDefault(p => p.Id == PageId)?.Slug);
+            await OnInitializedAsync(); // Refresh page state
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to unpublish page");
+            errorMessage = "Failed to unpublish page: " + ex.Message;
         }
     }
 
@@ -531,6 +638,7 @@
             StudioPageId = PageId,
         };
         sections.Add(newSection);
+        MarkAsDirty();
     }
 
     [JSInvokable]
@@ -544,6 +652,53 @@
             newSections.Add(section);
         }
         sections = newSections;
+        MarkAsDirty();
+        StateHasChanged();
+    }
+
+    private async void AutoSave(object state)
+    {
+        if (!isDirty) return;
+
+        await InvokeAsync(async () =>
+        {
+            try
+            {
+                if (selectedSection != null)
+                {
+                    selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimationKeyframes);
+                }
+
+                var json = JsonSerializer.Serialize(sections);
+                draft = await StudioService.SaveDraftAsync(PageId, json, "System"); // TODO: Use real user
+
+                await LoadHistory();
+                isDirty = false;
+                saveStatus = "All changes saved";
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to auto-save draft");
+                saveStatus = "Error saving!";
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        if (!isLocked)
+        {
+            InvokeAsync(() => StudioService.ReleaseLockAsync(PageId, "System")); // TODO: Use real user
+        }
+        autoSaveTimer?.Dispose();
+    }
+
+    private async Task ForceUnlock()
+    {
+        await StudioService.ForceReleaseLockAsync(PageId);
+        isLocked = false;
+        await OnInitializedAsync();
         StateHasChanged();
     }
 }

@@ -56,6 +56,8 @@ public class Program
         {
             options.AddPolicy(AppPolicies.RequireAdmin, policy =>
                 policy.RequireRole(AppRoles.Admin));
+            options.AddPolicy(AppPolicies.CanForceUnlock, policy =>
+                policy.RequireRole(AppRoles.Admin, AppRoles.StudioUnlock));
         });
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<ProtectedSessionStorage>();
@@ -171,6 +173,7 @@ public class Program
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddHttpClient<IWebsiteApiClient, WebsiteApiClient>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();

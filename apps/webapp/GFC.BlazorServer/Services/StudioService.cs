@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using GFC.Core.Helpers;
 
 namespace GFC.BlazorServer.Services
 {
@@ -15,11 +16,13 @@ namespace GFC.BlazorServer.Services
     {
         private readonly GfcDbContext _context;
         private readonly ILogger<StudioService> _logger;
+        private readonly IWebsiteApiClient _websiteApiClient;
 
-        public StudioService(GfcDbContext context, ILogger<StudioService> logger)
+        public StudioService(GfcDbContext context, ILogger<StudioService> logger, IWebsiteApiClient websiteApiClient)
         {
             _context = context;
             _logger = logger;
+            _websiteApiClient = websiteApiClient;
         }
 
         public async Task<StudioPage> GetPublishedPageAsync(int id)
@@ -62,7 +65,7 @@ namespace GFC.BlazorServer.Services
             var newDraft = new StudioDraft
             {
                 PageId = pageId,
-                ContentJson = contentJson,
+                ContentCompressed = CompressionHelper.Compress(contentJson),
                 Version = lastVersion + 1,
                 CreatedBy = username,
                 CreatedAt = DateTime.UtcNow
@@ -92,6 +95,20 @@ namespace GFC.BlazorServer.Services
                 .Where(d => d.PageId == pageId)
                 .OrderByDescending(d => d.Version)
                 .FirstOrDefaultAsync();
+        }
+
+        public async Task<StudioDraft> NameDraftAsync(int draftId, string name)
+        {
+            var draft = await _context.StudioDrafts.FindAsync(draftId);
+            if (draft == null)
+            {
+                _logger.LogWarning("NameDraftAsync: No draft found with Id {DraftId}", draftId);
+                throw new ArgumentException($"Draft with Id {draftId} not found.");
+            }
+
+            draft.Name = name;
+            await _context.SaveChangesAsync();
+            return draft;
         }
 
         public async Task PublishDraftAsync(int draftId)
@@ -140,6 +157,7 @@ namespace GFC.BlazorServer.Services
 
                 await _context.SaveChangesAsync();
                 _logger.LogInformation("Successfully published draft {DraftId} for PageId {PageId}", draftId, draft.PageId);
+                await _websiteApiClient.TriggerRevalidation(page.Slug);
             }
             catch (JsonException jsonEx)
             {
@@ -153,11 +171,57 @@ namespace GFC.BlazorServer.Services
             }
         }
 
+        public async Task UnpublishPageAsync(int pageId)
+        {
+            var page = await _context.StudioPages.FindAsync(pageId);
+            if (page == null)
+            {
+                _logger.LogWarning("UnpublishPageAsync: No page found with Id {PageId}", pageId);
+                throw new ArgumentException($"Page with Id {pageId} not found.");
+            }
+
+            page.IsPublished = false;
+            await _context.SaveChangesAsync();
+            await _websiteApiClient.TriggerRevalidation(page.Slug);
+        }
+
         public async Task<StudioPage> CreatePageAsync(StudioPage page)
         {
             _context.StudioPages.Add(page);
             await _context.SaveChangesAsync();
             return page;
+        }
+
+        public async Task<StudioPage> ClonePageAsync(int pageId, string newTitle)
+        {
+            var originalPage = await _context.StudioPages
+                .AsNoTracking()
+                .Include(p => p.Sections)
+                .FirstOrDefaultAsync(p => p.Id == pageId);
+
+            if (originalPage == null) throw new ArgumentException("Original page not found.");
+
+            var newPage = new StudioPage
+            {
+                Title = newTitle,
+                Slug = newTitle.ToLower().Replace(" ", "-") + "-" + Guid.NewGuid().ToString().Substring(0, 4),
+                IsPublished = false
+            };
+
+            foreach (var section in originalPage.Sections)
+            {
+                newPage.Sections.Add(new StudioSection
+                {
+                    Title = section.Title,
+                    Content = section.Content,
+                    PageIndex = section.PageIndex,
+                    AnimationSettings = section.AnimationSettings
+                });
+            }
+
+            _context.StudioPages.Add(newPage);
+            await _context.SaveChangesAsync();
+            return newPage;
         }
 
         public async Task DeletePageAsync(int id)
@@ -174,6 +238,59 @@ namespace GFC.BlazorServer.Services
                 _context.StudioPages.Remove(page);
                 await _context.SaveChangesAsync();
             }
+        }
+
+        public async Task<bool> AcquireLockAsync(int pageId, string username)
+        {
+            var existingLock = await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
+            if (existingLock != null)
+            {
+                // Lock exists. Check if it's expired.
+                if (DateTime.UtcNow - existingLock.LockedAt > TimeSpan.FromMinutes(5))
+                {
+                    // Lock is expired. Take it over.
+                    existingLock.LockedBy = username;
+                    existingLock.LockedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                    return true;
+                }
+                return false; // Lock is held by someone else.
+            }
+
+            var newLock = new StudioLock
+            {
+                PageId = pageId,
+                LockedBy = username,
+                LockedAt = DateTime.UtcNow
+            };
+            _context.StudioLocks.Add(newLock);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task ReleaseLockAsync(int pageId, string username)
+        {
+            var existingLock = await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId && l.LockedBy == username);
+            if (existingLock != null)
+            {
+                _context.StudioLocks.Remove(existingLock);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task ForceReleaseLockAsync(int pageId)
+        {
+            var existingLock = await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
+            if (existingLock != null)
+            {
+                _context.StudioLocks.Remove(existingLock);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task<StudioLock> GetLockAsync(int pageId)
+        {
+            return await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
         }
     }
 }

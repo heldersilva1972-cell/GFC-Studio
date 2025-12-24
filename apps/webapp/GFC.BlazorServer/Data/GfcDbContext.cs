@@ -59,6 +59,7 @@ public class GfcDbContext : DbContext
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();
     public DbSet<StudioSection> StudioSections => Set<StudioSection>();
     public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
+    public DbSet<StudioLock> StudioLocks => Set<StudioLock>();
     public DbSet<StudioTemplate> StudioTemplates => Set<StudioTemplate>();
     public DbSet<HallRental> HallRentals => Set<HallRental>();
     public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
