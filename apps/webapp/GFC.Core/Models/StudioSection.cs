@@ -9,19 +9,19 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
-        public Guid ClientId { get; set; } = Guid.NewGuid();
+        [Required]
+        public int StudioPageId { get; set; }
+
+        [ForeignKey("StudioPageId")]
+        public StudioPage StudioPage { get; set; }
 
         [Required]
-        public string Title { get; set; } = "New Section";
+        [StringLength(50)]
+        public string Type { get; set; }
 
-        public string? Content { get; set; }
+        [Required]
+        public int OrderIndex { get; set; }
 
-        public int PageIndex { get; set; } = 0;
-
-        public string? AnimationSettings { get; set; }
-
-        [ForeignKey("StudioPage")]
-        public int StudioPageId { get; set; }
-        public virtual StudioPage StudioPage { get; set; }
+        public string Data { get; set; }
     }
 }
