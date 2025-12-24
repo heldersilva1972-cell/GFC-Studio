@@ -71,6 +71,15 @@ public class GfcDbContext : DbContext
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
 
+    // Asset Manager
+    public DbSet<MediaAsset> MediaAssets { get; set; }
+    public DbSet<AssetFolder> AssetFolders { get; set; }
+
+    // Form Builder
+    public DbSet<Form> Forms { get; set; }
+    public DbSet<FormField> FormFields { get; set; }
+    public DbSet<FormSubmission> FormSubmissions { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -502,6 +511,49 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<WebsiteSettings>(entity =>
         {
             entity.ToTable("WebsiteSettings");
+        });
+
+        // Asset Manager
+        modelBuilder.Entity<MediaAsset>(entity =>
+        {
+            entity.ToTable("MediaAssets");
+            entity.HasOne(a => a.AssetFolder)
+                .WithMany(f => f.MediaAssets)
+                .HasForeignKey(a => a.AssetFolderId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<AssetFolder>(entity =>
+        {
+            entity.ToTable("AssetFolders");
+            entity.HasOne(f => f.ParentFolder)
+                .WithMany(f => f.SubFolders)
+                .HasForeignKey(f => f.ParentFolderId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Form Builder
+        modelBuilder.Entity<Form>(entity =>
+        {
+            entity.ToTable("Forms");
+            entity.HasMany(f => f.Fields)
+                .WithOne(ff => ff.Form)
+                .HasForeignKey(ff => ff.FormId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FormField>(entity =>
+        {
+            entity.ToTable("FormFields");
+        });
+
+        modelBuilder.Entity<FormSubmission>(entity =>
+        {
+            entity.ToTable("FormSubmissions");
+            entity.HasOne(fs => fs.Form)
+                .WithMany()
+                .HasForeignKey(fs => fs.FormId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

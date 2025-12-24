@@ -15,6 +15,15 @@ namespace GFC.Core.Models
         [Required]
         public string Slug { get; set; } = string.Empty;
 
+        // SEO Fields
+        [StringLength(70)]
+        public string? MetaTitle { get; set; }
+
+        [StringLength(160)]
+        public string? MetaDescription { get; set; }
+
+        public string? OgImageUrl { get; set; }
+
         public string? Content { get; set; }
 
         public bool IsPublished { get; set; } = false;
