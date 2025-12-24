@@ -165,6 +165,10 @@ public class Program
         builder.Services.AddSingleton<ToastService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
+        builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddScoped<IFormService, FormService>();
+        builder.Services.AddScoped<ISeoService, SeoService>();
+        builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
