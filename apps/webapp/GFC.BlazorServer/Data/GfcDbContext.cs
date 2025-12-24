@@ -50,6 +50,9 @@ public class GfcDbContext : DbContext
     
     // Camera System
     public DbSet<GFC.Core.Models.Camera> Cameras => Set<GFC.Core.Models.Camera>();
+    public DbSet<GFC.Core.Models.VpnProfile> VpnProfiles => Set<GFC.Core.Models.VpnProfile>();
+    public DbSet<GFC.Core.Models.AppPage> AppPages => Set<GFC.Core.Models.AppPage>();
+    public DbSet<GFC.Core.Models.PagePermission> PagePermissions => Set<GFC.Core.Models.PagePermission>();
     public DbSet<GFC.Core.Models.CameraEvent> CameraEvents => Set<GFC.Core.Models.CameraEvent>();
     public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();

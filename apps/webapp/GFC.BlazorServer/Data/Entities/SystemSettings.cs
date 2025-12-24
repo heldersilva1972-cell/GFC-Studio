@@ -52,5 +52,10 @@ public class SystemSettings
     /// NVR/Camera password for authentication. Should be encrypted in production.
     /// </summary>
     public string? NvrPassword { get; set; }
+
+    // WireGuard Settings
+    public string? PublicDomain { get; set; }
+    public int WireGuardPort { get; set; } = 51820;
+    public string? WireGuardPublicKey { get; set; }
 }
 

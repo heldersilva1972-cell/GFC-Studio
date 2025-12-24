@@ -93,6 +93,7 @@ public class Program
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
+        builder.Services.AddScoped<IVpnProfileRepository, VpnProfileRepository>();
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
@@ -112,7 +113,7 @@ public class Program
         builder.Services.AddScoped<ICameraDiscoveryService, CameraDiscoveryService>();
         builder.Services.AddScoped<IRecordingService, RecordingService>();
         builder.Services.AddScoped<ICameraEventService, CameraEventService>();
-        builder.Services.AddScoped<ICameraPermissionService, CameraPermissionService>();
+        builder.Services.AddScoped<ICameraPermissionService, GFC.BlazorServer.Services.Camera.CameraPermissionService>();
         builder.Services.AddScoped<ICameraAuditLogService, CameraAuditLogService>();
         builder.Services.AddSingleton<IDatabaseBackupService, GFC.BlazorServer.Services.DatabaseBackupService>();
         builder.Services.AddHostedService<GFC.BlazorServer.Services.BackupSchedulerService>();
@@ -160,6 +161,11 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
+        builder.Services.AddScoped<IDeviceDetectionService, DeviceDetectionService>();
+        builder.Services.AddScoped<IVpnSetupService, VpnSetupService>();
+        builder.Services.AddSingleton<IEmailService, EmailService>();
+        builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
+        builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
