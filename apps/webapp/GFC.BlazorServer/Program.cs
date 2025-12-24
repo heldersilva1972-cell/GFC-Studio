@@ -160,6 +160,7 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
+        builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
