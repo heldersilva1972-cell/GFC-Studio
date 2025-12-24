@@ -115,13 +115,18 @@
                                     </p>
                                 }
                                 
-                                <div class="btn-group btn-group-sm w-100 mt-2">
-                                    <button class="btn btn-outline-primary" @onclick="() => EditStaff(staff)">
-                                        <i class="bi bi-pencil"></i> Edit
+                                <div class="mt-3">
+                                    <button class="btn btn-sm btn-outline-info w-100 mb-2" @onclick="() => ViewHistory(staff)">
+                                        <i class="bi bi-clock-history"></i> Work History
                                     </button>
-                                    <button class="btn btn-outline-danger" @onclick="() => DeleteStaff(staff.Id)">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
+                                    <div class="btn-group btn-group-sm w-100">
+                                        <button class="btn btn-outline-primary" @onclick="() => EditStaff(staff)">
+                                            <i class="bi bi-pencil"></i> Edit
+                                        </button>
+                                        <button class="btn btn-outline-danger" @onclick="() => DeleteStaff(staff.Id)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -308,6 +313,10 @@
                                                             <span class="text-truncate" style="cursor: pointer; min-width: 0; flex: 1; text-align: left;" @onclick="() => ViewShiftDetails(dayShift)">
                                                                 <i class="bi bi-sun"></i> @dayShift.StaffName
                                                             </span>
+                                                            <div class="ms-1 flex-shrink-0">
+                                                                <i class="bi bi-pencil" style="cursor: pointer;" @onclick="() => EditShift(dayShift)" title="Edit"></i>
+                                                                <i class="bi bi-trash ms-1" style="cursor: pointer;" @onclick="() => DeleteShift(dayShift)" title="Delete"></i>
+                                                            </div>
                                                         </div>
                                                     }
                                                     else
@@ -324,6 +333,10 @@
                                                             <span class="text-truncate" style="cursor: pointer; min-width: 0; flex: 1; text-align: left;" @onclick="() => ViewShiftDetails(nightShift)">
                                                                 <i class="bi bi-moon"></i> @nightShift.StaffName
                                                             </span>
+                                                            <div class="ms-1 flex-shrink-0">
+                                                                <i class="bi bi-pencil" style="cursor: pointer;" @onclick="() => EditShift(nightShift)" title="Edit"></i>
+                                                                <i class="bi bi-trash ms-1" style="cursor: pointer;" @onclick="() => DeleteShift(nightShift)" title="Delete"></i>
+                                                            </div>
                                                         </div>
                                                     }
                                                     else
@@ -584,6 +597,76 @@
     <div class="modal-backdrop fade show"></div>
 }
 
+<!-- History Modal -->
+@if (showHistoryModal && selectedHistoryStaff != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block;" role="dialog">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-clock-history"></i> Work History: @selectedHistoryStaff.Name
+                    </h5>
+                    @if (!selectedHistoryStaff.IsActive)
+                    {
+                        <span class="badge bg-warning text-dark ms-2">Former Bartender</span>
+                    }
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!selectedHistoryStaff.IsActive)
+                    {
+                        <div class="alert alert-warning mb-3">
+                            <i class="bi bi-info-circle"></i> This person no longer works at GFC as a bartender. History is preserved for auditing.
+                        </div>
+                    }
+
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Shift</th>
+                                    <th>Status</th>
+                                    <th>Note</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (staffHistory == null || !staffHistory.Any())
+                                {
+                                    <tr>
+                                        <td colspan="4" class="text-center py-4 text-muted">No shift history found for this bartender.</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var shift in staffHistory)
+                                    {
+                                        <tr>
+                                            <td>@shift.Date.ToShortDateString()</td>
+                                            <td>
+                                                <span class="badge @(shift.ShiftType == 1 ? "bg-primary" : "bg-info text-dark")">
+                                                    @(shift.ShiftType == 1 ? "Day" : "Night")
+                                                </span>
+                                            </td>
+                                            <td>@shift.Status</td>
+                                            <td class="small">@shift.Notes</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModals">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
 @code {
     // View mode enum
     public enum ViewMode
@@ -604,9 +687,12 @@
 
     private bool showAssignmentModal = false;
     private bool showStaffModal = false;
+    private bool showHistoryModal = false;
     private StaffShift newShift;
     private ShiftReport selectedShiftReport;
     private StaffMember editingStaff = new();
+    private StaffMember selectedHistoryStaff;
+    private List<StaffShift> staffHistory = new();
     private int selectedStaffId = 0;
     private int selectedMemberId = 0;
     private bool isExistingMemberMode = false;
@@ -1140,6 +1226,26 @@
         }
     }
 
+    private async Task ViewHistory(StaffMember staff)
+    {
+        try
+        {
+            selectedHistoryStaff = staff;
+            var allShifts = await ShiftService.GetStaffShiftsAsync();
+            staffHistory = allShifts
+                .Where(s => s.StaffMemberId == staff.Id)
+                .OrderByDescending(s => s.Date)
+                .ToList();
+            showHistoryModal = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError("Could not load history");
+            await JSRuntime.InvokeVoidAsync("console.error", ex.ToString());
+        }
+    }
+
     private async Task ViewShiftDetails(StaffShift shift)
     {
         try
@@ -1205,8 +1311,11 @@
     {
         showAssignmentModal = false;
         showStaffModal = false;
+        showHistoryModal = false;
         selectedShiftReport = null;
         editingStaff = new();
+        selectedHistoryStaff = null;
+        staffHistory.Clear();
         selectedStaffId = 0;
         selectedMemberId = 0;
         targetDays.Clear();
