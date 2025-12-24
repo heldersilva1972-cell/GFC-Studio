@@ -1075,6 +1075,15 @@
         }
 
         newShift = new StaffShift { Date = date, ShiftType = shiftType == "Day" ? 1 : 2 };
+        
+        // Ensure weeklyShifts is correctly populated for the target week
+        // so that the "Also assign to" logic correctly hides occupied days.
+        var weekSun = date.Date.AddDays(-(int)date.Date.DayOfWeek);
+        if (viewMode == ViewMode.Month)
+        {
+            weeklyShifts = monthlyShifts.Where(s => s.Date.Date >= weekSun && s.Date.Date < weekSun.AddDays(7)).ToList();
+        }
+
         selectedStaffId = 0;
         showAssignmentModal = true;
         StateHasChanged();
@@ -1124,10 +1133,9 @@
                     }
                     else
                     {
-                        // Calculate Monday of this week to use as base for target days
-                        var dayOfWeek = (int)newShift.Date.DayOfWeek;
-                        var diff = (dayOfWeek == 0) ? -6 : 1 - dayOfWeek;
-                        var mondayOfThisWeek = newShift.Date.AddDays(diff);
+                        // Calculate Sunday of this week to use as base for target days
+                        // (Matches the UI calendar view)
+                        var sundayOfThisWeek = newShift.Date.Date.AddDays(-(int)newShift.Date.DayOfWeek);
                         
                         // Combine initial day with target days
                         var allTargetDays = new List<DayOfWeek>(targetDays);
@@ -1137,13 +1145,12 @@
                         }
 
                         int createdCount = 0;
-                        var existingShiftsInWeek = (await ShiftService.GetShiftsForWeekAsync(mondayOfThisWeek)).ToList();
+                        var existingShiftsInWeek = (await ShiftService.GetShiftsForWeekAsync(sundayOfThisWeek)).ToList();
 
                         foreach (var day in allTargetDays)
                         {
                             // Find the specific date for this day of week in the current week
-                            int offset = (day == DayOfWeek.Sunday) ? 6 : (int)day - 1;
-                            var targetDate = mondayOfThisWeek.AddDays(offset);
+                            var targetDate = sundayOfThisWeek.AddDays((int)day);
                             
                             // Check if shift already exists
                             if (!existingShiftsInWeek.Any(s => s.Date.Date == targetDate.Date && s.ShiftType == newShift.ShiftType))
