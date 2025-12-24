@@ -10,7 +10,7 @@ const features = [
         icon: Calendar,
         title: 'Upcoming Events',
         description: 'Join us for great local events throughout the year! From family gatherings to monthly dances, there's something for everyone.',
-    highlights: ['Easter Bunny Breakfast', 'Pancakes with Santa', 'Special Needs Dance', 'Thursday Night Dart League'],
+        highlights: ['Easter Bunny Breakfast', 'Pancakes with Santa', 'Special Needs Dance', 'Thursday Night Dart League'],
         link: '/events',
         color: 'primary'
     },
