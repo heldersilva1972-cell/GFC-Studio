@@ -6,10 +6,6 @@ export interface StudioSection {
     properties: {
       [key: string]: any;
     };
-    animationSettings?: {
-      effect: string;
-      duration: number;
-      delay: number;
-    };
+    animationSettingsJson?: string;
     sortOrder: number;
   }

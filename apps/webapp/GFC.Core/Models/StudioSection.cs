@@ -23,5 +23,7 @@ namespace GFC.Core.Models
         public int OrderIndex { get; set; }
 
         public string Data { get; set; }
+
+        public string AnimationSettingsJson { get; set; }
     }
 }
