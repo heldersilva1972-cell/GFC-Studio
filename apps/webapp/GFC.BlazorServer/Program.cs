@@ -66,6 +66,7 @@ public class Program
             var opts = sp.GetRequiredService<IOptions<AgentApiOptions>>().Value;
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
+        builder.Services.AddHttpClient<IImportService, ImportService>();
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
         builder.Services.AddScoped<GfcDbContext>(p => p.GetRequiredService<IDbContextFactory<GfcDbContext>>().CreateDbContext());
 
@@ -164,6 +165,7 @@ public class Program
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
+        builder.Services.AddScoped<DomAnalysisService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
