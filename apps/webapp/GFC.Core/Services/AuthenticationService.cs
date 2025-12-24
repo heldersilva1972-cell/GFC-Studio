@@ -156,7 +156,7 @@ public class AuthenticationService : IAuthenticationService
 
     public async Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null)
     {
-        var user = _userRepository.GetUserById(userId);
+        var user = _userRepository.GetById(userId);
 
         if (user == null || !user.MfaEnabled || string.IsNullOrEmpty(user.MfaSecretKey))
         {
@@ -193,7 +193,7 @@ public class AuthenticationService : IAuthenticationService
         {
             rng.GetBytes(secretKeyBytes);
         }
-        var secretKey = Base32Encoding.ToString(secretKeyBytes);
+        var secretKey = Google.Authenticator.Base32Encoding.ToString(secretKeyBytes);
         var setupInfo = tfa.GenerateSetupCode("GFC", user.Username, secretKey, false, 3);
 
         return new MfaSetupInfo
