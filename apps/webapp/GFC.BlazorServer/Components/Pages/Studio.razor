@@ -15,6 +15,23 @@
         <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
         <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
         <button class="btn btn-info" @onclick="PublishPage">Publish</button>
+        
+        <div class="dropdown d-inline-block ms-3">
+            <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
+                Draft History @(draft != null ? $" (v{draft.Version})" : "")
+            </button>
+            @if (showHistory)
+            {
+                <div class="dropdown-menu show" style="max-height: 300px; overflow-y: auto;">
+                    @foreach (var h in draftHistory)
+                    {
+                        <button class="dropdown-item" @onclick="() => LoadDraft(h)">
+                            v@h.Version - @h.CreatedAt.ToLocalTime().ToString("g") (@h.CreatedBy)
+                        </button>
+                    }
+                </div>
+            }
+        </div>
         @if (wizardWarnings.Any())
         {
             <span class="badge bg-warning text-dark ms-3">@wizardWarnings.Count Wizard Warnings</span>
@@ -152,6 +169,8 @@
     private string newTemplateName = "";
     private string newTemplateCategory = "";
     private string lastWizardAction = "";
+    private bool showHistory = false;
+    private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
     private AnimationModel currentAnimation = new AnimationModel();
@@ -165,17 +184,17 @@
         public double Delay { get; set; } = 0.0;
     }
 
-    private void SelectSection(StudioSection section)
+    private void ToggleHistory() => showHistory = !showHistory;
+
+    private async Task LoadDraft(StudioDraft selectedDraft)
     {
-        selectedSection = section;
-        if (!string.IsNullOrEmpty(selectedSection.AnimationSettings))
+        draft = selectedDraft;
+        if (!string.IsNullOrEmpty(draft.ContentJson))
         {
-            currentAnimation = JsonSerializer.Deserialize<AnimationModel>(selectedSection.AnimationSettings);
+            sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson);
         }
-        else
-        {
-            currentAnimation = new AnimationModel();
-        }
+        showHistory = false;
+        StateHasChanged();
     }
 
     private async Task PreviewAnimation()
@@ -255,23 +274,20 @@
                 return;
             }
 
-            draft = await StudioService.GetDraftAsync(PageId);
+            draft = await StudioService.GetLatestDraftAsync(PageId);
 
-            if (draft == null)
+            if (draft != null && !string.IsNullOrEmpty(draft.ContentJson))
             {
-                draft = new StudioDraft
-                {
-                    PageId = PageId,
-                    ContentSnapshotJson = "[]", // Start with an empty array of sections
-                    CreatedBy = "System", // TODO: Replace with actual user
-                    CreatedAt = DateTime.UtcNow
-                };
+                sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson);
+            }
+            else
+            {
+                sections = new List<StudioSection>();
             }
 
-            if (!string.IsNullOrEmpty(draft.ContentSnapshotJson))
-            {
-                sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson);
-            }
+            await LoadHistory();
+            await LoadTemplates();
+        }
 
             await LoadTemplates();
         }
@@ -356,6 +372,11 @@
         }
     }
 
+    private async Task LoadHistory()
+    {
+        draftHistory = (await StudioService.GetDraftHistoryAsync(PageId)).ToList();
+    }
+
     private async Task SaveDraft()
     {
         try
@@ -364,9 +385,12 @@
             {
                 selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimation);
             }
-            draft.ContentSnapshotJson = JsonSerializer.Serialize(sections);
-            await StudioService.SaveDraftAsync(draft);
-            // Optionally, provide user feedback, e.g., a toast notification
+            
+            var json = JsonSerializer.Serialize(sections);
+            draft = await StudioService.SaveDraftAsync(PageId, json, "System"); // TODO: Use real user
+            
+            await LoadHistory();
+            StateHasChanged();
         }
         catch (Exception ex)
         {
@@ -379,8 +403,16 @@
     {
         try
         {
-            await SaveDraft();
-            await StudioService.PublishDraftAsync(draft.PageId);
+            if (draft == null || draft.Id == 0)
+            {
+                await SaveDraft();
+            }
+            
+            if (draft != null)
+            {
+                await StudioService.PublishDraftAsync(draft.Id);
+                // After publishing, we might want to refresh the page or show success
+            }
         }
         catch (Exception ex)
         {

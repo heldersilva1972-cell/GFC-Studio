@@ -44,77 +44,104 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
-        public async Task SaveDraftAsync(StudioDraft draft)
+        public async Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string username)
         {
-            if (draft.Id > 0)
+            var lastVersion = await _context.StudioDrafts
+                .Where(d => d.PageId == pageId)
+                .OrderByDescending(d => d.Version)
+                .Select(d => d.Version)
+                .FirstOrDefaultAsync();
+
+            var newDraft = new StudioDraft
             {
-                _context.StudioDrafts.Update(draft);
-            }
-            else
-            {
-                _context.StudioDrafts.Add(draft);
-            }
+                PageId = pageId,
+                ContentJson = contentJson,
+                Version = lastVersion + 1,
+                CreatedBy = username,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.StudioDrafts.Add(newDraft);
             await _context.SaveChangesAsync();
+            return newDraft;
         }
 
-        public async Task<StudioDraft> GetDraftAsync(int pageId)
+        public async Task<IEnumerable<StudioDraft>> GetDraftHistoryAsync(int pageId)
         {
-            return await _context.StudioDrafts.FirstOrDefaultAsync(d => d.PageId == pageId);
+            return await _context.StudioDrafts
+                .Where(d => d.PageId == pageId)
+                .OrderByDescending(d => d.CreatedAt)
+                .ToListAsync();
         }
 
-        public async Task PublishDraftAsync(int pageId)
+        public async Task<StudioDraft> GetDraftAsync(int draftId)
         {
-            var draft = await _context.StudioDrafts.FirstOrDefaultAsync(d => d.PageId == pageId);
+            return await _context.StudioDrafts.FindAsync(draftId);
+        }
+
+        public async Task<StudioDraft> GetLatestDraftAsync(int pageId)
+        {
+            return await _context.StudioDrafts
+                .Where(d => d.PageId == pageId)
+                .OrderByDescending(d => d.Version)
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task PublishDraftAsync(int draftId)
+        {
+            var draft = await _context.StudioDrafts.FindAsync(draftId);
             if (draft == null)
             {
-                _logger.LogWarning("PublishDraftAsync: No draft found for PageId {PageId}", pageId);
-                return; // Or throw an exception
+                _logger.LogWarning("PublishDraftAsync: No draft found with Id {DraftId}", draftId);
+                throw new ArgumentException($"Draft with Id {draftId} not found.");
             }
 
-            var page = await _context.StudioPages.Include(p => p.Sections).FirstOrDefaultAsync(p => p.Id == pageId);
+            var page = await _context.StudioPages.Include(p => p.Sections).FirstOrDefaultAsync(p => p.Id == draft.PageId);
             if (page == null)
             {
-                _logger.LogError("PublishDraftAsync: StudioPage with Id {PageId} not found.", pageId);
+                _logger.LogError("PublishDraftAsync: StudioPage with Id {PageId} not found.", draft.PageId);
                 throw new InvalidOperationException($"Could not find the page to publish to.");
             }
 
             try
             {
-                var newSections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson);
+                var sectionsFromDraft = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson);
 
                 // Simple merge: Remove old sections, add new ones.
                 _context.StudioSections.RemoveRange(page.Sections);
                 page.Sections.Clear();
 
-                foreach (var section in newSections)
+                if (sectionsFromDraft != null)
                 {
-                    page.Sections.Add(new StudioSection
+                    foreach (var section in sectionsFromDraft)
                     {
-                        // Ensure client-side IDs are not persisted
-                        ClientId = Guid.Empty,
-                        Title = section.Title,
-                        Content = section.Content,
-                        PageIndex = section.PageIndex,
-                        StudioPageId = page.Id,
-                        AnimationSettings = section.AnimationSettings
-                    });
+                        page.Sections.Add(new StudioSection
+                        {
+                            ClientId = Guid.Empty, // Reset client ID for persistence
+                            Title = section.Title,
+                            Content = section.Content,
+                            PageIndex = section.PageIndex,
+                            StudioPageId = page.Id,
+                            AnimationSettings = section.AnimationSettings
+                        });
+                    }
                 }
 
-                // Delete the draft after publishing
-                _context.StudioDrafts.Remove(draft);
+                page.IsPublished = true;
+                page.LastPublishedAt = DateTime.UtcNow;
+                page.Content = "Snapshot updated from draft v" + draft.Version; // Optional: Or actual summary
 
                 await _context.SaveChangesAsync();
-                _logger.LogInformation("Successfully published draft for PageId {PageId}", pageId);
+                _logger.LogInformation("Successfully published draft {DraftId} for PageId {PageId}", draftId, draft.PageId);
             }
             catch (JsonException jsonEx)
             {
-                _logger.LogError(jsonEx, "Failed to deserialize draft content for PageId {PageId}", pageId);
-                // Handle the error, maybe by not proceeding with the publish
+                _logger.LogError(jsonEx, "Failed to deserialize draft content for DraftId {DraftId}", draftId);
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while publishing draft for PageId {PageId}", pageId);
+                _logger.LogError(ex, "An error occurred while publishing draft {DraftId}", draftId);
                 throw;
             }
         }
@@ -131,8 +158,6 @@ namespace GFC.BlazorServer.Services
             var page = await _context.StudioPages.FindAsync(id);
             if (page != null)
             {
-                // Sections should be deleted automatically if CASCADE is on, 
-                // but let's be safe.
                 var sections = await _context.StudioSections.Where(s => s.StudioPageId == id).ToListAsync();
                 _context.StudioSections.RemoveRange(sections);
                 

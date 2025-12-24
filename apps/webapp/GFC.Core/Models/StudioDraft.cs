@@ -14,7 +14,9 @@ namespace GFC.Core.Models
         public int PageId { get; set; }
         public virtual StudioPage StudioPage { get; set; }
 
-        public string? ContentSnapshotJson { get; set; }
+        public string? ContentJson { get; set; }
+
+        public int Version { get; set; }
 
         [Required]
         public string CreatedBy { get; set; } = "System";

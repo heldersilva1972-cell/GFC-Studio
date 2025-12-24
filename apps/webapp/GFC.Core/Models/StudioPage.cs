@@ -16,6 +16,8 @@ namespace GFC.Core.Models
 
         public bool IsPublished { get; set; } = false;
 
+        public DateTime? LastPublishedAt { get; set; }
+
         public virtual ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
     }
 }

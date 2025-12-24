@@ -10,9 +10,14 @@ namespace GFC.BlazorServer.Services
         Task<StudioPage> GetPublishedPageAsync(int id);
         Task<IEnumerable<StudioPage>> GetPublishedPagesAsync();
         Task<IEnumerable<StudioPage>> GetAllPagesAsync();
-        Task SaveDraftAsync(StudioDraft draft);
-        Task<StudioDraft> GetDraftAsync(int pageId);
-        Task PublishDraftAsync(int pageId);
+        
+        // Draft/Versioning
+        Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string username);
+        Task<IEnumerable<StudioDraft>> GetDraftHistoryAsync(int pageId);
+        Task<StudioDraft> GetDraftAsync(int draftId);
+        Task<StudioDraft> GetLatestDraftAsync(int pageId);
+        Task PublishDraftAsync(int draftId);
+        
         Task<StudioPage> CreatePageAsync(StudioPage page);
         Task DeletePageAsync(int id);
     }
