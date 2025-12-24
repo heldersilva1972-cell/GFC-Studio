@@ -110,51 +110,7 @@
             }
         </div>
     </div>
-    <div class="animation-orchestrator">
-        @if (selectedSection != null)
-        {
-            <h5>Animation Timeline for: "@selectedSection.Title"</h5>
-            <div class="timeline-bar" @ref="_timelineElement">
-                @for (int i = 0; i <= 5; i++)
-                {
-                    <div class="time-marker">@i</div>
-                }
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="animation-block" style="@GetAnimationBlockStyle(keyframe)" id="@keyframe.Id">
-                        @keyframe.Effect
-                    </div>
-                }
-            </div>
-            <div class="keyframe-editor mt-3">
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="keyframe-controls" id="@keyframe.Id">
-                         <select class="form-control form-control-sm" @bind="keyframe.Effect">
-                            <option value="fadeIn">Fade In</option>
-                            <option value="slideInUp">Slide Up</option>
-                            <option value="bounceIn">Bounce In</option>
-                        </select>
-                        <label>D:</label>
-                        <input type="range" class="form-control-range" min="0.1" max="5" step="0.1" @bind="keyframe.Duration" />
-                        <span>@keyframe.Duration.ToString("0.0")s</span>
-                        <label>W:</label>
-                        <input type="range" class="form-control-range" min="0" max="5" step="0.1" @bind="keyframe.Delay" />
-                        <span>@keyframe.Delay.ToString("0.0")s</span>
-                        <button class="btn btn-sm btn-danger" @onclick="() => RemoveKeyframe(keyframe.Id)">X</button>
-                    </div>
-                }
-                <button class="btn btn-sm btn-info" @onclick="AddKeyframe">+ Add Keyframe</button>
-            </div>
-            <div class="mt-2">
-                <button class="btn btn-primary" @onclick="PreviewAnimation">▶ Preview</button>
-            </div>
-        }
-        else
-        {
-            <p class="text-muted">Select a section to configure its animation timeline.</p>
-        }
-    </div>
+    <AnimationOrchestrator TargetSection="selectedSection" OnAnimationSettingsChanged="HandleAnimationSettingsChanged" />
 </div>
 
 @if (showSaveAsTemplateModal)
@@ -209,10 +165,17 @@
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
-    private List<AnimationKeyframe> currentAnimationKeyframes = new();
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
-    private ElementReference _timelineElement;
+
+    private void HandleAnimationSettingsChanged(string newSettings)
+    {
+        if (selectedSection != null)
+        {
+            selectedSection.AnimationSettings = newSettings;
+            StateHasChanged();
+        }
+    }
 
     protected override void OnParametersSet()
     {
@@ -245,39 +208,11 @@
         }
     }
 
-    public class AnimationKeyframe
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public string Effect { get; set; } = "fadeIn";
-        public double Duration { get; set; } = 1.0;
-        public double Delay { get; set; } = 0.0;
-    }
-
     private void ToggleHistory() => showHistory = !showHistory;
 
     private void SelectSection(StudioSection section)
     {
         selectedSection = section;
-        if (!string.IsNullOrEmpty(selectedSection.AnimationSettings))
-        {
-            try
-            {
-                currentAnimationKeyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(selectedSection.AnimationSettings) ?? new List<AnimationKeyframe>();
-            }
-            catch
-            {
-                currentAnimationKeyframes = new List<AnimationKeyframe>();
-            }
-        }
-        else
-        {
-            currentAnimationKeyframes = new List<AnimationKeyframe>();
-        }
-
-        if (!currentAnimationKeyframes.Any())
-        {
-            currentAnimationKeyframes.Add(new AnimationKeyframe());
-        }
     }
 
     private async Task LoadDraft(StudioDraft selectedDraft)
@@ -289,36 +224,6 @@
         }
         showHistory = false;
         StateHasChanged();
-    }
-
-    private async Task PreviewAnimation()
-    {
-        if (selectedSection != null)
-        {
-            await JSRuntime.InvokeVoidAsync("previewAnimation", selectedSection.ClientId, currentAnimationKeyframes);
-        }
-    }
-
-    private void AddKeyframe()
-    {
-        currentAnimationKeyframes.Add(new AnimationKeyframe { Delay = currentAnimationKeyframes.LastOrDefault()?.Delay + currentAnimationKeyframes.LastOrDefault()?.Duration ?? 0 });
-    }
-
-    private void RemoveKeyframe(Guid id)
-    {
-        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == id);
-        if (keyframe != null)
-        {
-            currentAnimationKeyframes.Remove(keyframe);
-        }
-    }
-
-    private string GetAnimationBlockStyle(AnimationKeyframe keyframe)
-    {
-        // Assuming timeline is 5s long and 100% width. Each second is 20%.
-        var left = keyframe.Delay * 20;
-        var width = keyframe.Duration * 20;
-        return $"left: {left}%; width: {width}%;";
     }
 
     private void HandleDragStart(StudioTemplate template)
@@ -406,7 +311,6 @@
         {
             if (PageId == 0)
             {
-                // Redirect or show an error if no PageId is provided
                 errorMessage = "No page specified. Please select a page to edit.";
                 return;
             }
@@ -452,22 +356,6 @@
                 Logger.LogError(ex, "Failed to initialize Drag and Drop");
             }
         }
-        if (selectedSection != null)
-        {
-            await JSRuntime.InvokeVoidAsync("initializeTimeline", _timelineElement, DotNetObjectReference.Create(this));
-        }
-    }
-
-    [JSInvokable]
-    public void UpdateKeyframe(string keyframeId, double newDuration, double newDelay)
-    {
-        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == Guid.Parse(keyframeId));
-        if (keyframe != null)
-        {
-            keyframe.Duration = newDuration;
-            keyframe.Delay = newDelay;
-            StateHasChanged();
-        }
     }
 
     private async Task LoadHistory()
@@ -479,11 +367,6 @@
     {
         try
         {
-            if (selectedSection != null)
-            {
-                selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimationKeyframes);
-            }
-            
             var json = JsonSerializer.Serialize(sections);
             draft = await StudioService.SaveDraftAsync(PageId, json, "System"); // TODO: Use real user
             
@@ -509,7 +392,6 @@
             if (draft != null)
             {
                 await StudioService.PublishDraftAsync(draft.Id);
-                // After publishing, we might want to refresh the page or show success
             }
         }
         catch (Exception ex)
