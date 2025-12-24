@@ -75,5 +75,46 @@ public class SystemSettingsService : ISystemSettingsService
         await _dbContext.SaveChangesAsync();
         _logger.LogInformation("Updated NVR credentials");
     }
+
+    public async Task UpdateSecuritySettingsAsync(SystemSettings settings)
+    {
+        var existingSettings = await GetAsync();
+
+        // Remote Access Configuration
+        existingSettings.CloudflareTunnelToken = settings.CloudflareTunnelToken;
+        existingSettings.PublicDomain = settings.PublicDomain;
+        existingSettings.WireGuardPort = settings.WireGuardPort;
+        existingSettings.WireGuardSubnet = settings.WireGuardSubnet;
+
+        // User & Permission Management
+        existingSettings.DirectorAccessExpiryDate = settings.DirectorAccessExpiryDate;
+
+        // Security "Hardening" Toggles
+        existingSettings.EnableTwoFactorAuth = settings.EnableTwoFactorAuth;
+        existingSettings.EnableSessionTimeout = settings.EnableSessionTimeout;
+        existingSettings.SessionTimeoutMinutes = settings.SessionTimeoutMinutes;
+        existingSettings.EnableFailedLoginProtection = settings.EnableFailedLoginProtection;
+        existingSettings.MaxFailedLoginAttempts = settings.MaxFailedLoginAttempts;
+        existingSettings.LoginLockDurationMinutes = settings.LoginLockDurationMinutes;
+        existingSettings.EnableIPFiltering = settings.EnableIPFiltering;
+        existingSettings.IPFilterMode = settings.IPFilterMode;
+        existingSettings.EnableWatermarking = settings.EnableWatermarking;
+        existingSettings.WatermarkPosition = settings.WatermarkPosition;
+
+        // System Limits & "Mission Control"
+        existingSettings.MaxSimultaneousViewers = settings.MaxSimultaneousViewers;
+        existingSettings.RemoteQualityMaxBitrate = settings.RemoteQualityMaxBitrate;
+        existingSettings.LocalQualityMaxBitrate = settings.LocalQualityMaxBitrate;
+
+        // Monitoring & Alerts
+        existingSettings.EnableGeofencing = settings.EnableGeofencing;
+        existingSettings.EnableConnectionQualityAlerts = settings.EnableConnectionQualityAlerts;
+        existingSettings.MinimumBandwidthMbps = settings.MinimumBandwidthMbps;
+
+        existingSettings.LastUpdatedUtc = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("Updated security settings");
+    }
 }
 

@@ -54,6 +54,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
     public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
+    public DbSet<AuthorizedUser> AuthorizedUsers => Set<AuthorizedUser>();
 
     // GFC Ecosystem Foundation
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();
@@ -502,6 +503,15 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<WebsiteSettings>(entity =>
         {
             entity.ToTable("WebsiteSettings");
+        });
+
+        modelBuilder.Entity<AuthorizedUser>(entity =>
+        {
+            entity.ToTable("AuthorizedUsers");
+            entity.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

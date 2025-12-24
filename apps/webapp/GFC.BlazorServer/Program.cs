@@ -171,6 +171,9 @@ public class Program
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddScoped<IAuthorizedUserService, AuthorizedUserService>();
+        builder.Services.AddScoped<IVpnManagementService, VpnManagementService>();
+        builder.Services.AddScoped<IRemoteAccessHealthService, RemoteAccessHealthService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
@@ -190,6 +193,8 @@ public class Program
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.ControllerNetworkConfigService>();
         
         builder.Services.AddScoped<ControllerTestService>();
+
+        builder.Services.AddHostedService<DirectorAccessExpiryWorker>();
 
         var app = builder.Build();
 
