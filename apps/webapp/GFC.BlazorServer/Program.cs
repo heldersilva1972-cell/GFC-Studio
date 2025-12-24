@@ -164,13 +164,14 @@ public class Program
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
-        builder.Services.AddScoped<ITemplateService, TemplateService>();
-        builder.Services.AddScoped<IRentalService, RentalService>();
-        builder.Services.AddScoped<IShiftService, ShiftService>();
-        builder.Services.AddScoped<INotificationService, NotificationService>();
-        builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
-        builder.Services.AddScoped<INavMenuService, NavMenuService>();
-        builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
+builder.Services.AddScoped<ITemplateService, TemplateService>();
+builder.Services.AddScoped<IRentalService, RentalService>();
+builder.Services.AddScoped<IShiftService, ShiftService>();
+builder.Services.AddScoped<IVideoAccessService, VideoAccessService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
+builder.Services.AddScoped<INavMenuService, NavMenuService>();
+builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
@@ -299,6 +300,7 @@ public class Program
         app.MapControllers();
 
         app.MapBlazorHub();
+        app.MapHub<GFC.BlazorServer.Hubs.VideoAccessHub>("/videoaccesshub");
         app.MapFallbackToPage("/_Host");
 
         app.Run();
