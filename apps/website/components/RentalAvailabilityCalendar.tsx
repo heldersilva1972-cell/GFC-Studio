@@ -1,6 +1,7 @@
-// [NEW]
+// [MODIFIED]
 'use client';
 import { useEffect, useState } from 'react';
+import { getRentalAvailability } from '@/app/lib/api';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 
@@ -9,9 +10,8 @@ const RentalAvailabilityCalendar = () => {
 
   useEffect(() => {
     const fetchAvailability = async () => {
-      const res = await fetch('/api/content/rental-availability');
-      const data = await res.json();
-      setBookedDates(data.map((item: any) => new Date(item.date)));
+      const data = await getRentalAvailability();
+      setBookedDates(data.bookedDates.map((dateString: string) => new Date(dateString)));
     };
 
     fetchAvailability();

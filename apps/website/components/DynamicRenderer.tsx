@@ -67,7 +67,7 @@ const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections }) => {
   const sortedSections = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
   return (
-    <div className={styles.rendererContainer}>
+    <div className={styles.rendererContainer} data-testid="dynamic-renderer-container">
       {sortedSections.map((section) => {
         const Component = sectionComponentMap[section.sectionType];
 

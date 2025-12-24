@@ -1,8 +1,8 @@
-// [NEW]
+// [MODIFIED]
 'use client';
 import { useState } from 'react';
 
-const ContactForm = () => {
+const ContactSection = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -63,4 +63,4 @@ const ContactForm = () => {
   );
 };
 
-export default ContactForm;
+export default ContactSection;

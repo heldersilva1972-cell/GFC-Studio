@@ -1,14 +1,20 @@
-// [NEW]
+// [MODIFIED]
 'use client';
 import { useEffect, useState } from 'react';
+import { getEvents } from '@/app/lib/api';
+
+interface Event {
+  title: string;
+  eventDate: string;
+  description: string;
+}
 
 const EventsCalendar = () => {
-  const [events, setEvents] = useState([]);
+  const [events, setEvents] = useState<Event[]>([]);
 
   useEffect(() => {
     const fetchEvents = async () => {
-      const res = await fetch('/api/content/events');
-      const data = await res.json();
+      const data = await getEvents();
       setEvents(data);
     };
 

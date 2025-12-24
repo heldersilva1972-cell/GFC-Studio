@@ -1,9 +1,8 @@
-// [NEW]
+// [MODIFIED]
 import DynamicRenderer from '@/components/DynamicRenderer';
 import { getPageBySlug } from '@/app/lib/api';
 import { notFound } from 'next/navigation';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
+import type { Metadata } from 'next';
 
 interface PageProps {
   params: {
@@ -11,25 +10,45 @@ interface PageProps {
   };
 }
 
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const pageData = await getPageBySlug(params.slug);
+
+  if (!pageData) {
+    return {
+      title: 'Page Not Found',
+      description: 'The page you are looking for does not exist.',
+    };
+  }
+
+  return {
+    title: pageData.title,
+    description: pageData.metaDescription,
+    openGraph: {
+      title: pageData.title,
+      description: pageData.metaDescription,
+      images: [
+        {
+          url: pageData.ogImageUrl || '/default-og-image.png',
+          width: 1200,
+          height: 630,
+          alt: pageData.title,
+        },
+      ],
+    },
+  };
+}
+
+
 export default async function Page({ params }: PageProps) {
-  try {
-    const pageData = await getPageBySlug(params.slug);
+  const pageData = await getPageBySlug(params.slug);
 
-    if (!pageData || !pageData.sections) {
-      notFound();
-    }
-
-    return (
-      <>
-        <Header />
-        <main>
-          <DynamicRenderer sections={pageData.sections} />
-        </main>
-        <Footer />
-      </>
-    );
-  } catch (error) {
-    console.error(`Failed to fetch page for slug "${params.slug}":`, error);
+  if (!pageData || !pageData.sections) {
     notFound();
   }
+
+  return (
+    <main>
+      <DynamicRenderer sections={pageData.sections} />
+    </main>
+  );
 }

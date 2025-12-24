@@ -1,18 +1,19 @@
-'use client'
+// [MODIFIED]
+'use client';
 
-import { motion } from 'framer-motion'
-import { Calendar, Home, Users, Heart, Camera, MapPin } from 'lucide-react'
-import Link from 'next/link'
-import styles from './FeatureGrid.module.css'
+import { motion } from 'framer-motion';
+import { Calendar, Home, Users, Heart, Camera, MapPin } from 'lucide-react';
+import Link from 'next/link';
+import styles from './FeatureGrid.module.css';
 
 const features = [
     {
         icon: Calendar,
         title: 'Upcoming Events',
-        description: 'Join us for great local events throughout the year! From family gatherings to monthly dances, there's something for everyone.',
+        description: 'Join us for great local events throughout the year! From family gatherings to monthly dances, there\'s something for everyone.',
         highlights: ['Easter Bunny Breakfast', 'Pancakes with Santa', 'Special Needs Dance', 'Thursday Night Dart League'],
         link: '/events',
-        color: 'primary'
+        color: 'primary',
     },
     {
         icon: Home,
@@ -20,7 +21,7 @@ const features = [
         description: 'Hosting a celebration, meeting, or fundraiser? Our upstairs and downstairs halls are available for rent.',
         highlights: ['Flexible rates', 'Full kitchen and bar', 'Ample parking', 'Special nonprofit pricing'],
         link: '/hall-rentals',
-        color: 'secondary'
+        color: 'secondary',
     },
     {
         icon: Users,
@@ -28,7 +29,7 @@ const features = [
         description: 'Become part of a proud Gloucester tradition. Membership brings neighbors together through friendship and service.',
         highlights: ['Community events', 'Exclusive benefits', 'Networking opportunities', 'Support local causes'],
         link: '/membership',
-        color: 'accent'
+        color: 'accent',
     },
     {
         icon: Heart,
@@ -36,7 +37,7 @@ const features = [
         description: 'Our events, outreach, and programs are made possible through the generosity of our members and supporters.',
         highlights: ['Volunteer opportunities', 'Make a donation', 'Sponsor an event', 'Join our mission'],
         link: '/membership',
-        color: 'primary'
+        color: 'primary',
     },
     {
         icon: Camera,
@@ -44,7 +45,7 @@ const features = [
         description: 'Check out photos from our recent events — from Breakfast with the Easter Bunny to our annual Family Picnic.',
         highlights: ['Event galleries', 'Member spotlights', 'Historical photos', 'Community moments'],
         link: '/gallery',
-        color: 'secondary'
+        color: 'secondary',
     },
     {
         icon: MapPin,
@@ -52,19 +53,19 @@ const features = [
         description: '27 Webster Street, Gloucester, MA. Open Sunday–Thursday: 11 AM – 10 PM, Friday–Saturday: 11 AM – Midnight.',
         highlights: ['Central location', 'Easy parking', 'Accessible facility', 'Welcoming atmosphere'],
         link: '/contact',
-        color: 'accent'
+        color: 'accent',
     },
-]
+];
 
 const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
         opacity: 1,
         transition: {
-            staggerChildren: 0.1
-        }
-    }
-}
+            staggerChildren: 0.1,
+        },
+    },
+};
 
 const itemVariants = {
     hidden: { opacity: 0, y: 20 },
@@ -72,10 +73,10 @@ const itemVariants = {
         opacity: 1,
         y: 0,
         transition: {
-            duration: 0.5
-        }
-    }
-}
+            duration: 0.5,
+        },
+    },
+};
 
 export default function FeatureGrid() {
     return (
@@ -102,7 +103,7 @@ export default function FeatureGrid() {
                     className={styles.grid}
                 >
                     {features.map((feature, index) => {
-                        const Icon = feature.icon
+                        const Icon = feature.icon;
                         return (
                             <motion.div
                                 key={index}
@@ -126,10 +127,10 @@ export default function FeatureGrid() {
                                     Learn More →
                                 </Link>
                             </motion.div>
-                        )
+                        );
                     })}
                 </motion.div>
             </div>
         </section>
-    )
+    );
 }
