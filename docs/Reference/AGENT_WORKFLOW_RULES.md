@@ -195,6 +195,14 @@ git reset --hard origin/master
 
 ---
 
+## 11. Documentation Compliance
+- **Work Area:** ALL active plans, phase details, and task descriptions MUST be stored in `docs/in-process/`.
+- **Definition of Workspace:** If we are working on it, the document MUST be in the `in-process` folder.
+- **Completion Protocol:** Once a phase or task is marked as "Success" or "Complete", the related document MUST be moved to `docs/complete/`.
+- **References:** Always reference the implementation plan from the `in-process` folder while the task is active.
+
+---
+
 **FAILURE TO FOLLOW THESE RULES WILL RESULT IN:**
 - Rejected Pull Requests
 - Wasted development time

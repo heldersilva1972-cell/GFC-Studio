@@ -1,6 +1,6 @@
 # Rule: Documentation Management Protocol
 
-This rule must be followed by both the local agent (me) and the cloud agent (Jules).
+This rule must be followed by both the local agent (me) and the cloud agent (Jules) without exception. EVERYTHING we work from or are currently working on MUST be located in the `docs/in-process/` folder.
 
 ## Directory Structure
 All project documentation and implementation plans are stored in the **unified `docs/` directory** at the project root:
@@ -21,11 +21,12 @@ GFC-Studio V2/
 - Both agents will automatically place new plans here without user intervention
 
 ### 2. **Task Completion** (Automatic)
-- When a plan reaches "Success" or "Verification Passed", the agent MUST:
-  1. Automatically move the file from `in-process/` to `complete/`
-  2. Update any references in README.md or other documentation
-  3. Notify the user of the move in the commit message
-- **No user approval required** - this is automatic cleanup
+- When a phase, task, or plan reaches "Success" or "Verification Passed", it MUST be moved from `in-process/` to `complete/`.
+- The agent MUST:
+  1. Automatically move the finalized document from `in-process/` to `complete/`.
+  2. Update any references in README.md or other documentation.
+  3. Notify the user of the move in the commit message.
+- **No user approval required** - this is automatic cleanup and mandatory organization.
 
 ### 3. **Archival** (Manual)
 - When documents become outdated or superseded, move them to `archive/`
