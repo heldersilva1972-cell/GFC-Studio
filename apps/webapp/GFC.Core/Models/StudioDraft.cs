@@ -12,15 +12,19 @@ namespace GFC.Core.Models
 
         [ForeignKey("StudioPage")]
         public int PageId { get; set; }
-        public virtual StudioPage StudioPage { get; set; }
-
-        public string? ContentJson { get; set; }
 
         public int Version { get; set; }
 
         [Required]
-        public string CreatedBy { get; set; } = "System";
+        public string ContentJson { get; set; } = "[]";
+
+        [StringLength(500)]
+        public string? ChangeDescription { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        [Required]
+        [StringLength(100)]
+        public string CreatedBy { get; set; } = string.Empty;
     }
 }

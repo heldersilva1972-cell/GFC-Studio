@@ -93,6 +93,7 @@ public class Program
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
+        builder.Services.AddScoped<IStudioPageRepository, GFC.BlazorServer.Repositories.StudioPageRepository>();
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
@@ -299,6 +300,7 @@ public class Program
         app.MapControllers();
 
         app.MapBlazorHub();
+        app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
         app.MapFallbackToPage("/_Host");
 
         app.Run();
