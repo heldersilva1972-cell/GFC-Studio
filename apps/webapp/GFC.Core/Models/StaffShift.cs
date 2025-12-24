@@ -17,7 +17,7 @@ namespace GFC.Core.Models
 
         public int ShiftType { get; set; } // 1=Day, 2=Night
 
-        public string Status { get; set; }
+        public string? Status { get; set; }
 
         [NotMapped]
         public string StaffName { get; set; }
