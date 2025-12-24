@@ -6,28 +6,40 @@
 @using GFC.BlazorServer.Components.Shared
 @inject IJSRuntime JSRuntime
 @inject IStudioService StudioService
+@inject IStudioAutoSaveService AutoSaveService
 @inject ITemplateService TemplateService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <div class="studio-container">
     <div class="top-command-bar">
         <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
-        <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
+        <button class="btn btn-success" @onclick="() => SaveDraft()">Save Version @(latestVersion > 0 ? $" (v{latestVersion})" : "")</button>
         <button class="btn btn-info" @onclick="PublishPage">Publish</button>
+
+        <div class="save-status @saveStatus.ToString().ToLower()">
+            @saveStatusText
+        </div>
         
         <div class="dropdown d-inline-block ms-3">
             <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
-                Draft History @(draft != null ? $" (v{draft.Version})" : "")
+                History
             </button>
             @if (showHistory)
             {
-                <div class="dropdown-menu show" style="max-height: 300px; overflow-y: auto;">
+                <div class="dropdown-menu show" style="max-height: 400px; overflow-y: auto; width: 350px;">
                     @foreach (var h in draftHistory)
                     {
-                        <button class="dropdown-item" @onclick="() => LoadDraft(h)">
-                            v@h.Version - @h.CreatedAt.ToLocalTime().ToString("g") (@h.CreatedBy)
-                        </button>
+                        <div class="px-2 py-1 border-bottom">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong>v@h.Version - @(h.ChangeDescription ?? "Auto-save")</strong>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => LoadDraft(h)">
+                                    Rollback
+                                </button>
+                            </div>
+                            <small class="text-muted">@h.CreatedAt.ToLocalTime().ToString("g") by @h.CreatedBy</small>
+                        </div>
                     }
                 </div>
             }
@@ -97,7 +109,7 @@
                         <div class="section-toolbar">
                             <button class="btn btn-sm btn-outline-light" @onclick="() => OpenSaveAsTemplateModal(item)">Save as Template</button>
                         </div>
-                        <p contenteditable="true" @oninput="(e) => item.Content = e.Value.ToString()">@item.Content</p>
+                        <p contenteditable="true" @oninput="(e) => { item.Content = e.Value.ToString(); MarkAsDirty(); }">@item.Content</p>
                     </div>
                 }
             </div>
@@ -188,6 +200,57 @@
     <div class="modal-backdrop fade show"></div>
 }
 
+@if (showSaveVersionModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Save Named Version</h5>
+                    <button type="button" class="close" @onclick="() => showSaveVersionModal = false">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="versionDescription">Description (optional)</label>
+                        <input type="text" class="form-control" id="versionDescription" @bind="versionDescription" placeholder="e.g., Before Christmas Redesign" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showSaveVersionModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="() => SaveDraft(true)">Save Version</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@if (showPublishModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Publish</h5>
+                    <button type="button" class="close" @onclick="() => showPublishModal = false">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to publish your changes to the live website? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showPublishModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="ConfirmPublish">Publish</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
 @code {
     [Parameter]
     public int PageId { get; set; }
@@ -213,6 +276,30 @@
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
     private ElementReference _timelineElement;
+    private bool showSaveVersionModal = false;
+    private string versionDescription = string.Empty;
+    private bool showPublishModal = false;
+
+    private enum SaveStatus { Idle, Saving, Saved }
+    private SaveStatus saveStatus = SaveStatus.Idle;
+    private string saveStatusText = "All changes saved.";
+    private int latestVersion = 0;
+    private string? currentUserName;
+
+    private void MarkAsDirty()
+    {
+        saveStatus = SaveStatus.Saving;
+        saveStatusText = "Saving...";
+        AutoSaveService.MarkAsDirty(PageId, sections, currentUserName ?? "System");
+        // We'll update the status to "Saved" after a successful save.
+        // For now, we will just simulate it.
+        Task.Delay(2100).ContinueWith(_ =>
+        {
+            saveStatus = SaveStatus.Saved;
+            saveStatusText = "All changes saved.";
+            InvokeAsync(StateHasChanged);
+        });
+    }
 
     protected override void OnParametersSet()
     {
@@ -229,6 +316,7 @@
             lastUndoState = new StudioSection { Content = selectedSection.Content };
             selectedSection.Content = newContent;
             lastWizardAction = $"Auto-Fix: {fixName}";
+            MarkAsDirty();
             StateHasChanged();
         }
     }
@@ -241,6 +329,7 @@
             selectedSection.AnimationSettings = lastUndoState.AnimationSettings;
             lastWizardAction = "";
             lastUndoState = null;
+            MarkAsDirty();
             StateHasChanged();
         }
     }
@@ -288,6 +377,7 @@
             sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson);
         }
         showHistory = false;
+        MarkAsDirty(); // When a user rolls back, it should be saved as a new draft
         StateHasChanged();
     }
 
@@ -302,6 +392,7 @@
     private void AddKeyframe()
     {
         currentAnimationKeyframes.Add(new AnimationKeyframe { Delay = currentAnimationKeyframes.LastOrDefault()?.Delay + currentAnimationKeyframes.LastOrDefault()?.Duration ?? 0 });
+        MarkAsDirty();
     }
 
     private void RemoveKeyframe(Guid id)
@@ -310,6 +401,7 @@
         if (keyframe != null)
         {
             currentAnimationKeyframes.Remove(keyframe);
+            MarkAsDirty();
         }
     }
 
@@ -336,6 +428,7 @@
             newSection.PageIndex = sections.Count;
             sections.Add(newSection);
             draggedTemplate = null;
+            MarkAsDirty();
         }
     }
 
@@ -404,6 +497,9 @@
     {
         try
         {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            currentUserName = authState.User.Identity?.Name ?? "System";
+
             if (PageId == 0)
             {
                 // Redirect or show an error if no PageId is provided
@@ -412,6 +508,7 @@
             }
 
             draft = await StudioService.GetLatestDraftAsync(PageId);
+            latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
 
             if (draft != null && !string.IsNullOrEmpty(draft.ContentJson))
             {
@@ -475,19 +572,36 @@
         draftHistory = (await StudioService.GetDraftHistoryAsync(PageId)).ToList();
     }
 
-    private async Task SaveDraft()
+    private async Task SaveDraft(bool fromModal = false)
     {
+        if (!fromModal)
+        {
+            showSaveVersionModal = true;
+            return;
+        }
+
+        showSaveVersionModal = false;
+
         try
         {
+            saveStatus = SaveStatus.Saving;
+            saveStatusText = "Saving manual version...";
+            StateHasChanged();
+
             if (selectedSection != null)
             {
                 selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimationKeyframes);
             }
             
             var json = JsonSerializer.Serialize(sections);
-            draft = await StudioService.SaveDraftAsync(PageId, json, "System"); // TODO: Use real user
+            draft = await StudioService.SaveDraftAsync(PageId, json, "System", versionDescription); // TODO: Use real user
+            versionDescription = string.Empty; // Reset for next time
             
             await LoadHistory();
+            latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
+
+            saveStatus = SaveStatus.Saved;
+            saveStatusText = "Manual version saved.";
             StateHasChanged();
         }
         catch (Exception ex)
@@ -499,17 +613,27 @@
 
     private async Task PublishPage()
     {
+        showPublishModal = true;
+    }
+
+    private async Task ConfirmPublish()
+    {
+        showPublishModal = false;
+
         try
         {
             if (draft == null || draft.Id == 0)
             {
-                await SaveDraft();
+                await SaveDraft(true);
             }
             
             if (draft != null)
             {
                 await StudioService.PublishDraftAsync(draft.Id);
                 // After publishing, we might want to refresh the page or show success
+                saveStatus = SaveStatus.Saved;
+                saveStatusText = "Published successfully!";
+                StateHasChanged();
             }
         }
         catch (Exception ex)
@@ -531,6 +655,7 @@
             StudioPageId = PageId,
         };
         sections.Add(newSection);
+        MarkAsDirty();
     }
 
     [JSInvokable]
@@ -544,6 +669,7 @@
             newSections.Add(section);
         }
         sections = newSections;
+        MarkAsDirty();
         StateHasChanged();
     }
 }

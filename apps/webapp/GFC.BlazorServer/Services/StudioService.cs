@@ -51,9 +51,9 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
-        public async Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string username)
+        public async Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string username, string? changeDescription = null)
         {
-            var lastVersion = await _context.StudioDrafts
+            var lastVersion = await _context.Drafts
                 .Where(d => d.PageId == pageId)
                 .OrderByDescending(d => d.Version)
                 .Select(d => d.Version)
@@ -65,10 +65,11 @@ namespace GFC.BlazorServer.Services
                 ContentJson = contentJson,
                 Version = lastVersion + 1,
                 CreatedBy = username,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                ChangeDescription = changeDescription
             };
 
-            _context.StudioDrafts.Add(newDraft);
+            _context.Drafts.Add(newDraft);
             await _context.SaveChangesAsync();
             return newDraft;
         }
@@ -96,17 +97,17 @@ namespace GFC.BlazorServer.Services
 
         public async Task PublishDraftAsync(int draftId)
         {
-            var draft = await _context.StudioDrafts.FindAsync(draftId);
+            var draft = await _context.Drafts.FindAsync(draftId);
             if (draft == null)
             {
                 _logger.LogWarning("PublishDraftAsync: No draft found with Id {DraftId}", draftId);
                 throw new ArgumentException($"Draft with Id {draftId} not found.");
             }
 
-            var page = await _context.StudioPages.Include(p => p.Sections).FirstOrDefaultAsync(p => p.Id == draft.PageId);
+            var page = await _context.Pages.Include(p => p.Sections).FirstOrDefaultAsync(p => p.Id == draft.PageId);
             if (page == null)
             {
-                _logger.LogError("PublishDraftAsync: StudioPage with Id {PageId} not found.", draft.PageId);
+                _logger.LogError("PublishDraftAsync: Page with Id {PageId} not found.", draft.PageId);
                 throw new InvalidOperationException($"Could not find the page to publish to.");
             }
 
@@ -115,31 +116,38 @@ namespace GFC.BlazorServer.Services
                 var sectionsFromDraft = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson);
 
                 // Simple merge: Remove old sections, add new ones.
-                _context.StudioSections.RemoveRange(page.Sections);
-                page.Sections.Clear();
+                _context.Sections.RemoveRange(page.Sections);
 
                 if (sectionsFromDraft != null)
                 {
-                    foreach (var section in sectionsFromDraft)
+                    page.Sections = sectionsFromDraft.Select(s => new StudioSection
                     {
-                        page.Sections.Add(new StudioSection
-                        {
-                            ClientId = Guid.Empty, // Reset client ID for persistence
-                            Title = section.Title,
-                            Content = section.Content,
-                            PageIndex = section.PageIndex,
-                            StudioPageId = page.Id,
-                            AnimationSettings = section.AnimationSettings
-                        });
-                    }
+                        ComponentType = s.ComponentType,
+                        OrderIndex = s.OrderIndex,
+                        ContentJson = s.ContentJson,
+                        StylesJson = s.StylesJson,
+                        AnimationJson = s.AnimationJson,
+                        ResponsiveJson = s.ResponsiveJson,
+                        IsVisible = s.IsVisible,
+                        VisibleOnDesktop = s.VisibleOnDesktop,
+                        VisibleOnTablet = s.VisibleOnTablet,
+                        VisibleOnMobile = s.VisibleOnMobile,
+                        CreatedBy = draft.CreatedBy,
+                        UpdatedBy = draft.CreatedBy,
+                    }).ToList();
                 }
 
-                page.IsPublished = true;
-                page.LastPublishedAt = DateTime.UtcNow;
-                page.Content = "Snapshot updated from draft v" + draft.Version; // Optional: Or actual summary
+                page.Status = "Published";
+                page.PublishedAt = DateTime.UtcNow;
+                page.PublishedBy = draft.CreatedBy; // TODO: Get current user
+                page.UpdatedAt = DateTime.UtcNow;
+                page.UpdatedBy = draft.CreatedBy;
 
                 await _context.SaveChangesAsync();
                 _logger.LogInformation("Successfully published draft {DraftId} for PageId {PageId}", draftId, draft.PageId);
+
+                // TODO: Call Next.js on-demand revalidation API
+                _logger.LogInformation("Placeholder for Next.js revalidation call for page: {Slug}", page.Slug);
             }
             catch (JsonException jsonEx)
             {

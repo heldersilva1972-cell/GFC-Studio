@@ -163,6 +163,7 @@ public class Program
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
+        builder.Services.AddSingleton<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IRentalService, RentalService>();

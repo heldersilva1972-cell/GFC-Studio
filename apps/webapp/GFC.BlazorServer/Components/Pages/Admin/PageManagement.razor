@@ -1,0 +1,163 @@
+// [NEW]
+@page "/admin/pages"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Page Management - GFC Studio</PageTitle>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
+                <h1 class="page-title">Page Management</h1>
+                <button class="btn btn-primary" @onclick="CreateNewPage">
+                    <i class="fas fa-plus me-2"></i>New Page
+                </button>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" class="form-control" placeholder="Search pages..." @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Slug</th>
+                                    <th>Status</th>
+                                    <th>Last Updated</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (filteredPages == null)
+                                {
+                                    <tr>
+                                        <td colspan="5" class="text-center">
+                                            <div class="spinner-border" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                                else if (!filteredPages.Any())
+                                {
+                                    <tr>
+                                        <td colspan="5" class="text-center">No pages found.</td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var page in filteredPages)
+                                    {
+                                        <tr>
+                                            <td><strong>@page.Title</strong></td>
+                                            <td>@page.Slug</td>
+                                            <td><span class="badge @GetStatusBadgeClass(page.Status)">@page.Status</span></td>
+                                            <td>@page.UpdatedAt.ToString("g") by @page.UpdatedBy</td>
+                                            <td class="text-end">
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditPage(page.Id)">
+                                                    <i class="fas fa-pencil-alt me-1"></i> Edit
+                                                </button>
+                                                @if (page.Status != "Archived")
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => ArchivePage(page.Id)">
+                                                        <i class="fas fa-archive me-1"></i> Archive
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<NewPageWizard IsVisible="isWizardVisible" OnClose="() => isWizardVisible = false" />
+
+@code {
+    private List<StudioPage>? allPages;
+    private List<StudioPage>? filteredPages;
+    private string searchTerm = string.Empty;
+    private bool isWizardVisible = false;
+    private string? currentUserName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        currentUserName = authState.User.Identity?.Name ?? "System";
+        await LoadPages();
+    }
+
+    private async Task LoadPages()
+    {
+        using var context = DbFactory.CreateDbContext();
+        allPages = await context.Pages.Where(p => !p.IsDeleted).OrderByDescending(p => p.UpdatedAt).ToListAsync();
+        FilterPages();
+    }
+
+    private void FilterPages()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            filteredPages = allPages;
+        }
+        else
+        {
+            var lowerSearchTerm = searchTerm.ToLowerInvariant();
+            filteredPages = allPages?
+                .Where(p =>
+                    p.Title.ToLowerInvariant().Contains(lowerSearchTerm) ||
+                    p.Slug.ToLowerInvariant().Contains(lowerSearchTerm) ||
+                    p.Status.ToLowerInvariant().Contains(lowerSearchTerm))
+                .ToList();
+        }
+        StateHasChanged();
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Published" => "bg-success",
+        "Draft" => "bg-warning text-dark",
+        "Archived" => "bg-secondary",
+        _ => "bg-light text-dark"
+    };
+
+    private void CreateNewPage()
+    {
+        isWizardVisible = true;
+    }
+
+    private void EditPage(int pageId)
+    {
+        NavigationManager.NavigateTo($"/studio/{pageId}");
+    }
+
+    private async Task ArchivePage(int pageId)
+    {
+        using var context = DbFactory.CreateDbContext();
+        var page = await context.Pages.FindAsync(pageId);
+        if (page != null)
+        {
+            page.Status = "Archived";
+            page.IsDeleted = true;
+            page.DeletedAt = DateTime.UtcNow;
+            page.DeletedBy = currentUserName;
+            await context.SaveChangesAsync();
+            await LoadPages();
+        }
+    }
+}
