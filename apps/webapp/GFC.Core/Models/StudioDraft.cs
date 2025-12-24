@@ -1,4 +1,4 @@
-// [MODIFIED]
+// [NEW]
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -8,19 +8,16 @@ namespace GFC.Core.Models
     public class StudioDraft
     {
         [Key]
-        public int Id { get; set; }
-
-        [ForeignKey("StudioPage")]
-        public int PageId { get; set; }
-        public virtual StudioPage StudioPage { get; set; }
-
-        public string? ContentJson { get; set; }
-
-        public int Version { get; set; }
+        public Guid Id { get; set; }
 
         [Required]
-        public string CreatedBy { get; set; } = "System";
+        public int StudioPageId { get; set; }
 
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        [ForeignKey("StudioPageId")]
+        public StudioPage StudioPage { get; set; }
+
+        public string Payload { get; set; }
+
+        public DateTime CreatedAt { get; set; }
     }
 }

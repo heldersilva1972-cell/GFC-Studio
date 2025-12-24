@@ -160,17 +160,17 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
+        builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
-        builder.Services.AddScoped<IStudioService, StudioService>();
-        builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();

@@ -63,6 +63,9 @@ public class DatabaseHealthService
             // Get migration status
             await GetMigrationStatusAsync(healthInfo, cancellationToken);
             
+            // Get query performance
+            await GetQueryPerformanceAsync(connection, healthInfo, cancellationToken);
+
             // Calculate overall health
             healthInfo.Status = CalculateDatabaseHealth(healthInfo);
             healthInfo.Message = $"Database is {healthInfo.Status}.";
@@ -188,9 +191,56 @@ public class DatabaseHealthService
         if (healthInfo.ConnectionResponseTimeMs > 1000)
             return HealthStatus.Warning;
         
+        // Check slow query
+        if (healthInfo.SlowQueryResponseTimeMs > 5000)
+            return HealthStatus.Critical;
+        if (healthInfo.SlowQueryResponseTimeMs > 1000)
+            return HealthStatus.Warning;
+
         return HealthStatus.Healthy;
     }
     
+    private async Task GetQueryPerformanceAsync(IDbConnection connection, DatabaseHealthInfo healthInfo, CancellationToken cancellationToken)
+    {
+        const int SlowQueryThresholdMs = 1000;
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            // This query is designed to be potentially slow on a large dataset without proper indexing.
+            // It joins multiple tables and performs a sort.
+            command.CommandText = @"
+                SELECT TOP 10 e.Id
+                FROM ControllerEvents e
+                JOIN Controllers c ON e.ControllerId = c.Id
+                JOIN Doors d ON e.DoorId = d.Id
+                ORDER BY e.Timestamp DESC";
+
+            using (var reader = await ((System.Data.Common.DbCommand)command).ExecuteReaderAsync(cancellationToken))
+            {
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    // Consume the results
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to execute performance query");
+        }
+        finally
+        {
+            stopwatch.Stop();
+            healthInfo.SlowQueryResponseTimeMs = stopwatch.ElapsedMilliseconds;
+
+            if (healthInfo.SlowQueryResponseTimeMs > SlowQueryThresholdMs)
+            {
+                _logger.LogWarning("Slow query detected: {QueryName} took {ResponseTime}ms", "GetTop10ControllerEvents", healthInfo.SlowQueryResponseTimeMs);
+            }
+        }
+    }
+
     public async Task<DiagnosticActionResult> TestDatabaseConnectionAsync()
     {
         var result = new DiagnosticActionResult
