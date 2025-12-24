@@ -1,0 +1,133 @@
+// [NEW]
+@page "/admin/security-settings"
+@implements IDisposable
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GfcDbContext> DbContextFactory
+@inject TunnelStatusService TunnelStatusService
+@inject CloudflareTunnelHealthService HealthService
+
+<h3>Security & Remote Access Settings <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
+
+@if (_isLoading)
+{
+    <p><em>Loading settings...</em></p>
+}
+else if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else if (_settings != null)
+{
+    <EditForm Model="@_settings" OnValidSubmit="SaveChanges">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="form-card">
+            <div class="form-card-header">
+                <i class="bi bi-cloud-arrow-down"></i>
+                <h5>Cloudflare Tunnel Configuration</h5>
+            </div>
+            <div class="form-card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <strong>Tunnel Status:</strong>
+                        @if (TunnelStatusService.IsTunnelConnected)
+                        {
+                            <span class="badge bg-success">Connected</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger">Disconnected</span>
+                        }
+                        <small class="text-muted ms-2">Last checked: @TunnelStatusService.LastCheckTime.ToLocalTime()</small>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" @onclick="TestConnection" type="button">Test Connection</button>
+                </div>
+
+                <div class="mb-3">
+                    <label for="cloudflareToken" class="form-label">Tunnel Token</label>
+                    <InputText id="cloudflareToken" class="form-control" @bind-Value="_settings.CloudflareTunnelToken" />
+                    <small class="form-text text-muted">The token for your Cloudflare Tunnel.</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="publicDomain" class="form-label">Public Domain</label>
+                    <InputText id="publicDomain" class="form-control" @bind-Value="_settings.PublicDomain" />
+                    <small class="form-text text-muted">The public domain for your application (e.g., gfc.yourdomain.com).</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar mt-4">
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+            @if (!string.IsNullOrEmpty(_successMessage))
+            {
+                <span class="text-success ms-2">@_successMessage</span>
+            }
+        </div>
+    </EditForm>
+}
+
+@code {
+    private SystemSettings _settings;
+    private bool _isLoading = true;
+    private string _errorMessage;
+    private string _successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        TunnelStatusService.OnStatusChanged += OnTunnelStatusChanged;
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            _settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+            if (_settings == null)
+            {
+                _errorMessage = "System settings could not be loaded. A database record may be missing.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading settings: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        _errorMessage = null;
+        _successMessage = null;
+        try
+        {
+            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            dbContext.SystemSettings.Update(_settings);
+            await dbContext.SaveChangesAsync();
+            _successMessage = "Settings saved successfully!";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error saving settings: {ex.Message}";
+        }
+    }
+
+    private async Task TestConnection()
+    {
+        await HealthService.CheckTunnelHealthAsync();
+    }
+
+    private async Task OnTunnelStatusChanged()
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        TunnelStatusService.OnStatusChanged -= OnTunnelStatusChanged;
+    }
+}

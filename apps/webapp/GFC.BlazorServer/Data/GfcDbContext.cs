@@ -1,5 +1,6 @@
 // [MODIFIED]
 using GFC.BlazorServer.Data.Entities;
+using GFC.BlazorServer.Data.Entities.Security;
 using GFC.Core.Models;
 using GFC.Core.Models.Diagnostics;
 using Microsoft.EntityFrameworkCore;
@@ -70,6 +71,12 @@ public class GfcDbContext : DbContext
     public DbSet<EventPromotion> EventPromotions => Set<EventPromotion>();
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
+
+    // Security & Remote Access
+    public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>();
+    public DbSet<VpnSession> VpnSessions => Set<VpnSession>();
+    public DbSet<VideoAccessAudit> VideoAccessAudits => Set<VideoAccessAudit>();
+    public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -502,6 +509,61 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<WebsiteSettings>(entity =>
         {
             entity.ToTable("WebsiteSettings");
+        });
+
+        // Security & Remote Access
+        modelBuilder.Entity<VpnProfile>(entity =>
+        {
+            entity.ToTable("VpnProfiles");
+            entity.HasIndex(p => p.PublicKey).IsUnique();
+            entity.HasIndex(p => p.AssignedIP).IsUnique();
+            entity.HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(p => p.RevokedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.RevokedBy)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<VpnSession>(entity =>
+        {
+            entity.ToTable("VpnSessions");
+            entity.HasOne(s => s.VpnProfile)
+                .WithMany()
+                .HasForeignKey(s => s.VpnProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<VideoAccessAudit>(entity =>
+        {
+            entity.ToTable("VideoAccessAudit");
+            entity.HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(a => a.Camera)
+                .WithMany()
+                .HasForeignKey(a => a.CameraId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SecurityAlert>(entity =>
+        {
+            entity.ToTable("SecurityAlerts");
+            entity.HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(a => a.ReviewedByUser)
+                .WithMany()
+                .HasForeignKey(a => a.ReviewedBy)
+                .OnDelete(DeleteBehavior.NoAction);
         });
     }
 

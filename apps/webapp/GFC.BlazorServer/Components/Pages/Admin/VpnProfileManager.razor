@@ -1,0 +1,121 @@
+// [NEW]
+@page "/admin/vpn-profiles"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data.Entities.Security
+@using GFC.BlazorServer.Services
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IWireGuardManagementService WireGuardManagementService
+@inject IDbContextFactory<GfcDbContext> DbContextFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<h3>VPN Profile Manager <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
+
+<div class="form-card mb-4">
+    <div class="form-card-header">
+        <h5>Create New Profile</h5>
+    </div>
+    <div class="form-card-body">
+        <EditForm Model="@_newProfile" OnValidSubmit="GenerateProfile">
+            <DataAnnotationsValidator />
+            <div class="row">
+                <div class="col-md-4">
+                    <InputSelect @bind-Value="_newProfile.UserId" class="form-control">
+                        <option value="0">Select User</option>
+                        @foreach (var user in _users)
+                        {
+                            <option value="@user.UserId">@user.Username</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-4">
+                    <InputText @bind-Value="_newProfile.DeviceName" class="form-control" placeholder="Device Name (e.g., John's iPhone)" />
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary">Generate</button>
+                </div>
+            </div>
+            <ValidationSummary />
+        </EditForm>
+    </div>
+</div>
+
+@if (_profiles == null)
+{
+    <p><em>Loading profiles...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Device</th>
+                <th>Assigned IP</th>
+                <th>Created At</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var profile in _profiles)
+            {
+                <tr>
+                    <td>@(_users.FirstOrDefault(u => u.UserId == profile.UserId)?.Username)</td>
+                    <td>@profile.DeviceName</td>
+                    <td>@profile.AssignedIP</td>
+                    <td>@profile.CreatedAt.ToLocalTime()</td>
+                    <td>@(profile.RevokedAt.HasValue ? "Revoked" : "Active")</td>
+                    <td>
+                        <button class="btn btn-sm btn-danger" @onclick="() => RevokeProfile(profile.Id)" disabled="@profile.RevokedAt.HasValue">Revoke</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<VpnProfile> _profiles;
+    private List<AppUser> _users;
+    private NewProfileModel _newProfile = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        await using var dbContext = await DbContextFactory.CreateDbContextAsync();
+        _users = await dbContext.Set<AppUser>().AsNoTracking().ToListAsync();
+        _profiles = await dbContext.VpnProfiles.AsNoTracking().OrderByDescending(p => p.CreatedAt).ToListAsync();
+    }
+
+    private async Task GenerateProfile()
+    {
+        await WireGuardManagementService.GenerateProfileAsync(_newProfile.UserId, _newProfile.DeviceName, "Unknown");
+        _newProfile = new();
+        await LoadData();
+    }
+
+    private async Task RevokeProfile(int profileId)
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var adminUsername = user.Identity.Name;
+        var adminUser = _users.FirstOrDefault(u => u.Username == adminUsername);
+
+        if (adminUser != null)
+        {
+            await WireGuardManagementService.RevokeProfileAsync(profileId, adminUser.UserId, "Revoked by admin");
+            await LoadData();
+        }
+    }
+
+    private class NewProfileModel
+    {
+        public int UserId { get; set; }
+        public string DeviceName { get; set; }
+    }
+}
