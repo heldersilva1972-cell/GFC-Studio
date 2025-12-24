@@ -507,12 +507,29 @@
                 
                 // Get first Sunday before or on first day of month
                 var startDate = firstDayOfMonth.AddDays(-(int)firstDayOfMonth.DayOfWeek);
-                // Get last Saturday after or on last day of month
+                // Get last Saturday after or on last day of month  
                 var endDate = lastDayOfMonth.AddDays(6 - (int)lastDayOfMonth.DayOfWeek);
                 
-                monthlyShifts = (await ShiftService.GetShiftsForWeekAsync(startDate))
+                await JSRuntime.InvokeVoidAsync("console.log", $"Month view: Loading from {startDate:MMM dd} to {endDate:MMM dd}");
+                
+                // Load ALL shifts for the entire visible month range
+                // We need to load multiple weeks, so we'll call the service for the full range
+                var allShifts = new List<StaffShift>();
+                var currentWeekStart = startDate;
+                
+                while (currentWeekStart <= endDate)
+                {
+                    var weekShifts = await ShiftService.GetShiftsForWeekAsync(currentWeekStart);
+                    allShifts.AddRange(weekShifts);
+                    currentWeekStart = currentWeekStart.AddDays(7);
+                }
+                
+                // Filter to only shifts in the visible range
+                monthlyShifts = allShifts
                     .Where(s => s.Date >= startDate && s.Date <= endDate)
+                    .Distinct()
                     .ToList();
+                    
                 await JSRuntime.InvokeVoidAsync("console.log", $"Loaded {monthlyShifts.Count} shifts for month {currentDate:MMMM yyyy}");
             }
             
