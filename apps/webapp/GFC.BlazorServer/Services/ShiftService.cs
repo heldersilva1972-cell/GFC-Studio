@@ -86,6 +86,8 @@ namespace GFC.BlazorServer.Services
             // Populate StaffName from StaffMember
             foreach (var shift in shifts)
             {
+                if (shift == null) continue; // Skip null shifts
+                
                 if (shift.StaffMember != null)
                 {
                     shift.StaffName = shift.StaffMember.Name ?? "Unknown";
@@ -96,7 +98,7 @@ namespace GFC.BlazorServer.Services
                 }
             }
 
-            return shifts;
+            return shifts.Where(s => s != null).ToList(); // Filter out any null shifts
         }
 
         public async Task<IEnumerable<ShiftReport>> GetShiftReportsForExportAsync(System.DateTime startDate, System.DateTime endDate)
