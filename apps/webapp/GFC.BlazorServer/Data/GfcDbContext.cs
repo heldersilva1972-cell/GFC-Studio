@@ -18,6 +18,7 @@ public class GfcDbContext : DbContext
     public DbSet<ControllerLastIndex> ControllerLastIndexes => Set<ControllerLastIndex>();
     public DbSet<ControllerCommandInfo> ControllerCommandInfos => Set<ControllerCommandInfo>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
+    public DbSet<SpecialEvent> SpecialEvents => Set<SpecialEvent>();
     public DbSet<GFC.BlazorServer.Data.Entities.TimeProfile> TimeProfiles => Set<GFC.BlazorServer.Data.Entities.TimeProfile>();
     public DbSet<TimeProfileInterval> TimeProfileIntervals => Set<TimeProfileInterval>();
     public DbSet<ControllerTimeProfileLink> ControllerTimeProfileLinks => Set<ControllerTimeProfileLink>();
@@ -128,6 +129,16 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("Holidays");
             entity.HasIndex(h => h.Date);
+        });
+
+        modelBuilder.Entity<SpecialEvent>(entity =>
+        {
+            entity.ToTable("SpecialEvents");
+            entity.HasIndex(e => e.Date);
+            entity.HasOne(e => e.TimeProfile)
+                .WithMany()
+                .HasForeignKey(e => e.TimeProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ControllerTimeProfileLink>(entity =>
