@@ -396,38 +396,6 @@
                     </table>
                 </div>
             }
-            else if (viewMode == ViewMode.Stats)
-            {
-                <!-- Insights View -->
-                <div class="row px-3">
-                    @if (bartenderStats.Any())
-                    {
-                        @foreach (var stats in bartenderStats)
-                        {
-                            <div class="col-md-4 mb-3">
-                                <div class="card shadow-sm h-100">
-                                    <div class="card-body">
-                                        <h5 class="card-title">@stats.Name</h5>
-                                        <p class="card-text">
-                                            <strong>Total Shifts:</strong> @stats.TotalShifts<br />
-                                            <span class="text-primary">Day Shifts:</span> @stats.DayShifts<br />
-                                            <span class="text-info">Night Shifts:</span> @stats.NightShifts<br />
-                                            <strong>Joined:</strong> @(stats.JoinedDate?.ToShortDateString() ?? "N/A")<br />
-                                            <strong>Last Worked:</strong> @(stats.LastWorked?.ToShortDateString() ?? "N/A")
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-                    }
-                    else
-                    {
-                        <div class="col-12 text-center p-5">
-                            <i class="bi bi-graph-up text-muted" style="font-size: 3rem;"></i>
-                            <p class="mt-3">No stats available for the current team.</p>
-                        </div>
-                    }
-                </div>
             }
         }
     </div>
@@ -746,8 +714,6 @@
     private DateTime currentDate = DateTime.Today;
     private List<StaffShift> weeklyShifts = new();
     private List<StaffShift> monthlyShifts = new();
-    private List<StaffShift> allHistoryShifts = new(); // For stats
-    private List<StaffStats> bartenderStats = new(); // For stats
     private List<StaffMember> staffMembers = new();
     private List<Member> activeMembers = new();
 
@@ -925,64 +891,11 @@
     {
         viewMode = mode;
         
-        if (viewMode == ViewMode.Stats)
+        if (viewMode == ViewMode.Week)
         {
-            await LoadStats();
+            currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
         }
-        else
-        {
-            if (viewMode == ViewMode.Week)
-            {
-                currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
-            }
-            await LoadShifts();
-        }
-    }
-
-    private async Task LoadStats()
-    {
-        try
-        {
-            _isLoading = true;
-            
-            // Get all shifts for calculation
-            var allShiftsFromDb = await ShiftService.GetStaffShiftsAsync(); 
-            var allShifts = allShiftsFromDb.ToList();
-            
-            bartenderStats = staffMembers.Select(staff => new StaffStats
-            {
-                StaffId = staff.Id,
-                Name = staff.Name ?? "Unknown",
-                TotalShifts = allShifts.Count(s => s.StaffMemberId == staff.Id),
-                DayShifts = allShifts.Count(s => s.StaffMemberId == staff.Id && s.ShiftType == 1),
-                NightShifts = allShifts.Count(s => s.StaffMemberId == staff.Id && s.ShiftType == 2),
-                JoinedDate = staff.HireDate,
-                LastWorked = allShifts.Where(s => s.StaffMemberId == staff.Id)
-                                     .OrderByDescending(s => s.Date)
-                                     .Select(s => s.Date)
-                                     .Cast<DateTime?>()
-                                     .FirstOrDefault()
-            }).ToList();
-            
-            _isLoading = false;
-        }
-        catch (Exception ex)
-        {
-            _isLoading = false;
-            await ToastService.ShowError("Could not load stats");
-            await JSRuntime.InvokeVoidAsync("console.error", ex.ToString());
-        }
-    }
-
-    private class StaffStats
-    {
-        public int StaffId { get; set; }
-        public string Name { get; set; } = "";
-        public int TotalShifts { get; set; }
-        public int DayShifts { get; set; }
-        public int NightShifts { get; set; }
-        public DateTime? JoinedDate { get; set; }
-        public DateTime? LastWorked { get; set; }
+        await LoadShifts();
     }
 
     private async Task NavigatePrevious()
