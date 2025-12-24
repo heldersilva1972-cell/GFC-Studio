@@ -171,6 +171,7 @@ public class Program
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
         builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
+        builder.Services.AddScoped<IPageService, PageService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
