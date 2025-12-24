@@ -172,7 +172,7 @@ public class Program
         builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
         builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
-        builder.Services.AddScoped<ITemplateService, TemplateService>();
+        builder.Services.AddScoped<GFC.Core.Interfaces.ITemplateService, TemplateService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
