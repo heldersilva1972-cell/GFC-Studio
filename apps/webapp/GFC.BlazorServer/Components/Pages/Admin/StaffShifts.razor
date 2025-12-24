@@ -1,3 +1,4 @@
+```
 // [NEW]
 @page "/admin/staff-shifts"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "RequireAdmin")]
@@ -91,10 +92,13 @@
         </div>
         <div class="btn-group w-100" role="group">
             <button type="button" class="btn @(viewMode == ViewMode.Week ? "btn-primary" : "btn-outline-primary")" @onclick="() => SwitchView(ViewMode.Week)">
-                <i class="bi bi-calendar-week"></i> Week View
+                <i class="bi bi-calendar-week"></i> Week
             </button>
             <button type="button" class="btn @(viewMode == ViewMode.Month ? "btn-primary" : "btn-outline-primary")" @onclick="() => SwitchView(ViewMode.Month)">
-                <i class="bi bi-calendar-month"></i> Month View
+                <i class="bi bi-calendar-month"></i> Month
+            </button>
+            <button type="button" class="btn @(viewMode == ViewMode.Stats ? "btn-primary" : "btn-outline-primary")" @onclick="() => SwitchView(ViewMode.Stats)">
+                <i class="bi bi-graph-up"></i> Insights
             </button>
         </div>
     </div>
@@ -196,7 +200,7 @@
                     </table>
                 </div>
             }
-            else
+            else if (viewMode == ViewMode.Month)
             {
                 <!-- Month View -->
                 <div class="month-calendar">
@@ -275,6 +279,39 @@
                             }
                         </tbody>
                     </table>
+                </div>
+            }
+            else if (viewMode == ViewMode.Stats)
+            {
+                <!-- Stats View -->
+                <div class="row">
+                    @if (bartenderStats.Any())
+                    {
+                        @foreach (var stats in bartenderStats.OrderByDescending(s => s.TotalShifts))
+                        {
+                            <div class="col-md-4 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h5 class="card-title">@stats.Name</h5>
+                                        <p class="card-text">
+                                            <strong>Total Shifts:</strong> @stats.TotalShifts<br />
+                                            <span class="text-primary">Day Shifts:</span> @stats.DayShifts<br />
+                                            <span class="text-info">Night Shifts:</span> @stats.NightShifts<br />
+                                            <strong>Last Worked:</strong> @(stats.LastWorked?.ToShortDateString() ?? "N/A")
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="col-12">
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> No shift data available for statistics.
+                            </div>
+                        </div>
+                    }
                 </div>
             }
         }
@@ -458,13 +495,16 @@
     public enum ViewMode
     {
         Week,
-        Month
+        Month,
+        Stats
     }
 
     private bool _isLoading = true;
     private DateTime currentDate = DateTime.Today;
     private List<StaffShift> weeklyShifts = new();
     private List<StaffShift> monthlyShifts = new();
+    private List<StaffShift> allHistoryShifts = new(); // For stats
+    private List<StaffStats> bartenderStats = new(); // For stats
     private List<StaffMember> staffMembers = new();
     private List<Member> activeMembers = new();
 
@@ -637,18 +677,62 @@
     {
         viewMode = mode;
         
-        if (mode == ViewMode.Month)
+        if (viewMode == ViewMode.Stats)
         {
-            // Adjust to first day of current month
-            currentDate = new DateTime(currentDate.Year, currentDate.Month, 1);
+            await LoadStats();
         }
         else
         {
-            // Adjust to Sunday of current week
-            currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
+            if (viewMode == ViewMode.Week)
+            {
+                currentDate = currentDate.AddDays(-(int)currentDate.DayOfWeek);
+            }
+            await LoadShifts();
         }
-        
-        await LoadShifts();
+    }
+
+    private async Task LoadStats()
+    {
+        try
+        {
+            _isLoading = true;
+            
+            // Get all shifts for calculation
+            var allShiftsFromDb = await ShiftService.GetStaffShiftsAsync(); 
+            var allShifts = allShiftsFromDb.ToList();
+            
+            bartenderStats = staffMembers.Select(staff => new StaffStats
+            {
+                StaffId = staff.Id,
+                Name = staff.Name ?? "Unknown",
+                TotalShifts = allShifts.Count(s => s.StaffMemberId == staff.Id),
+                DayShifts = allShifts.Count(s => s.StaffMemberId == staff.Id && s.ShiftType == 1),
+                NightShifts = allShifts.Count(s => s.StaffMemberId == staff.Id && s.ShiftType == 2),
+                LastWorked = allShifts.Where(s => s.StaffMemberId == staff.Id)
+                                     .OrderByDescending(s => s.Date)
+                                     .Select(s => s.Date)
+                                     .Cast<DateTime?>()
+                                     .FirstOrDefault()
+            }).ToList();
+            
+            _isLoading = false;
+        }
+        catch (Exception ex)
+        {
+            _isLoading = false;
+            await ToastService.ShowError("Could not load stats");
+            await JSRuntime.InvokeVoidAsync("console.error", ex.ToString());
+        }
+    }
+
+    private class StaffStats
+    {
+        public int StaffId { get; set; }
+        public string Name { get; set; } = "";
+        public int TotalShifts { get; set; }
+        public int DayShifts { get; set; }
+        public int NightShifts { get; set; }
+        public DateTime? LastWorked { get; set; }
     }
 
     private async Task NavigatePrevious()
