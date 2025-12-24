@@ -77,28 +77,55 @@ namespace GFC.BlazorServer.Services
 
         public async Task<IEnumerable<StaffShift>> GetShiftsForWeekAsync(System.DateTime startDate)
         {
-            var endDate = startDate.AddDays(7);
-            var shifts = await _context.StaffShifts
-                .Include(s => s.StaffMember)
-                .Where(s => s.Date >= startDate && s.Date < endDate)
-                .ToListAsync();
-
-            // Populate StaffName from StaffMember
-            foreach (var shift in shifts)
+            try
             {
-                if (shift == null) continue; // Skip null shifts
+                var endDate = startDate.AddDays(7);
                 
-                if (shift.StaffMember != null)
-                {
-                    shift.StaffName = shift.StaffMember.Name ?? "Unknown";
-                }
-                else
-                {
-                    shift.StaffName = "Unassigned";
-                }
-            }
+                // Load shifts without navigation properties first
+                var shifts = await _context.StaffShifts
+                    .Where(s => s.Date >= startDate && s.Date < endDate)
+                    .ToListAsync();
 
-            return shifts.Where(s => s != null).ToList(); // Filter out any null shifts
+                // Manually load StaffMember for each shift
+                foreach (var shift in shifts)
+                {
+                    if (shift == null) continue;
+                    
+                    try
+                    {
+                        // Try to load the StaffMember
+                        if (shift.StaffMemberId > 0)
+                        {
+                            shift.StaffMember = await _context.StaffMembers
+                                .FirstOrDefaultAsync(sm => sm.Id == shift.StaffMemberId);
+                        }
+                        
+                        // Set StaffName based on what we found
+                        if (shift.StaffMember != null && !string.IsNullOrEmpty(shift.StaffMember.Name))
+                        {
+                            shift.StaffName = shift.StaffMember.Name;
+                        }
+                        else
+                        {
+                            shift.StaffName = "Unassigned";
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // If loading StaffMember fails, just mark as unassigned
+                        shift.StaffName = "Unassigned";
+                        Console.WriteLine($"Error loading StaffMember for shift {shift.Id}: {ex.Message}");
+                    }
+                }
+
+                return shifts.Where(s => s != null).ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"GetShiftsForWeekAsync Error: {ex}");
+                // Return empty list on error
+                return new List<StaffShift>();
+            }
         }
 
         public async Task<IEnumerable<ShiftReport>> GetShiftReportsForExportAsync(System.DateTime startDate, System.DateTime endDate)
