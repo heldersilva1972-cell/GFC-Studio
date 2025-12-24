@@ -57,6 +57,7 @@
             <div class="toolbox-tabs">
                 <button class="tab-button @(activeToolboxTab == "templates" ? "active" : "")" @onclick='() => activeToolboxTab = "templates"'>Templates</button>
                 <button class="tab-button @(activeToolboxTab == "elements" ? "active" : "")" @onclick='() => activeToolboxTab = "elements"'>Elements</button>
+                <button class="tab-button @(activeToolboxTab == "theme" ? "active" : "")" @onclick='() => activeToolboxTab = "theme"'>Theme</button>
             </div>
             <div class="toolbox-content">
                 @if (activeToolboxTab == "templates")
@@ -87,6 +88,10 @@
                 {
                     <p>Elements toolbox coming soon!</p>
                 }
+                @if (activeToolboxTab == "theme")
+                {
+                    <GlobalThemePanel />
+                }
             </div>
         </div>
         <div class="canvas-container @($"viewport-{currentViewport}")">
@@ -103,57 +108,68 @@
             </div>
         </div>
         <div class="right-inspector">
-            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnContentFixed="@(args => HandleContentFixed(args.newContent, args.fixName))" />
-            @if (!string.IsNullOrEmpty(lastWizardAction))
+            @if (selectedKeyframe != null)
             {
-                <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
+                <AnimationControls TargetKeyframe="selectedKeyframe" />
+            }
+            else
+            {
+                <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnContentFixed="@(args => HandleContentFixed(args.newContent, args.fixName))" />
+                @if (!string.IsNullOrEmpty(lastWizardAction))
+                {
+                    <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
+                }
             }
         </div>
     </div>
-    <div class="animation-orchestrator">
-        @if (selectedSection != null)
-        {
-            <h5>Animation Timeline for: "@selectedSection.Title"</h5>
-            <div class="timeline-bar" @ref="_timelineElement">
-                @for (int i = 0; i <= 5; i++)
-                {
-                    <div class="time-marker">@i</div>
-                }
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="animation-block" style="@GetAnimationBlockStyle(keyframe)" id="@keyframe.Id">
-                        @keyframe.Effect
+    <div class="animation-orchestrator @(isTimelineCollapsed ? "collapsed" : "")">
+        <div class="timeline-header" @onclick="() => isTimelineCollapsed = !isTimelineCollapsed">
+            <span><i class="fas fa-film"></i> Animation Timeline</span>
+            <span class="collapse-icon">@(isTimelineCollapsed ? "▲" : "▼")</span>
+        </div>
+        <div class="timeline-content">
+            @if (selectedSection != null)
+            {
+                <div class="timeline-controls">
+                    <button class="btn btn-sm btn-primary" @onclick="PreviewAnimation">▶ Play</button>
+                    <div class="playhead" style="left: @(playheadPosition)%;"></div>
+                </div>
+                <div class="timeline-grid" @ref="_timelineElement">
+                    <div class="time-markers">
+                        @for (int i = 0; i <= 5; i++)
+                        {
+                            <div class="time-marker" style="left: @(i * 20)%;">@i.0s</div>
+                        }
                     </div>
-                }
-            </div>
-            <div class="keyframe-editor mt-3">
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="keyframe-controls" id="@keyframe.Id">
-                         <select class="form-control form-control-sm" @bind="keyframe.Effect">
-                            <option value="fadeIn">Fade In</option>
-                            <option value="slideInUp">Slide Up</option>
-                            <option value="bounceIn">Bounce In</option>
-                        </select>
-                        <label>D:</label>
-                        <input type="range" class="form-control-range" min="0.1" max="5" step="0.1" @bind="keyframe.Duration" />
-                        <span>@keyframe.Duration.ToString("0.0")s</span>
-                        <label>W:</label>
-                        <input type="range" class="form-control-range" min="0" max="5" step="0.1" @bind="keyframe.Delay" />
-                        <span>@keyframe.Delay.ToString("0.0")s</span>
-                        <button class="btn btn-sm btn-danger" @onclick="() => RemoveKeyframe(keyframe.Id)">X</button>
-                    </div>
-                }
-                <button class="btn btn-sm btn-info" @onclick="AddKeyframe">+ Add Keyframe</button>
-            </div>
-            <div class="mt-2">
-                <button class="btn btn-primary" @onclick="PreviewAnimation">▶ Preview</button>
-            </div>
-        }
-        else
-        {
-            <p class="text-muted">Select a section to configure its animation timeline.</p>
-        }
+                    @foreach (var (elementName, keyframes) in GetElementKeyframes())
+                    {
+                        <div class="timeline-layer-row">
+                            <div class="layer-label">@elementName</div>
+                            <div class="layer-bars">
+                                @foreach (var keyframe in keyframes)
+                                {
+                                    <div class="animation-block @(selectedKeyframe == keyframe ? "selected" : "")"
+                                         style="@GetAnimationBlockStyle(keyframe)"
+                                         id="@keyframe.Id"
+                                         title="@keyframe.Effect"
+                                         @onclick="() => SelectKeyframe(keyframe)">
+                                        <div class="animation-block-handle resize-handle-left"></div>
+                                        <div class="animation-block-label">@keyframe.Effect</div>
+                                        <div class="animation-block-handle resize-handle-right"></div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="no-selection-prompt">
+                    <p>Select a section to build its animation sequence.</p>
+                </div>
+            }
+        </div>
     </div>
 </div>
 
@@ -213,6 +229,14 @@
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
     private ElementReference _timelineElement;
+    private bool isTimelineCollapsed = false;
+    private double playheadPosition = 0;
+    private AnimationKeyframe selectedKeyframe;
+
+    private void SelectKeyframe(AnimationKeyframe keyframe)
+    {
+        selectedKeyframe = keyframe;
+    }
 
     protected override void OnParametersSet()
     {
@@ -233,6 +257,13 @@
         }
     }
 
+    [JSInvokable]
+    public void UpdatePlayheadPosition(double newPosition)
+    {
+        playheadPosition = newPosition;
+        StateHasChanged();
+    }
+
     private void UndoLastAction()
     {
         if (selectedSection != null && lastUndoState != null)
@@ -248,9 +279,20 @@
     public class AnimationKeyframe
     {
         public Guid Id { get; set; } = Guid.NewGuid();
+        public string ElementName { get; set; } // e.g., "Title", "Subtitle", "Button"
         public string Effect { get; set; } = "fadeIn";
         public double Duration { get; set; } = 1.0;
         public double Delay { get; set; } = 0.0;
+        public string Easing { get; set; } = "easeInOut";
+        public string Trigger { get; set; } = "onScroll";
+    }
+
+    private Dictionary<string, List<AnimationKeyframe>> GetElementKeyframes()
+    {
+        if (currentAnimationKeyframes == null) return new Dictionary<string, List<AnimationKeyframe>>();
+        return currentAnimationKeyframes
+            .GroupBy(k => k.ElementName)
+            .ToDictionary(g => g.Key, g => g.ToList());
     }
 
     private void ToggleHistory() => showHistory = !showHistory;
@@ -258,25 +300,27 @@
     private void SelectSection(StudioSection section)
     {
         selectedSection = section;
+        selectedKeyframe = null; // Deselect keyframe when changing sections
         if (!string.IsNullOrEmpty(selectedSection.AnimationSettings))
         {
             try
             {
                 currentAnimationKeyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(selectedSection.AnimationSettings) ?? new List<AnimationKeyframe>();
             }
-            catch
+            catch(Exception ex)
             {
+                Logger.LogError(ex, "Failed to deserialize animation settings.");
                 currentAnimationKeyframes = new List<AnimationKeyframe>();
             }
         }
         else
         {
-            currentAnimationKeyframes = new List<AnimationKeyframe>();
-        }
-
-        if (!currentAnimationKeyframes.Any())
-        {
-            currentAnimationKeyframes.Add(new AnimationKeyframe());
+            // Auto-populate some default animations for a better user experience
+            currentAnimationKeyframes = new List<AnimationKeyframe>
+            {
+                new AnimationKeyframe { ElementName = "Title", Effect = "slideInUp", Duration = 0.8, Delay = 0.2 },
+                new AnimationKeyframe { ElementName = "Subtitle", Effect = "slideInUp", Duration = 0.8, Delay = 0.4 }
+            };
         }
     }
 
