@@ -54,6 +54,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
     public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
+    public DbSet<GFC.Core.Models.VideoAccessAudit> VideoAccessAudits => Set<GFC.Core.Models.VideoAccessAudit>();
 
     // GFC Ecosystem Foundation
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();
@@ -431,6 +432,20 @@ public class GfcDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.VideoAccessAudit>(entity =>
+        {
+            entity.ToTable("VideoAccessAudits");
+            entity.HasKey(a => a.Id);
+            entity.HasOne(a => a.Camera)
+                .WithMany()
+                .HasForeignKey(a => a.CameraId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(a => a.User)
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // GFC Ecosystem Foundation

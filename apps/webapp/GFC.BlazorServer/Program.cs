@@ -161,6 +161,10 @@ public class Program
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
 
+        // Network Location Service
+        builder.Services.AddSingleton<INetworkLocationService, NetworkLocationService>();
+        builder.Services.AddScoped<IUserConnectionService, UserConnectionService>();
+
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
@@ -209,14 +213,19 @@ public class Program
         app.UseHttpsRedirection();
         app.UseStaticFiles();
 
-        app.UseMiddleware<RequestLoggingMiddleware>();
-
         app.UseRouting();
 
+        // IMPORTANT: DevAuth must run after UseRouting and before authorization policies.
         if (app.Environment.IsDevelopment())
         {
             app.UseDevAuthAutoAdmin();
         }
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+        app.UseMiddleware<RequestLoggingMiddleware>();
+        app.UseMiddleware<VideoAccessGuardMiddleware>();
 
         // Apply pending migrations at startup and surface any errors
         using (var scope = app.Services.CreateScope())
