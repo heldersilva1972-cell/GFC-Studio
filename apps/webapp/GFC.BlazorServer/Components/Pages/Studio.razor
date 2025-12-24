@@ -116,46 +116,41 @@
     <div class="animation-orchestrator">
         @if (selectedSection != null)
         {
-            <h5>Animation Timeline for: "@selectedSection.Title"</h5>
-            <div class="timeline-bar" @ref="_timelineElement">
+            <div class="timeline-header">
+                <h5>Animation Timeline</h5>
+                <select class="form-control form-control-sm effect-select" @bind="currentAnimationSettings.Effect" @onchange="UpdateAnimationSettings">
+                    <option value="None">No Effect</option>
+                    <option value="FadeIn">Fade In</option>
+                    <option value="SlideUp">Slide Up</option>
+                    <option value="Scale">Scale</option>
+                    <option value="Rotate">Rotate</option>
+                </select>
+                <select class="form-control form-control-sm effect-select" @bind="currentAnimationSettings.Easing" @onchange="UpdateAnimationSettings">
+                    <option value="ease-in-out">Ease In Out</option>
+                    <option value="linear">Linear</option>
+                    <option value="ease-in">Ease In</option>
+                    <option value="ease-out">Ease Out</option>
+                </select>
+            </div>
+            <div class="timeline-track" id="timeline-track">
                 @for (int i = 0; i <= 5; i++)
                 {
-                    <div class="time-marker">@i</div>
+                    <div class="time-marker" style="left: @(i * 20)%">@i s</div>
                 }
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="animation-block" style="@GetAnimationBlockStyle(keyframe)" id="@keyframe.Id">
-                        @keyframe.Effect
-                    </div>
-                }
-            </div>
-            <div class="keyframe-editor mt-3">
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="keyframe-controls" id="@keyframe.Id">
-                         <select class="form-control form-control-sm" @bind="keyframe.Effect">
-                            <option value="fadeIn">Fade In</option>
-                            <option value="slideInUp">Slide Up</option>
-                            <option value="bounceIn">Bounce In</option>
-                        </select>
-                        <label>D:</label>
-                        <input type="range" class="form-control-range" min="0.1" max="5" step="0.1" @bind="keyframe.Duration" />
-                        <span>@keyframe.Duration.ToString("0.0")s</span>
-                        <label>W:</label>
-                        <input type="range" class="form-control-range" min="0" max="5" step="0.1" @bind="keyframe.Delay" />
-                        <span>@keyframe.Delay.ToString("0.0")s</span>
-                        <button class="btn btn-sm btn-danger" @onclick="() => RemoveKeyframe(keyframe.Id)">X</button>
-                    </div>
-                }
-                <button class="btn btn-sm btn-info" @onclick="AddKeyframe">+ Add Keyframe</button>
-            </div>
-            <div class="mt-2">
-                <button class="btn btn-primary" @onclick="PreviewAnimation">▶ Preview</button>
+                <div class="animation-bar"
+                     style="left: @(currentAnimationSettings.Delay * 20)%; width: @(currentAnimationSettings.Duration * 20)%;"
+                     id="animation-bar"
+                     data-delay="@currentAnimationSettings.Delay"
+                     data-duration="@currentAnimationSettings.Duration">
+                    <div class="handle left"></div>
+                    <div class="handle right"></div>
+                </div>
+                <div class="playhead" id="playhead"></div>
             </div>
         }
         else
         {
-            <p class="text-muted">Select a section to configure its animation timeline.</p>
+            <div class="timeline-placeholder">Select a section to configure its animation.</div>
         }
     </div>
 </div>
@@ -215,10 +210,9 @@
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
-    private List<AnimationKeyframe> currentAnimationKeyframes = new();
+    private AnimationSettings currentAnimationSettings = new();
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
-    private ElementReference _timelineElement;
     private ElementReference _previewIframe;
     private string _previewUrl;
     private string _pageSlug;
@@ -264,19 +258,11 @@
         if (selectedSection != null && lastUndoState != null)
         {
             selectedSection.Content = lastUndoState.Content;
-            selectedSection.AnimationSettings = lastUndoState.AnimationSettings;
+            selectedSection.AnimationSettingsJson = lastUndoState.AnimationSettingsJson;
             lastWizardAction = "";
             lastUndoState = null;
             StateHasChanged();
         }
-    }
-
-    public class AnimationKeyframe
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public string Effect { get; set; } = "fadeIn";
-        public double Duration { get; set; } = 1.0;
-        public double Delay { get; set; } = 0.0;
     }
 
     private void ToggleHistory() => showHistory = !showHistory;
@@ -284,25 +270,33 @@
     private void SelectSection(StudioSection section)
     {
         selectedSection = section;
-        if (!string.IsNullOrEmpty(selectedSection.AnimationSettings))
+        if (!string.IsNullOrEmpty(selectedSection.AnimationSettingsJson))
         {
             try
             {
-                currentAnimationKeyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(selectedSection.AnimationSettings) ?? new List<AnimationKeyframe>();
+                currentAnimationSettings = JsonSerializer.Deserialize<AnimationSettings>(selectedSection.AnimationSettingsJson) ?? new AnimationSettings();
             }
             catch
             {
-                currentAnimationKeyframes = new List<AnimationKeyframe>();
+                currentAnimationSettings = new AnimationSettings();
             }
         }
         else
         {
-            currentAnimationKeyframes = new List<AnimationKeyframe>();
+            currentAnimationSettings = new AnimationSettings();
         }
 
-        if (!currentAnimationKeyframes.Any())
+        // Re-initialize JS interop for the timeline
+        JSRuntime.InvokeVoidAsync("animationInterop.initializeTimeline", DotNetObjectReference.Create(this));
+        JSRuntime.InvokeVoidAsync("animationScrubbing.initializeScrubbing", _previewIframe);
+    }
+
+    private async Task UpdateAnimationSettings()
+    {
+        if (selectedSection != null)
         {
-            currentAnimationKeyframes.Add(new AnimationKeyframe());
+            selectedSection.AnimationSettingsJson = JsonSerializer.Serialize(currentAnimationSettings);
+            await JSRuntime.InvokeVoidAsync("studioInterop.updateAnimation", _previewIframe, selectedSection);
         }
     }
 
@@ -350,36 +344,6 @@
         }
         showHistory = false;
         StateHasChanged();
-    }
-
-    private async Task PreviewAnimation()
-    {
-        if (selectedSection != null)
-        {
-            await JSRuntime.InvokeVoidAsync("previewAnimation", selectedSection.ClientId, currentAnimationKeyframes);
-        }
-    }
-
-    private void AddKeyframe()
-    {
-        currentAnimationKeyframes.Add(new AnimationKeyframe { Delay = currentAnimationKeyframes.LastOrDefault()?.Delay + currentAnimationKeyframes.LastOrDefault()?.Duration ?? 0 });
-    }
-
-    private void RemoveKeyframe(Guid id)
-    {
-        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == id);
-        if (keyframe != null)
-        {
-            currentAnimationKeyframes.Remove(keyframe);
-        }
-    }
-
-    private string GetAnimationBlockStyle(AnimationKeyframe keyframe)
-    {
-        // Assuming timeline is 5s long and 100% width. Each second is 20%.
-        var left = keyframe.Delay * 20;
-        var width = keyframe.Duration * 20;
-        return $"left: {left}%; width: {width}%;";
     }
 
     private void HandleDragStart(StudioTemplate template)
@@ -485,6 +449,12 @@
                 Logger.LogError(ex, "Failed to initialize Studio Interop");
             }
         }
+
+        if (selectedSection != null)
+        {
+            await JSRuntime.InvokeVoidAsync("animationInterop.initializeTimeline", DotNetObjectReference.Create(this));
+            await JSRuntime.InvokeVoidAsync("animationScrubbing.initializeScrubbing", _previewIframe);
+        }
     }
 
     private async Task LoadPageAsync(int pageId)
@@ -552,15 +522,12 @@
     }
 
     [JSInvokable]
-    public void UpdateKeyframe(string keyframeId, double newDuration, double newDelay)
+    public async Task UpdateAnimationTimeline(double delay, double duration)
     {
-        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == Guid.Parse(keyframeId));
-        if (keyframe != null)
-        {
-            keyframe.Duration = newDuration;
-            keyframe.Delay = newDelay;
-            StateHasChanged();
-        }
+        currentAnimationSettings.Delay = Math.Round(delay, 2);
+        currentAnimationSettings.Duration = Math.Round(duration, 2);
+        await UpdateAnimationSettings();
+        StateHasChanged();
     }
 
     private async Task LoadHistory()

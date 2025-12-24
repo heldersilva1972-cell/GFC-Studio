@@ -1,8 +1,8 @@
 // [MODIFIED]
 'use client';
 
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useEffect, useState } from 'react';
+import { motion, useAnimation } from 'framer-motion';
 import Hero from './Hero';
 import FeatureGrid from './FeatureGrid';
 import ContactSection from './ContactSection';
@@ -32,6 +32,29 @@ interface DynamicRendererProps {
 
 const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections }) => {
   const { selectedSectionId, setSelectedSectionId } = usePageStore();
+  const controls = useAnimation();
+  const [isInStudio, setIsInStudio] = useState(false);
+
+  useEffect(() => {
+    // Check if running inside an iframe (the studio)
+    if (window.self !== window.top) {
+      setIsInStudio(true);
+    }
+
+    const handleMessage = (event) => {
+      if (event.data.type === 'ANIMATION_SCRUB' && isInStudio) {
+        controls.set('visible');
+        controls.start({
+          opacity: event.data.position,
+          y: 50 * (1 - event.data.position),
+          transition: { duration: 0 },
+        });
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [controls, isInStudio]);
 
   const handleSectionClick = (section: StudioSection) => {
     setSelectedSectionId(section.clientId);
@@ -59,12 +82,43 @@ const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections }) => {
         const isSelected = section.clientId === selectedSectionId;
         const selectionStyle = isSelected ? { border: '2px solid #007bff', boxShadow: '0 0 10px #007bff' } : {};
 
+        const animationSettings = section.animationSettingsJson ? JSON.parse(section.animationSettingsJson) : {};
+
+        const getInitialState = (effect) => {
+            switch (effect) {
+                case 'FadeIn': return { opacity: 0 };
+                case 'SlideUp': return { opacity: 0, y: 50 };
+                case 'Scale': return { opacity: 0, scale: 0.5 };
+                case 'Rotate': return { opacity: 0, rotate: -45 };
+                default: return { opacity: 1 };
+            }
+        };
+
+        const variants = {
+          hidden: getInitialState(animationSettings.Effect),
+          visible: {
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            rotate: 0,
+            transition: {
+              duration: animationSettings.Duration || 1,
+              delay: animationSettings.Delay || 0,
+              ease: animationSettings.Easing || 'easeInOut'
+            }
+          }
+        };
+
         return (
             <motion.div
                 key={section.id}
                 onClick={() => handleSectionClick(section)}
                 style={selectionStyle}
-                // ... animation props
+                initial="hidden"
+                animate={isInStudio ? controls : undefined}
+                whileInView={!isInStudio ? "visible" : undefined}
+                viewport={{ once: true }}
+                variants={variants}
             >
                 <Component {...section.properties} />
             </motion.div>
