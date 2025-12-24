@@ -106,6 +106,7 @@ public class Program
         builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 
         // Shared services
+        builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();
         builder.Services.AddScoped<ICameraService, CameraService>();
