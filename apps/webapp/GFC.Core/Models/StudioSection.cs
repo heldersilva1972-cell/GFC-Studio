@@ -12,9 +12,9 @@ namespace GFC.Core.Models
         public Guid ClientId { get; set; } = Guid.NewGuid();
 
         [Required]
-        public string Title { get; set; } = "New Section";
+        public string ComponentType { get; set; }
 
-        public string? Content { get; set; }
+        public string? PropertiesJson { get; set; }
 
         public int PageIndex { get; set; } = 0;
 

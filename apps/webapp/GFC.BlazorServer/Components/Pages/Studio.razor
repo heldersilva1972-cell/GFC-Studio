@@ -85,28 +85,52 @@
                 }
                 @if (activeToolboxTab == "elements")
                 {
-                    <p>Elements toolbox coming soon!</p>
-                }
-            </div>
-        </div>
-        <div class="canvas-container @($"viewport-{currentViewport}")">
-            <div class="center-canvas" @ondrop="HandleDrop" @ondragover:preventDefault="true">
-                @foreach (var item in sections)
-                {
-                    <div class="studio-section @(selectedSection == item ? "selected" : "")" data-id="@item.ClientId" @onclick="() => SelectSection(item)">
-                        <div class="section-toolbar">
-                            <button class="btn btn-sm btn-outline-light" @onclick="() => OpenSaveAsTemplateModal(item)">Save as Template</button>
+                    <div class="component-list-container">
+                        <div class="component-search-bar">
+                            <input type="text" class="form-control form-control-sm" placeholder="Search components..." />
                         </div>
-                        <p contenteditable="true" @oninput="(e) => item.Content = e.Value.ToString()">@item.Content</p>
+                        <div class="component-list">
+                            @foreach (var component in availableComponents)
+                            {
+                                <div class="component-item" draggable="true" @ondragstart="@(() => HandleComponentDragStart(component))">
+                                    <span class="component-item-icon">@component.Icon</span>
+                                    <div class="component-item-text">
+                                        <div class="component-item-title">@component.Name</div>
+                                        <div class="component-item-description">@component.Description</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
                     </div>
                 }
             </div>
         </div>
+        <div class="canvas-container @($"viewport-{currentViewport}")">
+            <div class="center-canvas">
+                <iframe src="http://localhost:3001/studio-preview/@PageId" frameborder="0"></iframe>
+            </div>
+        </div>
         <div class="right-inspector">
-            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnContentFixed="@(args => HandleContentFixed(args.newContent, args.fixName))" />
-            @if (!string.IsNullOrEmpty(lastWizardAction))
+            @if (selectedSection == null)
             {
-                <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
+                <div class="inspector-placeholder">
+                    <h5>No Selection</h5>
+                    <p>Click on a component in the canvas to see its properties.</p>
+                </div>
+            }
+            else
+            {
+                <div class="inspector-header">
+                    <h5>@selectedSection.ComponentType Properties</h5>
+                </div>
+                <div class="inspector-tabs">
+                    <button class="inspector-tab-button active">Content</button>
+                    <button class="inspector-tab-button">Style</button>
+                    <button class="inspector-tab-button">Animation</button>
+                </div>
+                <div class="inspector-content">
+                    @RenderPropertyEditor(selectedSection)
+                </div>
             }
         </div>
     </div>
@@ -206,10 +230,35 @@
     private string newTemplateCategory = "";
     private string lastWizardAction = "";
     private bool showHistory = false;
+    private Dictionary<string, string> heroSectionProperties = new();
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
+    private StudioComponent draggedComponent;
     private List<AnimationKeyframe> currentAnimationKeyframes = new();
+
+    private class StudioComponent
+    {
+        public string Name { get; set; }
+        public string Icon { get; set; }
+        public string Description { get; set; }
+        public string ComponentType { get; set; }
+    }
+
+    private List<StudioComponent> availableComponents = new()
+    {
+        new() { Name = "Hero Section", Icon = "📄", Description = "Full-width header.", ComponentType = "HeroSection" },
+        new() { Name = "Text Block", Icon = "📝", Description = "Rich text content.", ComponentType = "TextBlock" },
+        new() { Name = "Image", Icon = "🖼️", Description = "A single image.", ComponentType = "Image" },
+        new() { Name = "Button", Icon = "🔘", Description = "A call-to-action button.", ComponentType = "Button" }
+    };
+
+    private void HandleComponentDragStart(StudioComponent component)
+    {
+        draggedComponent = component;
+        draggedTemplate = null; // Ensure only one type of drag is active
+    }
+
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
     private ElementReference _timelineElement;
@@ -226,8 +275,9 @@
     {
         if (selectedSection != null)
         {
-            lastUndoState = new StudioSection { Content = selectedSection.Content };
-            selectedSection.Content = newContent;
+            lastUndoState = new StudioSection { PropertiesJson = selectedSection.PropertiesJson };
+            // This needs to be updated to modify the JSON properties, not a simple string.
+            // selectedSection.PropertiesJson = newContent;
             lastWizardAction = $"Auto-Fix: {fixName}";
             StateHasChanged();
         }
@@ -237,7 +287,7 @@
     {
         if (selectedSection != null && lastUndoState != null)
         {
-            selectedSection.Content = lastUndoState.Content;
+            selectedSection.PropertiesJson = lastUndoState.PropertiesJson;
             selectedSection.AnimationSettings = lastUndoState.AnimationSettings;
             lastWizardAction = "";
             lastUndoState = null;
@@ -258,6 +308,19 @@
     private void SelectSection(StudioSection section)
     {
         selectedSection = section;
+        heroSectionProperties.Clear();
+        if (selectedSection.ComponentType == "HeroSection")
+        {
+            if (!string.IsNullOrEmpty(selectedSection.PropertiesJson))
+            {
+                try
+                {
+                    heroSectionProperties = JsonSerializer.Deserialize<Dictionary<string, string>>(selectedSection.PropertiesJson);
+                }
+                catch { /* Ignore deserialization errors for now */ }
+            }
+        }
+
         if (!string.IsNullOrEmpty(selectedSection.AnimationSettings))
         {
             try
@@ -324,25 +387,38 @@
     private void HandleDragStart(StudioTemplate template)
     {
         draggedTemplate = template;
+        draggedComponent = null;
     }
 
     private void HandleDrop()
     {
-        if (draggedTemplate != null)
+        // This is now handled by the JS interop
+    }
+
+    [JSInvokable]
+    public async Task HandleComponentDrop()
+    {
+        if (draggedComponent != null)
         {
-            var newSection = JsonSerializer.Deserialize<StudioSection>(draggedTemplate.ContentJson);
-            newSection.ClientId = Guid.NewGuid();
-            newSection.StudioPageId = PageId;
-            newSection.PageIndex = sections.Count;
+            var newSection = new StudioSection
+            {
+                ClientId = Guid.NewGuid(),
+                StudioPageId = PageId,
+                PageIndex = sections.Count,
+                ComponentType = draggedComponent.ComponentType,
+                PropertiesJson = "{}" // Initialize with empty properties
+            };
             sections.Add(newSection);
-            draggedTemplate = null;
+            draggedComponent = null;
+            await SaveDraft();
+            await JSRuntime.InvokeVoidAsync("studioInterop.refreshPreview");
         }
     }
 
     private void OpenSaveAsTemplateModal(StudioSection section)
     {
         sectionToSave = section;
-        newTemplateName = section.Title;
+        newTemplateName = section.ComponentType;
         newTemplateCategory = "General";
         showSaveAsTemplateModal = true;
     }
@@ -445,11 +521,12 @@
         {
             try
             {
-                await JSRuntime.InvokeVoidAsync("initializeDnd", DotNetObjectReference.Create(this));
+                await JSRuntime.InvokeVoidAsync("studioInterop.initializeDnd", DotNetObjectReference.Create(this));
+                await JSRuntime.InvokeVoidAsync("studioInterop.initializeComponentSelection", DotNetObjectReference.Create(this));
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Failed to initialize Drag and Drop");
+                Logger.LogError(ex, "Failed to initialize Studio Interop");
             }
         }
         if (selectedSection != null)
@@ -522,15 +599,59 @@
 
     private void AddSection()
     {
-        var newSection = new StudioSection
+        // This is now deprecated in favor of dragging components.
+        // var newSection = new StudioSection
+        // {
+        //     ClientId = Guid.NewGuid(),
+        //     PageIndex = sections.Count,
+        //     StudioPageId = PageId,
+        //     ComponentType = "TextBlock", // Default component
+        //     PropertiesJson = "{ \"text\": \"New Section\" }"
+        // };
+        // sections.Add(newSection);
+    }
+
+    private RenderFragment RenderPropertyEditor(StudioSection section) => builder =>
+    {
+        if (section.ComponentType == "HeroSection")
         {
-            ClientId = Guid.NewGuid(),
-            Title = "New Section",
-            Content = "New Section",
-            PageIndex = sections.Count,
-            StudioPageId = PageId,
-        };
-        sections.Add(newSection);
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "property-group");
+
+            builder.OpenElement(2, "label");
+            builder.AddAttribute(3, "for", "hero-headline");
+            builder.AddContent(4, "Headline");
+            builder.CloseElement();
+
+            builder.OpenElement(5, "input");
+            builder.AddAttribute(6, "type", "text");
+            builder.AddAttribute(7, "id", "hero-headline");
+            builder.AddAttribute(8, "class", "form-control");
+            builder.AddAttribute(9, "value", heroSectionProperties.GetValueOrDefault("Headline"));
+            builder.AddAttribute(10, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async e => await UpdateHeroProperty("Headline", (string)e.Value)));
+            builder.CloseElement();
+
+            builder.CloseElement();
+        }
+    };
+
+    private async Task UpdateHeroProperty(string key, string value)
+    {
+        heroSectionProperties[key] = value;
+        selectedSection.PropertiesJson = JsonSerializer.Serialize(heroSectionProperties);
+        await SaveDraft();
+        await JSRuntime.InvokeVoidAsync("studioInterop.refreshPreview");
+    }
+
+    [JSInvokable]
+    public void SelectComponent(string componentId)
+    {
+        var section = sections.FirstOrDefault(s => s.ClientId.ToString() == componentId);
+        if (section != null)
+        {
+            SelectSection(section);
+            StateHasChanged();
+        }
     }
 
     [JSInvokable]
