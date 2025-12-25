@@ -26,17 +26,17 @@ namespace GFC.BlazorServer.Services.Camera
 
         public async Task<List<VpnProfile>> GetVpnProfilesAsync()
         {
-            return await _context.VpnProfiles.Include(p => p.User).ToListAsync();
+            return await _context.Set<VpnProfile>().Include(p => p.User).ToListAsync();
         }
 
         public async Task<VpnProfile> GetVpnProfileAsync(int id)
         {
-            return await _context.VpnProfiles.Include(p => p.User).FirstOrDefaultAsync(p => p.Id == id);
+            return await _context.Set<VpnProfile>().Include(p => p.User).FirstOrDefaultAsync(p => p.Id == id);
         }
 
         public async Task<VpnProfile> CreateVpnProfileAsync(VpnProfile profile)
         {
-            _context.VpnProfiles.Add(profile);
+            _context.Set<VpnProfile>().Add(profile);
             await _context.SaveChangesAsync();
             return profile;
         }
@@ -49,7 +49,7 @@ namespace GFC.BlazorServer.Services.Camera
 
         public async Task RevokeVpnProfileAsync(int profileId, int revokingUserId, string reason)
         {
-            var profile = await _context.VpnProfiles.FindAsync(profileId);
+            var profile = await _context.Set<VpnProfile>().FindAsync(profileId);
             if (profile != null)
             {
                 profile.RevokedAt = DateTime.UtcNow;
@@ -73,7 +73,7 @@ namespace GFC.BlazorServer.Services.Camera
 
         public async Task<VpnSession> LogVpnSessionStartAsync(int profileId, string clientIp)
         {
-            var profile = await _context.VpnProfiles
+            var profile = await _context.Set<VpnProfile>()
                 .Include(p => p.User)
                 .FirstOrDefaultAsync(p => p.Id == profileId);
             if (profile == null)
