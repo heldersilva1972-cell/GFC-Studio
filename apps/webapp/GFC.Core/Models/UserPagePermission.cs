@@ -10,7 +10,7 @@ namespace GFC.Core.Models;
 public class UserPagePermission
 {
     [Key]
-    public int Id { get; set; }
+    public int PermissionId { get; set; }
 
     [Required]
     public int UserId { get; set; }
@@ -24,7 +24,9 @@ public class UserPagePermission
     [ForeignKey("PageId")]
     public AppPage Page { get; set; }
 
-    public DateTime GrantedAt { get; set; } = DateTime.UtcNow;
+    public bool CanAccess { get; set; } = true;
+
+    public DateTime GrantedDate { get; set; } = DateTime.UtcNow;
 
     [MaxLength(100)]
     public string GrantedBy { get; set; }
