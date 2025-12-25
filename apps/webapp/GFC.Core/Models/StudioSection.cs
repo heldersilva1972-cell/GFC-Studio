@@ -27,17 +27,13 @@ namespace GFC.Core.Models
         // Backing field for general content/properties
         public string Data { get; set; }
         
-        public string AnimationSettingsJson { get; set; }
-        feature/content-ingestion-engine-5389181148924895155
+        public string? AnimationSettingsJson { get; set; }
         public string ComponentType { get; set; } = "TextBlock";
 
-        public string? AnimationSettings { get; set; }
-
         // --- Frontend / UI Compatibility Properties ---
-        master
 
         [NotMapped]
-        public string AnimationSettings 
+        public string? AnimationSettings 
         { 
             get => AnimationSettingsJson; 
             set => AnimationSettingsJson = value; 
