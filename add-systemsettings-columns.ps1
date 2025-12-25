@@ -1,211 +1,45 @@
-# Add Missing SystemSettings Columns Script
-# This script adds the missing columns to the SystemSettings table
+# PowerShell script to run the SQL fix for SystemSettings, WebsiteSettings, and ProtectedDocuments
+# Run this if you see "Invalid column name" errors on those pages
 
-Write-Host "Adding missing columns to SystemSettings table..." -ForegroundColor Cyan
+$projectPath = "apps\webapp\GFC.BlazorServer"
+$sqlFilePath = "add-systemsettings-columns.sql"
 
-$scriptPath = $PSScriptRoot
-$projectPath = Join-Path $scriptPath "apps\webapp\GFC.BlazorServer"
-
-# SQL script to add missing columns
-$sqlScript = @"
-USE [ClubMembership]
-GO
-
--- Add missing columns to SystemSettings table
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'CloudflareTunnelToken')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [CloudflareTunnelToken] NVARCHAR(500) NULL;
-    PRINT 'Added CloudflareTunnelToken column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaxSimultaneousViewers')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [MaxSimultaneousViewers] INT NULL DEFAULT 5;
-    PRINT 'Added MaxSimultaneousViewers column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PublicDomain')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [PublicDomain] NVARCHAR(255) NULL;
-    PRINT 'Added PublicDomain column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardAllowedIPs')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardAllowedIPs] NVARCHAR(500) NULL;
-    PRINT 'Added WireGuardAllowedIPs column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardPort')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardPort] INT NULL DEFAULT 51820;
-    PRINT 'Added WireGuardPort column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardServerPublicKey')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardServerPublicKey] NVARCHAR(500) NULL;
-    PRINT 'Added WireGuardServerPublicKey column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardSubnet')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardSubnet] NVARCHAR(50) NULL DEFAULT '10.8.0.0/24';
-    PRINT 'Added WireGuardSubnet column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'DirectorAccessExpiryDate')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [DirectorAccessExpiryDate] DATETIME2 NULL;
-    PRINT 'Added DirectorAccessExpiryDate column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableConnectionQualityAlerts')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableConnectionQualityAlerts] BIT NOT NULL DEFAULT 1;
-    PRINT 'Added EnableConnectionQualityAlerts column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableFailedLoginProtection')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableFailedLoginProtection] BIT NOT NULL DEFAULT 1;
-    PRINT 'Added EnableFailedLoginProtection column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableGeofencing')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableGeofencing] BIT NOT NULL DEFAULT 0;
-    PRINT 'Added EnableGeofencing column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableIPFiltering')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableIPFiltering] BIT NOT NULL DEFAULT 0;
-    PRINT 'Added EnableIPFiltering column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableSessionTimeout')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableSessionTimeout] BIT NOT NULL DEFAULT 1;
-    PRINT 'Added EnableSessionTimeout column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableTwoFactorAuth')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableTwoFactorAuth] BIT NOT NULL DEFAULT 0;
-    PRINT 'Added EnableTwoFactorAuth column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableWatermarking')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableWatermarking] BIT NOT NULL DEFAULT 0;
-    PRINT 'Added EnableWatermarking column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'IPFilterMode')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [IPFilterMode] NVARCHAR(50) NOT NULL DEFAULT 'Whitelist';
-    PRINT 'Added IPFilterMode column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LocalQualityMaxBitrate')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [LocalQualityMaxBitrate] INT NOT NULL DEFAULT 8000;
-    PRINT 'Added LocalQualityMaxBitrate column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LoginLockDurationMinutes')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [LoginLockDurationMinutes] INT NOT NULL DEFAULT 30;
-    PRINT 'Added LoginLockDurationMinutes column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaxFailedLoginAttempts')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [MaxFailedLoginAttempts] INT NOT NULL DEFAULT 5;
-    PRINT 'Added MaxFailedLoginAttempts column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MinimumBandwidthMbps')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [MinimumBandwidthMbps] INT NOT NULL DEFAULT 5;
-    PRINT 'Added MinimumBandwidthMbps column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'RemoteQualityMaxBitrate')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [RemoteQualityMaxBitrate] INT NOT NULL DEFAULT 2000;
-    PRINT 'Added RemoteQualityMaxBitrate column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SessionTimeoutMinutes')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [SessionTimeoutMinutes] INT NOT NULL DEFAULT 30;
-    PRINT 'Added SessionTimeoutMinutes column';
-END
-
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WatermarkPosition')
-BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [WatermarkPosition] NVARCHAR(50) NOT NULL DEFAULT 'BottomRight';
-    PRINT 'Added WatermarkPosition column';
-END
-
-PRINT 'All missing columns have been added successfully!';
-GO
-"@
-
-# Save SQL script to file
-$sqlFilePath = Join-Path $scriptPath "add-systemsettings-columns.sql"
-$sqlScript | Out-File -FilePath $sqlFilePath -Encoding UTF8
-
-Write-Host "SQL script created at: $sqlFilePath" -ForegroundColor Green
-Write-Host ""
-Write-Host "To apply the changes, run ONE of the following options:" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "OPTION 1: Using SQL Server Management Studio (SSMS)" -ForegroundColor Cyan
-Write-Host "  1. Open SQL Server Management Studio" -ForegroundColor White
-Write-Host "  2. Connect to your SQL Server instance" -ForegroundColor White
-Write-Host "  3. Open the file: $sqlFilePath" -ForegroundColor White
-Write-Host "  4. Execute the script (F5)" -ForegroundColor White
-Write-Host ""
-Write-Host "OPTION 2: Using sqlcmd command line" -ForegroundColor Cyan
-Write-Host "  Run this command:" -ForegroundColor White
-Write-Host "  sqlcmd -S localhost -d ClubMembership -i `"$sqlFilePath`"" -ForegroundColor Gray
-Write-Host ""
-Write-Host "OPTION 3: Using EF Core Migration (Recommended)" -ForegroundColor Cyan
-Write-Host "  cd `"$projectPath`"" -ForegroundColor Gray
-Write-Host "  dotnet ef migrations add AddSystemSettingsVpnColumns" -ForegroundColor Gray
-Write-Host "  dotnet ef database update" -ForegroundColor Gray
+# SQL script logic is now fully contained in add-systemsettings-columns.sql
+Write-Host "--- GFC Database Repair Tool ---" -ForegroundColor Green
+Write-Host "This script will ensure all required columns and tables exist for:"
+Write-Host "1. Security & Remote Access"
+Write-Host "2. Website Settings & Branding"
+Write-Host "3. Protected Document Management"
 Write-Host ""
 
-# Ask user which option they want
-Write-Host "Would you like me to try running the SQL script now using sqlcmd? (Y/N)" -ForegroundColor Yellow
-$response = Read-Host
+$confirm = Read-Host "Proceed with database update? (Y/N)"
+if ($confirm -ne "Y") {
+    Write-Host "Update cancelled." -ForegroundColor Yellow
+    exit
+}
 
-if ($response -eq 'Y' -or $response -eq 'y') {
-    Write-Host "Attempting to run SQL script..." -ForegroundColor Cyan
-    
+if (Test-Path $sqlFilePath) {
     try {
-        # Try to run sqlcmd
+        Write-Host "Executing SQL script on ClubMembership database..." -ForegroundColor Cyan
         $result = sqlcmd -S "localhost" -d ClubMembership -i "$sqlFilePath" 2>&1
         
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "SQL script executed successfully!" -ForegroundColor Green
+            Write-Host "✓ Database repair completed successfully!" -ForegroundColor Green
             Write-Host $result
         } else {
-            Write-Host "Error executing SQL script:" -ForegroundColor Red
+            Write-Host "X Error executing SQL script:" -ForegroundColor Red
             Write-Host $result
             Write-Host ""
-            Write-Host "Please try one of the manual options above." -ForegroundColor Yellow
+            Write-Host "Manual fix: Open '$sqlFilePath' in SSMS and run it against the 'ClubMembership' database." -ForegroundColor Gray
         }
-    }
-    catch {
-        Write-Host "Error: sqlcmd not found or failed to execute." -ForegroundColor Red
-        Write-Host "Please use SSMS or create an EF Core migration instead." -ForegroundColor Yellow
+    } catch {
+        Write-Host "X An error occurred: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Make sure 'sqlcmd' is installed and your SQL Server is running on localhost." -ForegroundColor Gray
     }
 } else {
-    Write-Host "Skipped automatic execution. Please run the script manually using one of the options above." -ForegroundColor Yellow
+    Write-Host "X Error: '$sqlFilePath' not found!" -ForegroundColor Red
 }
 
 Write-Host ""
-Write-Host "Script complete!" -ForegroundColor Green
+Write-Host "Press any key to exit..."
+$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
