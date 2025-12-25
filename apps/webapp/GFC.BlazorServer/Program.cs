@@ -96,6 +96,7 @@ public class Program
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
+        builder.Services.AddScoped<IStudioPageRepository, GFC.BlazorServer.Repositories.StudioPageRepository>();
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
@@ -163,17 +164,27 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
+        builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
+        builder.Services.AddHttpClient();
+        builder.Services.AddScoped<IMediaStorageService, MediaStorageService>();
+        builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
         builder.Services.AddScoped<IStudioService, StudioService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
+        builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddScoped<IFormService, FormService>();
+        builder.Services.AddScoped<ISeoService, SeoService>();
+        builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
-        builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
+        builder.Services.AddScoped<IPageService, PageService>();
+        builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
@@ -302,7 +313,11 @@ public class Program
         app.MapControllers();
 
         app.MapBlazorHub();
+     feature/animation-orchestrator-3412607048175802256
         app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub
+  
+        app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
+     master
         app.MapFallbackToPage("/_Host");
 
         app.Run();

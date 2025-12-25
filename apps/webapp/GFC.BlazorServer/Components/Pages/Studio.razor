@@ -1,4 +1,6 @@
+@page "/studio"
 @page "/studio/{PageId:int}"
+@layout GFC.BlazorServer.Components.Layout.StudioLayout
 @using System.Text.Json
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
@@ -6,40 +8,62 @@
 @using GFC.BlazorServer.Components.Shared
 @inject IJSRuntime JSRuntime
 @inject IStudioService StudioService
+@inject IPageService PageService
 @inject ITemplateService TemplateService
+@inject IContentIngestionService ContentIngestionService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
+@inject IConfiguration Configuration
+
+@if (showNewPageModal)
+{
+    <NewPageModal ExistingPages="allPages" OnCancel="() => showNewPageModal = false" OnConfirm="CreateNewPage" ErrorMessage="@_newPageErrorMessage" />
+}
 
 <div class="studio-container">
     <div class="top-command-bar">
-        <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
-        <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
-        <button class="btn btn-info" @onclick="PublishPage">Publish</button>
-        
-        <div class="dropdown d-inline-block ms-3">
-            <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
-                Draft History @(draft != null ? $" (v{draft.Version})" : "")
-            </button>
-            @if (showHistory)
-            {
-                <div class="dropdown-menu show" style="max-height: 300px; overflow-y: auto;">
-                    @foreach (var h in draftHistory)
-                    {
-                        <button class="dropdown-item" @onclick="() => LoadDraft(h)">
-                            v@h.Version - @h.CreatedAt.ToLocalTime().ToString("g") (@h.CreatedBy)
-                        </button>
-                    }
-                </div>
-            }
+        <div class="left-controls">
+            <a href="/" class="btn btn-outline-light me-3">
+                <i class="fas fa-chevron-left"></i> Dashboard
+            </a>
+            <PageNavigator CurrentPage="currentPage" OnPageSelected="HandlePageSelected" OnNewPageClicked="() => showNewPageModal = true" />
         </div>
-        @if (wizardWarnings.Any())
-        {
-            <span class="badge bg-warning text-dark ms-3">@wizardWarnings.Count Wizard Warnings</span>
-        }
-        <div class="viewport-toggle">
-            <button class="btn @(currentViewport == "desktop" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("desktop")'>Desktop</button>
-            <button class="btn @(currentViewport == "tablet" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("tablet")'>Tablet</button>
-            <button class="btn @(currentViewport == "mobile" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("mobile")'>Mobile</button>
+        
+        <div class="center-controls">
+            <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
+            <button class="btn btn-secondary" @onclick="() => showUrlImportModal = true">
+                <i class="fas fa-file-import"></i> Import from URL
+            </button>
+            <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
+            <button class="btn btn-info" @onclick="PublishPage">Publish</button>
+            <button class="btn btn-outline-warning" @onclick="UndoLastAction" disabled="@(lastUndoState == null)">
+                <i class="fas fa-undo"></i> Undo
+            </button>
+        </div>
+
+        <div class="right-controls">
+            <div class="viewport-toggle">
+                <button class="btn @(currentViewport == "desktop" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("desktop")'>💻</button>
+                <button class="btn @(currentViewport == "tablet" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("tablet")'>🖥️</button>
+                <button class="btn @(currentViewport == "mobile" ? "btn-secondary" : "btn-outline-secondary")" @onclick='() => setViewport("mobile")'>📱</button>
+            </div>
+            
+            <div class="dropdown d-inline-block ms-2">
+                <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
+                    <i class="fas fa-history"></i>
+                </button>
+                @if (showHistory)
+                {
+                    <div class="dropdown-menu show" style="max-height: 300px; overflow-y: auto; right: 0; left: auto;">
+                        @foreach (var h in draftHistory)
+                        {
+                            <button class="dropdown-item" @onclick="() => LoadDraft(h)">
+                                v@h.Version - @h.CreatedAt.ToLocalTime().ToString("g") (@h.CreatedBy)
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
         </div>
     </div>
 
@@ -53,10 +77,15 @@
     }
 
     <div class="studio-workspace">
-        <div class="left-toolbox">
-            <div class="toolbox-tabs">
-                <button class="tab-button @(activeToolboxTab == "templates" ? "active" : "")" @onclick='() => activeToolboxTab = "templates"'>Templates</button>
-                <button class="tab-button @(activeToolboxTab == "elements" ? "active" : "")" @onclick='() => activeToolboxTab = "elements"'>Elements</button>
+        <div class="left-toolbox @(isLeftPanelCollapsed ? "collapsed" : "")">
+            <div class="panel-header">
+                <div class="toolbox-tabs">
+                    <button class="tab-button @(activeToolboxTab == "templates" ? "active" : "")" @onclick='() => activeToolboxTab = "templates"'>Templates</button>
+                    <button class="tab-button @(activeToolboxTab == "elements" ? "active" : "")" @onclick='() => activeToolboxTab = "elements"'>Elements</button>
+                </div>
+                <div class="collapse-handle" @onclick="() => isLeftPanelCollapsed = !isLeftPanelCollapsed">
+                    @(isLeftPanelCollapsed ? "▶" : "◀")
+                </div>
             </div>
             <div class="toolbox-content">
                 @if (activeToolboxTab == "templates")
@@ -89,28 +118,77 @@
                 }
             </div>
         </div>
+
         <div class="canvas-container @($"viewport-{currentViewport}")">
             <div class="center-canvas" @ondrop="HandleDrop" @ondragover:preventDefault="true">
-                @foreach (var item in sections)
+                @if (!string.IsNullOrEmpty(_previewUrl))
                 {
-                    <div class="studio-section @(selectedSection == item ? "selected" : "")" data-id="@item.ClientId" @onclick="() => SelectSection(item)">
-                        <div class="section-toolbar">
-                            <button class="btn btn-sm btn-outline-light" @onclick="() => OpenSaveAsTemplateModal(item)">Save as Template</button>
-                        </div>
-                        <p contenteditable="true" @oninput="(e) => item.Content = e.Value.ToString()">@item.Content</p>
-                    </div>
+                    <iframe @ref="_previewIframe" src="@_previewUrl" class="studio-iframe" allow="clipboard-write"></iframe>
+                }
+                else
+                {
+                    <div class="alert alert-info">Loading Preview...</div>
                 }
             </div>
         </div>
-        <div class="right-inspector">
-            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnContentFixed="@(args => HandleContentFixed(args.newContent, args.fixName))" />
-            @if (!string.IsNullOrEmpty(lastWizardAction))
-            {
-                <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
-            }
+
+        <div class="right-inspector @(isRightPanelCollapsed ? "collapsed" : "")">
+            <div class="panel-header">
+                <div class="collapse-handle" @onclick="() => isRightPanelCollapsed = !isRightPanelCollapsed">
+                    @(isRightPanelCollapsed ? "◀" : "▶")
+                </div>
+                <h5 class="m-0 ms-2">Inspector</h5>
+            </div>
+            <div class="inspector-content">
+                <StudioWizard TargetSection="selectedSection" OnPropertyChanged="HandlePropertyChange" />
+            </div>
         </div>
     </div>
+     feature/animation-orchestrator-3412607048175802256
     <AnimationOrchestrator TargetSection="selectedSection" OnAnimationSettingsChanged="HandleAnimationSettingsChanged" />
+
+
+    <div class="animation-orchestrator">
+        @if (selectedSection != null)
+        {
+            <div class="timeline-header">
+                <h5>Animation Timeline</h5>
+                <select class="form-control form-control-sm effect-select" value="@currentAnimationSettings.Effect" @onchange="@(async (e) => { currentAnimationSettings.Effect = e.Value.ToString(); await UpdateAnimationSettings(); })">
+                    <option value="None">No Effect</option>
+                    <option value="FadeIn">Fade In</option>
+                    <option value="SlideUp">Slide Up</option>
+                    <option value="Scale">Scale</option>
+                    <option value="Rotate">Rotate</option>
+                </select>
+                <select class="form-control form-control-sm effect-select" value="@currentAnimationSettings.Easing" @onchange="@(async (e) => { currentAnimationSettings.Easing = e.Value.ToString(); await UpdateAnimationSettings(); })">
+                    <option value="ease-in-out">Ease In Out</option>
+                    <option value="linear">Linear</option>
+                    <option value="ease-in">Ease In</option>
+                    <option value="ease-out">Ease Out</option>
+                </select>
+            </div>
+            <div class="timeline-track" id="timeline-track">
+                @for (int i = 0; i <= 5; i++)
+                {
+                    <div class="time-marker" style="left: @(i * 20)%">@i s</div>
+                }
+                <div class="animation-bar"
+                     style="left: @(currentAnimationSettings.Delay * 20)%; width: @(currentAnimationSettings.Duration * 20)%;"
+                     id="animation-bar"
+                     data-delay="@currentAnimationSettings.Delay"
+                     data-duration="@currentAnimationSettings.Duration">
+                    <div class="handle left"></div>
+                    <div class="handle right"></div>
+                </div>
+                <div class="playhead" id="playhead"></div>
+            </div>
+        }
+        else
+        {
+            <div class="timeline-placeholder">Select a section to configure its animation.</div>
+        }
+    </div>
+   master
 </div>
 
 @if (showSaveAsTemplateModal)
@@ -144,10 +222,64 @@
     <div class="modal-backdrop fade show"></div>
 }
 
+@if (showUrlImportModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Import from URL</h5>
+                    <button type="button" class="close" @onclick="CloseImportModal">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    @if (isImporting)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p>Scraping content, please wait...</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrEmpty(importErrorMessage))
+                        {
+                            <div class="alert alert-danger">@importErrorMessage</div>
+                        }
+                        <div class="form-group">
+                            <label for="urlInput">URL to Scrape</label>
+                            <input type="text" class="form-control" id="urlInput" @bind="urlToImport" />
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseImportModal" disabled="@isImporting">Close</button>
+                    <button type="button" class="btn btn-primary" @onclick="ImportFromUrl" disabled="@isImporting">Import</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
 @code {
     [Parameter]
     public int PageId { get; set; }
 
+    private bool showUrlImportModal = false;
+    private string urlToImport = "";
+    private bool isImporting = false;
+    private string importErrorMessage = "";
+
+    private bool isLeftPanelCollapsed = false;
+    private bool isRightPanelCollapsed = false;
+
+    private bool showNewPageModal = false;
+    private List<StudioPage> allPages = new();
+    private StudioPage currentPage;
     private StudioDraft draft;
     private List<StudioSection> sections = new();
     private StudioSection selectedSection;
@@ -165,6 +297,7 @@
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
+   feature/animation-orchestrator-3412607048175802256
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
 
@@ -176,6 +309,14 @@
             StateHasChanged();
         }
     }
+
+    private AnimationSettings currentAnimationSettings = new();
+    private StudioWizard studioWizard;
+    private List<StudioWizard.WizardWarning> wizardWarnings = new();
+    private ElementReference _previewIframe;
+    private string _previewUrl;
+    private string _pageSlug;
+ master
 
     protected override void OnParametersSet()
     {
@@ -196,12 +337,32 @@
         }
     }
 
+    [JSInvokable]
+    public void SetSelectedSection(StudioSection section)
+    {
+        selectedSection = section;
+        StateHasChanged();
+    }
+
+    private async Task HandlePropertyChange((string sectionId, string propertyName, object propertyValue) args)
+    {
+        var styleUpdate = new Dictionary<string, object>
+        {
+            { args.propertyName, args.propertyValue }
+        };
+
+        if (_previewIframe.Context != null)
+        {
+            await JSRuntime.InvokeVoidAsync("studioInterop.updateStyleInPreview", _previewIframe, args.sectionId, styleUpdate);
+        }
+    }
+
     private void UndoLastAction()
     {
         if (selectedSection != null && lastUndoState != null)
         {
             selectedSection.Content = lastUndoState.Content;
-            selectedSection.AnimationSettings = lastUndoState.AnimationSettings;
+            selectedSection.AnimationSettingsJson = lastUndoState.AnimationSettingsJson;
             lastWizardAction = "";
             lastUndoState = null;
             StateHasChanged();
@@ -213,6 +374,74 @@
     private void SelectSection(StudioSection section)
     {
         selectedSection = section;
+     feature/animation-orchestrator-3412607048175802256
+
+      if (!string.IsNullOrEmpty(selectedSection.AnimationSettingsJson))
+        {
+            try
+            {
+                currentAnimationSettings = JsonSerializer.Deserialize<AnimationSettings>(selectedSection.AnimationSettingsJson) ?? new AnimationSettings();
+            }
+            catch
+            {
+                currentAnimationSettings = new AnimationSettings();
+            }
+        }
+        else
+        {
+            currentAnimationSettings = new AnimationSettings();
+        }
+
+        // Re-initialize JS interop for the timeline
+        JSRuntime.InvokeVoidAsync("animationInterop.initializeTimeline", DotNetObjectReference.Create(this));
+        JSRuntime.InvokeVoidAsync("animationScrubbing.initializeScrubbing", _previewIframe);
+     master
+    }
+
+    private async Task UpdateAnimationSettings()
+    {
+        if (selectedSection != null)
+        {
+            selectedSection.AnimationSettingsJson = JsonSerializer.Serialize(currentAnimationSettings);
+            await JSRuntime.InvokeVoidAsync("studioInterop.updateAnimation", _previewIframe, selectedSection);
+        }
+    }
+
+    feature/animation-orchestrator-3412607048175802256
+
+    private async Task HandlePageSelected(StudioPage page)
+    {
+        if (page != null && page.Id != PageId)
+        {
+            // Update the URL in the browser's address bar without forcing a reload
+            NavigationManager.NavigateTo($"/studio/{page.Id}");
+
+            // Now, reload the component's state with the new page's data
+            await LoadPageAsync(page.Id);
+        }
+    }
+
+    private string _newPageErrorMessage = null;
+
+    private async Task CreateNewPage(StudioPage pageStub)
+    {
+        _newPageErrorMessage = null;
+        try
+        {
+            int? cloneFromId = pageStub.Id > 0 ? pageStub.Id : null;
+            var newPage = await PageService.CreatePageAsync(pageStub.Title, cloneFromId);
+
+            if (newPage != null)
+            {
+                showNewPageModal = false;
+                NavigationManager.NavigateTo($"/studio/{newPage.Id}", forceLoad: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create new page");
+            _newPageErrorMessage = ex.Message;
+        }
     }
 
     private async Task LoadDraft(StudioDraft selectedDraft)
@@ -226,12 +455,13 @@
         StateHasChanged();
     }
 
+     master
     private void HandleDragStart(StudioTemplate template)
     {
         draggedTemplate = template;
     }
 
-    private void HandleDrop()
+    private async Task HandleDrop()
     {
         if (draggedTemplate != null)
         {
@@ -239,7 +469,10 @@
             newSection.ClientId = Guid.NewGuid();
             newSection.StudioPageId = PageId;
             newSection.PageIndex = sections.Count;
-            sections.Add(newSection);
+
+            await JSRuntime.InvokeVoidAsync("studioInterop.sendComponentToPreview", _previewIframe, newSection);
+
+            sections.Add(newSection); // Optimistically add to local state
             draggedTemplate = null;
         }
     }
@@ -247,7 +480,7 @@
     private void OpenSaveAsTemplateModal(StudioSection section)
     {
         sectionToSave = section;
-        newTemplateName = section.Title;
+        newTemplateName = section.Title ?? section.ComponentType;
         newTemplateCategory = "General";
         showSaveAsTemplateModal = true;
     }
@@ -288,7 +521,7 @@
 
     private void FilterTemplates(ChangeEventArgs e)
     {
-        selectedTemplateCategory = e.Value.ToString();
+        selectedTemplateCategory = e.Value?.ToString() ?? "";
         if (string.IsNullOrEmpty(selectedTemplateCategory))
         {
             filteredTemplates = templates;
@@ -305,38 +538,6 @@
         await LoadTemplates();
     }
 
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            if (PageId == 0)
-            {
-                errorMessage = "No page specified. Please select a page to edit.";
-                return;
-            }
-
-            draft = await StudioService.GetLatestDraftAsync(PageId);
-
-            if (draft != null && !string.IsNullOrEmpty(draft.ContentJson))
-            {
-                sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson) ?? new List<StudioSection>();
-            }
-            else
-            {
-                sections = new List<StudioSection>();
-            }
-
-            await LoadHistory();
-            await LoadTemplates();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to initialize Studio");
-            errorMessage = ex.Message;
-            errorDetails = ex.ToString();
-        }
-    }
-
     private void setViewport(string viewport)
     {
         currentViewport = viewport;
@@ -349,13 +550,111 @@
         {
             try
             {
-                await JSRuntime.InvokeVoidAsync("initializeDnd", DotNetObjectReference.Create(this));
+     feature/animation-orchestrator-3412607048175802256
+                errorMessage = "No page specified. Please select a page to edit.";
+                return;
+
+                var dotNetHelper = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("studioInterop.setDotNetHelper", dotNetHelper);
+                await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler");
+     master
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Failed to initialize Drag and Drop");
+                Logger.LogError(ex, "Failed to initialize Studio Interop");
             }
         }
+
+        if (selectedSection != null)
+        {
+            await JSRuntime.InvokeVoidAsync("animationInterop.initializeTimeline", DotNetObjectReference.Create(this));
+            await JSRuntime.InvokeVoidAsync("animationScrubbing.initializeScrubbing", _previewIframe);
+        }
+    }
+
+    private async Task LoadPageAsync(int pageId)
+    {
+        errorMessage = null;
+        errorDetails = null;
+        sections = new();
+        draft = null;
+        currentPage = null;
+
+        try
+        {
+            currentPage = await PageService.GetPageAsync(pageId);
+            if (currentPage == null)
+            {
+                errorMessage = "The requested page could not be found.";
+                return;
+            }
+
+            PageId = pageId; // Update the component's parameter
+            _pageSlug = currentPage.Slug;
+            var previewUrlBase = Configuration["NEXTJS_PREVIEW_URL"];
+            _previewUrl = $"{previewUrlBase}/studio-preview/{_pageSlug}";
+
+            draft = await StudioService.GetLatestDraftAsync(PageId);
+            sections = !string.IsNullOrEmpty(draft?.ContentSnapshotJson)
+                ? JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson)
+                : new List<StudioSection>();
+
+            await LoadHistory();
+            await LoadTemplates(); // Consider if this needs to be reloaded every time
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load page data for page {PageId}", pageId);
+            errorMessage = "An unexpected error occurred while loading the page.";
+            errorDetails = ex.Message;
+        }
+
+        StateHasChanged(); // Ensure the UI updates
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            allPages = await PageService.GetAllPagesAsync();
+
+            var effectivePageId = PageId;
+            if (effectivePageId == 0)
+            {
+                var firstPage = allPages.FirstOrDefault();
+                if (firstPage != null)
+                {
+                    effectivePageId = firstPage.Id;
+                    // Update URL without forcing a reload, just to be clean
+                    NavigationManager.NavigateTo($"/studio/{effectivePageId}", replace: true);
+                }
+                else
+                {
+                    errorMessage = "No pages found. Create a new page to begin.";
+                    return;
+                }
+            }
+
+            await LoadPageAsync(effectivePageId);
+        }
+     feature/animation-orchestrator-3412607048175802256
+
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize Studio");
+            errorMessage = $"Studio initialization failed: {ex.Message}";
+            errorDetails = ex.StackTrace;
+        }
+    }
+
+    [JSInvokable]
+    public async Task UpdateAnimationTimeline(double delay, double duration)
+    {
+        currentAnimationSettings.Delay = Math.Round(delay, 2);
+        currentAnimationSettings.Duration = Math.Round(duration, 2);
+        await UpdateAnimationSettings();
+        StateHasChanged();
+     master
     }
 
     private async Task LoadHistory()
@@ -365,8 +664,19 @@
 
     private async Task SaveDraft()
     {
+        await JSRuntime.InvokeVoidAsync("studioInterop.requestStateFromPreview", _previewIframe);
+        // The actual saving will be triggered by the ReceiveStateFromPreview method
+    }
+
+    [JSInvokable]
+    public async Task ReceiveStateFromPreview(List<StudioSection> updatedSections)
+    {
         try
         {
+     feature/animation-orchestrator-3412607048175802256
+
+            sections = updatedSections;
+     master
             var json = JsonSerializer.Serialize(sections);
             draft = await StudioService.SaveDraftAsync(PageId, json, "System"); // TODO: Use real user
             
@@ -401,7 +711,6 @@
         }
     }
 
-
     private void AddSection()
     {
         var newSection = new StudioSection
@@ -427,5 +736,56 @@
         }
         sections = newSections;
         StateHasChanged();
+    }
+
+    private void CloseImportModal()
+    {
+        showUrlImportModal = false;
+        importErrorMessage = "";
+        urlToImport = "";
+    }
+
+    private async Task ImportFromUrl()
+    {
+        if (string.IsNullOrWhiteSpace(urlToImport))
+        {
+            importErrorMessage = "Please enter a URL to import.";
+            return;
+        }
+
+        isImporting = true;
+        importErrorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var newSections = await ContentIngestionService.ScrapeUrlAsync(urlToImport);
+            if (newSections.Any())
+            {
+                // Set page index correctly
+                int startingIndex = sections.Count;
+                foreach (var section in newSections)
+                {
+                    section.PageIndex = startingIndex++;
+                    section.StudioPageId = PageId;
+                }
+                sections.AddRange(newSections);
+                CloseImportModal();
+            }
+            else
+            {
+                importErrorMessage = "No content (headings, paragraphs, or images) could be found at the specified URL.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to import from URL {Url}", urlToImport);
+            importErrorMessage = $"Failed to import content. Error: {ex.Message}";
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
     }
 }

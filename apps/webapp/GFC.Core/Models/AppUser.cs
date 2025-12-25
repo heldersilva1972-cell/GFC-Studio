@@ -16,5 +16,7 @@ public class AppUser
     public string? CreatedBy { get; set; }
     public string? Notes { get; set; }
     public bool PasswordChangeRequired { get; set; }
+    public bool MfaEnabled { get; set; }
+    public string? MfaSecretKey { get; set; }
 }
 

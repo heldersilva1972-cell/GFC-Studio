@@ -1,18 +1,20 @@
-// [MODIFIED]
-import Hero from '@/components/Hero'
-import FeatureGrid from '@/components/FeatureGrid'
-import EventsCalendar from '@/components/EventsCalendar'
-import RentalAvailabilityCalendar from '@/components/RentalAvailabilityCalendar'
-import ContactSection from '@/components/ContactSection'
+// [NEW]
+import React from 'react';
 
-export default function HomePage() {
+const HomePage = () => {
     return (
-        <>
-            <Hero />
-            <FeatureGrid />
-            <EventsCalendar />
-            <RentalAvailabilityCalendar />
-            <ContactSection />
-        </>
-    )
-}
+        <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            height: '100vh',
+            backgroundColor: '#0F172A',
+            color: '#F1F5F9',
+            fontFamily: 'sans-serif'
+        }}>
+            <h1>Next.js Preview</h1>
+        </div>
+    );
+};
+
+export default HomePage;

@@ -1,4 +1,3 @@
-// [MODIFIED]
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -10,17 +9,44 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
-        [ForeignKey("StudioPage")]
-        public int PageId { get; set; }
+        [Required]
+        public int StudioPageId { get; set; }
+
+        [ForeignKey("StudioPageId")]
         public virtual StudioPage StudioPage { get; set; }
 
-        public string? ContentJson { get; set; }
-
-        public int Version { get; set; }
-
         [Required]
-        public string CreatedBy { get; set; } = "System";
+        public string ContentSnapshotJson { get; set; } = "[]";
+
+        // Alias for UI compatibility
+        [NotMapped]
+        public string ContentJson 
+        { 
+            get => ContentSnapshotJson; 
+            set => ContentSnapshotJson = value; 
+        }
+
+        // Additional properties required by UI
+        [NotMapped]
+        public int PageId 
+        { 
+            get => StudioPageId; 
+            set => StudioPageId = value; 
+        }
+
+        [StringLength(500)]
+        public string? ChangeDescription { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        [Required]
+        [StringLength(100)]
+        public string CreatedBy { get; set; } = string.Empty;
+
+        public int Version { get; set; }
+        
+        public bool IsPublished { get; set; }
+        
+        public DateTime? PublishedAt { get; set; }
     }
 }

@@ -14,5 +14,8 @@ namespace GFC.BlazorServer.Services
         // Rental notification methods
         Task SendRentalConfirmationEmailAsync(HallRentalRequest request);
         Task SendRentalDenialEmailAsync(HallRentalRequest request, string reason);
+
+        // General email sending
+        Task SendEmailAsync(string email, string subject, string body);
     }
 }
