@@ -1,0 +1,141 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using GFC.BlazorServer.Data;
+using GFC.Core.Models;
+
+namespace GFC.BlazorServer.Services
+{
+    public class StudioService : IStudioService
+    {
+        private readonly IDbContextFactory<GfcDbContext> _dbContextFactory;
+
+        public StudioService(IDbContextFactory<GfcDbContext> dbContextFactory)
+        {
+            _dbContextFactory = dbContextFactory;
+        }
+
+        public async Task<StudioPage> GetPageAsync(int pageId)
+        {
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            var page = await context.StudioPages
+                .Include(p => p.Sections)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == pageId);
+                
+            if (page != null && page.Sections != null)
+            {
+                foreach(var section in page.Sections)
+                {
+                    section.SyncDataToProperties();
+                }
+            }
+            return page;
+        }
+
+        public async Task<StudioDraft> GetLatestDraftAsync(int pageId)
+        {
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            return await context.StudioDrafts
+                .Where(d => d.StudioPageId == pageId)
+                .OrderByDescending(d => d.CreatedAt)
+                .AsNoTracking()
+                .FirstOrDefaultAsync();
+        }
+
+        public async Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string createdBy)
+        {
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            
+            // Get current version number
+            var latestDraft = await context.StudioDrafts
+                .Where(d => d.StudioPageId == pageId)
+                .OrderByDescending(d => d.Version)
+                .FirstOrDefaultAsync();
+
+            var newVersion = (latestDraft?.Version ?? 0) + 1;
+
+            var draft = new StudioDraft
+            {
+                StudioPageId = pageId,
+                ContentSnapshotJson = contentJson,
+                CreatedBy = createdBy,
+                CreatedAt = DateTime.UtcNow,
+                Version = newVersion,
+                IsPublished = false
+            };
+
+            context.StudioDrafts.Add(draft);
+            await context.SaveChangesAsync();
+            return draft;
+        }
+
+        public async Task<IEnumerable<StudioDraft>> GetDraftHistoryAsync(int pageId)
+        {
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            return await context.StudioDrafts
+                .Where(d => d.StudioPageId == pageId)
+                .OrderByDescending(d => d.CreatedAt)
+                .Take(20)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        public async Task PublishDraftAsync(int draftId)
+        {
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            var draft = await context.StudioDrafts.FindAsync(draftId);
+            if (draft == null) throw new InvalidOperationException("Draft not found");
+
+            var page = await context.StudioPages
+                .Include(p => p.Sections)
+                .FirstOrDefaultAsync(p => p.Id == draft.StudioPageId);
+                
+            if (page == null) throw new InvalidOperationException("Page not found");
+
+            // Mark this draft as published
+            draft.IsPublished = true;
+            draft.PublishedAt = DateTime.UtcNow;
+            
+            // Sync sections from draft content to actual page sections
+            if (!string.IsNullOrEmpty(draft.ContentSnapshotJson))
+            {
+                try 
+                {
+                    var draftSections = System.Text.Json.JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson);
+                    if (draftSections != null)
+                    {
+                        // Remove existing sections
+                        context.StudioSections.RemoveRange(page.Sections);
+                        
+                        // Add new sections
+                        foreach(var ds in draftSections)
+                        {
+                            var newSection = new StudioSection
+                            {
+                                StudioPageId = page.Id,
+                                Type = ds.sectionType ?? "Unknown",
+                                OrderIndex = ds.PageIndex,
+                                AnimationSettingsJson = ds.AnimationSettingsJson,
+                                // Important: Sync properties to Data string for storage
+                                properties = ds.properties ?? new Dictionary<string, object>()
+                            };
+                            
+                            // Re-apply content/properties
+                            if (!string.IsNullOrEmpty(ds.Content)) newSection.properties["content"] = ds.Content;
+                            if (!string.IsNullOrEmpty(ds.Title)) newSection.properties["headline"] = ds.Title;
+                            
+                            newSection.SyncPropertiesToData();
+                            context.StudioSections.Add(newSection);
+                        }
+                    }
+                }
+                catch { /* ignore bad json */ }
+            }
+
+            await context.SaveChangesAsync();
+        }
+    }
+}
