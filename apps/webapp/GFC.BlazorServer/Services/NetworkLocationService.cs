@@ -1,4 +1,5 @@
 // [NEW]
+using GFC.Core.Interfaces;
 using System;
 using System.Net;
 using System.Threading.Tasks;
@@ -38,6 +39,18 @@ namespace GFC.BlazorServer.Services
         {
             var location = await DetectLocationAsync(ipAddress);
             return location == LocationType.LAN || location == LocationType.VPN;
+        }
+
+        public async Task<bool> IsLanAddressAsync(string ipAddress)
+        {
+            var location = await DetectLocationAsync(ipAddress);
+            return location == LocationType.LAN;
+        }
+
+        public async Task<bool> IsVpnAddressAsync(string ipAddress)
+        {
+            var location = await DetectLocationAsync(ipAddress);
+            return location == LocationType.VPN;
         }
 
         private bool IsInSubnet(IPAddress address, string subnetCidr)

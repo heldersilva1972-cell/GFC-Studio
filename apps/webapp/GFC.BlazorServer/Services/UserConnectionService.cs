@@ -6,6 +6,6 @@ namespace GFC.BlazorServer.Services
     public class UserConnectionService : IUserConnectionService
     {
         public string? IpAddress { get; set; }
-        public LocationType LocationType { get; set; } = LocationType.Unknown;
+        public GFC.Core.Interfaces.LocationType LocationType { get; set; } = GFC.Core.Interfaces.LocationType.Unknown;
     }
 }
