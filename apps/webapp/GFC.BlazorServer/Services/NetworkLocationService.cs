@@ -6,10 +6,6 @@ using GFC.BlazorServer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using GFC.Core.Interfaces;
-using System;
-using System.Net;
-using System.Threading.Tasks;
-using LocationType = GFC.Core.Interfaces.LocationType;
 
 namespace GFC.BlazorServer.Services
 {
@@ -26,34 +22,17 @@ namespace GFC.BlazorServer.Services
 
         public async Task<LocationType> DetectLocationAsync(string ipAddress)
         {
-            if (await IsLanAddressAsync(ipAddress))
-            {
-                return LocationType.LAN;
-            }
-            if (await IsVpnAddressAsync(ipAddress))
-            {
-                return LocationType.VPN;
-            }
-        // In the future, these values will be loaded from SystemSettingsService.
-        private const string LanSubnet = "192.168.1.0/24";
-        private const string VpnSubnet = "10.8.0.0/24";
-
-        public async Task<LocationType> DetectLocationAsync(string ipAddress)
-        {
-            if (string.IsNullOrEmpty(ipAddress) || !IPAddress.TryParse(ipAddress, out var parsedIp))
+            if (string.IsNullOrEmpty(ipAddress))
             {
                 return LocationType.Unknown;
             }
 
-            // Simulate async operation
-            await Task.Delay(10);
-
-            if (IsInSubnet(parsedIp, LanSubnet))
+            if (await IsLanAddressAsync(ipAddress))
             {
                 return LocationType.LAN;
             }
 
-            if (IsInSubnet(parsedIp, VpnSubnet))
+            if (await IsVpnAddressAsync(ipAddress))
             {
                 return LocationType.VPN;
             }
@@ -69,39 +48,41 @@ namespace GFC.BlazorServer.Services
 
         public async Task<bool> IsLanAddressAsync(string ipAddress)
         {
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
-            var lanSubnet = settings?.LanSubnet ?? "192.168.1.0/24";
-            return IsInSubnet(ipAddress, lanSubnet);
-            var location = await DetectLocationAsync(ipAddress);
-            return location == LocationType.LAN;
+            try
+            {
+                await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+                var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+                var lanSubnet = settings?.LanSubnet ?? "192.168.1.0/24";
+                return IsInSubnet(ipAddress, lanSubnet);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking if IP {IpAddress} is in LAN subnet", ipAddress);
+                return false;
+            }
         }
 
         public async Task<bool> IsVpnAddressAsync(string ipAddress)
         {
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
-            var vpnSubnet = settings?.WireGuardSubnet ?? "10.8.0.0/24";
-            return IsInSubnet(ipAddress, vpnSubnet);
-        }
-
-        private bool IsInSubnet(string ipAddress, string cidr)
-        {
             try
             {
-                var ipnetwork = IPNetwork.Parse(cidr);
-                var ip = IPAddress.Parse(ipAddress);
-                return ipnetwork.Contains(ip);
+                await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+                var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+                var vpnSubnet = settings?.WireGuardSubnet ?? "10.8.0.0/24";
+                return IsInSubnet(ipAddress, vpnSubnet);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking if IP {IpAddress} is in subnet {Cidr}", ipAddress, cidr);
-            var location = await DetectLocationAsync(ipAddress);
-            return location == LocationType.VPN;
+                _logger.LogError(ex, "Error checking if IP {IpAddress} is in VPN subnet", ipAddress);
+                return false;
+            }
         }
 
-        private bool IsInSubnet(IPAddress address, string subnetCidr)
+        private bool IsInSubnet(string ipAddress, string subnetCidr)
         {
+            if (!IPAddress.TryParse(ipAddress, out var address))
+                return false;
+
             try
             {
                 var parts = subnetCidr.Split('/');
@@ -129,7 +110,6 @@ namespace GFC.BlazorServer.Services
             }
             catch
             {
-                // Error parsing subnet, default to not matching.
                 return false;
             }
         }

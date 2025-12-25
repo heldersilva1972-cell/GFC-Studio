@@ -5,7 +5,6 @@ using GFC.BlazorServer.Configuration;
 using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Services;
 using GFC.BlazorServer.Services.Camera;
-using GFC.BlazorServer.Services;
 using GFC.BlazorServer.Services.Core;
 using GFC.BlazorServer.Services.Dashboard;
 using GFC.BlazorServer.Services.Members;
@@ -116,14 +115,11 @@ public class Program
         builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 
         // Shared services
-        builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
         builder.Services.AddScoped<IVpnProfileRepository, VpnProfileRepository>();
         builder.Services.AddScoped<IVpnSetupService, VpnSetupService>();
         builder.Services.AddScoped<IVpnManagementService, VpnManagementService>();
-        builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
         builder.Services.AddScoped<IAuthorizedUserService, AuthorizedUserService>();
         builder.Services.AddScoped<IRemoteAccessHealthService, RemoteAccessHealthService>();
-        builder.Services.AddScoped<GFC.Core.Interfaces.INetworkLocationService, NetworkLocationService>();
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();
         builder.Services.AddScoped<ICameraService, CameraService>();
@@ -200,6 +196,7 @@ public class Program
         builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
+builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddSingleton<TunnelStatusService>();
 builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
@@ -211,7 +208,6 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IPageService, PageService>();
         
         // Controller Client Wiring
-        builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
         
         // Register concrete controller clients. The `RealControllerClient` in the `Services` namespace
         // is the one that implements the `IMengqiControllerClient` for test tooling. The one
