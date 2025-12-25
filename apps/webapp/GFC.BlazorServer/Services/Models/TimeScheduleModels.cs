@@ -44,7 +44,7 @@ public class TimeScheduleDto
 
     public sealed record TimeZoneBlock(int Index, IReadOnlyList<DailySchedule> Days);
     public sealed record DailySchedule(byte StartHour, byte StartMinute, byte EndHour, byte EndMinute);
-    public sealed record HolidayBlock(int Index, DateOnly StartDate, DateOnly EndDate);
+    public sealed record HolidayBlock(int Index, DateOnly StartDate, DateOnly EndDate, int TimeZoneIndex);
     public sealed record TaskBlock(int Index, byte Action, byte Door, byte ScheduleId);
 }
 
