@@ -74,6 +74,13 @@ namespace GFC.Core.Models
         }
 
         [NotMapped]
+        public string PropertiesJson 
+        { 
+            get => Data; 
+            set => Data = value; 
+        }
+
+        [NotMapped]
         public string Title { get; set; } // Display title for the section
 
         [NotMapped]
