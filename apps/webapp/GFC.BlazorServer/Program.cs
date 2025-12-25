@@ -11,6 +11,7 @@ using GFC.BlazorServer.Services.Members;
 using GFC.BlazorServer.Services.Controllers;
 using GFC.BlazorServer.Services.Diagnostics;
 using GFC.BlazorServer.Data.Repositories;
+using GFC.BlazorServer.Repositories;
 using GFC.Data;
 using GFC.Core.Helpers;
 using GFC.Core.Interfaces;
@@ -115,6 +116,8 @@ public class Program
 
         // Shared services
         builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
+        builder.Services.AddScoped<IVpnProfileRepository, VpnProfileRepository>();
+        builder.Services.AddScoped<IVpnSetupService, VpnSetupService>();
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();
         builder.Services.AddScoped<ICameraService, CameraService>();
