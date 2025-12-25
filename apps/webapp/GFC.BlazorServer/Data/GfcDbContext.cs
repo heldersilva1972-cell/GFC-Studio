@@ -72,6 +72,16 @@ public class GfcDbContext : DbContext
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
 
+    // Phase 14: Integrated Utility Suite
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaRendition> MediaRenditions => Set<MediaRendition>();
+    public DbSet<Form> Forms => Set<Form>();
+    public DbSet<FormField> FormFields => Set<FormField>();
+    public DbSet<FormSubmission> FormSubmissions => Set<FormSubmission>();
+    public DbSet<HallRentalInquiry> HallRentalInquiries => Set<HallRentalInquiry>();
+    public DbSet<SeoSettings> SeoSettings => Set<SeoSettings>();
+    public DbSet<ProtectedDocument> ProtectedDocuments => Set<ProtectedDocument>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -505,10 +515,62 @@ public class GfcDbContext : DbContext
             entity.ToTable("WebsiteSettings");
         });
 
+       feature/gfc-studio-phase-1-668448862994436057
         modelBuilder.Entity<StudioSetting>(entity =>
         {
             entity.ToTable("StudioSettings");
             entity.HasIndex(s => s.SettingKey).IsUnique();
+            
+        // Phase 14: Integrated Utility Suite
+        modelBuilder.Entity<MediaAsset>(entity =>
+        {
+            entity.ToTable("MediaAssets");
+            entity.HasMany(a => a.Renditions)
+                .WithOne(r => r.MediaAsset)
+                .HasForeignKey(r => r.MediaAssetId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MediaRendition>(entity =>
+        {
+            entity.ToTable("MediaRenditions");
+        });
+
+        modelBuilder.Entity<Form>(entity =>
+        {
+            entity.ToTable("Forms");
+            entity.HasMany(f => f.FormFields)
+                .WithOne(ff => ff.Form)
+                .HasForeignKey(ff => ff.FormId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FormField>(entity =>
+        {
+            entity.ToTable("FormFields");
+        });
+
+        modelBuilder.Entity<FormSubmission>(entity =>
+        {
+            entity.ToTable("FormSubmissions");
+        });
+
+        modelBuilder.Entity<HallRentalInquiry>(entity =>
+        {
+            entity.ToTable("HallRentalInquiries");
+            entity.HasIndex(i => i.ResumeToken).IsUnique();
+        });
+
+        modelBuilder.Entity<SeoSettings>(entity =>
+        {
+            entity.ToTable("SeoSettings");
+            entity.HasIndex(s => s.StudioPageId).IsUnique();
+        });
+
+        modelBuilder.Entity<ProtectedDocument>(entity =>
+        {
+            entity.ToTable("ProtectedDocuments");
+ master
         });
     }
 
