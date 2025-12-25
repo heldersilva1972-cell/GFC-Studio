@@ -73,6 +73,11 @@ public class SystemSettings
     public string IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
     public int LoginLockDurationMinutes { get; set; } = 30;
     public string WatermarkPosition { get; set; } = "BottomRight"; // TopLeft, TopRight, BottomLeft, BottomRight
+    public bool EnableWatermarking { get; set; } = false;
+    
+    // Video Streaming Quality Settings
+    public int LocalQualityMaxBitrate { get; set; } = 8000; // kbps
+    public int RemoteQualityMaxBitrate { get; set; } = 2000; // kbps
     
     // Director Access Control
     public DateTime? DirectorAccessExpiryDate { get; set; }
