@@ -1,4 +1,3 @@
-// [MODIFIED]
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -32,6 +31,8 @@ namespace GFC.Core.Models
         [StringLength(20)]
         public string Status { get; set; } = "Draft"; // Draft, Published, Archived
 
+        public bool IsPublished { get; set; }
+
         public DateTime? PublishedAt { get; set; }
 
         [StringLength(100)]
@@ -56,7 +57,8 @@ namespace GFC.Core.Models
         [StringLength(100)]
         public string? DeletedBy { get; set; }
 
-        public virtual ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
-        public virtual ICollection<StudioDraft> Drafts { get; set; } = new List<StudioDraft>();
+        public ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
+
+        public ICollection<StudioDraft> Drafts { get; set; } = new List<StudioDraft>();
     }
 }

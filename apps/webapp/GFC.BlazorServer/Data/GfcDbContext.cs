@@ -56,10 +56,11 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
 
     // GFC Ecosystem Foundation
-    public DbSet<StudioPage> Pages => Set<StudioPage>();
-    public DbSet<StudioSection> Sections => Set<StudioSection>();
-    public DbSet<StudioDraft> Drafts => Set<StudioDraft>();
-    public DbSet<StudioTemplate> Templates => Set<StudioTemplate>();
+    public DbSet<StudioPage> StudioPages => Set<StudioPage>();
+    public DbSet<StudioSection> StudioSections => Set<StudioSection>();
+    public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
+    public DbSet<StudioTemplate> StudioTemplates => Set<StudioTemplate>();
+    public DbSet<StudioSetting> StudioSettings => Set<StudioSetting>();
     public DbSet<HallRental> HallRentals => Set<HallRental>();
     public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
@@ -70,6 +71,16 @@ public class GfcDbContext : DbContext
     public DbSet<EventPromotion> EventPromotions => Set<EventPromotion>();
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
+
+    // Phase 14: Integrated Utility Suite
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaRendition> MediaRenditions => Set<MediaRendition>();
+    public DbSet<Form> Forms => Set<Form>();
+    public DbSet<FormField> FormFields => Set<FormField>();
+    public DbSet<FormSubmission> FormSubmissions => Set<FormSubmission>();
+    public DbSet<HallRentalInquiry> HallRentalInquiries => Set<HallRentalInquiry>();
+    public DbSet<SeoSettings> SeoSettings => Set<SeoSettings>();
+    public DbSet<ProtectedDocument> ProtectedDocuments => Set<ProtectedDocument>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -525,6 +536,63 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<WebsiteSettings>(entity =>
         {
             entity.ToTable("WebsiteSettings");
+        });
+
+        modelBuilder.Entity<StudioSetting>(entity =>
+        {
+            entity.ToTable("StudioSettings");
+            entity.HasIndex(s => s.SettingKey).IsUnique();
+        });
+
+        // Phase 14: Integrated Utility Suite
+        modelBuilder.Entity<MediaAsset>(entity =>
+        {
+            entity.ToTable("MediaAssets");
+            entity.HasMany(a => a.Renditions)
+                .WithOne(r => r.MediaAsset)
+                .HasForeignKey(r => r.MediaAssetId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MediaRendition>(entity =>
+        {
+            entity.ToTable("MediaRenditions");
+        });
+
+        modelBuilder.Entity<Form>(entity =>
+        {
+            entity.ToTable("Forms");
+            entity.HasMany(f => f.FormFields)
+                .WithOne(ff => ff.Form)
+                .HasForeignKey(ff => ff.FormId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FormField>(entity =>
+        {
+            entity.ToTable("FormFields");
+        });
+
+        modelBuilder.Entity<FormSubmission>(entity =>
+        {
+            entity.ToTable("FormSubmissions");
+        });
+
+        modelBuilder.Entity<HallRentalInquiry>(entity =>
+        {
+            entity.ToTable("HallRentalInquiries");
+            entity.HasIndex(i => i.ResumeToken).IsUnique();
+        });
+
+        modelBuilder.Entity<SeoSettings>(entity =>
+        {
+            entity.ToTable("SeoSettings");
+            entity.HasIndex(s => s.StudioPageId).IsUnique();
+        });
+
+        modelBuilder.Entity<ProtectedDocument>(entity =>
+        {
+            entity.ToTable("ProtectedDocuments");
         });
     }
 
