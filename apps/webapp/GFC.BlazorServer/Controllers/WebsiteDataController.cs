@@ -15,14 +15,14 @@ namespace GFC.BlazorServer.Controllers
         private readonly IAvailabilityService _availabilityService;
         private readonly IPublicReviewService _publicReviewService;
         private readonly IRentalService _rentalService;
-        private readonly IWebsiteSettingsService _websiteSettingsService;
+        private readonly GFC.Core.Interfaces.IWebsiteSettingsService _websiteSettingsService;
 
         public WebsiteDataController(
             IAnnouncementService announcementService,
             IAvailabilityService availabilityService,
             IPublicReviewService publicReviewService,
             IRentalService rentalService,
-            IWebsiteSettingsService websiteSettingsService)
+            GFC.Core.Interfaces.IWebsiteSettingsService websiteSettingsService)
         {
             _announcementService = announcementService;
             _availabilityService = availabilityService;
