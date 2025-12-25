@@ -23,7 +23,7 @@ namespace GFC.BlazorServer.Middleware
             _logger = logger;
         }
 
-        public async Task InvokeAsync(HttpContext context, INetworkLocationService networkLocationService, IUserConnectionService userConnectionService)
+        public async Task InvokeAsync(HttpContext context, GFC.Core.Interfaces.INetworkLocationService networkLocationService, IUserConnectionService userConnectionService)
         {
             var remoteIpAddress = context.Connection.RemoteIpAddress?.ToString();
 
@@ -42,7 +42,7 @@ namespace GFC.BlazorServer.Middleware
             var path = context.Request.Path;
             if (path.StartsWithSegments("/video") || path.StartsWithSegments("/cameras"))
             {
-                if (userConnectionService.LocationType == LocationType.Public)
+                if (userConnectionService.LocationType == GFC.Core.Interfaces.LocationType.Public)
                 {
                     _logger.LogWarning("Blocked public IP {RemoteIpAddress} from accessing {Path}", remoteIpAddress, path);
 
@@ -70,7 +70,7 @@ namespace GFC.BlazorServer.Middleware
 
                 var auditLog = new VideoAccessAudit
                 {
-                    UserId = userId,
+                    UserId = userId ?? 0,
                     AccessType = "Blocked",
                     ConnectionType = "Public",
                     ClientIP = clientIp,
