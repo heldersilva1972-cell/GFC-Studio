@@ -313,11 +313,9 @@ public class Program
         app.MapControllers();
 
         app.MapBlazorHub();
-     feature/animation-orchestrator-3412607048175802256
         app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub
   
         app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
-     master
         app.MapFallbackToPage("/_Host");
 
         app.Run();
