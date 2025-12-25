@@ -29,7 +29,6 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 -- Step B: Ensure the row with Id=1 exists
 IF NOT EXISTS (SELECT * FROM [dbo].[SystemSettings] WHERE Id = 1)
 BEGIN
-    -- Only insert Id, other columns are NULLable for now
     SET IDENTITY_INSERT [dbo].[SystemSettings] ON;
     INSERT INTO [dbo].[SystemSettings] (Id) VALUES (1);
     SET IDENTITY_INSERT [dbo].[SystemSettings] OFF;
@@ -167,6 +166,26 @@ BEGIN
         [Visibility] NVARCHAR(50) NOT NULL,
         [UploadedAt] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
     );
+END
+
+-- 4. AppUsers MFA and Email Columns Fix
+PRINT 'Checking AppUsers table for MFA and Email columns...';
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[AppUsers]') AND name = 'Email')
+BEGIN
+    ALTER TABLE [dbo].[AppUsers] ADD [Email] NVARCHAR(255) NULL;
+    PRINT 'Added Email column to AppUsers';
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[AppUsers]') AND name = 'MfaEnabled')
+BEGIN
+    ALTER TABLE [dbo].[AppUsers] ADD [MfaEnabled] BIT NOT NULL DEFAULT 0;
+    PRINT 'Added MfaEnabled column to AppUsers';
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[AppUsers]') AND name = 'MfaSecretKey')
+BEGIN
+    ALTER TABLE [dbo].[AppUsers] ADD [MfaSecretKey] NVARCHAR(MAX) NULL;
+    PRINT 'Added MfaSecretKey column to AppUsers';
 END
 
 PRINT 'Database fix successfully completed!';
