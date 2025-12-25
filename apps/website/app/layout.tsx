@@ -11,14 +11,14 @@ export const metadata: Metadata = {
 }
 
 async function getWebsiteSettings() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/WebsiteSettings`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) {
-    console.error('Failed to fetch website settings');
-    return null;
-  }
-  return res.json();
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/WebsiteSettings`, {
+        cache: 'no-store',
+    });
+    if (!res.ok) {
+        console.error('Failed to fetch website settings');
+        return null;
+    }
+    return res.json();
 }
 
 export default async function RootLayout({
@@ -30,17 +30,20 @@ export default async function RootLayout({
 
     const a11yClass = settings?.highAccessibilityMode ? 'high-accessibility' : '';
 
+    const globalStyles = {
+        '--primary-color': settings?.primaryColor || '#0D1B2A',
+        '--secondary-color': settings?.secondaryColor || '#FFD700',
+        '--font-heading': `'${settings?.headingFont || 'Outfit'}', sans-serif`,
+        '--font-body': `'${settings?.bodyFont || 'Inter'}', sans-serif`,
+    } as React.CSSProperties;
+
     return (
         <html lang="en" suppressHydrationWarning>
-            <body className={a11yClass} data-motion-reduced={settings?.highAccessibilityMode ? 'true' : 'false'}>
-                <style jsx global>{`
-                    :root {
-                        --primary-color: ${settings?.primaryColor || '#0D1B2A'};
-                        --secondary-color: ${settings?.secondaryColor || '#FFD700'};
-                        --font-heading: '${settings?.headingFont || 'Outfit'}', sans-serif;
-                        --font-body: '${settings?.bodyFont || 'Inter'}', sans-serif;
-                    }
-                `}</style>
+            <body
+                className={a11yClass}
+                data-motion-reduced={settings?.highAccessibilityMode ? 'true' : 'false'}
+                style={globalStyles}
+            >
                 <Header />
                 <main>{children}</main>
                 <Footer />
