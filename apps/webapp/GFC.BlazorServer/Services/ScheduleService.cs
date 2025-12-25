@@ -77,6 +77,44 @@ public class ScheduleService : IScheduleService
         }
     }
 
+    public async Task<List<SpecialEvent>> GetSpecialEventsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.SpecialEvents
+            .Include(e => e.TimeProfile)
+            .OrderBy(e => e.Date)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SpecialEvent?> GetSpecialEventAsync(int id, CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.SpecialEvents
+            .Include(e => e.TimeProfile)
+            .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+    }
+
+    public async Task<int> AddSpecialEventAsync(SpecialEvent specialEvent, CancellationToken cancellationToken = default)
+    {
+        _dbContext.SpecialEvents.Add(specialEvent);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return specialEvent.Id;
+    }
+
+    public async Task UpdateSpecialEventAsync(SpecialEvent specialEvent, CancellationToken cancellationToken = default)
+    {
+        _dbContext.SpecialEvents.Update(specialEvent);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task DeleteSpecialEventAsync(int id, CancellationToken cancellationToken = default)
+    {
+        var specialEvent = await _dbContext.SpecialEvents.FindAsync(new object[] { id }, cancellationToken);
+        if (specialEvent != null)
+        {
+            _dbContext.SpecialEvents.Remove(specialEvent);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
+
     public async Task<List<TimeProfile>> GetProfilesAsync(bool activeOnly = true, CancellationToken cancellationToken = default)
     {
         var query = _dbContext.TimeProfiles
@@ -346,6 +384,7 @@ public class ScheduleService : IScheduleService
     {
         var links = await GetControllerLinksAsync(controllerId, cancellationToken);
         var holidays = await GetHolidaysAsync(cancellationToken);
+        var specialEvents = await GetSpecialEventsAsync(cancellationToken);
         
         // Only include enabled links with active profiles
         var enabledLinks = links.Where(l => l.IsEnabled).ToList();
@@ -402,6 +441,19 @@ public class ScheduleService : IScheduleService
                 holidayBlocks.Count,
                 date,
                 date));
+        }
+
+        foreach (var specialEvent in specialEvents)
+        {
+            if (holidayBlocks.Count >= MaxHolidays) break;
+
+            var date = specialEvent.Date;
+            holidayBlocks.Add(new TimeScheduleDto.HolidayBlock(
+                holidayBlocks.Count,
+                date,
+                date,
+                profileIndexMapping.GetValueOrDefault(specialEvent.TimeProfileId, 0)
+                ));
         }
 
         // Include tasks if enabled
