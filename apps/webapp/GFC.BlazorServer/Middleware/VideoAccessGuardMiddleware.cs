@@ -49,7 +49,7 @@ namespace GFC.BlazorServer.Middleware
                     // Log to database
                     await LogBlockedAccessAsync(context, remoteIpAddress, path);
 
-                    context.Response.Redirect("/secure-access-wizard");
+                    context.Response.Redirect("/cameras/secure-access");
                     return;
                 }
             }
