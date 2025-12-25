@@ -21,5 +21,10 @@ namespace GFC.Core.Models
         public string Status { get; set; } // e.g., "Pending", "Sent", "Failed"
         
         public DateTime? SentAt { get; set; }
+
+        // Announcement properties
+        public bool IsActive { get; set; }
+        public DateTime StartDate { get; set; } = DateTime.UtcNow;
+        public DateTime? EndDate { get; set; }
     }
 }

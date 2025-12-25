@@ -21,8 +21,8 @@ namespace GFC.BlazorServer.Services
         public async Task<List<DateTime>> GetReservedDatesAsync()
         {
             return await _context.AvailabilityCalendars
-                .Where(ac => ac.IsReserved)
-                .Select(ac => ac.StartDate.Date)
+                .Where(ac => ac.Status == "Booked")
+                .Select(ac => ac.Date.Date)
                 .ToListAsync();
         }
     }
