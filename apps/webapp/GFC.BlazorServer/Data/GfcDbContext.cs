@@ -62,8 +62,8 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.VideoAccessAudit> VideoAccessAudits => Set<GFC.Core.Models.VideoAccessAudit>();
 
     // Camera Security & Remote Access
-    public DbSet<VpnSession> VpnSessions => Set<VpnSession>();
-    public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
+    public DbSet<GFC.Core.Models.VpnSession> VpnSessions => Set<GFC.Core.Models.VpnSession>();
+    public DbSet<GFC.Core.Models.SecurityAlert> SecurityAlerts => Set<GFC.Core.Models.SecurityAlert>();
     public DbSet<AuthorizedUser> AuthorizedUsers => Set<AuthorizedUser>();
     // public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>(); // Commented due to CS0102 duplicate error - duplicate location unknown
 
