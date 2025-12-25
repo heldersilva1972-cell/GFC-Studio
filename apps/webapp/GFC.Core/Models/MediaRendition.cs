@@ -23,6 +23,13 @@ namespace GFC.Core.Models
         [StringLength(1024)]
         public string Url { get; set; }
 
+        [NotMapped]
+        public string FilePath
+        {
+            get => Url;
+            set => Url = value;
+        }
+
         public int Width { get; set; }
         public int Height { get; set; }
     }

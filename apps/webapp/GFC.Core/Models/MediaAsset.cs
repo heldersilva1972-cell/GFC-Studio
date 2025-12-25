@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
@@ -25,6 +26,11 @@ namespace GFC.Core.Models
         public long FileSize { get; set; }
 
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
+
+        public int? AssetFolderId { get; set; }
+
+        [ForeignKey("AssetFolderId")]
+        public virtual AssetFolder AssetFolder { get; set; }
 
         // Navigation property for different versions (renditions) of the asset
         public virtual ICollection<MediaRendition> Renditions { get; set; } = new List<MediaRendition>();
