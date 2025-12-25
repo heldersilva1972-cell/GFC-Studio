@@ -205,6 +205,9 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
         builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddScoped<IPublicReviewService, PublicReviewService>();
+        builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
+        builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
         builder.Services.AddScoped<IPageService, PageService>();
         
         // Controller Client Wiring

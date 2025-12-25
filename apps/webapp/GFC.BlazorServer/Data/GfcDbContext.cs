@@ -86,6 +86,7 @@ public class GfcDbContext : DbContext
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
 
     // Phase 14: Integrated Utility Suite
+    public DbSet<PublicReview> PublicReviews => Set<PublicReview>();
     public DbSet<AssetFolder> AssetFolders => Set<AssetFolder>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<MediaRendition> MediaRenditions => Set<MediaRendition>();

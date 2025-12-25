@@ -135,6 +135,10 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
+        public async Task CreateRentalInquiryAsync(HallRentalInquiry inquiry)
+        {
+            _context.HallRentalInquiries.Add(inquiry);
+            await _context.SaveChangesAsync();
         public async Task<List<DateTime>> GetReservedDatesAsync()
         {
             return await _context.AvailabilityCalendars
