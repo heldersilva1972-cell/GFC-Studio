@@ -1,5 +1,6 @@
 // [MODIFIED]
 using GFC.Core.Interfaces;
+using GFC.BlazorServer.Services.Camera;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
