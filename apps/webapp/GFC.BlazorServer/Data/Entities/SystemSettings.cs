@@ -69,6 +69,8 @@ public class SystemSettings
     public bool EnableSessionTimeout { get; set; } = true;
     public bool EnableFailedLoginProtection { get; set; } = true;
     public string IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
+    public int LoginLockDurationMinutes { get; set; } = 30;
+    public string WatermarkPosition { get; set; } = "BottomRight"; // TopLeft, TopRight, BottomLeft, BottomRight
     
     // Director Access Control
     public DateTime? DirectorAccessExpiryDate { get; set; }
