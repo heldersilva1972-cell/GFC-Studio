@@ -28,8 +28,13 @@ namespace GFC.Core.Models
         public string Data { get; set; }
         
         public string AnimationSettingsJson { get; set; }
+        feature/content-ingestion-engine-5389181148924895155
+        public string ComponentType { get; set; } = "TextBlock";
+
+        public string? AnimationSettings { get; set; }
 
         // --- Frontend / UI Compatibility Properties ---
+        master
 
         [NotMapped]
         public string AnimationSettings 
