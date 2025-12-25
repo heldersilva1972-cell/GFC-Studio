@@ -75,6 +75,7 @@ namespace GFC.BlazorServer.Services
                     };
 
                     context.StudioDrafts.Add(newDraft);
+                    var page = await context.StudioPages.FindAsync(pageId);
                     await context.SaveChangesAsync();
                     _logger.LogInformation($"Auto-saved draft for page {pageId}, version {newDraft.Version}");
                 }
@@ -82,7 +83,7 @@ namespace GFC.BlazorServer.Services
                 {
                     _logger.LogError(ex, $"Error auto-saving draft for page {pageId}");
                     // Re-add to the dictionary to try again later
-                    _dirtyPages[pageId] = contentJson;
+                    _dirtyPages[pageId] = (contentJson, userName);
                 }
             }
         }
