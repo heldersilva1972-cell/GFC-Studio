@@ -9,7 +9,10 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
+namespace GFC.BlazorServer.Services
 {
+    using Microsoft.AspNetCore.Http;
+
     public class PageService : IPageService
     {
         private readonly IDbContextFactory<GfcDbContext> _contextFactory;
