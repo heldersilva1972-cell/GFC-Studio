@@ -11,14 +11,20 @@ export const metadata: Metadata = {
 }
 
 async function getWebsiteSettings() {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/WebsiteSettings`, {
-        cache: 'no-store',
-    });
-    if (!res.ok) {
-        console.error('Failed to fetch website settings');
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
+    try {
+        const res = await fetch(`${baseUrl}/api/WebsiteSettings`, {
+            cache: 'no-store',
+        });
+        if (!res.ok) {
+            console.error(`Failed to fetch website settings from ${baseUrl}`);
+            return null;
+        }
+        return res.json();
+    } catch (error) {
+        console.warn('Could not fetch website settings, using defaults:', error);
         return null;
     }
-    return res.json();
 }
 
 export default async function RootLayout({

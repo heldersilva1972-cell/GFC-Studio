@@ -1,5 +1,5 @@
 // [MODIFIED]
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
 
 export async function getPageBySlug(slug: string) {
   // This function is mocked to allow frontend rendering without a live backend
@@ -35,18 +35,18 @@ export async function getPageBySlug(slug: string) {
 }
 
 export async function getEvents() {
-    console.log('Mocking API call for /api/content/events');
-    const mockEvents = [
-        { title: 'Community BBQ', eventDate: '2025-07-20T12:00:00Z', description: 'Join us for our annual summer BBQ.' },
-        { title: 'Holiday Party', eventDate: '2025-12-15T18:00:00Z', description: 'Celebrate the holidays with the community.' },
-    ];
-    return Promise.resolve(mockEvents);
+  console.log('Mocking API call for /api/content/events');
+  const mockEvents = [
+    { title: 'Community BBQ', eventDate: '2025-07-20T12:00:00Z', description: 'Join us for our annual summer BBQ.' },
+    { title: 'Holiday Party', eventDate: '2025-12-15T18:00:00Z', description: 'Celebrate the holidays with the community.' },
+  ];
+  return Promise.resolve(mockEvents);
 }
 
 export async function getRentalAvailability() {
-    console.log('Mocking API call for /api/content/rental-availability');
-    const mockAvailability = {
-        bookedDates: ['2025-08-01', '2025-08-15', '2025-09-05'],
-    };
-    return Promise.resolve(mockAvailability);
+  console.log('Mocking API call for /api/content/rental-availability');
+  const mockAvailability = {
+    bookedDates: ['2025-08-01', '2025-08-15', '2025-09-05'],
+  };
+  return Promise.resolve(mockAvailability);
 }
