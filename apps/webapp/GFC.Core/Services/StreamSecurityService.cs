@@ -22,8 +22,12 @@ namespace GFC.Core.Services
                 throw new ArgumentException("StreamSecurity:SecretKey must be configured and be at least 32 characters long.");
             }
             _secretKey = Encoding.UTF8.GetBytes(secret);
-            _tokenValiditySeconds = configuration.GetValue<int?>("StreamSecurity:TokenValiditySeconds") ?? 60;
-            _ipLockingEnabled = configuration.GetValue<bool?>("StreamSecurity:IPLockingEnabled") ?? false;
+            
+            var tokenValidityStr = configuration["StreamSecurity:TokenValiditySeconds"];
+            _tokenValiditySeconds = int.TryParse(tokenValidityStr, out var validity) ? validity : 60;
+            
+            var ipLockingStr = configuration["StreamSecurity:IPLockingEnabled"];
+            _ipLockingEnabled = bool.TryParse(ipLockingStr, out var ipLock) ? ipLock : false;
         }
 
         public string GenerateStreamToken(int cameraId, string ipAddress)

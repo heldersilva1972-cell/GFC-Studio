@@ -14,11 +14,11 @@ namespace GFC.BlazorServer.Services.Camera
     public class CameraService : ICameraService
     {
         private readonly GfcDbContext _context;
-        private readonly IStreamSecurityService _streamSecurityService;
+        private readonly GFC.Core.Interfaces.IStreamSecurityService _streamSecurityService;
         private readonly IConfiguration _configuration;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public CameraService(GfcDbContext context, IStreamSecurityService streamSecurityService, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
+        public CameraService(GfcDbContext context, GFC.Core.Interfaces.IStreamSecurityService streamSecurityService, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _streamSecurityService = streamSecurityService;
