@@ -5,6 +5,7 @@ using GFC.BlazorServer.Configuration;
 using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Services;
 using GFC.BlazorServer.Services.Camera;
+using GFC.BlazorServer.Services;
 using GFC.BlazorServer.Services.Core;
 using GFC.BlazorServer.Services.Dashboard;
 using GFC.BlazorServer.Services.Members;
@@ -197,6 +198,10 @@ public class Program
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
+builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
+builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
+builder.Services.AddSingleton<TunnelStatusService>();
+builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
@@ -344,6 +349,8 @@ public class Program
         app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
         app.MapHub<GFC.BlazorServer.Hubs.VideoAccessHub>("/videoaccesshub");
         app.MapFallbackToPage("/_Host");
+
+        app.MapGet("/health", () => Results.Ok());
 
         app.Run();
     }

@@ -1,5 +1,6 @@
 // [MODIFIED]
 using GFC.BlazorServer.Data.Entities;
+using GFC.BlazorServer.Data.Entities.Security;
 using GFC.Core.Models;
 using GFC.Core.Models.Diagnostics;
 using Microsoft.EntityFrameworkCore;

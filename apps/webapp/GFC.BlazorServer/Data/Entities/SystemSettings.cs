@@ -1,3 +1,5 @@
+// [MODIFIED]
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -16,13 +18,6 @@ public class SystemSettings
     public int Id { get; set; } = 1;
 
     /// <summary>
-    /// Canonical flag for controller mode selection.
-    /// When true, controller operations use real hardware via the real controller client.
-    /// When false, controller operations run exclusively through the simulation controller client without touching hardware.
-    /// Default: false (simulation mode) for safety.
-    /// </summary>
-
-    /// <summary>
     /// The ID of the controller designated as the system's primary card reader/scanner.
     /// </summary>
     public int? ScannerControllerId { get; set; }
@@ -32,7 +27,6 @@ public class SystemSettings
     /// </summary>
     public DateTime? LastUpdatedUtc { get; set; }
 
-    // [NEW] NVR/Camera Credentials for Auto-Discovery
     /// <summary>
     /// NVR IP Address for camera auto-discovery.
     /// </summary>
@@ -85,3 +79,13 @@ public class SystemSettings
     public DateTime? DirectorAccessExpiryDate { get; set; }
 }
 
+    // Cloudflare & WireGuard Remote Access Settings (Phase 1)
+    public string? LanSubnet { get; set; } = "192.168.1.0/24";
+    public string? WireGuardServerPublicKey { get; set; }
+    public string? CloudflareTunnelToken { get; set; }
+    public string? PublicDomain { get; set; }
+    [DefaultValue(51820)]
+    public int WireGuardPort { get; set; } = 51820;
+    [DefaultValue("10.8.0.0/24")]
+    public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
+}
