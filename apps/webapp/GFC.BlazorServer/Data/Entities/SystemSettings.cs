@@ -66,6 +66,9 @@ public class SystemSettings
     public bool EnableTwoFactorAuth { get; set; } = false;
     public bool EnableIPFiltering { get; set; } = false;
     public int MinimumBandwidthMbps { get; set; } = 5;
+    public bool EnableSessionTimeout { get; set; } = true;
+    public bool EnableFailedLoginProtection { get; set; } = true;
+    public string IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
     
     // Director Access Control
     public DateTime? DirectorAccessExpiryDate { get; set; }
