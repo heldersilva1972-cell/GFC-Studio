@@ -148,8 +148,8 @@ namespace GFC.BlazorServer.Data.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_Drafts_CreatedAt",
                 table: "Drafts",
-                column: "CreatedAt",
-                descending: true);
+                columns: new[] { "CreatedAt" },
+                descending: new[] { true });
 
             // Create Templates table
             migrationBuilder.CreateTable(
