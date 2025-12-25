@@ -95,6 +95,47 @@ public class UserRepository : IUserRepository
         }
     }
 
+    public async Task<AppUser?> GetByIdAsync(int userId)
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            await connection.OpenAsync();
+            const string sql = @"
+                SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId,
+                       CreatedDate, LastLoginDate, CreatedBy, Notes,
+                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired
+                FROM AppUsers
+                WHERE UserId = @UserId";
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@UserId", userId);
+            using var reader = await command.ExecuteReaderAsync();
+            return await reader.ReadAsync() ? MapReaderToUser(reader) : null;
+        }
+        catch (SqlException ex) when (ex.Number == 207) // Invalid column name
+        {
+            // Column doesn't exist yet - need to run migration script
+            // Try query without PasswordChangeRequired column
+            using var connection = Db.GetConnection();
+            await connection.OpenAsync();
+            const string sql = @"
+                SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId,
+                       CreatedDate, LastLoginDate, CreatedBy, Notes
+                FROM AppUsers
+                WHERE UserId = @UserId";
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@UserId", userId);
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var user = MapReaderToUserLegacy(reader);
+                user.PasswordChangeRequired = false; // Default value
+                return user;
+            }
+            return null;
+        }
+    }
+
     public AppUser? GetByMemberId(int memberId)
     {
         try

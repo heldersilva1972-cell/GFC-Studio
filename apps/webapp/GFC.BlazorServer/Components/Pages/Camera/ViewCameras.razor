@@ -4,12 +4,17 @@
 @inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
 @inject IJSRuntime JSRuntime
 @inject IConfiguration Configuration
+@inject INetworkLocationService NetworkLocationService
+@inject NavigationManager NavigationManager
+@inject IHttpContextAccessor HttpContextAccessor
 
 <PageTitle>Camera Monitor</PageTitle>
 
-<div class="camera-monitor-container">
-    <div class="sidebar">
-        <div class="sidebar-header">
+@if (_isAuthorized)
+{
+    <div class="camera-monitor-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
             <h3><i class="bi bi-camera-video"></i> Cameras</h3>
             <span class="badge bg-secondary">@(_cameras?.Count ?? 0)</span>
             <button class="btn btn-sm btn-link text-light ms-auto" @onclick="RefreshStatuses" title="Check Connection" style="margin-left: auto;">
@@ -126,9 +131,10 @@
                     <p>Timeline playback feature coming soon.</p>
                 </div>
             }
+            </div>
         </div>
     </div>
-</div>
+}
 
 @implements IDisposable
 @code {
@@ -141,8 +147,28 @@
     private string _errorMessage;
     private System.Threading.Timer _tokenRefreshTimer;
 
+    private bool _isAuthorized = false; // Prevent content rendering before check
+
     protected override async Task OnInitializedAsync()
     {
+        var httpContext = HttpContextAccessor.HttpContext;
+        var clientIp = httpContext?.Connection?.RemoteIpAddress?.ToString();
+
+        if (httpContext is null || clientIp is null)
+        {
+            _errorMessage = "Could not determine your network location.";
+            return;
+        }
+
+        _isAuthorized = await NetworkLocationService.IsAuthorizedForVideoAsync(clientIp);
+
+        if (!_isAuthorized)
+        {
+            var returnUrl = Uri.EscapeDataString(NavigationManager.Uri);
+            NavigationManager.NavigateTo($"/cameras/secure-access?returnUrl={returnUrl}", forceLoad: true);
+            return;
+        }
+
         try
         {
             _cameras = await CameraService.GetAllCamerasAsync();

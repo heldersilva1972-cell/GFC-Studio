@@ -1,0 +1,223 @@
+// [MODIFIED]
+
+@page "/cameras/secure-access"
+@layout FullPageLayout
+@inject IDeviceDetectionService DeviceDetectionService
+@inject IHttpContextAccessor HttpContextAccessor
+@inject NavigationManager NavigationManager
+@inject ISnackbar Snackbar
+@inject INetworkLocationService NetworkLocationService
+@inject IWireGuardManagementService WireGuardManagementService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+
+<MudContainer MaxWidth="MaxWidth.Medium">
+    <MudPaper Class="pa-8" Elevation="3">
+        @if (_verificationResult == VerificationState.Success)
+        {
+            <div class="text-center pa-8">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Style="font-size: 4rem;" />
+                <MudText Typo="Typo.h4" Class="mt-4">Secure Access Enabled</MudText>
+                <MudText Typo="Typo.body1" Class="mt-2 mb-4">You are now securely connected. Redirecting you back...</MudText>
+                <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+            </div>
+        }
+        else
+        {
+            <div class="d-flex justify-center mb-6">
+                <MudIcon Icon="@Icons.Material.Filled.Security" Size="Size.Large" Color="Color.Primary" />
+            </div>
+
+            <MudText Typo="Typo.h4" Align="Align.Center" GutterBottom="true">
+                Enable Secure Video Access
+            </MudText>
+
+            <MudText Typo="Typo.body1" Align="Align.Center" Class="mb-8">
+                For your security, viewing cameras from outside the club network requires a secure connection.
+                This simple, one-time setup takes less than 2 minutes.
+            </MudText>
+
+            <MudStepper @ref="_stepper" Linear="true" Variant="Variant.Outlined">
+                <MudStep Icon="@Icons.Material.Filled.InstallMobile" Title="Install App">
+                    <div class="pa-4 text-center">
+                        <MudText Class="mb-4">First, you'll need the free and secure access app for your device. Click the button below to install <strong>WireGuard</strong> from the official @(_deviceInfo?.OS) store.</MudText>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   Size="Size.Large"
+                                   Href="@(_deviceInfo?.AppStoreUrl)"
+                                   Target="_blank"
+                                   StartIcon="@GetPlatformIcon()">
+                            Install for @(_deviceInfo?.OS)
+                        </MudButton>
+                        <MudText Typo="Typo.caption" Class="mt-4">This will open in a new tab. Once installed, return here and click "Next".</MudText>
+                    </div>
+                </MudStep>
+                <MudStep Icon="@Icons.Material.Filled.Download" Title="Download Profile">
+                    <div class="pa-4 text-center">
+                        <MudText Class="mb-4">Next, download your unique, secure configuration file. This file tells the app how to connect to our secure server.</MudText>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Secondary"
+                                   Size="Size.Large"
+                                   OnClick="DownloadProfile"
+                                   StartIcon="@Icons.Material.Filled.Download"
+                                   Disabled="_isDownloading">
+                             @if (_isDownloading)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                <span>Generating...</span>
+                            }
+                            else
+                            {
+                                <span>Download My Secure Profile</span>
+                            }
+                        </MudButton>
+                        <MudText Typo="Typo.caption" Class="mt-4">After downloading, open the file with the WireGuard app to import it.</MudText>
+                    </div>
+                </MudStep>
+                <MudStep Icon="@Icons.Material.Filled.VerifiedUser" Title="Verify Connection">
+                    <div class="pa-4 text-center">
+                        <MudText Class="mb-4">Finally, after installing the app and importing your profile, turn on the connection in the WireGuard app and then click below to verify.</MudText>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Success"
+                                   Size="Size.Large"
+                                   OnClick="VerifyConnection"
+                                   StartIcon="@Icons.Material.Filled.VerifiedUser"
+                                   Disabled="@(_verificationResult == VerificationState.Verifying)">
+                            @if (_verificationResult == VerificationState.Verifying)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                <span>Verifying...</span>
+                            }
+                            else
+                            {
+                                <span>Verify My Connection</span>
+                            }
+                        </MudButton>
+                         @if (_verificationResult == VerificationState.Failed)
+                        {
+                            <div class="mt-4">
+                                <MudAlert Severity="Severity.Error" Class="mb-2">Secure connection not detected.</MudAlert>
+                                <MudLink Href="/docs/vpn-troubleshooting" Target="_blank">View Troubleshooting Guide</MudLink>
+                            </div>
+                        }
+                    </div>
+                </MudStep>
+            </MudStepper>
+
+            <div class="d-flex justify-space-between mt-8">
+                <MudButton OnClick="@(() => _stepper.Previous())" Disabled="@(_stepper?.ActiveStepIndex == 0)">
+                    Back
+                </MudButton>
+                <MudButton OnClick="@(() => _stepper.Next())" Disabled="@(_stepper?.ActiveStepIndex == _stepper?.Steps.Count - 1)">
+                    Next
+                </MudButton>
+            </div>
+        }
+    </Paper>
+
+    <div class="d-flex justify-center mt-4">
+        @if (_verificationResult != VerificationState.Success)
+        {
+            <MudLink Href="/" Typo="Typo.body2">Return to Dashboard</MudLink>
+        }
+    </div>
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string ReturnUrl { get; set; }
+
+    private MudStepper _stepper;
+    private DeviceInfo _deviceInfo;
+    private VerificationState _verificationResult = VerificationState.NotStarted;
+    private bool _isDownloading = false;
+    private VpnProfile _vpnProfile;
+
+    private enum VerificationState { NotStarted, Verifying, Success, Failed }
+
+    protected override void OnInitialized()
+    {
+        _deviceInfo = DeviceDetectionService.DetectDevice(HttpContextAccessor.HttpContext);
+    }
+
+    private string GetPlatformIcon()
+    {
+        return _deviceInfo?.OS switch
+        {
+            "iOS" => Icons.Custom.Brands.Apple,
+            "Android" => Icons.Custom.Brands.Android,
+            "Windows" => Icons.Custom.Brands.Windows,
+            "macOS" => Icons.Custom.Brands.Apple,
+            _ => Icons.Material.Filled.Devices
+        };
+    }
+
+    private async Task DownloadProfile()
+    {
+        _isDownloading = true;
+        StateHasChanged();
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            var userIdClaim = user.FindFirst("UserId");
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
+            {
+                Snackbar.Add("Error: Could not identify the current user.", Severity.Error);
+                return;
+            }
+
+            _vpnProfile = await WireGuardManagementService.GenerateProfileAsync(userId, _deviceInfo.OS, _deviceInfo.Type);
+            var configFileContent = await WireGuardManagementService.GenerateConfigFileAsync(_vpnProfile);
+
+            var fileName = $"GFC-Video-Access-{user.Identity.Name}.conf";
+            var fileStream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(configFileContent));
+
+            using var streamRef = new DotNetStreamReference(stream: fileStream);
+            await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+
+            Snackbar.Add("Profile download started.", Severity.Info);
+            _stepper.Next();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error generating profile: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isDownloading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task VerifyConnection()
+    {
+        _verificationResult = VerificationState.Verifying;
+        StateHasChanged();
+
+        var clientIp = HttpContextAccessor.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+        var isVpnConnected = await NetworkLocationService.IsAuthorizedForVideoAsync(clientIp);
+
+        if (isVpnConnected)
+        {
+            if(_vpnProfile != null)
+            {
+                await WireGuardManagementService.ActivateProfileAsync(_vpnProfile.Id);
+            }
+
+            _verificationResult = VerificationState.Success;
+            StateHasChanged();
+
+            await Task.Delay(2500); // Wait on success screen
+
+            var redirectUrl = !string.IsNullOrEmpty(ReturnUrl) ? Uri.UnescapeDataString(ReturnUrl) : "/cameras/view";
+            NavigationManager.NavigateTo(redirectUrl, forceLoad: true);
+        }
+        else
+        {
+            _verificationResult = VerificationState.Failed;
+            StateHasChanged();
+        }
+    }
+}
