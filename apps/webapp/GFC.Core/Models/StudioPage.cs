@@ -31,7 +31,12 @@ namespace GFC.Core.Models
         [StringLength(20)]
         public string Status { get; set; } = "Draft"; // Draft, Published, Archived
 
-        public bool IsPublished { get; set; }
+        [NotMapped]
+        public bool IsPublished 
+        { 
+            get => Status == "Published"; 
+            set => Status = value ? "Published" : "Draft";
+        }
 
         public DateTime? PublishedAt { get; set; }
 
