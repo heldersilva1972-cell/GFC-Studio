@@ -105,7 +105,23 @@
                 }
                 @if (activeToolboxTab == "elements")
                 {
-                    <p>Elements toolbox coming soon!</p>
+                    <div class="component-list-container">
+                        <div class="component-search-bar">
+                            <input type="text" class="form-control form-control-sm" placeholder="Search components..." />
+                        </div>
+                        <div class="component-list">
+                            @foreach (var component in availableComponents)
+                            {
+                                <div class="component-item" draggable="true" @ondragstart="@(() => HandleComponentDragStart(component))">
+                                    <span class="component-item-icon">@component.Icon</span>
+                                    <div class="component-item-text">
+                                        <div class="component-item-title">@component.Name</div>
+                                        <div class="component-item-description">@component.Description</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
                 }
             </div>
         </div>
@@ -128,7 +144,17 @@
             <StudioWizard @ref="studioWizard" TargetSection="selectedSection" />
             @if (!string.IsNullOrEmpty(lastWizardAction))
             {
-                <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
+                <div class="inspector-header">
+                    <h5>@selectedSection.ComponentType Properties</h5>
+                </div>
+                <div class="inspector-tabs">
+                    <button class="inspector-tab-button active">Content</button>
+                    <button class="inspector-tab-button">Style</button>
+                    <button class="inspector-tab-button">Animation</button>
+                </div>
+                <div class="inspector-content">
+                    @RenderPropertyEditor(selectedSection)
+                </div>
             }
         </div>
     </div>
@@ -327,6 +353,7 @@
     private string newTemplateCategory = "";
     private string lastWizardAction = "";
     private bool showHistory = false;
+    private Dictionary<string, string> heroSectionProperties = new();
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
@@ -366,8 +393,9 @@
     {
         if (selectedSection != null)
         {
-            lastUndoState = new StudioSection { Content = selectedSection.Content };
-            selectedSection.Content = newContent;
+            lastUndoState = new StudioSection { PropertiesJson = selectedSection.PropertiesJson };
+            // This needs to be updated to modify the JSON properties, not a simple string.
+            // selectedSection.PropertiesJson = newContent;
             lastWizardAction = $"Auto-Fix: {fixName}";
             MarkAsDirty();
             StateHasChanged();
@@ -508,11 +536,18 @@
     private void HandleDragStart(StudioTemplate template)
     {
         draggedTemplate = template;
+        draggedComponent = null;
     }
 
     private async Task HandleDrop()
     {
-        if (draggedTemplate != null)
+        // This is now handled by the JS interop
+    }
+
+    [JSInvokable]
+    public async Task HandleComponentDrop()
+    {
+        if (draggedComponent != null)
         {
             var newSection = JsonSerializer.Deserialize<StudioSection>(draggedTemplate.ContentJson);
             newSection.ClientId = Guid.NewGuid();
@@ -788,7 +823,55 @@
 
     private void AddSection()
     {
-        var newSection = new StudioSection
+        // This is now deprecated in favor of dragging components.
+        // var newSection = new StudioSection
+        // {
+        //     ClientId = Guid.NewGuid(),
+        //     PageIndex = sections.Count,
+        //     StudioPageId = PageId,
+        //     ComponentType = "TextBlock", // Default component
+        //     PropertiesJson = "{ \"text\": \"New Section\" }"
+        // };
+        // sections.Add(newSection);
+    }
+
+    private RenderFragment RenderPropertyEditor(StudioSection section) => builder =>
+    {
+        if (section.ComponentType == "HeroSection")
+        {
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "property-group");
+
+            builder.OpenElement(2, "label");
+            builder.AddAttribute(3, "for", "hero-headline");
+            builder.AddContent(4, "Headline");
+            builder.CloseElement();
+
+            builder.OpenElement(5, "input");
+            builder.AddAttribute(6, "type", "text");
+            builder.AddAttribute(7, "id", "hero-headline");
+            builder.AddAttribute(8, "class", "form-control");
+            builder.AddAttribute(9, "value", heroSectionProperties.GetValueOrDefault("Headline"));
+            builder.AddAttribute(10, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async e => await UpdateHeroProperty("Headline", (string)e.Value)));
+            builder.CloseElement();
+
+            builder.CloseElement();
+        }
+    };
+
+    private async Task UpdateHeroProperty(string key, string value)
+    {
+        heroSectionProperties[key] = value;
+        selectedSection.PropertiesJson = JsonSerializer.Serialize(heroSectionProperties);
+        await SaveDraft();
+        await JSRuntime.InvokeVoidAsync("studioInterop.refreshPreview");
+    }
+
+    [JSInvokable]
+    public void SelectComponent(string componentId)
+    {
+        var section = sections.FirstOrDefault(s => s.ClientId.ToString() == componentId);
+        if (section != null)
         {
             ClientId = Guid.NewGuid(),
             Title = "New Section",
