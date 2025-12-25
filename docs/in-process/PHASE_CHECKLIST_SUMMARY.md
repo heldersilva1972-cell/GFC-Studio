@@ -22,6 +22,7 @@ This document provides a high-level summary of the **Studio V2** and **New GFC W
 
 ### 💾 Phase 12: Page Management & Workflow
 *Goal: Multi-page handling and data safety.*
+- 📂 Folder: `PHASE_12_STUDIO_CMS_WORKFLOW`
 - [ ] Page switcher and creation wizard.
 - [ ] Debounced Auto-save to Drafts.
 - [ ] Version history with named snapshots and rollback.
@@ -29,6 +30,7 @@ This document provides a high-level summary of the **Studio V2** and **New GFC W
 
 ### 🎬 Phase 13: Animation Timeline & Global Styles
 *Goal: Professional motion and site-wide branding.*
+- 📂 Folder: `PHASE_13_STUDIO_ANIMATION_STYLING`
 - [ ] Layer-based Animation Timeline UI.
 - [ ] Framer Motion & GSAP entrance/scroll triggers.
 - [ ] Global Design Tokens (One-click color/font updates site-wide).
@@ -36,6 +38,7 @@ This document provides a high-level summary of the **Studio V2** and **New GFC W
 
 ### 🧰 Phase 14: Utility Suite (Forms, Assets & SEO)
 *Goal: Completing the daily management toolkit.*
+- 📂 Folder: `PHASE_14_STUDIO_UTILITIES_SEO`
 - [ ] Asset Manager with automatic WebP optimization.
 - [ ] Visual Form Builder for rentals and contact.
 - [ ] "Save & Resume" logic for incomplete rental forms.
@@ -43,6 +46,7 @@ This document provides a high-level summary of the **Studio V2** and **New GFC W
 
 ### 📥 Phase 15: Migration & Portability
 *Goal: Ingesting the old site and backing up the new one.*
+- 📂 Folder: `PHASE_15_STUDIO_MIGRATION_EXPORT`
 - [ ] URL Scraper for legacy content harvesting.
 - [ ] HTML-to-Block conversion engine.
 - [ ] Full-site Backup (.ZIP) and Static HTML export.
@@ -54,6 +58,7 @@ This document provides a high-level summary of the **Studio V2** and **New GFC W
 
 ### 🚀 Phase 11 Integration: "Modern Legacy" Design
 *Goal: Launching the high-performance public frontend.*
+- 📂 Folder: `PHASE_11_NEW_GFC_WEBSITE`
 - [ ] Midnight Blue & Burnished Gold aesthetic.
 - [ ] **Web App Controls:**
     - [ ] Live "Open/Closed" toggle.
@@ -64,6 +69,15 @@ This document provides a high-level summary of the **Studio V2** and **New GFC W
     - [ ] Smart Alert Routing (Choosing which Director gets notifications).
     - [ ] High-Accessibility toggle for members.
     - [ ] Secure Document Library (Role-based access).
+
+---
+
+## 🔒 Part 3: Camera Remote Access Security
+
+### 🛡️ Phase 16: Zero-Trust Security Infrastructure
+*Goal: Secure video viewing from anywhere.*
+- 📂 Folder: `PHASE_CAMERA_REMOTE_SECURITY`
+- [ ] Phase 1-9: Complete implementation of WireGuard, Cloudflare, and Token-based access.
 
 ---
 

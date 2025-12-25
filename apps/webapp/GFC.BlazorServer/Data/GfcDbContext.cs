@@ -18,6 +18,7 @@ public class GfcDbContext : DbContext
     public DbSet<ControllerLastIndex> ControllerLastIndexes => Set<ControllerLastIndex>();
     public DbSet<ControllerCommandInfo> ControllerCommandInfos => Set<ControllerCommandInfo>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
+    public DbSet<SpecialEvent> SpecialEvents => Set<SpecialEvent>();
     public DbSet<GFC.BlazorServer.Data.Entities.TimeProfile> TimeProfiles => Set<GFC.BlazorServer.Data.Entities.TimeProfile>();
     public DbSet<TimeProfileInterval> TimeProfileIntervals => Set<TimeProfileInterval>();
     public DbSet<ControllerTimeProfileLink> ControllerTimeProfileLinks => Set<ControllerTimeProfileLink>();
@@ -61,6 +62,7 @@ public class GfcDbContext : DbContext
     public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
     public DbSet<StudioLock> StudioLocks => Set<StudioLock>();
     public DbSet<StudioTemplate> StudioTemplates => Set<StudioTemplate>();
+    public DbSet<StudioSetting> StudioSettings => Set<StudioSetting>();
     public DbSet<HallRental> HallRentals => Set<HallRental>();
     public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
@@ -71,6 +73,17 @@ public class GfcDbContext : DbContext
     public DbSet<EventPromotion> EventPromotions => Set<EventPromotion>();
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
+
+    // Phase 14: Integrated Utility Suite
+    public DbSet<AssetFolder> AssetFolders => Set<AssetFolder>();
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaRendition> MediaRenditions => Set<MediaRendition>();
+    public DbSet<Form> Forms => Set<Form>();
+    public DbSet<FormField> FormFields => Set<FormField>();
+    public DbSet<FormSubmission> FormSubmissions => Set<FormSubmission>();
+    public DbSet<HallRentalInquiry> HallRentalInquiries => Set<HallRentalInquiry>();
+    public DbSet<SeoSettings> SeoSettings => Set<SeoSettings>();
+    public DbSet<ProtectedDocument> ProtectedDocuments => Set<ProtectedDocument>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -129,6 +142,16 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("Holidays");
             entity.HasIndex(h => h.Date);
+        });
+
+        modelBuilder.Entity<SpecialEvent>(entity =>
+        {
+            entity.ToTable("SpecialEvents");
+            entity.HasIndex(e => e.Date);
+            entity.HasOne(e => e.TimeProfile)
+                .WithMany()
+                .HasForeignKey(e => e.TimeProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ControllerTimeProfileLink>(entity =>
@@ -434,30 +457,54 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // GFC Ecosystem Foundation
+        // GFC Ecosystem Foundation / Studio V2
         modelBuilder.Entity<StudioPage>(entity =>
         {
-            entity.ToTable("StudioPages");
+            entity.ToTable("Pages");
+
+            entity.HasIndex(p => p.Slug).IsUnique();
+            entity.HasIndex(p => p.Status);
+            entity.HasIndex(p => p.IsDeleted);
+            entity.Ignore(p => p.IsPublished);
+
             entity.HasMany(p => p.Sections)
                 .WithOne(s => s.StudioPage)
                 .HasForeignKey(s => s.StudioPageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(p => p.Drafts)
+                .WithOne(d => d.StudioPage)
+                .HasForeignKey(d => d.PageId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StudioSection>(entity =>
         {
-            entity.ToTable("StudioSections");
+            entity.ToTable("Sections");
+
+            entity.HasIndex(s => s.OrderIndex);
+            entity.HasIndex(s => s.ComponentType);
         });
 
         modelBuilder.Entity<StudioDraft>(entity =>
         {
-            entity.ToTable("StudioDrafts");
+            entity.ToTable("Drafts");
+
+            entity.HasOne(d => d.StudioPage)
+                  .WithMany(p => p.Drafts)
+                  .HasForeignKey(d => d.PageId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(d => new { d.PageId, d.Version }).IsDescending(false, true);
+            entity.HasIndex(d => d.CreatedAt).IsDescending();
         });
 
         modelBuilder.Entity<StudioTemplate>(entity =>
         {
-            entity.ToTable("StudioTemplates");
+            entity.ToTable("Templates");
             entity.HasIndex(t => t.Category);
+            entity.HasIndex(t => t.CreatedBy);
+            entity.HasIndex(t => t.UsageCount).IsDescending();
         });
 
         modelBuilder.Entity<HallRental>(entity =>
@@ -503,6 +550,63 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<WebsiteSettings>(entity =>
         {
             entity.ToTable("WebsiteSettings");
+        });
+
+        modelBuilder.Entity<StudioSetting>(entity =>
+        {
+            entity.ToTable("StudioSettings");
+            entity.HasIndex(s => s.SettingKey).IsUnique();
+        });
+
+        // Phase 14: Integrated Utility Suite
+        modelBuilder.Entity<MediaAsset>(entity =>
+        {
+            entity.ToTable("MediaAssets");
+            entity.HasMany(a => a.Renditions)
+                .WithOne(r => r.MediaAsset)
+                .HasForeignKey(r => r.MediaAssetId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MediaRendition>(entity =>
+        {
+            entity.ToTable("MediaRenditions");
+        });
+
+        modelBuilder.Entity<Form>(entity =>
+        {
+            entity.ToTable("Forms");
+            entity.HasMany(f => f.FormFields)
+                .WithOne(ff => ff.Form)
+                .HasForeignKey(ff => ff.FormId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FormField>(entity =>
+        {
+            entity.ToTable("FormFields");
+        });
+
+        modelBuilder.Entity<FormSubmission>(entity =>
+        {
+            entity.ToTable("FormSubmissions");
+        });
+
+        modelBuilder.Entity<HallRentalInquiry>(entity =>
+        {
+            entity.ToTable("HallRentalInquiries");
+            entity.HasIndex(i => i.ResumeToken).IsUnique();
+        });
+
+        modelBuilder.Entity<SeoSettings>(entity =>
+        {
+            entity.ToTable("SeoSettings");
+            entity.HasIndex(s => s.StudioPageId).IsUnique();
+        });
+
+        modelBuilder.Entity<ProtectedDocument>(entity =>
+        {
+            entity.ToTable("ProtectedDocuments");
         });
     }
 
