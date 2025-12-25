@@ -30,6 +30,8 @@ namespace GFC.Core.Models
         [StringLength(20)]
         public string Status { get; set; } = "Draft"; // Draft, Published, Archived
 
+        public bool IsPublished { get; set; }
+
         public DateTime? PublishedAt { get; set; }
 
         [StringLength(100)]
