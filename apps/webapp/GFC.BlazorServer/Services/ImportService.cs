@@ -65,8 +65,8 @@ namespace GFC.BlazorServer.Services
 
                 var newPage = new StudioPage
                 {
-                    Name = pageTitle,
-                    Route = await _studioService.GenerateUniqueRouteAsync(pageTitle),
+                    Title = pageTitle,
+                    Slug = GenerateUniqueSlug(pageTitle),
                     Sections = studioSections
                 };
 
@@ -125,7 +125,7 @@ namespace GFC.BlazorServer.Services
             for (int i = 0; i < sections.Count; i++)
             {
                 sections[i].Content = _htmlSanitizer.Sanitize(sections[i].Content);
-                sections[i].Order = i;
+                sections[i].OrderIndex = i;
             }
 
             if (!sections.Any())
@@ -134,9 +134,9 @@ namespace GFC.BlazorServer.Services
                 var sanitizedContent = _htmlSanitizer.Sanitize(body.InnerHtml);
                 sections.Add(new StudioSection
                 {
-                    ComponentName = "RawHtml",
+                    ComponentType = "RawHtml",
                     Content = sanitizedContent,
-                    Order = 0
+                    OrderIndex = 0
                 });
             }
 
@@ -237,6 +237,14 @@ namespace GFC.BlazorServer.Services
             {
                 onLog($"Failed to download or save asset from {url}. Error: {ex.Message}");
             }
+        }
+
+        private string GenerateUniqueSlug(string title)
+        {
+            var slug = title.ToLower().Replace(" ", "-").Replace("&", "and");
+            slug = Regex.Replace(slug, @"[^a-z0-9\-]", ""); // Remove invalid chars
+            slug = Regex.Replace(slug, @"-+", "-").Trim('-'); // Remove duplicate/trailing dashes
+            return $"{slug}-{Guid.NewGuid().ToString().Substring(0, 8)}";
         }
 
         private class ScrapeResult

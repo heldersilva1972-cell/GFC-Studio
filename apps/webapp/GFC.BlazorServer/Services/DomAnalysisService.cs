@@ -101,9 +101,9 @@ namespace GFC.BlazorServer.Services
 
             return new StudioSection
             {
-                ComponentName = componentName,
+                ComponentType = componentName,
                 Content = element.OuterHtml,
-                Order = 0 // Will be set by the caller
+                OrderIndex = 0 // Will be set by the caller
             };
         }
     }
