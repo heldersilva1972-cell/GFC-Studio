@@ -170,6 +170,8 @@ public class Program
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
+        builder.Services.AddScoped<IStudioService, StudioService>();
+        builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IPageService, PageService>();
         builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
         
