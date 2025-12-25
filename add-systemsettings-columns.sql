@@ -26,6 +26,28 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardSubnet')
     ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardSubnet] NVARCHAR(50) NULL;
 
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LanSubnet')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LanSubnet] NVARCHAR(50) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'NvrIpAddress')
+    ALTER TABLE [dbo].[SystemSettings] ADD [NvrIpAddress] NVARCHAR(255) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'NvrPort')
+    ALTER TABLE [dbo].[SystemSettings] ADD [NvrPort] INT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'NvrUsername')
+    ALTER TABLE [dbo].[SystemSettings] ADD [NvrUsername] NVARCHAR(255) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'NvrPassword')
+    ALTER TABLE [dbo].[SystemSettings] ADD [NvrPassword] NVARCHAR(500) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'ScannerControllerId')
+    ALTER TABLE [dbo].[SystemSettings] ADD [ScannerControllerId] INT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LastUpdatedUtc')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LastUpdatedUtc] DATETIME2 NULL;
+GO
+
 -- Step B: Ensure the row with Id=1 exists
 IF NOT EXISTS (SELECT * FROM [dbo].[SystemSettings] WHERE Id = 1)
 BEGIN
@@ -34,6 +56,7 @@ BEGIN
     SET IDENTITY_INSERT [dbo].[SystemSettings] OFF;
     PRINT 'Created initial SystemSettings row (Id=1)';
 END
+GO
 
 -- Step C: Now add remaining missing columns
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'DirectorAccessExpiryDate')
@@ -83,6 +106,7 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WatermarkPosition')
     ALTER TABLE [dbo].[SystemSettings] ADD [WatermarkPosition] NVARCHAR(50) NULL;
+GO
 
 -- Step D: Populate existing NULLs with defaults
 PRINT 'Populating defaults...';
@@ -105,8 +129,10 @@ UPDATE [dbo].[SystemSettings] SET
     [MinimumBandwidthMbps] = ISNULL([MinimumBandwidthMbps], 5),
     [RemoteQualityMaxBitrate] = ISNULL([RemoteQualityMaxBitrate], 2000),
     [SessionTimeoutMinutes] = ISNULL([SessionTimeoutMinutes], 30),
-    [WatermarkPosition] = ISNULL([WatermarkPosition], 'BottomRight')
+    [WatermarkPosition] = ISNULL([WatermarkPosition], 'BottomRight'),
+    [LanSubnet] = ISNULL([LanSubnet], '192.168.1.0/24')
 WHERE Id = 1;
+GO
 
 -- Step E: Enforce NOT NULL constraints where required
 PRINT 'Enforcing NOT NULL constraints...';

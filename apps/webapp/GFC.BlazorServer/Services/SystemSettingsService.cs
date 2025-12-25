@@ -85,6 +85,7 @@ public class SystemSettingsService : ISystemSettingsService
         existingSettings.PublicDomain = settings.PublicDomain;
         existingSettings.WireGuardPort = settings.WireGuardPort;
         existingSettings.WireGuardSubnet = settings.WireGuardSubnet;
+        existingSettings.LanSubnet = settings.LanSubnet;
 
         // User & Permission Management
         existingSettings.DirectorAccessExpiryDate = settings.DirectorAccessExpiryDate;
