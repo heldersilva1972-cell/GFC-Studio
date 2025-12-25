@@ -63,6 +63,7 @@ public class GfcDbContext : DbContext
     // Camera Security & Remote Access
     public DbSet<VpnSession> VpnSessions => Set<VpnSession>();
     public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
+    public DbSet<AuthorizedUser> AuthorizedUsers => Set<AuthorizedUser>();
 
     // GFC Ecosystem Foundation
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();

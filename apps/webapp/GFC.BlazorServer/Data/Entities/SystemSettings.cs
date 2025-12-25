@@ -61,5 +61,8 @@ public class SystemSettings
     public string? WireGuardServerPublicKey { get; set; }
     public string WireGuardAllowedIPs { get; set; } = "10.8.0.0/24, 192.168.1.0/24";
     public int MaxSimultaneousViewers { get; set; } = 10;
+    
+    // Security Settings
+    public bool EnableTwoFactorAuth { get; set; } = false;
 }
 
