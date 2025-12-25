@@ -129,7 +129,7 @@ namespace GFC.BlazorServer.Services.Camera
             if (!string.IsNullOrEmpty(filter))
             {
                 query = query.Where(a =>
-                    a.User.UserName.Contains(filter) ||
+                    a.User.Username.Contains(filter) ||
                     a.AccessType.Contains(filter) ||
                     a.CameraName.Contains(filter) ||
                     a.ClientIP.Contains(filter));
@@ -151,7 +151,7 @@ namespace GFC.BlazorServer.Services.Camera
                                    .Take(pageSize)
                                    .ToListAsync();
 
-            return new PagedResult<VideoAccessAudit> { Items = items, TotalCount = totalCount };
+            return new PagedResult<VideoAccessAudit>(items, totalCount, page, pageSize);
         }
 
         public async Task LogVideoAccessAsync(VideoAccessAudit logEntry)
