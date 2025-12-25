@@ -1,7 +1,3 @@
-feature/gfc-studio-phase-1-668448862994436057
-// [MODIFIED]
-
-master
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -15,64 +11,41 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
-       feature/gfc-studio-phase-1-668448862994436057
-        [ForeignKey("StudioPage")]
-        public int PageId { get; set; }
+        [Required]
+        public int StudioPageId { get; set; }
+
+        [ForeignKey("StudioPageId")]
         public virtual StudioPage StudioPage { get; set; }
 
         [Required]
         [StringLength(100)]
-        public string ComponentType { get; set; } = string.Empty;
+        public string ComponentType { get; set; } = "TextBlock";
 
         public int OrderIndex { get; set; } = 0;
 
         [Required]
-        public string ContentJson { get; set; } = "{}";
+        public string Data { get; set; } = "{}";
 
-        public string? StylesJson { get; set; }
+        public string? AnimationSettingsJson { get; set; }
 
-        public string? AnimationJson { get; set; }
-
-        public string? ResponsiveJson { get; set; }
-
-        public bool IsVisible { get; set; } = true;
-
-        public bool VisibleOnDesktop { get; set; } = true;
-
-        public bool VisibleOnTablet { get; set; } = true;
-
-        public bool VisibleOnMobile { get; set; } = true;
-
+        // --- Metadata ---
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         [Required]
         [StringLength(100)]
-        public string CreatedBy { get; set; } = string.Empty;
+        public string CreatedBy { get; set; } = "System";
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
         [Required]
         [StringLength(100)]
-        public string UpdatedBy { get; set; } = string.Empty;
+        public string UpdatedBy { get; set; } = "System";
 
-        [Required]
-        public int StudioPageId { get; set; }
-
-        [ForeignKey("StudioPageId")]
-        public StudioPage StudioPage { get; set; }
-
-        [Required]
-        [StringLength(50)]
-        public string Type { get; set; }
-
-        [Required]
-        public int OrderIndex { get; set; }
-
-        // Backing field for general content/properties
-        public string Data { get; set; }
-        
-        public string? AnimationSettingsJson { get; set; }
-        public string ComponentType { get; set; } = "TextBlock";
+        // --- Visibility Controls ---
+        public bool IsVisible { get; set; } = true;
+        public bool VisibleOnDesktop { get; set; } = true;
+        public bool VisibleOnTablet { get; set; } = true;
+        public bool VisibleOnMobile { get; set; } = true;
 
         // --- Frontend / UI Compatibility Properties ---
 
@@ -87,10 +60,17 @@ namespace GFC.Core.Models
         public Guid ClientId { get; set; } = Guid.NewGuid();
 
         [NotMapped]
+        public string Type 
+        { 
+            get => ComponentType; 
+            set => ComponentType = value; 
+        }
+
+        [NotMapped]
         public string sectionType 
         { 
-            get => Type; 
-            set => Type = value; 
+            get => ComponentType; 
+            set => ComponentType = value; 
         }
 
         [NotMapped]
@@ -140,8 +120,7 @@ namespace GFC.Core.Models
                 }
                 catch { /* ignore serialization errors */ }
             }
-            if (string.IsNullOrEmpty(Title)) Title = Type;
+            if (string.IsNullOrEmpty(Title)) Title = ComponentType;
         }
- master
     }
 }
