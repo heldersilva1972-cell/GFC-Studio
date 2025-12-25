@@ -1,10 +1,10 @@
+extern alias IPNetwork2Alias;
 // [MODIFIED]
 using GFC.Core.Models;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using GFC.BlazorServer.Data;
@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NSec.Cryptography;
 using Microsoft.AspNetCore.DataProtection;
+using System.Net;
+using IPNetwork = IPNetwork2Alias::System.Net.IPNetwork;
 
 namespace GFC.BlazorServer.Services
 {
@@ -182,10 +184,11 @@ namespace GFC.BlazorServer.Services
             var settings = await _dbContext.SystemSettings.FindAsync(1) ?? throw new InvalidOperationException("System settings not found.");
             var subnet = IPNetwork.Parse(settings.WireGuardSubnet);
 
-            var usedIps = await _dbContext.VpnProfiles
+            var usedIps = (await _dbContext.VpnProfiles
                 .Where(p => p.RevokedAt == null)
                 .Select(p => p.AssignedIP)
-                .ToHashSetAsync();
+                .ToListAsync())
+                .ToHashSet();
 
             foreach (var ip in subnet.ListIPAddress().Skip(2))
             {
