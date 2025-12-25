@@ -13,10 +13,10 @@ namespace GFC.BlazorServer.Controllers
     [Route("api/studio")]
     public class StudioApiController : ControllerBase
     {
-        private readonly IStudioService _studioService;
+        private readonly GFC.BlazorServer.Services.IStudioService _studioService;
         private readonly ILogger<StudioApiController> _logger;
 
-        public StudioApiController(IStudioService studioService, ILogger<StudioApiController> logger)
+        public StudioApiController(GFC.BlazorServer.Services.IStudioService studioService, ILogger<StudioApiController> logger)
         {
             _studioService = studioService;
             _logger = logger;
