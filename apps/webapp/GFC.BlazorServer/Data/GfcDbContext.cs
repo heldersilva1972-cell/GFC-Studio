@@ -444,30 +444,53 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // GFC Ecosystem Foundation
+        // GFC Ecosystem Foundation / Studio V2
         modelBuilder.Entity<StudioPage>(entity =>
         {
-            entity.ToTable("StudioPages");
+            entity.ToTable("Pages");
+
+            entity.HasIndex(p => p.Slug).IsUnique();
+            entity.HasIndex(p => p.Status);
+            entity.HasIndex(p => p.IsDeleted);
+
             entity.HasMany(p => p.Sections)
                 .WithOne(s => s.StudioPage)
                 .HasForeignKey(s => s.StudioPageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(p => p.Drafts)
+                .WithOne(d => d.StudioPage)
+                .HasForeignKey(d => d.PageId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StudioSection>(entity =>
         {
-            entity.ToTable("StudioSections");
+            entity.ToTable("Sections");
+
+            entity.HasIndex(s => s.OrderIndex);
+            entity.HasIndex(s => s.ComponentType);
         });
 
         modelBuilder.Entity<StudioDraft>(entity =>
         {
-            entity.ToTable("StudioDrafts");
+            entity.ToTable("Drafts");
+
+            entity.HasOne(d => d.StudioPage)
+                  .WithMany(p => p.Drafts)
+                  .HasForeignKey(d => d.PageId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(d => new { d.PageId, d.Version }).IsDescending(false, true);
+            entity.HasIndex(d => d.CreatedAt).IsDescending();
         });
 
         modelBuilder.Entity<StudioTemplate>(entity =>
         {
-            entity.ToTable("StudioTemplates");
+            entity.ToTable("Templates");
             entity.HasIndex(t => t.Category);
+            entity.HasIndex(t => t.CreatedBy);
+            entity.HasIndex(t => t.UsageCount).IsDescending();
         });
 
         modelBuilder.Entity<HallRental>(entity =>

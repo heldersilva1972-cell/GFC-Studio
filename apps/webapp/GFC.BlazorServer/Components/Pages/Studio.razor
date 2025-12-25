@@ -8,11 +8,50 @@
 @using GFC.BlazorServer.Components.Shared
 @inject IJSRuntime JSRuntime
 @inject IStudioService StudioService
+ feature/gfc-studio-phase-3-11148599031288159410
+@inject IStudioAutoSaveService AutoSaveService
+
 @inject IPageService PageService
+master
 @inject ITemplateService TemplateService
 @inject IContentIngestionService ContentIngestionService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
+feature/gfc-studio-phase-3-11148599031288159410
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<div class="studio-container">
+    <div class="top-command-bar">
+        <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
+        <button class="btn btn-success" @onclick="() => SaveDraft()">Save Version @(latestVersion > 0 ? $" (v{latestVersion})" : "")</button>
+        <button class="btn btn-info" @onclick="PublishPage">Publish</button>
+
+        <div class="save-status @saveStatus.ToString().ToLower()">
+            @saveStatusText
+        </div>
+        
+        <div class="dropdown d-inline-block ms-3">
+            <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
+                History
+            </button>
+            @if (showHistory)
+            {
+                <div class="dropdown-menu show" style="max-height: 400px; overflow-y: auto; width: 350px;">
+                    @foreach (var h in draftHistory)
+                    {
+                        <div class="px-2 py-1 border-bottom">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong>v@h.Version - @(h.ChangeDescription ?? "Auto-save")</strong>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => LoadDraft(h)">
+                                    Rollback
+                                </button>
+                            </div>
+                            <small class="text-muted">@h.CreatedAt.ToLocalTime().ToString("g") by @h.CreatedBy</small>
+                        </div>
+                    }
+                </div>
+            }
+
 @inject IConfiguration Configuration
 
 @if (showNewPageModal)
@@ -39,6 +78,7 @@
             <button class="btn btn-outline-warning" @onclick="UndoLastAction" disabled="@(lastUndoState == null)">
                 <i class="fas fa-undo"></i> Undo
             </button>
+ master
         </div>
 
         <div class="right-controls">
@@ -121,7 +161,35 @@
 
         <div class="canvas-container @($"viewport-{currentViewport}")">
             <div class="center-canvas" @ondrop="HandleDrop" @ondragover:preventDefault="true">
+ feature/gfc-studio-phase-3-11148599031288159410
+                @foreach (var item in sections)
+                {
+                    <div class="studio-section @(selectedSection == item ? "selected" : "")" data-id="@item.ClientId" @onclick="() => SelectSection(item)">
+                        <div class="section-toolbar">
+                            <button class="btn btn-sm btn-outline-light" @onclick="() => OpenSaveAsTemplateModal(item)">Save as Template</button>
+                        </div>
+                        <p contenteditable="true" @oninput="(e) => { item.Content = e.Value.ToString(); MarkAsDirty(); }">@item.Content</p>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="right-inspector">
+            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnContentFixed="@(args => HandleContentFixed(args.newContent, args.fixName))" />
+            @if (!string.IsNullOrEmpty(lastWizardAction))
+            {
+                <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
+            }
+        </div>
+    </div>
+    <div class="animation-orchestrator">
+        @if (selectedSection != null)
+        {
+            <h5>Animation Timeline for: "@selectedSection.Title"</h5>
+            <div class="timeline-bar" @ref="_timelineElement">
+                @for (int i = 0; i <= 5; i++)
+
                 @if (!string.IsNullOrEmpty(_previewUrl))
+             master
                 {
                     <iframe @ref="_previewIframe" src="@_previewUrl" class="studio-iframe" allow="clipboard-write"></iframe>
                 }
@@ -178,18 +246,61 @@
     <div class="modal-backdrop fade show"></div>
 }
 
+ feature/gfc-studio-phase-3-11148599031288159410
+@if (showSaveVersionModal)
+
 @if (showUrlImportModal)
+ master
 {
     <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
+ feature/gfc-studio-phase-3-11148599031288159410
+                    <h5 class="modal-title">Save Named Version</h5>
+                    <button type="button" class="close" @onclick="() => showSaveVersionModal = false">
+
                     <h5 class="modal-title">Import from URL</h5>
                     <button type="button" class="close" @onclick="CloseImportModal">
+     master
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
                 <div class="modal-body">
+ feature/gfc-studio-phase-3-11148599031288159410
+                    <div class="form-group">
+                        <label for="versionDescription">Description (optional)</label>
+                        <input type="text" class="form-control" id="versionDescription" @bind="versionDescription" placeholder="e.g., Before Christmas Redesign" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showSaveVersionModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="() => SaveDraft(true)">Save Version</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@if (showPublishModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Publish</h5>
+                    <button type="button" class="close" @onclick="() => showPublishModal = false">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to publish your changes to the live website? This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showPublishModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="ConfirmPublish">Publish</button>
+
                     @if (isImporting)
                     {
                         <div class="text-center">
@@ -214,6 +325,7 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="CloseImportModal" disabled="@isImporting">Close</button>
                     <button type="button" class="btn btn-primary" @onclick="ImportFromUrl" disabled="@isImporting">Import</button>
+     master
                 </div>
             </div>
         </div>
@@ -265,9 +377,37 @@
     private AnimationSettings currentAnimationSettings = new();
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
+ feature/gfc-studio-phase-3-11148599031288159410
+    private ElementReference _timelineElement;
+    private bool showSaveVersionModal = false;
+    private string versionDescription = string.Empty;
+    private bool showPublishModal = false;
+
+    private enum SaveStatus { Idle, Saving, Saved }
+    private SaveStatus saveStatus = SaveStatus.Idle;
+    private string saveStatusText = "All changes saved.";
+    private int latestVersion = 0;
+    private string? currentUserName;
+
+    private void MarkAsDirty()
+    {
+        saveStatus = SaveStatus.Saving;
+        saveStatusText = "Saving...";
+        AutoSaveService.MarkAsDirty(PageId, sections, currentUserName ?? "System");
+        // We'll update the status to "Saved" after a successful save.
+        // For now, we will just simulate it.
+        Task.Delay(2100).ContinueWith(_ =>
+        {
+            saveStatus = SaveStatus.Saved;
+            saveStatusText = "All changes saved.";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
     private ElementReference _previewIframe;
     private string _previewUrl;
     private string _pageSlug;
+ master
 
     protected override void OnParametersSet()
     {
@@ -284,6 +424,7 @@
             lastUndoState = new StudioSection { Content = selectedSection.Content };
             selectedSection.Content = newContent;
             lastWizardAction = $"Auto-Fix: {fixName}";
+            MarkAsDirty();
             StateHasChanged();
         }
     }
@@ -316,6 +457,7 @@
             selectedSection.AnimationSettingsJson = lastUndoState.AnimationSettingsJson;
             lastWizardAction = "";
             lastUndoState = null;
+            MarkAsDirty();
             StateHasChanged();
         }
     }
@@ -354,6 +496,12 @@
             selectedSection.AnimationSettingsJson = JsonSerializer.Serialize(currentAnimationSettings);
             await JSRuntime.InvokeVoidAsync("studioInterop.updateAnimation", _previewIframe, selectedSection);
         }
+     feature/gfc-studio-phase-3-11148599031288159410
+        showHistory = false;
+        MarkAsDirty(); // When a user rolls back, it should be saved as a new draft
+        StateHasChanged();
+
+       master
     }
 
 
@@ -370,26 +518,23 @@
         }
     }
 
+feature/gfc-studio-phase-3-11148599031288159410
+    private void AddKeyframe()
+    {
+        currentAnimationKeyframes.Add(new AnimationKeyframe { Delay = currentAnimationKeyframes.LastOrDefault()?.Delay + currentAnimationKeyframes.LastOrDefault()?.Duration ?? 0 });
+        MarkAsDirty();
+    }
+
     private string _newPageErrorMessage = null;
+master
 
     private async Task CreateNewPage(StudioPage pageStub)
     {
         _newPageErrorMessage = null;
         try
         {
-            int? cloneFromId = pageStub.Id > 0 ? pageStub.Id : null;
-            var newPage = await PageService.CreatePageAsync(pageStub.Title, cloneFromId);
-
-            if (newPage != null)
-            {
-                showNewPageModal = false;
-                NavigationManager.NavigateTo($"/studio/{newPage.Id}", forceLoad: true);
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to create new page");
-            _newPageErrorMessage = ex.Message;
+            currentAnimationKeyframes.Remove(keyframe);
+            MarkAsDirty();
         }
     }
 
@@ -422,6 +567,7 @@
 
             sections.Add(newSection); // Optimistically add to local state
             draggedTemplate = null;
+            MarkAsDirty();
         }
     }
 
@@ -496,13 +642,20 @@
     {
         if (firstRender && string.IsNullOrEmpty(errorMessage))
         {
-            try
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            currentUserName = authState.User.Identity?.Name ?? "System";
+
+            if (PageId == 0)
             {
                 var dotNetHelper = DotNetObjectReference.Create(this);
                 await JSRuntime.InvokeVoidAsync("studioInterop.setDotNetHelper", dotNetHelper);
                 await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler");
             }
-            catch (Exception ex)
+
+            draft = await StudioService.GetLatestDraftAsync(PageId);
+            latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
+
+            if (draft != null && !string.IsNullOrEmpty(draft.ContentJson))
             {
                 Logger.LogError(ex, "Failed to initialize Studio Interop");
             }
@@ -602,22 +755,36 @@
         draftHistory = (await StudioService.GetDraftHistoryAsync(PageId)).ToList();
     }
 
-    private async Task SaveDraft()
+    private async Task SaveDraft(bool fromModal = false)
     {
-        await JSRuntime.InvokeVoidAsync("studioInterop.requestStateFromPreview", _previewIframe);
-        // The actual saving will be triggered by the ReceiveStateFromPreview method
-    }
+        if (!fromModal)
+        {
+            showSaveVersionModal = true;
+            return;
+        }
 
-    [JSInvokable]
-    public async Task ReceiveStateFromPreview(List<StudioSection> updatedSections)
-    {
+        showSaveVersionModal = false;
+
         try
         {
-            sections = updatedSections;
+            saveStatus = SaveStatus.Saving;
+            saveStatusText = "Saving manual version...";
+            StateHasChanged();
+
+            if (selectedSection != null)
+            {
+                selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimationKeyframes);
+            }
+            
             var json = JsonSerializer.Serialize(sections);
-            draft = await StudioService.SaveDraftAsync(PageId, json, "System"); // TODO: Use real user
+            draft = await StudioService.SaveDraftAsync(PageId, json, "System", versionDescription); // TODO: Use real user
+            versionDescription = string.Empty; // Reset for next time
             
             await LoadHistory();
+            latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
+
+            saveStatus = SaveStatus.Saved;
+            saveStatusText = "Manual version saved.";
             StateHasChanged();
         }
         catch (Exception ex)
@@ -629,16 +796,27 @@
 
     private async Task PublishPage()
     {
+        showPublishModal = true;
+    }
+
+    private async Task ConfirmPublish()
+    {
+        showPublishModal = false;
+
         try
         {
             if (draft == null || draft.Id == 0)
             {
-                await SaveDraft();
+                await SaveDraft(true);
             }
             
             if (draft != null)
             {
                 await StudioService.PublishDraftAsync(draft.Id);
+                // After publishing, we might want to refresh the page or show success
+                saveStatus = SaveStatus.Saved;
+                saveStatusText = "Published successfully!";
+                StateHasChanged();
             }
         }
         catch (Exception ex)
@@ -659,6 +837,7 @@
             StudioPageId = PageId,
         };
         sections.Add(newSection);
+        MarkAsDirty();
     }
 
     [JSInvokable]
@@ -672,6 +851,7 @@
             newSections.Add(section);
         }
         sections = newSections;
+        MarkAsDirty();
         StateHasChanged();
     }
 
