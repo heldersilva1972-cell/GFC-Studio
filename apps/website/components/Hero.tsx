@@ -1,97 +1,77 @@
-'use client'
+import Link from 'next/link';
+import styles from './Hero.module.css';
 
-import { motion } from 'framer-motion'
-import { ArrowRight, Calendar, Home } from 'lucide-react'
-import Link from 'next/link'
-import styles from './Hero.module.css'
+interface HeroProps {
+  badge?: string;
+  title: string;
+  subtitle: string;
+  primaryCtaText?: string;
+  primaryCtaLink?: string;
+  secondaryCtaText?: string;
+  secondaryCtaLink?: string;
+  stats?: { label: string; value: string }[];
+}
 
-export default function Hero() {
-    return (
-        <section className={styles.hero}>
-            <div className={styles.heroBackground}>
-                <div className={styles.gradientOverlay}></div>
-                <div className={styles.patternOverlay}></div>
-            </div>
+export default function Hero({
+  badge = "Est. 1923",
+  title,
+  subtitle,
+  primaryCtaText,
+  primaryCtaLink,
+  secondaryCtaText,
+  secondaryCtaLink,
+  stats
+}: HeroProps) {
+  return (
+    <section className={styles.hero}>
+      <div className={styles.heroBackground}>
+        <div className={styles.gradientOverlay}></div>
+        <div className={styles.patternOverlay}></div>
+      </div>
 
-            <div className="container">
-                <div className={styles.heroContent}>
-                    <motion.div
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.2 }}
-                        className={styles.badge}
-                    >
-                        <span className={styles.badgeText}>Est. 1923</span>
-                    </motion.div>
+      <div className={`container ${styles.heroContent}`}>
+        {badge && (
+          <div className={styles.badge}>
+            <span className={styles.badgeText}>{badge}</span>
+          </div>
+        )}
 
-                    <motion.h1
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.4 }}
-                        className={styles.heroTitle}
-                    >
-                        Building Community, Friendship, and Tradition
-                    </motion.h1>
+        <h1 className={styles.heroTitle}>{title}</h1>
+        <p className={styles.heroSubtitle}>{subtitle}</p>
 
-                    <motion.p
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.6 }}
-                        className={styles.heroSubtitle}
-                    >
-                        Welcome to the Gloucester Fraternity Club — a place where friendship, family, and community come together.
-                        Since our founding in the early 1920s, we've proudly served the Cape Ann area through fellowship, fun, and service.
-                    </motion.p>
+        <div className={styles.heroActions}>
+          {primaryCtaText && primaryCtaLink && (
+            <Link href={primaryCtaLink} className="btn btn-primary">
+              {primaryCtaText}
+            </Link>
+          )}
+          {secondaryCtaText && secondaryCtaLink && (
+            <Link href={secondaryCtaLink} className="btn btn-primary">
+              {secondaryCtaText}
+            </Link>
+          )}
+        </div>
 
-                    <motion.div
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.8 }}
-                        className={styles.heroActions}
-                    >
-                        <Link href="/hall-rentals" className="btn btn-primary btn-lg">
-                            <Home size={20} />
-                            Rent Our Hall
-                            <ArrowRight size={20} />
-                        </Link>
-                        <Link href="/events" className="btn btn-outline btn-lg">
-                            <Calendar size={20} />
-                            View Events
-                        </Link>
-                    </motion.div>
-
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: 1, delay: 1 }}
-                        className={styles.heroStats}
-                    >
-                        <div className={styles.stat}>
-                            <div className={styles.statNumber}>100+</div>
-                            <div className={styles.statLabel}>Years of Service</div>
-                        </div>
-                        <div className={styles.statDivider}></div>
-                        <div className={styles.stat}>
-                            <div className={styles.statNumber}>500+</div>
-                            <div className={styles.statLabel}>Active Members</div>
-                        </div>
-                        <div className={styles.statDivider}></div>
-                        <div className={styles.stat}>
-                            <div className={styles.statNumber}>50+</div>
-                            <div className={styles.statLabel}>Events Yearly</div>
-                        </div>
-                    </motion.div>
+        {stats && stats.length > 0 && (
+          <div className={styles.heroStats}>
+            {stats.map((stat, index) => (
+              <div key={index} className={styles.statWrapper} style={{ display: 'contents' }}>
+                <div className={styles.stat}>
+                  <div className={styles.statNumber}>{stat.value}</div>
+                  <div className={styles.statLabel}>{stat.label}</div>
                 </div>
-            </div>
+                {index < stats.length - 1 && <div className={styles.statDivider}></div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-            <div className={styles.heroWave}>
-                <svg viewBox="0 0 1440 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path
-                        d="M0 0L60 10C120 20 240 40 360 46.7C480 53 600 47 720 43.3C840 40 960 40 1080 46.7C1200 53 1320 67 1380 73.3L1440 80V120H1380C1320 120 1200 120 1080 120C960 120 840 120 720 120C600 120 480 120 360 120C240 120 120 120 60 120H0V0Z"
-                        fill="white"
-                    />
-                </svg>
-            </div>
-        </section>
-    )
+      <div className={styles.heroWave}>
+        <svg viewBox="0 0 1440 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M0 64.9524L60 69.4604C120 73.9684 240 82.9844 360 83.2504C480 83.5164 600 75.0324 720 71.0404C840 67.0484 960 67.5484 1080 73.0804C1200 78.6124 1320 89.1764 1380 94.4584L1440 99.7404V120H1380C1320 120 1200 120 1080 120C960 120 840 120 720 120C600 120 480 120 360 120C240 120 120 120 60 120H0V64.9524Z" fill="white" />
+        </svg>
+      </div>
+    </section>
+  );
 }

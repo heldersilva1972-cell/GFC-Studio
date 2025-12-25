@@ -52,5 +52,14 @@ public class SystemSettings
     /// NVR/Camera password for authentication. Should be encrypted in production.
     /// </summary>
     public string? NvrPassword { get; set; }
+
+    // Phase 5: VPN and Remote Access Security
+    public string? CloudflareTunnelToken { get; set; } // Encrypted
+    public string? PublicDomain { get; set; } // e.g., gfc-cameras.yourclub.com
+    public int WireGuardPort { get; set; } = 51820;
+    public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
+    public string? WireGuardServerPublicKey { get; set; }
+    public string WireGuardAllowedIPs { get; set; } = "10.8.0.0/24, 192.168.1.0/24";
+    public int MaxSimultaneousViewers { get; set; } = 10;
 }
 

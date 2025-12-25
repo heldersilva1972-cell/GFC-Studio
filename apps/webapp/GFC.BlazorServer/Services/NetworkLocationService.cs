@@ -1,76 +1,77 @@
 // [NEW]
-using GFC.Core.Interfaces;
-using Microsoft.Extensions.Configuration;
+using System;
 using System.Net;
 using System.Threading.Tasks;
-using IPNetwork2;
-using Microsoft.Extensions.Logging;
 
 namespace GFC.BlazorServer.Services
 {
     public class NetworkLocationService : INetworkLocationService
     {
-        private readonly IConfiguration _configuration;
-        private readonly ILogger<NetworkLocationService> _logger;
-        private IPNetwork _lanSubnet;
-        private IPNetwork _vpnSubnet;
+        // In the future, these values will be loaded from SystemSettingsService.
+        private const string LanSubnet = "192.168.1.0/24";
+        private const string VpnSubnet = "10.8.0.0/24";
 
-        public NetworkLocationService(IConfiguration configuration, ILogger<NetworkLocationService> logger)
+        public async Task<LocationType> DetectLocationAsync(string ipAddress)
         {
-            _configuration = configuration;
-            _logger = logger;
-
-            // Load subnets from configuration
-            var lanSubnetString = _configuration.GetValue<string>("NetworkSettings:LanSubnet");
-            var vpnSubnetString = _configuration.GetValue<string>("NetworkSettings:VpnSubnet");
-
-            if (!IPNetwork.TryParse(lanSubnetString, out _lanSubnet))
+            if (string.IsNullOrEmpty(ipAddress) || !IPAddress.TryParse(ipAddress, out var parsedIp))
             {
-                _logger.LogError("Invalid LAN subnet configured: {LanSubnet}", lanSubnetString);
+                return LocationType.Unknown;
             }
 
-            if (!IPNetwork.TryParse(vpnSubnetString, out _vpnSubnet))
-            {
-                _logger.LogError("Invalid VPN subnet configured: {VpnSubnet}", vpnSubnetString);
-            }
-        }
+            // Simulate async operation
+            await Task.Delay(10);
 
-        public Task<LocationType> DetectLocationAsync(string ipAddress)
-        {
-            if (string.IsNullOrEmpty(ipAddress) || !IPAddress.TryParse(ipAddress, out var ip))
+            if (IsInSubnet(parsedIp, LanSubnet))
             {
-                return Task.FromResult(LocationType.Unknown);
+                return LocationType.LAN;
             }
 
-            if (_lanSubnet != null && _lanSubnet.Contains(ip))
+            if (IsInSubnet(parsedIp, VpnSubnet))
             {
-                return Task.FromResult(LocationType.LAN);
+                return LocationType.VPN;
             }
 
-            if (_vpnSubnet != null && _vpnSubnet.Contains(ip))
-            {
-                return Task.FromResult(LocationType.VPN);
-            }
-
-            return Task.FromResult(LocationType.Public);
-        }
-
-        public async Task<bool> IsLanAddressAsync(string ipAddress)
-        {
-            var location = await DetectLocationAsync(ipAddress);
-            return location == LocationType.LAN;
-        }
-
-        public async Task<bool> IsVpnAddressAsync(string ipAddress)
-        {
-            var location = await DetectLocationAsync(ipAddress);
-            return location == LocationType.VPN;
+            return LocationType.Public;
         }
 
         public async Task<bool> IsAuthorizedForVideoAsync(string ipAddress)
         {
             var location = await DetectLocationAsync(ipAddress);
             return location == LocationType.LAN || location == LocationType.VPN;
+        }
+
+        private bool IsInSubnet(IPAddress address, string subnetCidr)
+        {
+            try
+            {
+                var parts = subnetCidr.Split('/');
+                if (parts.Length != 2) return false;
+
+                var networkAddress = IPAddress.Parse(parts[0]);
+                if (networkAddress.AddressFamily != address.AddressFamily) return false;
+
+                int cidr = int.Parse(parts[1]);
+                byte[] ipBytes = address.GetAddressBytes();
+                byte[] maskBytes = networkAddress.GetAddressBytes();
+
+                int bits = cidr;
+                for (int i = 0; i < ipBytes.Length && bits > 0; i++)
+                {
+                    int mask = bits >= 8 ? 255 : (256 - (1 << (8 - bits)));
+                    if ((ipBytes[i] & mask) != (maskBytes[i] & mask))
+                    {
+                        return false;
+                    }
+                    bits -= 8;
+                }
+
+                return true;
+            }
+            catch
+            {
+                // Error parsing subnet, default to not matching.
+                return false;
+            }
         }
     }
 }

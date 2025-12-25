@@ -1,5 +1,8 @@
+// [MODIFIED]
 @using GFC.Core.Models
 @inject IUserManagementService UserService
+@inject IEmailService EmailService
+@inject ILogger<UserPagePermissionsModal> Logger
 
 <div class="modal-backdrop"></div>
 <div class="modal-card" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
@@ -81,7 +84,7 @@
                                            type="checkbox" 
                                            id="@checkboxId"
                                            checked="@isSelected"
-                                           @onchange="@(e => TogglePage(pageId))"
+                                           @onchange="@(e => TogglePage(pageId, page.PageRoute))"
                                            disabled="@isDisabled" />
                                     <label class="form-check-label w-100" for="@checkboxId">
                                         <div class="fw-semibold">@pageName</div>
@@ -144,15 +147,12 @@
         
         try
         {
-            // Load all active pages
             AllPages = await Task.Run(() => UserService.GetActivePages());
             
-            // Group by category
             PagesByCategory = AllPages
                 .GroupBy(p => p.Category ?? "Other")
                 .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
             
-            // Load user's current permissions
             if (!IsAdmin)
             {
                 var userPermissions = await Task.Run(() => UserService.GetUserPagePermissions(UserId));
@@ -170,7 +170,7 @@
         }
     }
 
-    private void TogglePage(int pageId)
+    private void TogglePage(int pageId, string pageRoute)
     {
         if (SelectedPageIds.Contains(pageId))
         {
@@ -179,6 +179,10 @@
         else
         {
             SelectedPageIds.Add(pageId);
+            if(pageRoute == "/cameras/view")
+            {
+                // The user was just granted camera access. We'll send the email on save.
+            }
         }
     }
 
@@ -202,10 +206,34 @@
         
         try
         {
+            var cameraPermissionPage = AllPages.FirstOrDefault(p => p.PageRoute == "/cameras/view");
+            bool wasCameraPermissionGranted = false;
+            if (cameraPermissionPage != null)
+            {
+                bool originallyHadPermission = OriginalSelectedPageIds.Contains(cameraPermissionPage.PageId);
+                bool nowHasPermission = SelectedPageIds.Contains(cameraPermissionPage.PageId);
+                if (!originallyHadPermission && nowHasPermission)
+                {
+                    wasCameraPermissionGranted = true;
+                }
+            }
+
             await Task.Run(() => UserService.SetUserPagePermissions(
                 UserId, 
                 SelectedPageIds.ToList(), 
-                "Admin")); // TODO: Get current admin username
+                "Admin"));
+
+            if (wasCameraPermissionGranted)
+            {
+                var user = await UserService.GetUserAsync(UserId);
+                if (user != null && !string.IsNullOrEmpty(user.Email))
+                {
+                    await EmailService.SendEmailAsync(
+                        user.Email,
+                        "Your Secure Access to GFC Cameras is Ready",
+                        $"<p>Hello {user.Username},</p><p>You have been granted secure remote access to the GFC camera system. You can now complete the one-time setup to view cameras from any device.</p><p>Please log in to the GFC website and navigate to the Cameras page to begin the setup wizard.</p>");
+                }
+            }
             
             await OnSaved.InvokeAsync();
         }

@@ -11,6 +11,9 @@ interface PageProps {
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  if (params.slug.includes('.') || params.slug === 'favicon.ico') {
+    return {};
+  }
   const pageData = await getPageBySlug(params.slug);
 
   if (!pageData) {
@@ -40,6 +43,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 
 export default async function Page({ params }: PageProps) {
+  // Prevent common asset requests from triggering dynamic page rendering
+  if (params.slug.includes('.') || params.slug === 'favicon.ico') {
+    notFound();
+  }
+
   const pageData = await getPageBySlug(params.slug);
 
   if (!pageData || !pageData.sections) {

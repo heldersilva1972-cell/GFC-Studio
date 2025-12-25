@@ -72,7 +72,7 @@ website/
 
 ### URLs
 - **Website**: http://localhost:3000
-- **Web App**: http://localhost:5000
+- **Web App**: http://localhost:5207
 
 ## 🎨 Design System
 

@@ -5,34 +5,36 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
+    [Table("VideoAccessAudit")]
     public class VideoAccessAudit
     {
         [Key]
         public int Id { get; set; }
 
-        public int? UserId { get; set; }
+        [Required]
+        public int UserId { get; set; }
 
         [ForeignKey("UserId")]
         public AppUser User { get; set; }
 
         [Required]
-        [StringLength(50)]
-        public string AccessType { get; set; }
+        [MaxLength(50)]
+        public string AccessType { get; set; } // 'LiveView', 'Recording', 'Download', 'Snapshot'
 
         public int? CameraId { get; set; }
 
         [ForeignKey("CameraId")]
         public Camera Camera { get; set; }
 
-        [StringLength(255)]
+        [MaxLength(255)]
         public string CameraName { get; set; }
 
         [Required]
-        [StringLength(50)]
-        public string ConnectionType { get; set; }
+        [MaxLength(50)]
+        public string ConnectionType { get; set; } // 'LAN', 'VPN', 'Blocked'
 
         [Required]
-        [StringLength(50)]
+        [MaxLength(50)]
         public string ClientIP { get; set; }
 
         public DateTime SessionStart { get; set; } = DateTime.UtcNow;
@@ -41,8 +43,8 @@ namespace GFC.Core.Models
 
         public int? DurationSeconds { get; set; }
 
-        [StringLength(500)]
-        public string RecordingFile { get; set; }
+        [MaxLength(500)]
+        public string RecordingFile { get; set; } // If downloaded
 
         public string Notes { get; set; }
     }

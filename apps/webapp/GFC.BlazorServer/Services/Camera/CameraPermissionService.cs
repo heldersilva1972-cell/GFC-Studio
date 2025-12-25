@@ -1,6 +1,6 @@
 // [NEW]
-using GFC.Core.Models;
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,6 +21,7 @@ namespace GFC.BlazorServer.Services.Camera
         {
             return await _context.CameraPermissions
                 .Where(p => p.CameraId == cameraId)
+                .Include(p => p.User)
                 .ToListAsync();
         }
 
@@ -28,6 +29,7 @@ namespace GFC.BlazorServer.Services.Camera
         {
             return await _context.CameraPermissions
                 .Where(p => p.UserId == userId)
+                .Include(p => p.Camera)
                 .ToListAsync();
         }
 
@@ -49,8 +51,20 @@ namespace GFC.BlazorServer.Services.Camera
 
         public async Task<bool> HasPermissionAsync(int userId, int cameraId, CameraAccessLevel accessLevel)
         {
+            var permission = await _context.CameraPermissions
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.CameraId == cameraId);
+
+            if (permission == null)
+                return false;
+
+            // Check if the user's access level is sufficient
+            return permission.AccessLevel >= accessLevel;
+        }
+
+        public async Task<bool> UserHasAnyCameraPermissionAsync(int userId)
+        {
             return await _context.CameraPermissions
-                .AnyAsync(p => p.UserId == userId && p.CameraId == cameraId && p.AccessLevel >= accessLevel);
+                .AnyAsync(p => p.UserId == userId);
         }
     }
 }
