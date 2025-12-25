@@ -1,4 +1,4 @@
-// [NEW]
+// [MODIFIED]
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
@@ -10,17 +10,16 @@ namespace GFC.Core.Models
         public int Id { get; set; }
 
         [Required]
-        public string Title { get; set; } = "New Page";
+        [StringLength(100)]
+        public string Title { get; set; }
 
-        [Required]
-        public string Slug { get; set; } = string.Empty;
+        [StringLength(100)]
+        public string Slug { get; set; }
 
-        public string? Content { get; set; }
+        public bool IsPublished { get; set; }
 
-        public bool IsPublished { get; set; } = false;
+        public ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
 
-        public DateTime? LastPublishedAt { get; set; }
-
-        public virtual ICollection<StudioSection> Sections { get; set; } = new List<StudioSection>();
+        public ICollection<StudioDraft> Drafts { get; set; } = new List<StudioDraft>();
     }
 }

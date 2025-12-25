@@ -1,3 +1,4 @@
+@page "/studio"
 @page "/studio/{PageId:int}"
 @using System.Text.Json
 @using GFC.Core.Models
@@ -6,19 +7,27 @@
 @using GFC.BlazorServer.Components.Shared
 @inject IJSRuntime JSRuntime
 @inject IStudioService StudioService
+@inject IPageService PageService
 @inject ITemplateService TemplateService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
+@inject IConfiguration Configuration
+
+@if (showNewPageModal)
+{
+    <NewPageModal ExistingPages="allPages" OnCancel="() => showNewPageModal = false" OnConfirm="CreateNewPage" ErrorMessage="@_newPageErrorMessage" />
+}
 
 <div class="studio-container">
     <div class="top-command-bar">
-        <button class="btn btn-primary" @onclick="AddSection">Add Section</button>
+        <PageNavigator CurrentPage="currentPage" OnPageSelected="HandlePageSelected" OnNewPageClicked="() => showNewPageModal = true" />
+        <button class="btn btn-primary ms-3" @onclick="AddSection">Add Section</button>
         <button class="btn btn-success" @onclick="SaveDraft">Save Draft</button>
         <button class="btn btn-info" @onclick="PublishPage">Publish</button>
         
         <div class="dropdown d-inline-block ms-3">
             <button class="btn btn-outline-light dropdown-toggle" type="button" @onclick="ToggleHistory">
-                Draft History @(draft != null ? $" (v{draft.Version})" : "")
+                History
             </button>
             @if (showHistory)
             {
@@ -91,68 +100,58 @@
         </div>
         <div class="canvas-container @($"viewport-{currentViewport}")">
             <div class="center-canvas" @ondrop="HandleDrop" @ondragover:preventDefault="true">
-                @foreach (var item in sections)
+                @if (!string.IsNullOrEmpty(_previewUrl))
                 {
-                    <div class="studio-section @(selectedSection == item ? "selected" : "")" data-id="@item.ClientId" @onclick="() => SelectSection(item)">
-                        <div class="section-toolbar">
-                            <button class="btn btn-sm btn-outline-light" @onclick="() => OpenSaveAsTemplateModal(item)">Save as Template</button>
-                        </div>
-                        <p contenteditable="true" @oninput="(e) => item.Content = e.Value.ToString()">@item.Content</p>
-                    </div>
+                    <iframe @ref="_previewIframe" src="@_previewUrl" class="studio-iframe" allow="clipboard-write"></iframe>
+                }
+                else
+                {
+                    <div class="alert alert-info">Loading Preview...</div>
                 }
             </div>
         </div>
         <div class="right-inspector">
-            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnContentFixed="@(args => HandleContentFixed(args.newContent, args.fixName))" />
-            @if (!string.IsNullOrEmpty(lastWizardAction))
-            {
-                <button class="btn btn-sm btn-link" @onclick="UndoLastAction">Undo "@lastWizardAction"</button>
-            }
+            <StudioWizard TargetSection="selectedSection" OnPropertyChanged="HandlePropertyChange" />
         </div>
     </div>
     <div class="animation-orchestrator">
         @if (selectedSection != null)
         {
-            <h5>Animation Timeline for: "@selectedSection.Title"</h5>
-            <div class="timeline-bar" @ref="_timelineElement">
+            <div class="timeline-header">
+                <h5>Animation Timeline</h5>
+                <select class="form-control form-control-sm effect-select" value="@currentAnimationSettings.Effect" @onchange="@(async (e) => { currentAnimationSettings.Effect = e.Value.ToString(); await UpdateAnimationSettings(); })">
+                    <option value="None">No Effect</option>
+                    <option value="FadeIn">Fade In</option>
+                    <option value="SlideUp">Slide Up</option>
+                    <option value="Scale">Scale</option>
+                    <option value="Rotate">Rotate</option>
+                </select>
+                <select class="form-control form-control-sm effect-select" value="@currentAnimationSettings.Easing" @onchange="@(async (e) => { currentAnimationSettings.Easing = e.Value.ToString(); await UpdateAnimationSettings(); })">
+                    <option value="ease-in-out">Ease In Out</option>
+                    <option value="linear">Linear</option>
+                    <option value="ease-in">Ease In</option>
+                    <option value="ease-out">Ease Out</option>
+                </select>
+            </div>
+            <div class="timeline-track" id="timeline-track">
                 @for (int i = 0; i <= 5; i++)
                 {
-                    <div class="time-marker">@i</div>
+                    <div class="time-marker" style="left: @(i * 20)%">@i s</div>
                 }
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="animation-block" style="@GetAnimationBlockStyle(keyframe)" id="@keyframe.Id">
-                        @keyframe.Effect
-                    </div>
-                }
-            </div>
-            <div class="keyframe-editor mt-3">
-                @foreach (var keyframe in currentAnimationKeyframes)
-                {
-                    <div class="keyframe-controls" id="@keyframe.Id">
-                         <select class="form-control form-control-sm" @bind="keyframe.Effect">
-                            <option value="fadeIn">Fade In</option>
-                            <option value="slideInUp">Slide Up</option>
-                            <option value="bounceIn">Bounce In</option>
-                        </select>
-                        <label>D:</label>
-                        <input type="range" class="form-control-range" min="0.1" max="5" step="0.1" @bind="keyframe.Duration" />
-                        <span>@keyframe.Duration.ToString("0.0")s</span>
-                        <label>W:</label>
-                        <input type="range" class="form-control-range" min="0" max="5" step="0.1" @bind="keyframe.Delay" />
-                        <span>@keyframe.Delay.ToString("0.0")s</span>
-                        <button class="btn btn-sm btn-danger" @onclick="() => RemoveKeyframe(keyframe.Id)">X</button>
-                    </div>
-                }
-                <button class="btn btn-sm btn-info" @onclick="AddKeyframe">+ Add Keyframe</button>
-            </div>
-            <div class="mt-2">
-                <button class="btn btn-primary" @onclick="PreviewAnimation">▶ Preview</button>
+                <div class="animation-bar"
+                     style="left: @(currentAnimationSettings.Delay * 20)%; width: @(currentAnimationSettings.Duration * 20)%;"
+                     id="animation-bar"
+                     data-delay="@currentAnimationSettings.Delay"
+                     data-duration="@currentAnimationSettings.Duration">
+                    <div class="handle left"></div>
+                    <div class="handle right"></div>
+                </div>
+                <div class="playhead" id="playhead"></div>
             </div>
         }
         else
         {
-            <p class="text-muted">Select a section to configure its animation timeline.</p>
+            <div class="timeline-placeholder">Select a section to configure its animation.</div>
         }
     </div>
 </div>
@@ -192,6 +191,9 @@
     [Parameter]
     public int PageId { get; set; }
 
+    private bool showNewPageModal = false;
+    private List<StudioPage> allPages = new();
+    private StudioPage currentPage;
     private StudioDraft draft;
     private List<StudioSection> sections = new();
     private StudioSection selectedSection;
@@ -209,10 +211,12 @@
     private List<StudioDraft> draftHistory = new();
     private StudioSection lastUndoState;
     private StudioTemplate draggedTemplate;
-    private List<AnimationKeyframe> currentAnimationKeyframes = new();
+    private AnimationSettings currentAnimationSettings = new();
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
-    private ElementReference _timelineElement;
+    private ElementReference _previewIframe;
+    private string _previewUrl;
+    private string _pageSlug;
 
     protected override void OnParametersSet()
     {
@@ -233,24 +237,33 @@
         }
     }
 
+    [JSInvokable]
+    public void SetSelectedSection(StudioSection section)
+    {
+        selectedSection = section;
+        StateHasChanged();
+    }
+
+    private async Task HandlePropertyChange((string sectionId, string propertyName, object propertyValue) args)
+    {
+        var styleUpdate = new Dictionary<string, object>
+        {
+            { args.propertyName, args.propertyValue }
+        };
+
+        await JSRuntime.InvokeVoidAsync("studioInterop.updateStyleInPreview", _previewIframe, args.sectionId, styleUpdate);
+    }
+
     private void UndoLastAction()
     {
         if (selectedSection != null && lastUndoState != null)
         {
             selectedSection.Content = lastUndoState.Content;
-            selectedSection.AnimationSettings = lastUndoState.AnimationSettings;
+            selectedSection.AnimationSettingsJson = lastUndoState.AnimationSettingsJson;
             lastWizardAction = "";
             lastUndoState = null;
             StateHasChanged();
         }
-    }
-
-    public class AnimationKeyframe
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public string Effect { get; set; } = "fadeIn";
-        public double Duration { get; set; } = 1.0;
-        public double Delay { get; set; } = 0.0;
     }
 
     private void ToggleHistory() => showHistory = !showHistory;
@@ -258,25 +271,68 @@
     private void SelectSection(StudioSection section)
     {
         selectedSection = section;
-        if (!string.IsNullOrEmpty(selectedSection.AnimationSettings))
+        if (!string.IsNullOrEmpty(selectedSection.AnimationSettingsJson))
         {
             try
             {
-                currentAnimationKeyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(selectedSection.AnimationSettings) ?? new List<AnimationKeyframe>();
+                currentAnimationSettings = JsonSerializer.Deserialize<AnimationSettings>(selectedSection.AnimationSettingsJson) ?? new AnimationSettings();
             }
             catch
             {
-                currentAnimationKeyframes = new List<AnimationKeyframe>();
+                currentAnimationSettings = new AnimationSettings();
             }
         }
         else
         {
-            currentAnimationKeyframes = new List<AnimationKeyframe>();
+            currentAnimationSettings = new AnimationSettings();
         }
 
-        if (!currentAnimationKeyframes.Any())
+        // Re-initialize JS interop for the timeline
+        JSRuntime.InvokeVoidAsync("animationInterop.initializeTimeline", DotNetObjectReference.Create(this));
+        JSRuntime.InvokeVoidAsync("animationScrubbing.initializeScrubbing", _previewIframe);
+    }
+
+    private async Task UpdateAnimationSettings()
+    {
+        if (selectedSection != null)
         {
-            currentAnimationKeyframes.Add(new AnimationKeyframe());
+            selectedSection.AnimationSettingsJson = JsonSerializer.Serialize(currentAnimationSettings);
+            await JSRuntime.InvokeVoidAsync("studioInterop.updateAnimation", _previewIframe, selectedSection);
+        }
+    }
+
+    private async Task HandlePageSelected(StudioPage page)
+    {
+        if (page != null && page.Id != PageId)
+        {
+            // Update the URL in the browser's address bar without forcing a reload
+            NavigationManager.NavigateTo($"/studio/{page.Id}");
+
+            // Now, reload the component's state with the new page's data
+            await LoadPageAsync(page.Id);
+        }
+    }
+
+    private string _newPageErrorMessage = null;
+
+    private async Task CreateNewPage(StudioPage pageStub)
+    {
+        _newPageErrorMessage = null;
+        try
+        {
+            int? cloneFromId = pageStub.Id > 0 ? pageStub.Id : null;
+            var newPage = await PageService.CreatePageAsync(pageStub.Title, cloneFromId);
+
+            if (newPage != null)
+            {
+                showNewPageModal = false;
+                NavigationManager.NavigateTo($"/studio/{newPage.Id}", forceLoad: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create new page");
+            _newPageErrorMessage = ex.Message;
         }
     }
 
@@ -291,42 +347,12 @@
         StateHasChanged();
     }
 
-    private async Task PreviewAnimation()
-    {
-        if (selectedSection != null)
-        {
-            await JSRuntime.InvokeVoidAsync("previewAnimation", selectedSection.ClientId, currentAnimationKeyframes);
-        }
-    }
-
-    private void AddKeyframe()
-    {
-        currentAnimationKeyframes.Add(new AnimationKeyframe { Delay = currentAnimationKeyframes.LastOrDefault()?.Delay + currentAnimationKeyframes.LastOrDefault()?.Duration ?? 0 });
-    }
-
-    private void RemoveKeyframe(Guid id)
-    {
-        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == id);
-        if (keyframe != null)
-        {
-            currentAnimationKeyframes.Remove(keyframe);
-        }
-    }
-
-    private string GetAnimationBlockStyle(AnimationKeyframe keyframe)
-    {
-        // Assuming timeline is 5s long and 100% width. Each second is 20%.
-        var left = keyframe.Delay * 20;
-        var width = keyframe.Duration * 20;
-        return $"left: {left}%; width: {width}%;";
-    }
-
     private void HandleDragStart(StudioTemplate template)
     {
         draggedTemplate = template;
     }
 
-    private void HandleDrop()
+    private async Task HandleDrop()
     {
         if (draggedTemplate != null)
         {
@@ -334,7 +360,10 @@
             newSection.ClientId = Guid.NewGuid();
             newSection.StudioPageId = PageId;
             newSection.PageIndex = sections.Count;
-            sections.Add(newSection);
+
+            await JSRuntime.InvokeVoidAsync("studioInterop.sendComponentToPreview", _previewIframe, newSection);
+
+            sections.Add(newSection); // Optimistically add to local state
             draggedTemplate = null;
         }
     }
@@ -400,39 +429,6 @@
         await LoadTemplates();
     }
 
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            if (PageId == 0)
-            {
-                // Redirect or show an error if no PageId is provided
-                errorMessage = "No page specified. Please select a page to edit.";
-                return;
-            }
-
-            draft = await StudioService.GetLatestDraftAsync(PageId);
-
-            if (draft != null && !string.IsNullOrEmpty(draft.ContentJson))
-            {
-                sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson) ?? new List<StudioSection>();
-            }
-            else
-            {
-                sections = new List<StudioSection>();
-            }
-
-            await LoadHistory();
-            await LoadTemplates();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to initialize Studio");
-            errorMessage = ex.Message;
-            errorDetails = ex.ToString();
-        }
-    }
-
     private void setViewport(string viewport)
     {
         currentViewport = viewport;
@@ -445,29 +441,94 @@
         {
             try
             {
-                await JSRuntime.InvokeVoidAsync("initializeDnd", DotNetObjectReference.Create(this));
+                var dotNetHelper = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("studioInterop.setDotNetHelper", dotNetHelper);
+                await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler");
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Failed to initialize Drag and Drop");
+                Logger.LogError(ex, "Failed to initialize Studio Interop");
             }
         }
+
         if (selectedSection != null)
         {
-            await JSRuntime.InvokeVoidAsync("initializeTimeline", _timelineElement, DotNetObjectReference.Create(this));
+            await JSRuntime.InvokeVoidAsync("animationInterop.initializeTimeline", DotNetObjectReference.Create(this));
+            await JSRuntime.InvokeVoidAsync("animationScrubbing.initializeScrubbing", _previewIframe);
         }
     }
 
-    [JSInvokable]
-    public void UpdateKeyframe(string keyframeId, double newDuration, double newDelay)
+    private async Task LoadPageAsync(int pageId)
     {
-        var keyframe = currentAnimationKeyframes.FirstOrDefault(k => k.Id == Guid.Parse(keyframeId));
-        if (keyframe != null)
+        errorMessage = null;
+        errorDetails = null;
+        sections = new();
+        draft = null;
+        currentPage = null;
+
+        try
         {
-            keyframe.Duration = newDuration;
-            keyframe.Delay = newDelay;
-            StateHasChanged();
+            currentPage = await PageService.GetPageAsync(pageId);
+            if (currentPage == null)
+            {
+                errorMessage = "The requested page could not be found.";
+                return;
+            }
+
+            PageId = pageId; // Update the component's parameter
+            _pageSlug = currentPage.Slug;
+            var previewUrlBase = Configuration["NEXTJS_PREVIEW_URL"];
+            _previewUrl = $"{previewUrlBase}/studio-preview/{_pageSlug}";
+
+            draft = await StudioService.GetLatestDraftAsync(PageId);
+            sections = !string.IsNullOrEmpty(draft?.ContentSnapshotJson)
+                ? JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentSnapshotJson)
+                : new List<StudioSection>();
+
+            await LoadHistory();
+            await LoadTemplates(); // Consider if this needs to be reloaded every time
         }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load page data for page {PageId}", pageId);
+            errorMessage = "An unexpected error occurred while loading the page.";
+            errorDetails = ex.Message;
+        }
+
+        StateHasChanged(); // Ensure the UI updates
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        allPages = await PageService.GetAllPagesAsync();
+
+        var effectivePageId = PageId;
+        if (effectivePageId == 0)
+        {
+            var firstPage = allPages.FirstOrDefault();
+            if (firstPage != null)
+            {
+                effectivePageId = firstPage.Id;
+                // Update URL without forcing a reload, just to be clean
+                NavigationManager.NavigateTo($"/studio/{effectivePageId}", replace: true);
+            }
+            else
+            {
+                errorMessage = "No pages found. Create a new page to begin.";
+                return;
+            }
+        }
+
+        await LoadPageAsync(effectivePageId);
+    }
+
+    [JSInvokable]
+    public async Task UpdateAnimationTimeline(double delay, double duration)
+    {
+        currentAnimationSettings.Delay = Math.Round(delay, 2);
+        currentAnimationSettings.Duration = Math.Round(duration, 2);
+        await UpdateAnimationSettings();
+        StateHasChanged();
     }
 
     private async Task LoadHistory()
@@ -477,13 +538,16 @@
 
     private async Task SaveDraft()
     {
+        await JSRuntime.InvokeVoidAsync("studioInterop.requestStateFromPreview", _previewIframe);
+        // The actual saving will be triggered by the ReceiveStateFromPreview method
+    }
+
+    [JSInvokable]
+    public async Task ReceiveStateFromPreview(List<StudioSection> updatedSections)
+    {
         try
         {
-            if (selectedSection != null)
-            {
-                selectedSection.AnimationSettings = JsonSerializer.Serialize(currentAnimationKeyframes);
-            }
-            
+            sections = updatedSections;
             var json = JsonSerializer.Serialize(sections);
             draft = await StudioService.SaveDraftAsync(PageId, json, "System"); // TODO: Use real user
             
@@ -491,7 +555,7 @@
             StateHasChanged();
         }
         catch (Exception ex)
-        {
+                {
             Logger.LogError(ex, "Failed to save draft");
             errorMessage = "Failed to save draft: " + ex.Message;
         }

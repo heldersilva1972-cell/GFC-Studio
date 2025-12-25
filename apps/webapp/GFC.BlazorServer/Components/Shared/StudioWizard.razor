@@ -1,28 +1,68 @@
+// [MODIFIED]
 @using GFC.Core.Models
-@using System.Text.RegularExpressions
+@using System.Text.Json
 
-<div class="studio-wizard">
-    <h5>Wizard Assistant</h5>
-    @if (Warnings.Any())
+<div class="property-inspector">
+    <h5>Properties Inspector</h5>
+    @if (TargetSection != null)
     {
-        <ul class="list-group">
-            @foreach (var warning in Warnings)
+        <div class="p-3">
+            <h6 class="border-bottom pb-2 mb-3">@TargetSection.sectionType</h6>
+
+            @switch (TargetSection.sectionType)
             {
-                <li class="list-group-item list-group-item-warning d-flex justify-content-between align-items-center">
-                    @warning.Message
-                    @if (warning.CanAutoFix)
-                    {
-                        <button class="btn btn-sm btn-success" @onclick="() => ApplyFix(warning)">
-                            ✨ Fix It
-                        </button>
-                    }
-                </li>
+                case "Hero":
+                    <div class="form-group">
+                        <label>Headline</label>
+                        <input type="text" class="form-control"
+                               value="@(TargetSection.properties.ContainsKey("headline") ? TargetSection.properties["headline"].ToString() : "")"
+                               @onchange="@((e) => HandlePropertyChanged("headline", e.Value.ToString()))" />
+                    </div>
+                    <div class="form-group">
+                        <label>Background Image URL</label>
+                        <input type="text" class="form-control"
+                               value="@(TargetSection.properties.ContainsKey("backgroundImage") ? TargetSection.properties["backgroundImage"].ToString() : "")"
+                               @onchange="@((e) => HandlePropertyChanged("backgroundImage", e.Value.ToString()))" />
+                    </div>
+                    break;
+
+                case "RichTextBlock":
+                    <div class="form-group">
+                        <label>Content</label>
+                        <textarea class="form-control" rows="5"
+                                  value="@(TargetSection.properties.ContainsKey("content") ? TargetSection.properties["content"].ToString() : "")"
+                                  @onchange="@((e) => HandlePropertyChanged("content", e.Value.ToString()))"></textarea>
+                    </div>
+                    break;
+
+                case "ButtonCTA":
+                    <div class="form-group">
+                        <label>Text</label>
+                        <input type="text" class="form-control"
+                               value="@(TargetSection.properties.ContainsKey("text") ? TargetSection.properties["text"].ToString() : "")"
+                               @onchange="@((e) => HandlePropertyChanged("text", e.Value.ToString()))" />
+                    </div>
+                    <div class="form-group">
+                        <label>Link</label>
+                        <input type="text" class="form-control"
+                               value="@(TargetSection.properties.ContainsKey("link") ? TargetSection.properties["link"].ToString() : "")"
+                               @onchange="@((e) => HandlePropertyChanged("link", e.Value.ToString()))" />
+                    </div>
+                    <ColorPicker Label="Button Color"
+                                 Value="@(TargetSection.properties.ContainsKey("backgroundColor") ? TargetSection.properties["backgroundColor"].ToString() : "#007bff")"
+                                 ValueChanged="@((v) => HandlePropertyChanged("backgroundColor", v))" />
+                    break;
+
+                default:
+                    <p class="text-muted">No properties available for this component.</p>
+                    <pre>@JsonSerializer.Serialize(TargetSection.properties, new JsonSerializerOptions { WriteIndented = true })</pre>
+                    break;
             }
-        </ul>
+        </div>
     }
     else
     {
-        <p>No issues detected.</p>
+        <p class="text-muted p-3">Select a component to see its properties.</p>
     }
 </div>
 
@@ -31,89 +71,32 @@
     public StudioSection TargetSection { get; set; }
 
     [Parameter]
-    public EventCallback<(string newContent, string fixName)> OnContentFixed { get; set; }
+    public EventCallback<(string sectionId, string propertyName, object propertyValue)> OnPropertyChanged { get; set; }
 
-    public List<WizardWarning> Warnings { get; private set; } = new List<WizardWarning>();
+    private async Task HandlePropertyChanged(string propertyName, object value)
+    {
+        if (TargetSection != null)
+        {
+            // Update local state optimistically
+            if (TargetSection.properties.ContainsKey(propertyName))
+            {
+                TargetSection.properties[propertyName] = value;
+            }
+            else
+            {
+                TargetSection.properties.Add(propertyName, value);
+            }
 
-    public enum FixType { None, MissingH1, MissingAltText, TooManyColumns }
+            await OnPropertyChanged.InvokeAsync((TargetSection.ClientId.ToString(), propertyName, value));
+            StateHasChanged();
+        }
+    }
 
     public class WizardWarning
     {
         public string Message { get; set; }
-        public bool CanAutoFix { get; set; }
-        public FixType FixType { get; set; }
+        public string Severity { get; set; } = "Warning";
     }
 
-    protected override void OnParametersSet()
-    {
-        AnalyzeSection();
-    }
-
-    private void AnalyzeSection()
-    {
-        Warnings.Clear();
-        if (TargetSection == null || string.IsNullOrEmpty(TargetSection.Content))
-        {
-            return;
-        }
-
-        // SEO: Missing H1
-        if (!TargetSection.Content.Contains("<h1>"))
-        {
-            Warnings.Add(new WizardWarning { Message = "SEO: Missing H1 tag.", CanAutoFix = true, FixType = FixType.MissingH1 });
-        }
-
-        // SEO: Missing Alt Text
-        if (Regex.IsMatch(TargetSection.Content, @"<img(?![^>]*\balt\s*=)[^>]*>"))
-        {
-            Warnings.Add(new WizardWarning { Message = "SEO: Image is missing alt text.", CanAutoFix = true, FixType = FixType.MissingAltText });
-        }
-
-        // Layout: Too Many Columns
-        if (TargetSection.Content.Split(new string[] { "<div class=\"col" }, StringSplitOptions.None).Length - 1 > 4)
-        {
-            Warnings.Add(new WizardWarning { Message = "Layout: More than 4 columns detected.", CanAutoFix = false, FixType = FixType.TooManyColumns });
-        }
-    }
-
-    private async Task ApplyFix(WizardWarning warning)
-    {
-        string originalContent = TargetSection.Content;
-        string modifiedContent = originalContent;
-
-        switch (warning.FixType)
-        {
-            case FixType.MissingH1:
-                modifiedContent = FixMissingH1(originalContent);
-                break;
-            case FixType.MissingAltText:
-                modifiedContent = FixMissingAltText(originalContent);
-                break;
-        }
-
-        if (modifiedContent != originalContent)
-        {
-            await OnContentFixed.InvokeAsync((modifiedContent, warning.Message));
-            AnalyzeSection(); // Re-analyze after fixing
-        }
-    }
-
-    private string FixMissingH1(string content)
-    {
-        // A simple fix: wrap the first non-empty line in <h1> tags if no h1 exists.
-        var lines = content.Trim().Split('\n');
-        var firstLineIndex = Array.FindIndex(lines, line => !string.IsNullOrWhiteSpace(line));
-        if (firstLineIndex != -1)
-        {
-            lines[firstLineIndex] = $"<h1>{lines[firstLineIndex].Trim()}</h1>";
-            return string.Join('\n', lines);
-        }
-        return content;
-    }
-
-    private string FixMissingAltText(string content)
-    {
-        // Find all <img> tags without an alt attribute and add a default one.
-        return Regex.Replace(content, @"<img(?![^>]*\balt\s*=)([^>]*)>", @"<img alt=""Image""$1>");
-    }
+    public List<WizardWarning> Warnings { get; set; } = new();
 }
