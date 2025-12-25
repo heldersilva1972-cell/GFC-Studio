@@ -60,5 +60,11 @@ namespace GFC.BlazorServer.Services.Camera
             // Check if the user's access level is sufficient
             return permission.AccessLevel >= accessLevel;
         }
+
+        public async Task<bool> UserHasAnyCameraPermissionAsync(int userId)
+        {
+            return await _context.CameraPermissions
+                .AnyAsync(p => p.UserId == userId);
+        }
     }
 }
