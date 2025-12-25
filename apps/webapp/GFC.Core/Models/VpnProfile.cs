@@ -5,7 +5,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
-    [Table("VpnProfiles")]
     public class VpnProfile
     {
         [Key]
@@ -15,21 +14,20 @@ namespace GFC.Core.Models
         public int UserId { get; set; }
 
         [ForeignKey("UserId")]
-        public virtual AppUser User { get; set; }
+        public AppUser User { get; set; }
 
         [Required]
-        [StringLength(255)]
+        [MaxLength(255)]
         public string PublicKey { get; set; }
 
         [Required]
-        [StringLength(255)]
-        public string PrivateKey { get; set; }
+        [MaxLength(255)]
+        public string PrivateKey { get; set; } // Encrypted at rest
 
         [Required]
-        [StringLength(50)]
+        [MaxLength(50)]
         public string AssignedIP { get; set; }
 
-        [Required]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime? LastUsedAt { get; set; }
@@ -39,15 +37,15 @@ namespace GFC.Core.Models
         public int? RevokedBy { get; set; }
 
         [ForeignKey("RevokedBy")]
-        public virtual AppUser RevokedByUser { get; set; }
+        public AppUser RevokedByUser { get; set; }
 
-        [StringLength(500)]
+        [MaxLength(500)]
         public string RevokedReason { get; set; }
 
-        [StringLength(255)]
+        [MaxLength(255)]
         public string DeviceName { get; set; }
 
-        [StringLength(50)]
+        [MaxLength(50)]
         public string DeviceType { get; set; }
     }
 }

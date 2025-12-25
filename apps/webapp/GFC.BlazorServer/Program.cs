@@ -1,3 +1,4 @@
+// [MODIFIED]
 using GFC.BlazorServer.Auth;
 using GFC.BlazorServer.Components;
 using GFC.BlazorServer.Configuration;
@@ -17,6 +18,7 @@ using GFC.Core.Services;
 using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
 using GFC.BlazorServer.Middleware;
+using GFC.BlazorServer.Hubs; // Add this using directive
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -49,13 +51,16 @@ public class Program
 
         // Add services to the container.
         builder.Services.AddRazorPages();
-        builder.Services.AddServerSideBlazor();
+        builder.Services.AddServerSideBlazor().AddHubOptions(options => options.ClientTimeoutInterval = TimeSpan.FromSeconds(60)).AddCircuitOptions(options => options.DetailedErrors = true);
+        builder.Services.AddSignalR(); // Add SignalR
         builder.Services.AddControllers();
         builder.Services.AddAuthenticationCore();
         builder.Services.AddAuthorizationCore(options =>
         {
             options.AddPolicy(AppPolicies.RequireAdmin, policy =>
                 policy.RequireRole(AppRoles.Admin));
+            options.AddPolicy(AppPolicies.CanForceUnlock, policy =>
+                policy.RequireRole(AppRoles.Admin, AppRoles.StudioUnlock));
         });
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<ProtectedSessionStorage>();
@@ -66,6 +71,8 @@ public class Program
             var opts = sp.GetRequiredService<IOptions<AgentApiOptions>>().Value;
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
+        builder.Services.AddHttpClient<IImportService, ImportService>();
+        builder.Services.AddScoped<DomAnalysisService>();
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
         builder.Services.AddScoped<GfcDbContext>(p => p.GetRequiredService<IDbContextFactory<GfcDbContext>>().CreateDbContext());
 
@@ -93,7 +100,7 @@ public class Program
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
-        builder.Services.AddScoped<IVpnProfileRepository, VpnProfileRepository>();
+        builder.Services.AddScoped<IStudioPageRepository, GFC.BlazorServer.Repositories.StudioPageRepository>();
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
@@ -107,6 +114,7 @@ public class Program
         builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 
         // Shared services
+        builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();
         builder.Services.AddScoped<ICameraService, CameraService>();
@@ -115,6 +123,7 @@ public class Program
         builder.Services.AddScoped<ICameraEventService, CameraEventService>();
         builder.Services.AddScoped<ICameraPermissionService, GFC.BlazorServer.Services.Camera.CameraPermissionService>();
         builder.Services.AddScoped<ICameraAuditLogService, CameraAuditLogService>();
+        builder.Services.AddScoped<IStreamSecurityService, StreamSecurityService>();
         builder.Services.AddSingleton<IDatabaseBackupService, GFC.BlazorServer.Services.DatabaseBackupService>();
         builder.Services.AddHostedService<GFC.BlazorServer.Services.BackupSchedulerService>();
         builder.Services.AddScoped<OverdueCalculationService>();
@@ -161,22 +170,28 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
-        builder.Services.AddScoped<IDeviceDetectionService, DeviceDetectionService>();
-        builder.Services.AddScoped<IVpnSetupService, VpnSetupService>();
-        builder.Services.AddSingleton<IEmailService, EmailService>();
-        builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
-        builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
+        builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
-        builder.Services.AddScoped<IStudioService, StudioService>();
+        builder.Services.AddHttpClient();
+        builder.Services.AddScoped<IMediaStorageService, MediaStorageService>();
+        builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
+        builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
+        builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddScoped<IFormService, FormService>();
+        builder.Services.AddScoped<ISeoService, SeoService>();
+        builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
-        builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
+        builder.Services.AddScoped<IPageService, PageService>();
+        builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
@@ -305,6 +320,9 @@ public class Program
         app.MapControllers();
 
         app.MapBlazorHub();
+        app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub
+  
+        app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
         app.MapFallbackToPage("/_Host");
 
         app.Run();
