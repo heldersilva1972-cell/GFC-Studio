@@ -62,6 +62,16 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         return result;
     }
 
+    public async Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null)
+    {
+        var result = await _authenticationService.VerifyMfaCodeAsync(userId, code, ipAddress);
+
+        RefreshFromAuthenticationService();
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+
+        return result;
+    }
+
     public void Logout()
     {
         _authenticationService.Logout();

@@ -8,6 +8,7 @@ public interface IUserManagementService
     List<UserListItemDto> GetAllUsers();
     List<ActiveMemberDto> GetActiveMembersForUserCreation();
     AppUser? GetUser(int userId);
+    Task<AppUser?> GetUserAsync(int userId);
     int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null);
     void UpdateUser(int userId, string username, string? password, int? memberId, string? notes, int? updatedByUserId = null, bool isAdmin = false, bool isActive = true);
     void DeleteUser(int userId);

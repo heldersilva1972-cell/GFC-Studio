@@ -1,15 +1,21 @@
 @page "/cameras/view"
 @using GFC.Core.Models
+@using GFC.Core.Interfaces
 @inject GFC.BlazorServer.Services.Diagnostics.CameraDiagnosticsService DiagnosticsService
 @inject GFC.BlazorServer.Services.Camera.ICameraService CameraService
 @inject IJSRuntime JSRuntime
 @inject IConfiguration Configuration
+@inject GFC.Core.Interfaces.INetworkLocationService NetworkLocationService
+@inject NavigationManager NavigationManager
+@inject IHttpContextAccessor HttpContextAccessor
 
 <PageTitle>Camera Monitor</PageTitle>
 
-<div class="camera-monitor-container">
-    <div class="sidebar">
-        <div class="sidebar-header">
+@if (_isAuthorized)
+{
+    <div class="camera-monitor-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
             <h3><i class="bi bi-camera-video"></i> Cameras</h3>
             <span class="badge bg-secondary">@(_cameras?.Count ?? 0)</span>
             <button class="btn btn-sm btn-link text-light ms-auto" @onclick="RefreshStatuses" title="Check Connection" style="margin-left: auto;">
@@ -126,24 +132,49 @@
                     <p>Timeline playback feature coming soon.</p>
                 </div>
             }
+            </div>
         </div>
     </div>
-</div>
+}
 
+@implements IDisposable
 @code {
     private List<Camera> _cameras = new();
     private Dictionary<int, bool> _cameraStatuses = new();
     private HashSet<int> _selectedCameraIds = new();
+    private Dictionary<int, string> _secureUrls = new();
     private string _activeTab = "live";
     private string _gridClass = "grid-1";
     private string _errorMessage;
+    private System.Threading.Timer _tokenRefreshTimer;
+
+    private bool _isAuthorized = false; // Prevent content rendering before check
 
     protected override async Task OnInitializedAsync()
     {
+        var httpContext = HttpContextAccessor.HttpContext;
+        var clientIp = httpContext?.Connection?.RemoteIpAddress?.ToString();
+
+        if (httpContext is null || clientIp is null)
+        {
+            _errorMessage = "Could not determine your network location.";
+            return;
+        }
+
+        _isAuthorized = await NetworkLocationService.IsAuthorizedForVideoAsync(clientIp);
+
+        if (!_isAuthorized)
+        {
+            var returnUrl = Uri.EscapeDataString(NavigationManager.Uri);
+            NavigationManager.NavigateTo($"/cameras/secure-access?returnUrl={returnUrl}", forceLoad: true);
+            return;
+        }
+
         try
         {
             _cameras = await CameraService.GetAllCamerasAsync();
             _ = RefreshStatuses();
+            _tokenRefreshTimer = new System.Threading.Timer(async _ => await RefreshTokens(), null, TimeSpan.Zero, TimeSpan.FromSeconds(45));
         }
         catch (Exception ex)
         {
@@ -165,25 +196,35 @@
         }
     }
 
+    private async Task RefreshTokens()
+    {
+        if (_activeTab != "live" || _selectedCameraIds.Count == 0) return;
+
+        foreach (var camId in _selectedCameraIds.ToList())
+        {
+            try
+            {
+                var newUrl = await CameraService.GetSecureStreamUrlAsync(camId);
+                _secureUrls[camId] = newUrl;
+                await JSRuntime.InvokeVoidAsync("updateHlsPlayerSource", $"video-player-{camId}", newUrl);
+            }
+            catch (Exception ex)
+            {
+                // Handle error, maybe show an indicator on the video
+                Console.WriteLine($"Error refreshing token for camera {camId}: {ex.Message}");
+            }
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_activeTab == "live" && _selectedCameraIds.Count > 0)
         {
-            // Initialize players for all selected cameras
             foreach (var camId in _selectedCameraIds)
             {
-                var cam = _cameras.FirstOrDefault(c => c.Id == camId);
-                if (cam != null)
+                if (_secureUrls.TryGetValue(camId, out var hlsUrl))
                 {
-                    // Construct HLS URL - assuming Video Agent is at port 8888 or configured
-                    var videoAgentUrl = Configuration["VideoAgent:BaseUrl"] ?? "http://localhost:8888";
-                    var hlsUrl = $"{videoAgentUrl}/live/{cam.Id}/index.m3u8";
-                    
-                    // Call JS to init player (with simple debouncing or check if already init?)
-                    // For now simplest is to re-init. The JS helper should handle idempotency or we rely on Blazor not re-rendering too much.
-                    // Actually, re-init on every render might be bad. We should track init state.
-                    // But for this MVP, we call it.
-                    await JSRuntime.InvokeVoidAsync("initializeHlsPlayer", $"video-player-{cam.Id}", hlsUrl);
+                    await JSRuntime.InvokeVoidAsync("initializeHlsPlayer", $"video-player-{camId}", hlsUrl);
                 }
             }
         }
@@ -191,15 +232,25 @@
 
     private bool IsSelected(int cameraId) => _selectedCameraIds.Contains(cameraId);
 
-    private void ToggleCamera(int cameraId)
+    private async Task ToggleCamera(int cameraId)
     {
         if (_selectedCameraIds.Contains(cameraId))
         {
             _selectedCameraIds.Remove(cameraId);
+            _secureUrls.Remove(cameraId);
         }
         else
         {
-            _selectedCameraIds.Add(cameraId);
+            try
+            {
+                var secureUrl = await CameraService.GetSecureStreamUrlAsync(cameraId);
+                _secureUrls[cameraId] = secureUrl;
+                _selectedCameraIds.Add(cameraId);
+            }
+            catch (Exception ex)
+            {
+                _errorMessage = $"Could not get secure URL for camera: {ex.Message}";
+            }
         }
         UpdateGridClass();
     }
@@ -245,5 +296,10 @@
     private async Task ToggleFullscreen(int videoId)
     {
         await JSRuntime.InvokeVoidAsync("toggleFullscreen", $"video-player-{videoId}");
+    }
+
+    public void Dispose()
+    {
+        _tokenRefreshTimer?.Dispose();
     }
 }

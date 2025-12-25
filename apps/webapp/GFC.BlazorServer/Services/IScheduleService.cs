@@ -11,6 +11,12 @@ public interface IScheduleService
     Task UpdateHolidayAsync(Holiday holiday, CancellationToken cancellationToken = default);
     Task DeleteHolidayAsync(int id, CancellationToken cancellationToken = default);
 
+    Task<List<SpecialEvent>> GetSpecialEventsAsync(CancellationToken cancellationToken = default);
+    Task<SpecialEvent?> GetSpecialEventAsync(int id, CancellationToken cancellationToken = default);
+    Task<int> AddSpecialEventAsync(SpecialEvent specialEvent, CancellationToken cancellationToken = default);
+    Task UpdateSpecialEventAsync(SpecialEvent specialEvent, CancellationToken cancellationToken = default);
+    Task DeleteSpecialEventAsync(int id, CancellationToken cancellationToken = default);
+
     Task<List<TimeProfile>> GetProfilesAsync(bool activeOnly = true, CancellationToken cancellationToken = default);
     Task<TimeProfile?> GetProfileAsync(int id, CancellationToken cancellationToken = default);
     Task<List<TimeProfileInterval>> GetIntervalsAsync(int profileId, CancellationToken cancellationToken = default);

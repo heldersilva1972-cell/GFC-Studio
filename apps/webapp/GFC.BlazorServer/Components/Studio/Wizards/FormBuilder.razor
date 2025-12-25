@@ -1,0 +1,137 @@
+// [NEW]
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IFormService FormService
+@inject ToastService ToastService
+
+<div class="form-builder-container">
+    <div class="form-settings">
+        <input @bind="CurrentForm.Name" placeholder="Form Name" class="form-control mb-2" />
+        <textarea @bind="CurrentForm.Description" placeholder="Form Description" class="form-control mb-2"></textarea>
+    </div>
+
+    <div class="field-palette">
+        <h5>Add New Field</h5>
+        <select @bind="selectedFieldType" class="form-control">
+            <option value="text">Text</option>
+            <option value="email">Email</option>
+            <option value="date">Date Picker</option>
+            <option value="textarea">Text Area</option>
+        </select>
+        <button class="btn btn-primary mt-2" @onclick="AddField">Add Field</button>
+    </div>
+
+    <div class="form-canvas">
+        <h5>Form Fields</h5>
+        @if (CurrentForm.FormFields != null)
+        {
+            @foreach (var field in CurrentForm.FormFields.OrderBy(f => f.Order))
+            {
+                <div class="form-field-editor">
+                    <div class="field-header">
+                        <strong>@field.Label (@field.FieldType)</strong>
+                        <div class="field-controls">
+                            <button class="btn btn-sm btn-light" @onclick="() => MoveField(field, -1)" disabled="@(field.Order == 0)">&#8593;</button>
+                            <button class="btn btn-sm btn-light" @onclick="() => MoveField(field, 1)" disabled="@(field.Order == CurrentForm.FormFields.Count - 1)">&#8595;</button>
+                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteField(field)">Delete</button>
+                        </div>
+                    </div>
+                    <div class="field-body">
+                        <div class="form-group">
+                            <label>Label</label>
+                            <input @bind="field.Label" class="form-control" />
+                        </div>
+                        <div class="form-group">
+                            <label>Placeholder</label>
+                            <input @bind="field.Placeholder" class="form-control" />
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" @bind="field.IsRequired" class="form-check-input" />
+                            <label class="form-check-label">Required</label>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="form-actions">
+        <button class="btn btn-success" @onclick="SaveChanges">Save Form</button>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int FormId { get; set; }
+
+    private Form CurrentForm { get; set; } = new Form();
+    private string selectedFieldType = "text";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (FormId > 0)
+        {
+            CurrentForm = await FormService.GetFormByIdAsync(FormId) ?? new Form();
+        }
+    }
+
+    private void AddField()
+    {
+        var newField = new FormField
+        {
+            FieldType = selectedFieldType,
+            Label = $"New {selectedFieldType} Field",
+            Order = CurrentForm.FormFields.Any() ? CurrentForm.FormFields.Max(f => f.Order) + 1 : 0
+        };
+        CurrentForm.FormFields.Add(newField);
+    }
+
+    private void DeleteField(FormField field)
+    {
+        CurrentForm.FormFields.Remove(field);
+        ReorderFields();
+    }
+
+    private void MoveField(FormField field, int direction)
+    {
+        var oldIndex = field.Order;
+        var newIndex = oldIndex + direction;
+
+        var otherField = CurrentForm.FormFields.FirstOrDefault(f => f.Order == newIndex);
+        if (otherField != null)
+        {
+            otherField.Order = oldIndex;
+            field.Order = newIndex;
+        }
+    }
+
+    private void ReorderFields()
+    {
+        var orderedFields = CurrentForm.FormFields.OrderBy(f => f.Order).ToList();
+        for (int i = 0; i < orderedFields.Count; i++)
+        {
+            orderedFields[i].Order = i;
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        try
+        {
+            if (CurrentForm.Id == 0)
+            {
+                await FormService.CreateFormAsync(CurrentForm);
+                ToastService.ShowSuccess("Form created successfully!");
+            }
+            else
+            {
+                await FormService.UpdateFormAsync(CurrentForm);
+                ToastService.ShowSuccess("Form updated successfully!");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Failed to save form: {ex.Message}");
+        }
+    }
+}
