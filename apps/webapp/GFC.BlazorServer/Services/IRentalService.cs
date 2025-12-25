@@ -20,5 +20,6 @@ namespace GFC.BlazorServer.Services
         Task<bool> DenyRentalRequestAsync(int requestId, string adminNotes);
         Task<IEnumerable<HallRentalRequest>> GetApprovedRentalsAsync();
         Task CreateRentalInquiryAsync(HallRentalInquiry inquiry);
+        Task<List<System.DateTime>> GetReservedDatesAsync();
     }
 }

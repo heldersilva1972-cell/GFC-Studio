@@ -1,6 +1,7 @@
 // [NEW]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using Microsoft.EntityFrameworkCore;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
@@ -109,6 +110,13 @@ namespace GFC.BlazorServer.Services
 
             _context.SystemNotifications.Add(notification);
             await _context.SaveChangesAsync();
+        }
+
+        public async Task<List<SystemNotification>> GetActiveNotificationsAsync()
+        {
+            return await _context.SystemNotifications
+                                 .Where(n => n.Status == "Sent")
+                                 .ToListAsync();
         }
     }
 }

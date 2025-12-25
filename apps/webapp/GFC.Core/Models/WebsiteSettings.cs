@@ -26,5 +26,6 @@ namespace GFC.Core.Models
         public bool HighAccessibilityMode { get; set; } = false;
 
         public bool IsClubOpen { get; set; } = true;
+        public bool IsClubOpen { get; set; } = false;
     }
 }

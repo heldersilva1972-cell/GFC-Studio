@@ -24,5 +24,9 @@ namespace GFC.Core.Models
         public bool IsFeatured { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public string Name { get; set; }
+        public int Rating { get; set; }
+        public string Comment { get; set; }
+        public bool IsApproved { get; set; }
     }
 }

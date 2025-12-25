@@ -7,15 +7,10 @@ export const dynamic = 'force-dynamic';
 // Revalidate every 10 seconds
 export const revalidate = 10;
 
-// Mock function to simulate fetching from the Web App API
-// In a real scenario, this would be an actual fetch call:
-// const res = await fetch('http://localhost:5000/api/v1/club/status');
-// const data = await res.json();
 const getClubStatusFromWebApp = async () => {
-  // For now, we'll return a mock status.
-  // This will be replaced with a real fetch call once the Web App API is available.
-  const isMorning = new Date().getHours() < 12;
-  return { status: isMorning ? 'Open' : 'Closed' };
+  const res = await fetch('http://localhost:5207/api/WebsiteSettings');
+  const data = await res.json();
+  return { status: data.isClubOpen ? 'Open' : 'Closed' };
 };
 
 export async function GET() {
