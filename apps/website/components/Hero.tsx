@@ -10,7 +10,8 @@ const Hero: React.FC<HeroProps> = ({ backgroundImage, headline }) => {
   return (
     <div
       style={{
-        backgroundImage: `url(${backgroundImage})`,
+        backgroundImage: backgroundImage ? `url(${backgroundImage})` : 'none',
+        backgroundColor: '#1a2a3a', // Fallback color
         height: '400px',
         display: 'flex',
         alignItems: 'center',

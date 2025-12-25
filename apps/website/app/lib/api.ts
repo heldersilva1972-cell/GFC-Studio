@@ -11,22 +11,21 @@ export async function getPageBySlug(slug: string) {
     sections: [
       {
         id: 'clxjy2q4p000108l8g2j3e4f5',
+        clientId: 'client-hero-1',
         sectionType: 'Hero',
-        content: {
-          title: 'Gloucester Fraternity Club',
-          subtitle: 'A place for community and connection.',
-          imageUrl: '/images/hero-image.jpg',
-          buttonText: 'Learn More',
-          buttonLink: '/about',
+        properties: {
+          headline: 'Gloucester Fraternity Club',
+          backgroundImage: '/images/hero-bg.jpg',
         },
-        animationSettings: { effect: 'fadeInUp', duration: 0.8, delay: 0.2 },
+        animationSettingsJson: JSON.stringify({ Effect: 'SlideUp', Duration: 1, Delay: 0.2 }),
         sortOrder: 1,
       },
       {
         id: 'clxjy3a9b000208l8h4f5k6g7',
+        clientId: 'client-feature-1',
         sectionType: 'FeatureGrid',
-        content: {},
-        animationSettings: { effect: 'slideInFromLeft', duration: 0.8, delay: 0.4 },
+        properties: {},
+        animationSettingsJson: JSON.stringify({ Effect: 'FadeIn', Duration: 1, Delay: 0.4 }),
         sortOrder: 2,
       },
     ],

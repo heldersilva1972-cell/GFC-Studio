@@ -20,7 +20,7 @@ const ButtonCTA: React.FC<ButtonCTAProps> = ({ link, text, padding, backgroundCo
   };
 
   return (
-    <a href={link} style={styles}>
+    <a href={link || '#'} style={styles}>
       {text}
     </a>
   );
