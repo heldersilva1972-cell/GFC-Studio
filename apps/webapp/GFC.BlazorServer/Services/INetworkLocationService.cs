@@ -1,9 +1,13 @@
-// [NEW]
+// [OBSOLETE - DO NOT USE]
+// This file has been replaced by GFC.Core.Interfaces.INetworkLocationService
+// This namespace has been changed to prevent conflicts
+// TODO: DELETE THIS FILE
+
 using System.Threading.Tasks;
 
-namespace GFC.BlazorServer.Services
+namespace GFC.BlazorServer.Services.OBSOLETE_DO_NOT_USE
 {
-    public enum LocationType
+    public enum LocationType_OBSOLETE
     {
         LAN,
         VPN,
@@ -11,20 +15,9 @@ namespace GFC.BlazorServer.Services
         Unknown
     }
 
-    public interface INetworkLocationService
+    public interface INetworkLocationService_OBSOLETE
     {
-        /// <summary>
-        /// Detects the network location of a user based on their IP address.
-        /// </summary>
-        /// <param name="ipAddress">The IP address to check.</param>
-        /// <returns>The detected LocationType.</returns>
-        Task<LocationType> DetectLocationAsync(string ipAddress);
-
-        /// <summary>
-        /// Checks if a user is authorized to view video streams from their current location.
-        /// </summary>
-        /// <param name="ipAddress">The user's IP address.</param>
-        /// <returns>True if access is allowed (LAN or VPN), false otherwise.</returns>
+        Task<LocationType_OBSOLETE> DetectLocationAsync(string ipAddress);
         Task<bool> IsAuthorizedForVideoAsync(string ipAddress);
     }
 }
