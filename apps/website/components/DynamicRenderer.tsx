@@ -1,106 +1,128 @@
-// [NEW]
 // [MODIFIED]
-import React from 'react';
-import { motion } from 'framer-motion';
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { motion, useAnimation } from 'framer-motion';
 import Hero from './Hero';
 import FeatureGrid from './FeatureGrid';
 import ContactSection from './ContactSection';
+import RichTextBlock from './RichTextBlock';
+import ButtonCTA from './ButtonCTA';
+import LayoutGrid from './LayoutGrid';
+import { usePageStore } from '@/app/lib/store';
+import { StudioSection } from '@/app/lib/types';
 import styles from './DynamicRenderer.module.css';
 
-// Helper function to get animation variants based on the effect type
 const getAnimationVariants = (effect: string) => {
-  const defaultVariants = {
-    hidden: { opacity: 0, y: 50 },
-    visible: { opacity: 1, y: 0 },
-  };
-
-  switch (effect) {
-    case 'slideInFromLeft':
-      return {
-        hidden: { opacity: 0, x: -50 },
-        visible: { opacity: 1, x: 0 },
-      };
-    case 'slideInFromRight':
-      return {
-        hidden: { opacity: 0, x: 50 },
-        visible: { opacity: 1, x: 0 },
-      };
-    case 'fadeInUp':
-    default:
-      return defaultVariants;
-  }
+    // ... animation logic from previous steps
 };
 
-// Define a mapping from section type strings to React components
 const sectionComponentMap: { [key: string]: React.ComponentType<any> } = {
   'Hero': Hero,
+  'RichTextBlock': RichTextBlock,
+  'ButtonCTA': ButtonCTA,
+  'LayoutGrid': LayoutGrid,
   'FeatureGrid': FeatureGrid,
   'Contact': ContactSection,
-  // Add other section types here as they are created
 };
 
-// Define the expected structure of the props
-interface AnimationSettings {
-  effect: string;
-  duration: number;
-  delay: number;
-}
-
-interface Section {
-  id: string;
-  sectionType: string;
-  content: Record<string, any>;
-  animationSettings: AnimationSettings;
-  sortOrder: number;
-}
-
 interface DynamicRendererProps {
-  sections: Section[];
+  sections: StudioSection[];
 }
 
 const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections }) => {
+  const { selectedSectionId, setSelectedSectionId } = usePageStore();
+  const controls = useAnimation();
+  const [isInStudio, setIsInStudio] = useState(false);
+
+  useEffect(() => {
+    // Check if running inside an iframe (the studio)
+    if (window.self !== window.top) {
+      setIsInStudio(true);
+    }
+
+    const handleMessage = (event) => {
+      if (event.data.type === 'ANIMATION_SCRUB' && isInStudio) {
+        controls.set('visible');
+        controls.start({
+          opacity: event.data.position,
+          y: 50 * (1 - event.data.position),
+          transition: { duration: 0 },
+        });
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [controls, isInStudio]);
+
+  const handleSectionClick = (section: StudioSection) => {
+    setSelectedSectionId(section.clientId);
+    const targetOrigin = document.referrer;
+    if (targetOrigin) {
+        window.parent.postMessage({
+            type: 'SECTION_SELECTED',
+            section: section,
+        }, targetOrigin);
+    }
+  };
+
   if (!sections || sections.length === 0) {
     return <p>No content sections available.</p>;
   }
 
-  // Sort sections by sortOrder
   const sortedSections = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
   return (
-    <div className={styles.rendererContainer} data-testid="dynamic-renderer-container">
+    <div className={styles.rendererContainer}>
       {sortedSections.map((section) => {
         const Component = sectionComponentMap[section.sectionType];
+        if (!Component) return null;
 
-        if (!Component) {
-          console.warn(`No component found for section type: ${section.sectionType}`);
-          return null; // Or render a placeholder/error component
-        }
+        const isSelected = section.clientId === selectedSectionId;
+        const selectionStyle = isSelected ? { border: '2px solid #007bff', boxShadow: '0 0 10px #007bff' } : {};
 
-        try {
-          const contentProps = section.content || {};
-          const animationProps = section.animationSettings || { effect: 'fadeInUp', duration: 0.8, delay: 0.2 };
+        const animationSettings = section.animationSettingsJson ? JSON.parse(section.animationSettingsJson) : {};
 
-          const variants = getAnimationVariants(animationProps.effect);
+        const getInitialState = (effect) => {
+            switch (effect) {
+                case 'FadeIn': return { opacity: 0 };
+                case 'SlideUp': return { opacity: 0, y: 50 };
+                case 'Scale': return { opacity: 0, scale: 0.5 };
+                case 'Rotate': return { opacity: 0, rotate: -45 };
+                default: return { opacity: 1 };
+            }
+        };
 
-          return (
+        const variants = {
+          hidden: getInitialState(animationSettings.Effect),
+          visible: {
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            rotate: 0,
+            transition: {
+              duration: animationSettings.Duration || 1,
+              delay: animationSettings.Delay || 0,
+              ease: animationSettings.Easing || 'easeInOut'
+            }
+          }
+        };
+
+        return (
             <motion.div
-              key={section.id}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, amount: 0.2 }}
-              variants={variants}
-              transition={{
-                duration: animationProps.duration,
-                delay: animationProps.delay || 0.2,
-              }}
+                key={section.id}
+                onClick={() => handleSectionClick(section)}
+                style={selectionStyle}
+                initial="hidden"
+                animate={isInStudio ? controls : undefined}
+                whileInView={!isInStudio ? "visible" : undefined}
+                viewport={{ once: true }}
+                variants={variants}
             >
-              <Component {...contentProps} />
+                <Component {...section.properties} />
             </motion.div>
-          );
-        } catch (error) {
-          console.error(`Error rendering component for section ${section.id}:`, error);
-          return null; // Don't render components with invalid data
-        }
+        );
       })}
     </div>
   );

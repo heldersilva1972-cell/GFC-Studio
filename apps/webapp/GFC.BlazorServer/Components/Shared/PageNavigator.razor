@@ -1,0 +1,71 @@
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@inject NavigationManager NavigationManager
+@inject IPageService PageService
+
+<div class="page-navigator">
+    <div class="dropdown">
+        <button class="btn btn-secondary dropdown-toggle" type="button" @onclick="ToggleDropdown">
+            @CurrentPage?.Title ?? "Select a Page"
+        </button>
+        @if (isOpen)
+        {
+            <div class="dropdown-menu show">
+                <div class="px-2 py-1">
+                    <input type="text" class="form-control" placeholder="Search pages..." @bind="searchTerm" @bind:event="oninput" />
+                </div>
+                <div class="dropdown-divider"></div>
+                <div class="page-list">
+                    @foreach (var sPage in FilteredPages)
+                    {
+                        <a class='dropdown-item @(sPage.IsPublished ? "published" : "draft")' href="javascript:void(0)" @onclick="() => SelectPage(sPage)">
+                            @sPage.Title
+                        </a>
+                    }
+                </div>
+                <div class="dropdown-divider"></div>
+                <button class="dropdown-item dropdown-item-new" @onclick="CreateNewPage">
+                    <i class="fas fa-plus"></i> New Page
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public StudioPage CurrentPage { get; set; }
+
+    [Parameter]
+    public EventCallback<StudioPage> OnPageSelected { get; set; }
+
+    [Parameter]
+    public EventCallback OnNewPageClicked { get; set; }
+
+    private List<StudioPage> allPages = new();
+    private bool isOpen = false;
+    private string searchTerm = "";
+
+    private IEnumerable<StudioPage> FilteredPages =>
+        allPages.Where(p => string.IsNullOrWhiteSpace(searchTerm) || p.Title.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+              .OrderBy(p => p.Title);
+
+    protected override async Task OnInitializedAsync()
+    {
+        allPages = await PageService.GetAllPagesAsync() ?? new List<StudioPage>();
+    }
+
+    private void ToggleDropdown() => isOpen = !isOpen;
+
+    private async Task SelectPage(StudioPage page)
+    {
+        isOpen = false;
+        await OnPageSelected.InvokeAsync(page);
+    }
+
+    private async Task CreateNewPage()
+    {
+        isOpen = false;
+        await OnNewPageClicked.InvokeAsync();
+    }
+}

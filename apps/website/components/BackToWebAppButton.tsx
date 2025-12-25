@@ -6,7 +6,7 @@ import styles from './BackToWebAppButton.module.css'
 export default function BackToWebAppButton() {
     return (
         <a
-            href="http://localhost:5000"
+            href="http://localhost:5207"
             className={styles.backButton}
             title="Return to Admin Panel"
         >

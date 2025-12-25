@@ -1,6 +1,11 @@
-// [NEW]
+// [MODIFIED]
 using GFC.VideoAgent.Services;
 using Microsoft.AspNetCore.Http;
+using GFC.VideoAgent.Middleware;
+using GFC.Core.Interfaces;
+using GFC.Core.Services;
+using Microsoft.Extensions.Configuration;
+using System.IO;
 
 public class Program
 {
@@ -9,12 +14,23 @@ public class Program
         CreateHostBuilder(args).Build().Run();
     }
 
-    public static IHostBuilder CreateHostBuilder(string[] args) =>
-        Host.CreateDefaultBuilder(args)
+    public static IHostBuilder CreateHostBuilder(string[] args)
+    {
+        var config = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json", optional: false)
+            .Build();
+
+        var port = config.GetValue<int>("VideoAgent:ListenPort");
+        if (port == 0) port = 5101; // Fallback
+
+        return Host.CreateDefaultBuilder(args)
             .ConfigureWebHostDefaults(webBuilder =>
             {
                 webBuilder.UseStartup<Startup>();
+                webBuilder.UseUrls($"http://*:{port}");
             });
+    }
 }
 
 public class Startup
@@ -31,6 +47,7 @@ public class Startup
         services.AddSingleton<StreamManager>();
         services.AddSingleton<FFmpegService>();
         services.AddSingleton<NvrService>();
+        services.AddSingleton<IStreamSecurityService, StreamSecurityService>();
         services.AddHostedService<StreamManager>();
 
         services.AddCors(options =>
@@ -70,6 +87,9 @@ public class Startup
         {
             Directory.CreateDirectory(outputDirectory);
         }
+
+        // Token validation must come before serving the static files.
+        app.UseMiddleware<StreamTokenValidationMiddleware>();
 
         app.UseStaticFiles(new StaticFileOptions
         {

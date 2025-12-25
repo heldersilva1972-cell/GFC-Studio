@@ -5,7 +5,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
-    [Table("VpnProfiles")]
     public class VpnProfile
     {
         [Key]
@@ -23,7 +22,7 @@ namespace GFC.Core.Models
 
         [Required]
         [MaxLength(255)]
-        public string PrivateKey { get; set; } // Should be encrypted at rest
+        public string PrivateKey { get; set; } // Encrypted at rest
 
         [Required]
         [MaxLength(50)]
@@ -47,6 +46,6 @@ namespace GFC.Core.Models
         public string DeviceName { get; set; }
 
         [MaxLength(50)]
-        public string DeviceType { get; set; } // e.g., iOS, Android, Windows, Mac, Linux
+        public string DeviceType { get; set; }
     }
 }

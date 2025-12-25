@@ -1,0 +1,264 @@
+// [NEW]
+@page "/controllers/schedules/specialevents"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject IScheduleService ScheduleService
+@inject NavigationManager Navigation
+@inject ILogger<SpecialEvents> Logger
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Special Events - GFC Controllers</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Special Events</h1>
+        <p class="text-muted mb-0">Manage special events that override normal schedules.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="ShowAddModal" disabled="@_loading">
+        <i class="bi bi-plus-circle"></i> Add Special Event
+    </button>
+</div>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+@if (_loading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="data-card mb-3">
+        <table class="data-table table-compact">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Date</th>
+                    <th>Time Profile</th>
+                    <th style="width:150px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_specialEvents.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-4">No special events configured.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var specialEvent in _specialEvents)
+                    {
+                        <tr>
+                            <td>@specialEvent.Name</td>
+                            <td>@specialEvent.Date.ToString("MMM d, yyyy")</td>
+                            <td>@specialEvent.TimeProfile?.Name</td>
+                            <td>
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => EditSpecialEvent(specialEvent)">
+                                    Edit
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteSpecialEvent(specialEvent)">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_showModal)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(_editingSpecialEvent?.Id > 0 ? "Edit" : "Add") Special Event</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrWhiteSpace(_modalError))
+                    {
+                        <div class="alert alert-danger">@_modalError</div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" @bind="_editingSpecialEvent!.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Date <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control"
+                               value="@(_editingSpecialEvent!.Date.ToString("yyyy-MM-dd"))"
+                               @onchange="@((ChangeEventArgs e) => UpdateDate(e.Value?.ToString()))" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Time Profile <span class="text-danger">*</span></label>
+                        <select class="form-control" @bind="_editingSpecialEvent!.TimeProfileId">
+                            <option value="0">Select a time profile</option>
+                            @foreach (var profile in _timeProfiles)
+                            {
+                                <option value="@profile.Id">@profile.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseModal" disabled="@_saving">Cancel</button>
+                    <button class="btn btn-primary" @onclick="SaveSpecialEvent" disabled="@_saving">
+                        @(_saving ? "Saving..." : "Save")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SpecialEvent> _specialEvents = new();
+    private List<TimeProfile> _timeProfiles = new();
+    private bool _loading = true;
+    private string? _errorMessage;
+    private bool _showModal;
+    private SpecialEvent? _editingSpecialEvent;
+    private bool _saving;
+    private string? _modalError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSpecialEvents();
+        await LoadTimeProfiles();
+    }
+
+    private async Task LoadSpecialEvents()
+    {
+        _loading = true;
+        _errorMessage = null;
+        try
+        {
+            _specialEvents = await ScheduleService.GetSpecialEventsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load special events");
+            _errorMessage = "Failed to load special events. See logs for details.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadTimeProfiles()
+    {
+        try
+        {
+            _timeProfiles = await ScheduleService.GetProfilesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load time profiles");
+            _errorMessage = "Failed to load time profiles. See logs for details.";
+        }
+    }
+
+    private void ShowAddModal()
+    {
+        _editingSpecialEvent = new SpecialEvent { Date = DateOnly.FromDateTime(DateTime.Today) };
+        _showModal = true;
+        _modalError = null;
+    }
+
+    private void UpdateDate(string? dateStr)
+    {
+        if (_editingSpecialEvent != null && !string.IsNullOrWhiteSpace(dateStr) && DateOnly.TryParse(dateStr, out var date))
+        {
+            _editingSpecialEvent.Date = date;
+        }
+    }
+
+    private void EditSpecialEvent(SpecialEvent specialEvent)
+    {
+        _editingSpecialEvent = new SpecialEvent
+        {
+            Id = specialEvent.Id,
+            Name = specialEvent.Name,
+            Date = specialEvent.Date,
+            TimeProfileId = specialEvent.TimeProfileId
+        };
+        _showModal = true;
+        _modalError = null;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _editingSpecialEvent = null;
+        _modalError = null;
+    }
+
+    private async Task SaveSpecialEvent()
+    {
+        if (_editingSpecialEvent == null || string.IsNullOrWhiteSpace(_editingSpecialEvent.Name) || _editingSpecialEvent.TimeProfileId == 0)
+        {
+            _modalError = "Name and time profile are required.";
+            return;
+        }
+
+        _saving = true;
+        _modalError = null;
+
+        try
+        {
+            if (_editingSpecialEvent.Id > 0)
+            {
+                await ScheduleService.UpdateSpecialEventAsync(_editingSpecialEvent);
+            }
+            else
+            {
+                await ScheduleService.AddSpecialEventAsync(_editingSpecialEvent);
+            }
+
+            CloseModal();
+            await LoadSpecialEvents();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save special event");
+            _modalError = "Failed to save special event: " + ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteSpecialEvent(SpecialEvent specialEvent)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete special event '{specialEvent.Name}'?"))
+        {
+            return;
+        }
+
+        try
+        {
+            await ScheduleService.DeleteSpecialEventAsync(specialEvent.Id);
+            await LoadSpecialEvents();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete special event");
+            _errorMessage = "Failed to delete special event: " + ex.Message;
+        }
+    }
+}
