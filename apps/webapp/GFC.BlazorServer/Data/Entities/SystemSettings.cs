@@ -67,7 +67,9 @@ public class SystemSettings
     public bool EnableIPFiltering { get; set; } = false;
     public int MinimumBandwidthMbps { get; set; } = 5;
     public bool EnableSessionTimeout { get; set; } = true;
+    public int SessionTimeoutMinutes { get; set; } = 30;
     public bool EnableFailedLoginProtection { get; set; } = true;
+    public int MaxFailedLoginAttempts { get; set; } = 5;
     public string IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
     public int LoginLockDurationMinutes { get; set; } = 30;
     public string WatermarkPosition { get; set; } = "BottomRight"; // TopLeft, TopRight, BottomLeft, BottomRight
