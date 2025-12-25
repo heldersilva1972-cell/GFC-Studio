@@ -131,6 +131,11 @@ public class UserManagementService : IUserManagementService
         return _userRepository.GetById(userId);
     }
 
+    public async Task<AppUser?> GetUserAsync(int userId)
+    {
+        return await Task.FromResult(_userRepository.GetById(userId));
+    }
+
     public int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null)
     {
         EnsurePasswordIsValid(username, password);

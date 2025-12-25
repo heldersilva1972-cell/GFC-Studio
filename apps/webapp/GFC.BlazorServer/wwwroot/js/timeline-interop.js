@@ -1,6 +1,7 @@
-// [NEW]
+// [MODIFIED]
 window.initializeTimeline = (timelineContainer, dotNetHelper) => {
     const blocks = timelineContainer.querySelectorAll('.animation-block');
+    const playhead = timelineContainer.querySelector('.playhead');
 
     blocks.forEach(block => {
         let isResizing = false;
@@ -51,4 +52,48 @@ window.initializeTimeline = (timelineContainer, dotNetHelper) => {
             document.addEventListener('mouseup', onMouseUp);
         });
     });
+
+    if (playhead) {
+        let isScrubbing = false;
+        let startX;
+
+        const onScrubMove = (e) => {
+            if (isScrubbing) {
+                const dx = e.clientX - startX;
+                const timelineWidth = timelineContainer.offsetWidth;
+                const newLeft = Math.max(0, Math.min(timelineWidth, playhead.offsetLeft + dx));
+                const newPosition = (newLeft / timelineWidth) * 100;
+                playhead.style.left = `${newPosition}%`;
+                dotNetHelper.invokeMethodAsync('UpdatePlayheadPosition', newPosition);
+                postScrubUpdate(newPosition);
+                startX = e.clientX;
+            }
+        };
+
+        const onScrubUp = () => {
+            document.removeEventListener('mousemove', onScrubMove);
+            document.removeEventListener('mouseup', onScrubUp);
+            isScrubbing = false;
+        };
+
+        playhead.addEventListener('mousedown', (e) => {
+            startX = e.clientX;
+            isScrubbing = true;
+            document.addEventListener('mousemove', onScrubMove);
+            document.addEventListener('mouseup', onScrubUp);
+        });
+    }
 };
+
+function postScrubUpdate(position) {
+    const iframe = document.querySelector('.preview-iframe');
+    if (iframe) {
+        const message = {
+            type: 'SCRUB_UPDATE',
+            payload: {
+                position: position
+            }
+        };
+        iframe.contentWindow.postMessage(message, 'http://localhost:3000');
+    }
+}

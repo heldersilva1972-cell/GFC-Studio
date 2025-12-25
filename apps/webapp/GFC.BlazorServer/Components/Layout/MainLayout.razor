@@ -9,6 +9,7 @@
 @inject ISystemSettingsService SystemSettingsService
 @inject ILogger<MainLayout> Logger
 @inject ThemeService ThemeService
+@inject IUserConnectionService UserConnectionService
 
 <div class="app-shell">
     <header class="app-topbar">
@@ -17,6 +18,10 @@
             <span class="app-title">GFC Membership System</span>
         </div>
         <div class="app-topbar-right">
+            <div class="connection-status @GetConnectionStatusClass()">
+                <i class="bi @GetConnectionStatusIcon()"></i>
+                <span>@_connectionStatus</span>
+            </div>
             <AuthorizeView>
                 <Authorized>
                     <span class="app-user">@_currentUsername</span>
@@ -73,7 +78,7 @@
         </aside>
 
         <main class="app-content">
-            <Shared.Toast />
+            <Toast />
             <div class="content px-4">
                 @Body
             </div>
@@ -161,6 +166,8 @@
     private bool _showModeInfoModal = false;
     private DateTime _lastModeRefreshUtc = DateTime.MinValue;
     private static readonly TimeSpan ModeRefreshInterval = TimeSpan.FromSeconds(5);
+    private string _connectionStatus = "Checking...";
+    private GFC.Core.Interfaces.LocationType _locationType = GFC.Core.Interfaces.LocationType.Unknown;
 
     protected override async Task OnInitializedAsync()
     {
@@ -168,6 +175,7 @@
         {
             await UpdateUserInfo();
             await RefreshControllerModeIndicatorAsync(force: true);
+            UpdateConnectionStatus();
             
             // Subscribe to authentication state changes to update menu visibility
             AuthStateProvider.AuthenticationStateChanged += async (task) =>
@@ -311,5 +319,40 @@
             : _useRealControllers
                 ? "Real Controller Mode"
                 : "Simulation Mode (NO real hardware writes)";
+
+    private string GetConnectionStatusClass()
+    {
+        return _locationType switch
+        {
+            GFC.Core.Interfaces.LocationType.LAN => "status-lan",
+            GFC.Core.Interfaces.LocationType.VPN => "status-vpn",
+            GFC.Core.Interfaces.LocationType.Public => "status-public",
+            _ => "status-unknown"
+        };
+    }
+
+    private string GetConnectionStatusIcon()
+    {
+        return _locationType switch
+        {
+            GFC.Core.Interfaces.LocationType.LAN => "bi-wifi",
+            GFC.Core.Interfaces.LocationType.VPN => "bi-shield-lock-fill",
+            GFC.Core.Interfaces.LocationType.Public => "bi-exclamation-triangle-fill",
+            _ => "bi-question-circle-fill"
+        };
+    }
+
+    private void UpdateConnectionStatus()
+    {
+        _locationType = UserConnectionService.LocationType;
+        _connectionStatus = _locationType switch
+        {
+            GFC.Core.Interfaces.LocationType.LAN => "Connected via: Club WiFi",
+            GFC.Core.Interfaces.LocationType.VPN => "Connected via: Secure VPN",
+            GFC.Core.Interfaces.LocationType.Public => "Public Network",
+            _ => "Unknown Connection"
+        };
+        StateHasChanged();
+    }
 }
 

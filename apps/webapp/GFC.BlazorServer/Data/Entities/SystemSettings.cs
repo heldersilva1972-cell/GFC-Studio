@@ -47,6 +47,38 @@ public class SystemSettings
     /// </summary>
     public string? NvrPassword { get; set; }
 
+    // Phase 5: VPN and Remote Access Security
+    public string? CloudflareTunnelToken { get; set; } // Encrypted
+    public string? PublicDomain { get; set; } // e.g., gfc-cameras.yourclub.com
+    public int WireGuardPort { get; set; } = 51820;
+    public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
+    public string? WireGuardServerPublicKey { get; set; }
+    public string WireGuardAllowedIPs { get; set; } = "10.8.0.0/24, 192.168.1.0/24";
+    public int MaxSimultaneousViewers { get; set; } = 10;
+    
+    // Security Settings
+    public bool EnableTwoFactorAuth { get; set; } = false;
+    public bool EnableIPFiltering { get; set; } = false;
+    public int MinimumBandwidthMbps { get; set; } = 5;
+    public bool EnableSessionTimeout { get; set; } = true;
+    public int SessionTimeoutMinutes { get; set; } = 30;
+    public bool EnableFailedLoginProtection { get; set; } = true;
+    public int MaxFailedLoginAttempts { get; set; } = 5;
+    public string IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
+    public int LoginLockDurationMinutes { get; set; } = 30;
+    public string WatermarkPosition { get; set; } = "BottomRight"; // TopLeft, TopRight, BottomLeft, BottomRight
+    public bool EnableWatermarking { get; set; } = false;
+    
+    // Video Streaming Quality Settings
+    public int LocalQualityMaxBitrate { get; set; } = 8000; // kbps
+    public int RemoteQualityMaxBitrate { get; set; } = 2000; // kbps
+    public bool EnableGeofencing { get; set; } = false;
+    public bool EnableConnectionQualityAlerts { get; set; } = true;
+    
+    // Director Access Control
+    public DateTime? DirectorAccessExpiryDate { get; set; }
+}
+
     // Cloudflare & WireGuard Remote Access Settings (Phase 1)
     public string? LanSubnet { get; set; } = "192.168.1.0/24";
     public string? WireGuardServerPublicKey { get; set; }

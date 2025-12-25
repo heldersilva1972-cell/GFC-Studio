@@ -1,101 +1,260 @@
 // [NEW]
 @page "/admin/security-settings"
-@implements IDisposable
-@using GFC.BlazorServer.Data
-@using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Models
 @using GFC.BlazorServer.Services
-@using Microsoft.EntityFrameworkCore
-@inject IDbContextFactory<GfcDbContext> DbContextFactory
-@inject TunnelStatusService TunnelStatusService
-@inject CloudflareTunnelHealthService HealthService
+@using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Interfaces
+@inject ISystemSettingsService SystemSettingsService
+@inject IAuthorizedUserService AuthorizedUserService
+@inject IVpnManagementService VpnManagementService
+@inject IJSRuntime JSRuntime
+@inject IUserManagementService UserManagementService
 
-<h3>Security & Remote Access Settings <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
+<h3>Security & Remote Access <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
 
-@if (_isLoading)
-{
-    <p><em>Loading settings...</em></p>
-}
-else if (!string.IsNullOrEmpty(_errorMessage))
+@if (!string.IsNullOrEmpty(_errorMessage))
 {
     <div class="alert alert-danger">@_errorMessage</div>
 }
-else if (_settings != null)
+@if (!string.IsNullOrEmpty(_successMessage))
 {
+    <div class="alert alert-success">@_successMessage</div>
+}
+
+
+@if (_settings == null)
+{
+    @if (string.IsNullOrEmpty(_errorMessage))
+    {
+        <p><em>Loading...</em></p>
+    }
+}
+else
+{
+    @* Health Status Dashboard *@
+    <div class="form-card mt-4">
+        <div class="form-card-header">
+            <i class="bi bi-heart-pulse"></i>
+            <h5>Health Status</h5>
+        </div>
+        <div class="form-card-body">
+            <RemoteAccessHealth />
+        </div>
+    </div>
+
     <EditForm Model="@_settings" OnValidSubmit="SaveChanges">
         <DataAnnotationsValidator />
         <ValidationSummary />
 
-        <div class="form-card">
+        @* Remote Access Configuration *@
+        <div class="form-card mt-4">
             <div class="form-card-header">
-                <i class="bi bi-cloud-arrow-down"></i>
-                <h5>Cloudflare Tunnel Configuration</h5>
+                <i class="bi bi-diagram-3"></i>
+                <h5>Remote Access Configuration</h5>
             </div>
             <div class="form-card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div>
-                        <strong>Tunnel Status:</strong>
-                        @if (TunnelStatusService.IsTunnelConnected)
-                        {
-                            <span class="badge bg-success">Connected</span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-danger">Disconnected</span>
-                        }
-                        <small class="text-muted ms-2">Last checked: @TunnelStatusService.LastCheckTime.ToLocalTime()</small>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" @onclick="TestConnection" type="button">Test Connection</button>
-                </div>
-
                 <div class="mb-3">
-                    <label for="cloudflareToken" class="form-label">Tunnel Token</label>
+                    <label for="cloudflareToken" class="form-label">Cloudflare Tunnel Token</label>
                     <InputText id="cloudflareToken" class="form-control" @bind-Value="_settings.CloudflareTunnelToken" />
-                    <small class="form-text text-muted">The token for your Cloudflare Tunnel.</small>
                 </div>
-
                 <div class="mb-3">
                     <label for="publicDomain" class="form-label">Public Domain</label>
                     <InputText id="publicDomain" class="form-control" @bind-Value="_settings.PublicDomain" />
-                    <small class="form-text text-muted">The public domain for your application (e.g., gfc.yourdomain.com).</small>
+                </div>
+                <div class="mb-3">
+                    <label for="wireguardPort" class="form-label">WireGuard Port</label>
+                    <InputNumber id="wireguardPort" class="form-control" @bind-Value="_settings.WireGuardPort" />
+                </div>
+                <div class="mb-3">
+                    <label for="wireguardSubnet" class="form-label">WireGuard Subnet</label>
+                    <InputText id="wireguardSubnet" class="form-control" @bind-Value="_settings.WireGuardSubnet" />
+                </div>
+            </div>
+        </div>
+
+        @* User & Permission Management *@
+        <div class="form-card mt-4">
+            <div class="form-card-header">
+                <i class="bi bi-people"></i>
+                <h5>User & Permission Management</h5>
+            </div>
+            <div class="form-card-body">
+                <h6>Director Access Management</h6>
+                <div class="mb-3">
+                    <label for="directorExpiry" class="form-label">Director Access Expiry Date</label>
+                    <InputDate id="directorExpiry" class="form-control" @bind-Value="_settings.DirectorAccessExpiryDate" />
+                </div>
+                <hr />
+                <h6>Additional Authorized Users</h6>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Access Level</th>
+                            <th>Expires</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in _authorizedUsers)
+                        {
+                            <tr>
+                                <td>@user.User?.Username</td>
+                                <td>@user.AccessLevel</td>
+                                <td>@(user.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never")</td>
+                                <td>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => RemoveAuthorizedUser(user.Id, user.UserId)">Remove</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <div class="mt-3">
+                    <h6>Add Authorized User</h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <InputSelect @bind-Value="_newAuthorizedUser.UserId" class="form-select">
+                                <option value="0">Select User...</option>
+                                @foreach (var user in _allUsers)
+                                {
+                                    <option value="@user.UserId">@user.Username</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-4">
+                            <InputSelect @bind-Value="_newAuthorizedUser.AccessLevel" class="form-select">
+                                <option value="View Only">View Only</option>
+                                <option value="Full Access">Full Access</option>
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-success" @onclick="AddAuthorizedUser">Add User</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Security "Hardening" Toggles *@
+        <div class="form-card mt-4">
+            <div class="form-card-header">
+                <i class="bi bi-shield-lock"></i>
+                <h5>Security "Hardening" Toggles</h5>
+            </div>
+            <div class="form-card-body">
+                <div class="form-check form-switch mb-2">
+                    <InputCheckbox id="enable2fa" class="form-check-input" @bind-Value="_settings.EnableTwoFactorAuth" />
+                    <label for="enable2fa" class="form-check-label">Enable Two-Factor Auth</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <InputCheckbox id="enableSessionTimeout" class="form-check-input" @bind-Value="_settings.EnableSessionTimeout" />
+                    <label for="enableSessionTimeout" class="form-check-label">Enable Session Timeout</label>
+                </div>
+                <div class="mb-3">
+                    <label for="sessionTimeoutMinutes" class="form-label">Session Timeout (minutes)</label>
+                    <InputNumber id="sessionTimeoutMinutes" class="form-control" @bind-Value="_settings.SessionTimeoutMinutes" />
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <InputCheckbox id="enableFailedLoginProtection" class="form-check-input" @bind-Value="_settings.EnableFailedLoginProtection" />
+                    <label for="enableFailedLoginProtection" class="form-check-label">Enable Failed Login Protection</label>
+                </div>
+                <div class="mb-3">
+                    <label for="maxFailedLogins" class="form-label">Max Failed Logins</label>
+                    <InputNumber id="maxFailedLogins" class="form-control" @bind-Value="_settings.MaxFailedLoginAttempts" />
+                </div>
+                <div class="mb-3">
+                    <label for="loginLockDuration" class="form-label">Login Lock Duration (minutes)</label>
+                    <InputNumber id="loginLockDuration" class="form-control" @bind-Value="_settings.LoginLockDurationMinutes" />
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <InputCheckbox id="enableIpFiltering" class="form-check-input" @bind-Value="_settings.EnableIPFiltering" />
+                    <label for="enableIpFiltering" class="form-check-label">Enable IP Filtering</label>
+                </div>
+                <div class="mb-3">
+                    <label for="ipFilterMode" class="form-label">IP Filter Mode</label>
+                    <InputSelect id="ipFilterMode" class="form-select" @bind-Value="_settings.IPFilterMode">
+                        <option value="Blacklist">Blacklist</option>
+                        <option value="Whitelist">Whitelist</option>
+                    </InputSelect>
+                </div>
+                <div class="form-check form-switch mb-2">
+                    <InputCheckbox id="enableWatermarking" class="form-check-input" @bind-Value="_settings.EnableWatermarking" />
+                    <label for="enableWatermarking" class="form-check-label">Enable Watermarking</label>
+                </div>
+                 <div class="mb-3">
+                    <label for="watermarkPosition" class="form-label">Watermark Position</label>
+                    <InputSelect id="watermarkPosition" class="form-select" @bind-Value="_settings.WatermarkPosition">
+                        <option value="BottomRight">Bottom Right</option>
+                        <option value="BottomLeft">Bottom Left</option>
+                        <option value="TopRight">Top Right</option>
+                        <option value="TopLeft">Top Left</option>
+                    </InputSelect>
+                </div>
+            </div>
+        </div>
+
+        @* System Limits *@
+        <div class="form-card mt-4">
+            <div class="form-card-header">
+                <i class="bi bi-sliders"></i>
+                <h5>System Limits & Quality</h5>
+            </div>
+            <div class="form-card-body">
+                <div class="mb-3">
+                    <label for="maxViewers" class="form-label">Max Simultaneous Viewers</label>
+                    <InputNumber id="maxViewers" class="form-control" @bind-Value="_settings.MaxSimultaneousViewers" />
+                </div>
+                <div class="mb-3">
+                    <label for="remoteBitrate" class="form-label">Remote Quality Max Bitrate (Mbps)</label>
+                    <InputNumber id="remoteBitrate" class="form-control" @bind-Value="_settings.RemoteQualityMaxBitrate" />
+                </div>
+                <div class="mb-3">
+                    <label for="localBitrate" class="form-label">Local Quality Max Bitrate (Mbps)</label>
+                    <InputNumber id="localBitrate" class="form-control" @bind-Value="_settings.LocalQualityMaxBitrate" />
                 </div>
             </div>
         </div>
 
         <div class="action-bar mt-4">
-            <button type="submit" class="btn btn-primary">Save Settings</button>
-            @if (!string.IsNullOrEmpty(_successMessage))
-            {
-                <span class="text-success ms-2">@_successMessage</span>
-            }
+            <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
     </EditForm>
+
+    @* Emergency Lockdown *@
+    <div class="form-card mt-4 border-danger">
+        <div class="form-card-header bg-danger text-white">
+            <i class="bi bi-exclamation-octagon"></i>
+            <h5>Emergency Lockdown</h5>
+        </div>
+        <div class="form-card-body">
+            <p>This will instantly disconnect ALL remote users and disable remote access.</p>
+            <button class="btn btn-danger" @onclick="TriggerEmergencyLockdown">
+                <i class="bi bi-power"></i> Activate Emergency Lockdown
+            </button>
+        </div>
+    </div>
 }
 
+@using GFC.Core.DTOs
 @code {
     private SystemSettings _settings;
-    private bool _isLoading = true;
+    private List<AuthorizedUser> _authorizedUsers = new();
+    private AuthorizedUser _newAuthorizedUser = new();
+    private List<UserListItemDto> _allUsers = new();
     private string _errorMessage;
     private string _successMessage;
 
     protected override async Task OnInitializedAsync()
     {
-        TunnelStatusService.OnStatusChanged += OnTunnelStatusChanged;
         try
         {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            _settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
-            if (_settings == null)
-            {
-                _errorMessage = "System settings could not be loaded. A database record may be missing.";
-            }
+            _settings = await SystemSettingsService.GetAsync();
+            _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
+            _allUsers = UserManagementService.GetAllUsers();
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Error loading settings: {ex.Message}";
-        }
-        finally
-        {
-            _isLoading = false;
+            _errorMessage = $"Error loading security settings: {ex.Message}.";
         }
     }
 
@@ -105,9 +264,7 @@ else if (_settings != null)
         _successMessage = null;
         try
         {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            dbContext.SystemSettings.Update(_settings);
-            await dbContext.SaveChangesAsync();
+            await SystemSettingsService.UpdateSecuritySettingsAsync(_settings);
             _successMessage = "Settings saved successfully!";
         }
         catch (Exception ex)
@@ -116,18 +273,50 @@ else if (_settings != null)
         }
     }
 
-    private async Task TestConnection()
+    private async Task TriggerEmergencyLockdown()
     {
-        await HealthService.CheckTunnelHealthAsync();
+        _errorMessage = null;
+        _successMessage = null;
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to activate the Emergency Lockdown? This will disconnect all remote users immediately.");
+        if (confirmed)
+        {
+            await VpnManagementService.DisconnectAllUsersAsync();
+            _successMessage = "Emergency Lockdown Activated. All remote users have been disconnected.";
+            StateHasChanged();
+        }
     }
 
-    private async Task OnTunnelStatusChanged()
+    private async Task AddAuthorizedUser()
     {
-        await InvokeAsync(StateHasChanged);
+        _errorMessage = null;
+        _successMessage = null;
+        try
+        {
+            await AuthorizedUserService.AddAuthorizedUserAsync(_newAuthorizedUser);
+            _newAuthorizedUser = new AuthorizedUser();
+            _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
+            _successMessage = "Authorized user added successfully!";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error adding authorized user: {ex.Message}";
+        }
     }
 
-    public void Dispose()
+    private async Task RemoveAuthorizedUser(int authorizedUserId, int appUserId)
     {
-        TunnelStatusService.OnStatusChanged -= OnTunnelStatusChanged;
+        _errorMessage = null;
+        _successMessage = null;
+        try
+        {
+            await VpnManagementService.RevokeUserAccessAsync(appUserId);
+            await AuthorizedUserService.RemoveAuthorizedUserAsync(authorizedUserId);
+            _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
+            _successMessage = "Authorized user removed and VPN access revoked successfully!";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error removing authorized user: {ex.Message}";
+        }
     }
 }

@@ -12,5 +12,6 @@ namespace GFC.BlazorServer.Services.Camera
         Task AddPermissionAsync(CameraPermission permission);
         Task RemovePermissionAsync(int permissionId);
         Task<bool> HasPermissionAsync(int userId, int cameraId, CameraAccessLevel accessLevel);
+        Task<bool> UserHasAnyCameraPermissionAsync(int userId);
     }
 }

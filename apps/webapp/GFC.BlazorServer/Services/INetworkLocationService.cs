@@ -1,9 +1,13 @@
-// [NEW]
+// [OBSOLETE - DO NOT USE]
+// This file has been replaced by GFC.Core.Interfaces.INetworkLocationService
+// This namespace has been changed to prevent conflicts
+// TODO: DELETE THIS FILE
+
 using System.Threading.Tasks;
 
-namespace GFC.BlazorServer.Services
+namespace GFC.BlazorServer.Services.OBSOLETE_DO_NOT_USE
 {
-    public enum LocationType
+    public enum LocationType_OBSOLETE
     {
         LAN,
         VPN,
@@ -11,11 +15,9 @@ namespace GFC.BlazorServer.Services
         Unknown
     }
 
-    public interface INetworkLocationService
+    public interface INetworkLocationService_OBSOLETE
     {
-        Task<LocationType> DetectLocationAsync(string ipAddress);
-        Task<bool> IsLanAddressAsync(string ipAddress);
-        Task<bool> IsVpnAddressAsync(string ipAddress);
+        Task<LocationType_OBSOLETE> DetectLocationAsync(string ipAddress);
         Task<bool> IsAuthorizedForVideoAsync(string ipAddress);
     }
 }

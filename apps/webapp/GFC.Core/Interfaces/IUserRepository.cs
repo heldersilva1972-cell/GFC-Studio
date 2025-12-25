@@ -6,6 +6,7 @@ public interface IUserRepository
 {
     AppUser? GetByUsername(string username);
     AppUser? GetById(int userId);
+    Task<AppUser?> GetByIdAsync(int userId);
     AppUser? GetByMemberId(int memberId);
     List<AppUser> GetAllUsers();
     int CreateUser(AppUser user);

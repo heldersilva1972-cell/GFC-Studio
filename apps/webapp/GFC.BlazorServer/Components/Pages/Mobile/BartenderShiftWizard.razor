@@ -1,0 +1,178 @@
+// [NEW]
+@page "/bartender-shift"
+@attribute [Authorize(Roles = "Admin, Staff")]
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IBartenderShiftService ShiftService
+
+<h3 class="gfc-new-tag">Bartender Shift Wizard [NEW]</h3>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @_errorMessage
+        <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty" aria-label="Close"></button>
+    </div>
+}
+
+@if (_isLoading)
+{
+    <p><em>Loading...</em></p>
+}
+else if (_shiftReport != null)
+{
+    <div class="alert alert-success">
+        <strong>Report Submitted!</strong> Thank you. You may now safely navigate away.
+    </div>
+}
+else if (_currentShift != null && _currentShift.ClockOutTime.HasValue)
+{
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Submit Sales Report</h5>
+            <p class="card-text">You clocked out at: @_currentShift.ClockOutTime?.ToLocalTime().ToString("g")</p>
+            <div class="form-group">
+                <label for="barSales">Bar Sales</label>
+                <input type="number" class="form-control" id="barSales" @bind="_shiftReportModel.BarSales" />
+            </div>
+            <div class="form-group">
+                <label for="lottoSales">Lotto Sales</label>
+                <input type="number" class="form-control" id="lottoSales" @bind="_shiftReportModel.LottoSales" />
+            </div>
+            <div class="form-group">
+                <label for="totalDeposit">Total Deposit</label>
+                <input type="number" class="form-control" id="totalDeposit" @bind="_shiftReportModel.TotalDeposit" />
+            </div>
+            <button class="btn btn-success mt-3" @onclick="SubmitReport" disabled="@_isProcessing">
+                @if (_isProcessing) { <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> }
+                Submit Report
+            </button>
+        </div>
+    </div>
+}
+else if (_currentShift != null)
+{
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Shift Active</h5>
+            <p class="card-text">You clocked in at: @_currentShift.ClockInTime?.ToLocalTime().ToString("g")</p>
+            <button class="btn btn-danger" @onclick="ClockOut" disabled="@_isProcessing">
+                @if (_isProcessing) { <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> }
+                Clock Out
+            </button>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Clock In</h5>
+            <p class="card-text">You are not currently clocked in. Click the button below to start your shift.</p>
+            <button class="btn btn-primary" @onclick="ClockIn" disabled="@_isProcessing">
+                @if (_isProcessing) { <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> }
+                Clock In
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _isLoading = true;
+    private bool _isProcessing = false;
+    private StaffShift? _currentShift;
+    private ShiftReport? _shiftReport;
+    private ShiftReport _shiftReportModel = new ShiftReport();
+    private System.Security.Claims.ClaimsPrincipal? _user;
+    private string _errorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            _user = authState.User;
+            if (_user?.Identity?.IsAuthenticated == true)
+            {
+                _currentShift = await ShiftService.GetCurrentShiftAsync(_user.Identity.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading shift information: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ClockIn()
+    {
+        _isProcessing = true;
+        try
+        {
+            _errorMessage = string.Empty;
+            if (_user?.Identity?.IsAuthenticated != true)
+            {
+                _errorMessage = "Authentication error. Please log in again.";
+                return;
+            }
+            _currentShift = await ShiftService.ClockInAsync(_user.Identity.Name);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error clocking in: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private async Task ClockOut()
+    {
+        _isProcessing = true;
+        try
+        {
+            _errorMessage = string.Empty;
+            if (_currentShift != null)
+            {
+                _currentShift = await ShiftService.ClockOutAsync(_currentShift.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error clocking out: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private async Task SubmitReport()
+    {
+        _isProcessing = true;
+        try
+        {
+            _errorMessage = string.Empty;
+            if (_currentShift != null)
+            {
+                _shiftReportModel.ShiftId = _currentShift.Id;
+                _shiftReport = await ShiftService.SubmitReportAsync(_shiftReportModel);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error submitting report: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+}

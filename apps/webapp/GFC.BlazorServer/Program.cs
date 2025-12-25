@@ -1,3 +1,4 @@
+// [MODIFIED]
 using GFC.BlazorServer.Auth;
 using GFC.BlazorServer.Components;
 using GFC.BlazorServer.Configuration;
@@ -11,6 +12,7 @@ using GFC.BlazorServer.Services.Members;
 using GFC.BlazorServer.Services.Controllers;
 using GFC.BlazorServer.Services.Diagnostics;
 using GFC.BlazorServer.Data.Repositories;
+using GFC.BlazorServer.Repositories;
 using GFC.Data;
 using GFC.Core.Helpers;
 using GFC.Core.Interfaces;
@@ -18,6 +20,7 @@ using GFC.Core.Services;
 using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
 using GFC.BlazorServer.Middleware;
+using GFC.BlazorServer.Hubs; // Add this using directive
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -50,13 +53,16 @@ public class Program
 
         // Add services to the container.
         builder.Services.AddRazorPages();
-        builder.Services.AddServerSideBlazor();
+        builder.Services.AddServerSideBlazor().AddHubOptions(options => options.ClientTimeoutInterval = TimeSpan.FromSeconds(60)).AddCircuitOptions(options => options.DetailedErrors = true);
+        builder.Services.AddSignalR(); // Add SignalR
         builder.Services.AddControllers();
         builder.Services.AddAuthenticationCore();
         builder.Services.AddAuthorizationCore(options =>
         {
             options.AddPolicy(AppPolicies.RequireAdmin, policy =>
                 policy.RequireRole(AppRoles.Admin));
+            options.AddPolicy(AppPolicies.CanForceUnlock, policy =>
+                policy.RequireRole(AppRoles.Admin, AppRoles.StudioUnlock));
         });
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<ProtectedSessionStorage>();
@@ -67,6 +73,8 @@ public class Program
             var opts = sp.GetRequiredService<IOptions<AgentApiOptions>>().Value;
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
+        builder.Services.AddHttpClient<IImportService, ImportService>();
+        builder.Services.AddScoped<DomAnalysisService>();
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
         builder.Services.AddScoped<GfcDbContext>(p => p.GetRequiredService<IDbContextFactory<GfcDbContext>>().CreateDbContext());
 
@@ -94,6 +102,7 @@ public class Program
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();
+        builder.Services.AddScoped<IStudioPageRepository, GFC.BlazorServer.Repositories.StudioPageRepository>();
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
@@ -107,14 +116,24 @@ public class Program
         builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 
         // Shared services
+        builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
+        builder.Services.AddScoped<IVpnProfileRepository, VpnProfileRepository>();
+        builder.Services.AddScoped<IVpnSetupService, VpnSetupService>();
+        builder.Services.AddScoped<IVpnManagementService, VpnManagementService>();
+        builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+        builder.Services.AddScoped<IAuthorizedUserService, AuthorizedUserService>();
+        builder.Services.AddScoped<IRemoteAccessHealthService, RemoteAccessHealthService>();
+        builder.Services.AddScoped<GFC.Core.Interfaces.INetworkLocationService, NetworkLocationService>();
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();
         builder.Services.AddScoped<ICameraService, CameraService>();
         builder.Services.AddScoped<ICameraDiscoveryService, CameraDiscoveryService>();
         builder.Services.AddScoped<IRecordingService, RecordingService>();
         builder.Services.AddScoped<ICameraEventService, CameraEventService>();
-        builder.Services.AddScoped<ICameraPermissionService, CameraPermissionService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraPermissionService, GFC.BlazorServer.Services.Camera.CameraPermissionService>();
         builder.Services.AddScoped<ICameraAuditLogService, CameraAuditLogService>();
+        builder.Services.AddScoped<IStreamSecurityService, StreamSecurityService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.IVideoAccessService, GFC.BlazorServer.Services.Camera.VideoAccessService>();
         builder.Services.AddSingleton<IDatabaseBackupService, GFC.BlazorServer.Services.DatabaseBackupService>();
         builder.Services.AddHostedService<GFC.BlazorServer.Services.BackupSchedulerService>();
         builder.Services.AddScoped<OverdueCalculationService>();
@@ -161,11 +180,23 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
+        builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+
+        // Network Location Service (registered above as Scoped)
+        builder.Services.AddScoped<IUserConnectionService, UserConnectionService>();
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
-        builder.Services.AddScoped<IStudioService, StudioService>();
+        builder.Services.AddHttpClient();
+        builder.Services.AddScoped<IMediaStorageService, MediaStorageService>();
+        builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
+        builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
+        builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddScoped<IFormService, FormService>();
+        builder.Services.AddScoped<ISeoService, SeoService>();
+        builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
@@ -175,7 +206,9 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
-        builder.Services.AddScoped<IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
+        builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
+        builder.Services.AddScoped<IPageService, PageService>();
         
         // Controller Client Wiring
         builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
@@ -196,6 +229,8 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         
         builder.Services.AddScoped<ControllerTestService>();
 
+        builder.Services.AddHostedService<DirectorAccessExpiryWorker>();
+
         var app = builder.Build();
 
 
@@ -214,14 +249,19 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         app.UseHttpsRedirection();
         app.UseStaticFiles();
 
-        app.UseMiddleware<RequestLoggingMiddleware>();
-
         app.UseRouting();
 
+        // IMPORTANT: DevAuth must run after UseRouting and before authorization policies.
         if (app.Environment.IsDevelopment())
         {
             app.UseDevAuthAutoAdmin();
         }
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+        app.UseMiddleware<RequestLoggingMiddleware>();
+        app.UseMiddleware<VideoAccessGuardMiddleware>();
 
         // Apply pending migrations at startup and surface any errors
         using (var scope = app.Services.CreateScope())
@@ -304,6 +344,10 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         app.MapControllers();
 
         app.MapBlazorHub();
+        app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub
+  
+        app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
+        app.MapHub<GFC.BlazorServer.Hubs.VideoAccessHub>("/videoaccesshub");
         app.MapFallbackToPage("/_Host");
 
         app.MapGet("/health", () => Results.Ok());

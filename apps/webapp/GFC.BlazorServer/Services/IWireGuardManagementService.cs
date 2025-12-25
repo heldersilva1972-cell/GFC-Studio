@@ -1,5 +1,5 @@
 // [NEW]
-using GFC.BlazorServer.Data.Entities.Security;
+using GFC.Core.Models;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -12,7 +12,5 @@ namespace GFC.BlazorServer.Services
         Task<bool> ActivateProfileAsync(int profileId);
         Task<bool> RevokeProfileAsync(int profileId, int revokedByUserId, string reason);
         Task<List<VpnProfile>> GetUserProfilesAsync(int userId);
-        Task<List<VpnSession>> GetActiveSessionsAsync();
-        Task<bool> DisconnectSessionAsync(int sessionId);
     }
 }
