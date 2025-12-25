@@ -28,20 +28,51 @@ export const metadata: Metadata = {
     'Gloucester Fraternity Club, GFC, hall rentals, community events, Gloucester MA, membership',
 };
 
-export default function RootLayout({
-  children,
+async function getWebsiteSettings() {
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
+    try {
+        const res = await fetch(`${baseUrl}/api/WebsiteSettings`, {
+            cache: 'no-store',
+        });
+        if (!res.ok) {
+            console.error(`Failed to fetch website settings from ${baseUrl}`);
+            return null;
+        }
+        return res.json();
+    } catch (error) {
+        console.warn('Could not fetch website settings, using defaults:', error);
+        return null;
+    }
+}
+
+export default async function RootLayout({
+    children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
-      <body className="bg-midnight-blue text-pure-white font-sans antialiased">
-        <UpdateBar />
-        <Header />
-        <main className="min-h-screen">{children}</main>
-        <Footer />
-        <BackToWebAppButton />
-      </body>
-    </html>
-  );
+    const settings = await getWebsiteSettings();
+
+    const a11yClass = settings?.highAccessibilityMode ? 'high-accessibility' : '';
+
+    const globalStyles = {
+        '--primary-color': settings?.primaryColor || '#0D1B2A',
+        '--secondary-color': settings?.secondaryColor || '#FFD700',
+        '--font-heading': `'${settings?.headingFont || 'Outfit'}', sans-serif`,
+        '--font-body': `'${settings?.bodyFont || 'Inter'}', sans-serif`,
+    } as React.CSSProperties;
+
+    return (
+        <html lang="en" suppressHydrationWarning>
+            <body
+                className={a11yClass}
+                data-motion-reduced={settings?.highAccessibilityMode ? 'true' : 'false'}
+                style={globalStyles}
+            >
+                <Header />
+                <main>{children}</main>
+                <Footer />
+                <BackToWebAppButton />
+            </body>
+        </html>
+    )
 }

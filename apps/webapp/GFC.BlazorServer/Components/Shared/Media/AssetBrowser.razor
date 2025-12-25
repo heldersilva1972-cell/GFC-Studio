@@ -1,0 +1,104 @@
+// [NEW]
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IMediaAssetService MediaAssetService
+@inject ToastService ToastService
+
+<div class="asset-browser-modal">
+    <div class="asset-browser-content">
+        <div class="asset-browser-header">
+            <h3>Media Library</h3>
+            <button class="close-btn" @onclick="CloseModal">&times;</button>
+        </div>
+        <div class="asset-browser-body">
+            <div class="upload-section">
+                <h4>Upload New Asset</h4>
+                <InputFile OnChange="HandleFileSelected" />
+                @if (_isLoading)
+                {
+                    <p>Uploading...</p>
+                }
+            </div>
+            <div class="gallery-section">
+                <h4>Existing Assets</h4>
+                @if (_assets == null)
+                {
+                    <p>Loading assets...</p>
+                }
+                else
+                {
+                    <div class="asset-grid">
+                        @foreach (var asset in _assets)
+                        {
+                            <div class="asset-card" @onclick="() => SelectAsset(asset)">
+                                <img src="@GetThumbnailUrl(asset)" alt="@asset.FileName" />
+                                <p>@asset.FileName</p>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback<MediaAsset> OnAssetSelected { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private List<MediaAsset> _assets;
+    private bool _isLoading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAssets();
+    }
+
+    private async Task LoadAssets()
+    {
+        _assets = await MediaAssetService.GetAllAssetsAsync();
+        StateHasChanged();
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await MediaAssetService.CreateAssetAsync(e.File, "General");
+            ToastService.ShowSuccess("File uploaded successfully!");
+            await LoadAssets();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Upload failed: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectAsset(MediaAsset asset)
+    {
+        await OnAssetSelected.InvokeAsync(asset);
+    }
+
+    private async Task CloseModal()
+    {
+        await OnClose.InvokeAsync();
+    }
+
+    private string GetThumbnailUrl(MediaAsset asset)
+    {
+        // Prefer mobile-sized WebP for thumbnail preview
+        var rendition = asset.Renditions?.FirstOrDefault(r => r.RenditionType == "mobile-webp");
+        return rendition?.Url ?? "/images/placeholder.png";
+    }
+}
