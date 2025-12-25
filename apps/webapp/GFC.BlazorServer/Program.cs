@@ -128,6 +128,7 @@ public class Program
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraPermissionService, GFC.BlazorServer.Services.Camera.CameraPermissionService>();
         builder.Services.AddScoped<ICameraAuditLogService, CameraAuditLogService>();
         builder.Services.AddScoped<IStreamSecurityService, StreamSecurityService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.IVideoAccessService, GFC.BlazorServer.Services.Camera.VideoAccessService>();
         builder.Services.AddSingleton<IDatabaseBackupService, GFC.BlazorServer.Services.DatabaseBackupService>();
         builder.Services.AddHostedService<GFC.BlazorServer.Services.BackupSchedulerService>();
         builder.Services.AddScoped<OverdueCalculationService>();
