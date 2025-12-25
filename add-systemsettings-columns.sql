@@ -1,13 +1,15 @@
 ﻿USE [ClubMembership]
 GO
 
--- 1. SystemSettings Table Fix
-PRINT 'Checking SystemSettings columns...';
+-- 1. SystemSettings Table Repair & Initialization
+PRINT 'Starting SystemSettings repair...';
+
+-- Step A: Add columns as NULLable first to avoid insertion errors
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'CloudflareTunnelToken')
     ALTER TABLE [dbo].[SystemSettings] ADD [CloudflareTunnelToken] NVARCHAR(500) NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaxSimultaneousViewers')
-    ALTER TABLE [dbo].[SystemSettings] ADD [MaxSimultaneousViewers] INT NULL DEFAULT 5;
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaxSimultaneousViewers] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PublicDomain')
     ALTER TABLE [dbo].[SystemSettings] ADD [PublicDomain] NVARCHAR(255) NULL;
@@ -16,63 +18,120 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
     ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardAllowedIPs] NVARCHAR(500) NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardPort')
-    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardPort] INT NULL DEFAULT 51820;
+    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardPort] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardServerPublicKey')
     ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardServerPublicKey] NVARCHAR(500) NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WireGuardSubnet')
-    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardSubnet] NVARCHAR(50) NULL DEFAULT '10.8.0.0/24';
+    ALTER TABLE [dbo].[SystemSettings] ADD [WireGuardSubnet] NVARCHAR(50) NULL;
 
+-- Step B: Ensure the row with Id=1 exists
+IF NOT EXISTS (SELECT * FROM [dbo].[SystemSettings] WHERE Id = 1)
+BEGIN
+    -- Only insert Id, other columns are NULLable for now
+    SET IDENTITY_INSERT [dbo].[SystemSettings] ON;
+    INSERT INTO [dbo].[SystemSettings] (Id) VALUES (1);
+    SET IDENTITY_INSERT [dbo].[SystemSettings] OFF;
+    PRINT 'Created initial SystemSettings row (Id=1)';
+END
+
+-- Step C: Now add remaining missing columns
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'DirectorAccessExpiryDate')
     ALTER TABLE [dbo].[SystemSettings] ADD [DirectorAccessExpiryDate] DATETIME2 NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableConnectionQualityAlerts')
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableConnectionQualityAlerts] BIT NOT NULL DEFAULT 1;
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableConnectionQualityAlerts] BIT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableFailedLoginProtection')
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableFailedLoginProtection] BIT NOT NULL DEFAULT 1;
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableFailedLoginProtection] BIT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableGeofencing')
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableGeofencing] BIT NOT NULL DEFAULT 0;
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableGeofencing] BIT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableIPFiltering')
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableIPFiltering] BIT NOT NULL DEFAULT 0;
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableIPFiltering] BIT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableSessionTimeout')
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableSessionTimeout] BIT NOT NULL DEFAULT 1;
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableSessionTimeout] BIT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableTwoFactorAuth')
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableTwoFactorAuth] BIT NOT NULL DEFAULT 0;
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableTwoFactorAuth] BIT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableWatermarking')
-    ALTER TABLE [dbo].[SystemSettings] ADD [EnableWatermarking] BIT NOT NULL DEFAULT 0;
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableWatermarking] BIT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'IPFilterMode')
-    ALTER TABLE [dbo].[SystemSettings] ADD [IPFilterMode] NVARCHAR(50) NOT NULL DEFAULT 'Whitelist';
+    ALTER TABLE [dbo].[SystemSettings] ADD [IPFilterMode] NVARCHAR(50) NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LocalQualityMaxBitrate')
-    ALTER TABLE [dbo].[SystemSettings] ADD [LocalQualityMaxBitrate] INT NOT NULL DEFAULT 8000;
+    ALTER TABLE [dbo].[SystemSettings] ADD [LocalQualityMaxBitrate] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LoginLockDurationMinutes')
-    ALTER TABLE [dbo].[SystemSettings] ADD [LoginLockDurationMinutes] INT NOT NULL DEFAULT 30;
+    ALTER TABLE [dbo].[SystemSettings] ADD [LoginLockDurationMinutes] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaxFailedLoginAttempts')
-    ALTER TABLE [dbo].[SystemSettings] ADD [MaxFailedLoginAttempts] INT NOT NULL DEFAULT 5;
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaxFailedLoginAttempts] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MinimumBandwidthMbps')
-    ALTER TABLE [dbo].[SystemSettings] ADD [MinimumBandwidthMbps] INT NOT NULL DEFAULT 5;
+    ALTER TABLE [dbo].[SystemSettings] ADD [MinimumBandwidthMbps] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'RemoteQualityMaxBitrate')
-    ALTER TABLE [dbo].[SystemSettings] ADD [RemoteQualityMaxBitrate] INT NOT NULL DEFAULT 2000;
+    ALTER TABLE [dbo].[SystemSettings] ADD [RemoteQualityMaxBitrate] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SessionTimeoutMinutes')
-    ALTER TABLE [dbo].[SystemSettings] ADD [SessionTimeoutMinutes] INT NOT NULL DEFAULT 30;
+    ALTER TABLE [dbo].[SystemSettings] ADD [SessionTimeoutMinutes] INT NULL;
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WatermarkPosition')
-    ALTER TABLE [dbo].[SystemSettings] ADD [WatermarkPosition] NVARCHAR(50) NOT NULL DEFAULT 'BottomRight';
+    ALTER TABLE [dbo].[SystemSettings] ADD [WatermarkPosition] NVARCHAR(50) NULL;
 
--- 2. WebsiteSettings Table Fix
+-- Step D: Populate existing NULLs with defaults
+PRINT 'Populating defaults...';
+UPDATE [dbo].[SystemSettings] SET
+    [MaxSimultaneousViewers] = ISNULL([MaxSimultaneousViewers], 10),
+    [WireGuardAllowedIPs] = ISNULL([WireGuardAllowedIPs], '10.8.0.0/24, 192.168.1.0/24'),
+    [WireGuardPort] = ISNULL([WireGuardPort], 51820),
+    [WireGuardSubnet] = ISNULL([WireGuardSubnet], '10.8.0.0/24'),
+    [EnableConnectionQualityAlerts] = ISNULL([EnableConnectionQualityAlerts], 1),
+    [EnableFailedLoginProtection] = ISNULL([EnableFailedLoginProtection], 1),
+    [EnableGeofencing] = ISNULL([EnableGeofencing], 0),
+    [EnableIPFiltering] = ISNULL([EnableIPFiltering], 0),
+    [EnableSessionTimeout] = ISNULL([EnableSessionTimeout], 1),
+    [EnableTwoFactorAuth] = ISNULL([EnableTwoFactorAuth], 0),
+    [EnableWatermarking] = ISNULL([EnableWatermarking], 0),
+    [IPFilterMode] = ISNULL([IPFilterMode], 'Whitelist'),
+    [LocalQualityMaxBitrate] = ISNULL([LocalQualityMaxBitrate], 8000),
+    [LoginLockDurationMinutes] = ISNULL([LoginLockDurationMinutes], 30),
+    [MaxFailedLoginAttempts] = ISNULL([MaxFailedLoginAttempts], 5),
+    [MinimumBandwidthMbps] = ISNULL([MinimumBandwidthMbps], 5),
+    [RemoteQualityMaxBitrate] = ISNULL([RemoteQualityMaxBitrate], 2000),
+    [SessionTimeoutMinutes] = ISNULL([SessionTimeoutMinutes], 30),
+    [WatermarkPosition] = ISNULL([WatermarkPosition], 'BottomRight')
+WHERE Id = 1;
+
+-- Step E: Enforce NOT NULL constraints where required
+PRINT 'Enforcing NOT NULL constraints...';
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [MaxSimultaneousViewers] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [WireGuardAllowedIPs] NVARCHAR(500) NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [WireGuardPort] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [WireGuardSubnet] NVARCHAR(50) NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [EnableConnectionQualityAlerts] BIT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [EnableFailedLoginProtection] BIT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [EnableGeofencing] BIT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [EnableIPFiltering] BIT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [EnableSessionTimeout] BIT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [EnableTwoFactorAuth] BIT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [EnableWatermarking] BIT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [IPFilterMode] NVARCHAR(50) NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [LocalQualityMaxBitrate] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [LoginLockDurationMinutes] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [MaxFailedLoginAttempts] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [MinimumBandwidthMbps] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [RemoteQualityMaxBitrate] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [SessionTimeoutMinutes] INT NOT NULL;
+ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [WatermarkPosition] NVARCHAR(50) NOT NULL;
+
+-- 2. WebsiteSettings Table Repair
 PRINT 'Checking WebsiteSettings table...';
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebsiteSettings')
 BEGIN
@@ -90,25 +149,12 @@ BEGIN
         [HighAccessibilityMode] BIT NOT NULL DEFAULT 0
     );
 END
-ELSE
+IF NOT EXISTS (SELECT * FROM [dbo].[WebsiteSettings])
 BEGIN
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PrimaryColor')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [PrimaryColor] NVARCHAR(20) NOT NULL DEFAULT '#0D1B2A';
-        
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SecondaryColor')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [SecondaryColor] NVARCHAR(20) NOT NULL DEFAULT '#FFD700';
-        
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'HeadingFont')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [HeadingFont] NVARCHAR(100) NOT NULL DEFAULT 'Outfit';
-        
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'BodyFont')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [BodyFont] NVARCHAR(100) NOT NULL DEFAULT 'Inter';
-        
-    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'HighAccessibilityMode')
-        ALTER TABLE [dbo].[WebsiteSettings] ADD [HighAccessibilityMode] BIT NOT NULL DEFAULT 0;
+    INSERT INTO [dbo].[WebsiteSettings] (ClubPhone, PrimaryColor) VALUES ('978-283-0507', '#0D1B2A');
 END
 
--- 3. ProtectedDocuments Table Fix
+-- 3. ProtectedDocuments Table Repair
 PRINT 'Checking ProtectedDocuments table...';
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ProtectedDocuments')
 BEGIN
