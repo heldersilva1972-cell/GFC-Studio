@@ -12,5 +12,10 @@ namespace GFC.BlazorServer.Services
         Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string createdBy, string changeDescription = null);
         Task<IEnumerable<StudioDraft>> GetDraftHistoryAsync(int pageId);
         Task PublishDraftAsync(int draftId);
+        
+        Task<bool> AcquireLockAsync(int pageId, string username);
+        Task ReleaseLockAsync(int pageId, string username);
+        Task ForceReleaseLockAsync(int pageId);
+        Task<StudioLock> GetLockAsync(int pageId);
     }
 }
