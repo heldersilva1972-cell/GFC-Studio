@@ -51,7 +51,7 @@ public class Program
 
         // Add services to the container.
         builder.Services.AddRazorPages();
-        builder.Services.AddServerSideBlazor();
+        builder.Services.AddServerSideBlazor().AddHubOptions(options => options.ClientTimeoutInterval = TimeSpan.FromSeconds(60)).AddCircuitOptions(options => options.DetailedErrors = true);
         builder.Services.AddSignalR(); // Add SignalR
         builder.Services.AddControllers();
         builder.Services.AddAuthenticationCore();
