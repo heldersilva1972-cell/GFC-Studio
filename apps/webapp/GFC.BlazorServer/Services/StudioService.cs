@@ -141,7 +141,8 @@ namespace GFC.BlazorServer.Services
 
         public async Task<bool> AcquireLockAsync(int pageId, string username)
         {
-            var existingLock = await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            var existingLock = await context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
             if (existingLock != null)
             {
                 // Lock exists. Check if it's expired.
@@ -150,7 +151,7 @@ namespace GFC.BlazorServer.Services
                     // Lock is expired. Take it over.
                     existingLock.LockedBy = username;
                     existingLock.LockedAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
+                    await context.SaveChangesAsync();
                     return true;
                 }
                 return false; // Lock is held by someone else.
@@ -162,34 +163,37 @@ namespace GFC.BlazorServer.Services
                 LockedBy = username,
                 LockedAt = DateTime.UtcNow
             };
-            _context.StudioLocks.Add(newLock);
-            await _context.SaveChangesAsync();
+            context.StudioLocks.Add(newLock);
+            await context.SaveChangesAsync();
             return true;
         }
 
         public async Task ReleaseLockAsync(int pageId, string username)
         {
-            var existingLock = await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId && l.LockedBy == username);
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            var existingLock = await context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId && l.LockedBy == username);
             if (existingLock != null)
             {
-                _context.StudioLocks.Remove(existingLock);
-                await _context.SaveChangesAsync();
+                context.StudioLocks.Remove(existingLock);
+                await context.SaveChangesAsync();
             }
         }
 
         public async Task ForceReleaseLockAsync(int pageId)
         {
-            var existingLock = await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            var existingLock = await context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
             if (existingLock != null)
             {
-                _context.StudioLocks.Remove(existingLock);
-                await _context.SaveChangesAsync();
+                context.StudioLocks.Remove(existingLock);
+                await context.SaveChangesAsync();
             }
         }
 
         public async Task<StudioLock> GetLockAsync(int pageId)
         {
-            return await _context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            return await context.StudioLocks.FirstOrDefaultAsync(l => l.PageId == pageId);
         }
     }
 }

@@ -45,6 +45,9 @@ namespace GFC.Core.Models
 
         public int Version { get; set; }
         
+        [StringLength(100)]
+        public string? Name { get; set; }
+        
         public bool IsPublished { get; set; }
         
         public DateTime? PublishedAt { get; set; }
