@@ -59,6 +59,8 @@ public class Program
         {
             options.AddPolicy(AppPolicies.RequireAdmin, policy =>
                 policy.RequireRole(AppRoles.Admin));
+            options.AddPolicy(AppPolicies.CanForceUnlock, policy =>
+                policy.RequireRole(AppRoles.Admin, AppRoles.StudioUnlock));
         });
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<ProtectedSessionStorage>();

@@ -6,6 +6,7 @@ namespace GFC.BlazorServer.Auth;
 public static class AppRoles
 {
     public const string Admin = "Admin";
+    public const string StudioUnlock = "StudioUnlock";
 }
 
 /// <summary>
@@ -14,5 +15,6 @@ public static class AppRoles
 public static class AppPolicies
 {
     public const string RequireAdmin = "RequireAdmin";
+    public const string CanForceUnlock = "CanForceUnlock";
 }
 

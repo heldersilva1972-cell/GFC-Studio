@@ -222,6 +222,12 @@
     </div>
     <div class="modal-backdrop fade show"></div>
 }
+}
+
+@if (showPublishingWizard)
+{
+    <PublishingWizard Page="allPages.FirstOrDefault(p => p.Id == PageId)" OnCancel="() => showPublishingWizard = false" OnConfirm="HandlePublish" />
+}
 
 @if (showSaveVersionModal)
 {
@@ -357,6 +363,7 @@
     private List<StudioPage> allPages = new();
     private StudioPage currentPage;
     private StudioDraft draft;
+    private List<StudioPage> allPages = new();
     private List<StudioSection> sections = new();
     private StudioSection selectedSection;
     private List<StudioTemplate> templates = new();
@@ -404,6 +411,14 @@
         {
             wizardWarnings = studioWizard.Warnings;
         }
+    }
+
+    private void MarkAsDirty()
+    {
+        isDirty = true;
+        saveStatus = "Saving...";
+        autoSaveTimer.Change(2000, Timeout.Infinite); // Debounce for 2 seconds
+        InvokeAsync(StateHasChanged);
     }
 
     private void HandleContentFixed(string newContent, string fixName)
@@ -666,6 +681,20 @@
                 await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler");
             }
 
+            var lockResult = await StudioService.AcquireLockAsync(PageId, "System"); // TODO: Use real user
+            if (!lockResult)
+            {
+                var currentLock = await StudioService.GetLockAsync(PageId);
+                isLocked = true;
+                lockedBy = currentLock?.LockedBy ?? "another user";
+
+                var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User;
+                canForceUnlock = (await AuthorizationService.AuthorizeAsync(user, AppPolicies.CanForceUnlock)).Succeeded;
+
+                return;
+            }
+
             draft = await StudioService.GetLatestDraftAsync(PageId);
             latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
 
@@ -812,7 +841,12 @@
         }
     }
 
-    private async Task PublishPage()
+    private void OpenPublishWizard()
+    {
+        showPublishingWizard = true;
+    }
+
+    private async Task HandlePublish(string notes)
     {
         showPublishModal = true;
     }
