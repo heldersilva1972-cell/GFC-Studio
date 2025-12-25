@@ -56,6 +56,12 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
     public DbSet<GFC.Core.Models.CameraAuditLog> CameraAuditLogs => Set<GFC.Core.Models.CameraAuditLog>();
 
+    // Camera Security & Remote Access
+    public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>();
+    public DbSet<VpnSession> VpnSessions => Set<VpnSession>();
+    public DbSet<VideoAccessAudit> VideoAccessAudits => Set<VideoAccessAudit>();
+    public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
+
     // GFC Ecosystem Foundation
     public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>();
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();

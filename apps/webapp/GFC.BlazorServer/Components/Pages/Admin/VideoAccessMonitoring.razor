@@ -1,0 +1,386 @@
+// [NEW]
+@page "/admin/video-access-monitoring"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@implements IAsyncDisposable
+
+@using GFC.BlazorServer.Auth
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Camera
+@using Microsoft.AspNetCore.SignalR.Client
+@inject IVideoAccessService VideoAccessService
+@inject IUserManagementService UserManagementService
+@inject ILogger<VideoAccessMonitoring> Logger
+@inject NavigationManager Navigation
+
+<PageTitle>Video Access Monitoring - GFC Membership</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Video Access Monitoring</h1>
+        <p class="text-muted mb-0">Monitor real-time video sessions, audit access history, and manage security alerts.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_errorMessage))
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <button class="nav-link @(_activeTab == "status" ? "active" : "")" @onclick='() => _activeTab = "status"'>VPN Setup Status</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_activeTab == "sessions" ? "active" : "")" @onclick='() => _activeTab = "sessions"'>Active Sessions</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_activeTab == "history" ? "active" : "")" @onclick='() => _activeTab = "history"'>Access History</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_activeTab == "alerts" ? "active" : "")" @onclick='() => _activeTab = "alerts"'>Security Alerts</button>
+    </li>
+</ul>
+
+@if (_isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="tab-content">
+        @if (_activeTab == "status")
+        {
+            <div class="data-card">
+                <p class="text-muted">A comprehensive list of all authorized users and their current security status.</p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Setup Status</th>
+                                <th>Profile Created</th>
+                                <th>Last Connection</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var profile in _vpnProfiles)
+                            {
+                                <tr>
+                                    <td>@profile.User?.UserName</td>
+                                    <td>@GetProfileStatus(profile)</td>
+                                    <td>@profile.CreatedAt.ToLocalTime():g</td>
+                                    <td>@(profile.LastUsedAt?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-secondary" disabled>Resend Setup</button>
+                                        <button class="btn btn-sm btn-outline-danger" disabled>Reset Profile</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+        @if (_activeTab == "sessions")
+        {
+            <div class="data-card">
+                <p class="text-muted">A real-time view of all users currently watching video streams.</p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Connection Type</th>
+                                <th>Client IP</th>
+                                <th>Connected Since</th>
+                                <th>Duration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var session in _activeSessions)
+                            {
+                                <tr>
+                                    <td>@session.User?.UserName</td>
+                                    <td>VPN</td>
+                                    <td>@session.ClientIP</td>
+                                    <td>@session.ConnectedAt.ToLocalTime():g</td>
+                                    <td>@GetDuration(session.ConnectedAt)</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DisconnectSession(session.Id)">Disconnect</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+        @if (_activeTab == "history")
+        {
+            <EditForm Model="_auditFilters" OnValidSubmit="ApplyAuditFilters">
+                <div class="data-card mb-3">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label">Search</label>
+                            <InputText class="form-control" @bind-Value="_auditFilters.SearchText" placeholder="User, IP, camera, etc." />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">From</label>
+                            <InputDate class="form-control" @bind-Value="_auditFilters.FromDate" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">To</label>
+                            <InputDate class="form-control" @bind-Value="_auditFilters.ToDate" />
+                        </div>
+                        <div class="col-md-2 d-flex gap-2">
+                            <button type="submit" class="btn btn-primary w-100" disabled="@_isLoading">Apply</button>
+                            <button type="button" class="btn btn-outline-secondary w-100" @onclick="ClearAuditFilters" disabled="@_isLoading">Clear</button>
+                        </div>
+                    </div>
+                </div>
+            </EditForm>
+            <div class="data-card">
+                 <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <strong>@_auditTotalCount</strong> log entries
+                    </div>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-outline-secondary" @onclick="PreviousAuditPage" disabled="@(_auditCurrentPage <= 1 || _isLoading)">Previous</button>
+                        <button class="btn btn-outline-secondary disabled">Page @_auditCurrentPage</button>
+                        <button class="btn btn-outline-secondary" @onclick="NextAuditPage" disabled="@(_auditCurrentPage * PageSize >= _auditTotalCount || _isLoading)">Next</button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>User</th>
+                                <th>Access Type</th>
+                                <th>Connection</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in _accessHistory)
+                            {
+                                <tr>
+                                    <td>@log.SessionStart.ToLocalTime():g</td>
+                                    <td>@log.User?.UserName</td>
+                                    <td>@log.AccessType</td>
+                                    <td>@log.ConnectionType (@log.ClientIP)</td>
+                                    <td>@GetAuditDetails(log)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+        @if (_activeTab == "alerts")
+        {
+            <div class="data-card">
+                <p>Not yet implemented.</p>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private string _activeTab = "sessions";
+    private bool _isLoading = true;
+    private string? _errorMessage;
+    private HubConnection? _hubConnection;
+
+    private List<UserVpnStatusViewModel> _userVpnStatuses = new();
+    private List<VpnSession> _activeSessions = new();
+    private List<VideoAccessAudit> _accessHistory = new();
+
+    // Filtering and Pagination for Access History
+    private readonly AuditLogFilter _auditFilters = new();
+    private int _auditCurrentPage = 1;
+    private const int PageSize = 50;
+    private int _auditTotalCount;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInitialDataAsync();
+        await ConfigureSignalRAsync();
+        await LoadAccessHistoryAsync();
+    }
+
+    private async Task LoadInitialDataAsync()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        try
+        {
+            _vpnProfiles = await VideoAccessService.GetVpnProfilesAsync();
+            _activeSessions = await VideoAccessService.GetActiveVpnSessionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load initial data.");
+            _errorMessage = "Failed to load data. Please try again.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+
+    private async Task ConfigureSignalRAsync()
+    {
+        var hubUrl = Navigation.ToAbsoluteUri("/videoaccesshub");
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(hubUrl)
+            .Build();
+
+        _hubConnection.On<VpnSession>("SessionStarted", (session) =>
+        {
+            _activeSessions.Add(session);
+            InvokeAsync(StateHasChanged);
+        });
+
+        _hubConnection.On<int>("SessionEnded", (sessionId) =>
+        {
+            var session = _activeSessions.FirstOrDefault(s => s.Id == sessionId);
+            if (session != null)
+            {
+                _activeSessions.Remove(session);
+                InvokeAsync(StateHasChanged);
+            }
+        });
+
+        await _hubConnection.StartAsync();
+    }
+
+    private string GetProfileStatus(VpnProfile profile)
+    {
+        if (profile.LastUsedAt.HasValue)
+        {
+            return "Complete";
+        }
+
+        if (profile.Id > 0) // Assuming Id is generated on creation
+        {
+            return "Pending";
+        }
+
+        return "Never";
+    }
+
+    private string GetDuration(DateTime startTime)
+    {
+        var duration = DateTime.UtcNow - startTime;
+        return duration.ToString(@"hh\:mm\:ss");
+    }
+
+    private async Task DisconnectSession(int sessionId)
+    {
+        try
+        {
+            await VideoAccessService.DisconnectSessionAsync(sessionId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to disconnect session {SessionId}", sessionId);
+            _errorMessage = $"Failed to disconnect session {sessionId}. Please try again.";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection is not null)
+        {
+            await _hubConnection.DisposeAsync();
+        }
+    }
+
+    private class AuditLogFilter
+    {
+        public string? SearchText { get; set; }
+        public DateTime? FromDate { get; set; }
+        public DateTime? ToDate { get; set; }
+    }
+
+    private async Task LoadAccessHistoryAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            var result = await VideoAccessService.GetVideoAccessAuditAsync(
+                _auditCurrentPage,
+                PageSize,
+                _auditFilters.SearchText,
+                _auditFilters.FromDate,
+                _auditFilters.ToDate);
+            _accessHistory = result.Items;
+            _auditTotalCount = result.TotalCount;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load access history.");
+            _errorMessage = "Failed to load access history. Please try again.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ApplyAuditFilters()
+    {
+        _auditCurrentPage = 1;
+        await LoadAccessHistoryAsync();
+    }
+
+    private async Task ClearAuditFilters()
+    {
+        _auditFilters.SearchText = null;
+        _auditFilters.FromDate = null;
+        _auditFilters.ToDate = null;
+        _auditCurrentPage = 1;
+        await LoadAccessHistoryAsync();
+    }
+
+    private async Task PreviousAuditPage()
+    {
+        if (_auditCurrentPage > 1)
+        {
+            _auditCurrentPage--;
+            await LoadAccessHistoryAsync();
+        }
+    }
+
+    private async Task NextAuditPage()
+    {
+        if (_auditCurrentPage * PageSize < _auditTotalCount)
+        {
+            _auditCurrentPage++;
+            await LoadAccessHistoryAsync();
+        }
+    }
+
+    private string GetAuditDetails(VideoAccessAudit log)
+    {
+        if (!string.IsNullOrEmpty(log.RecordingFile))
+        {
+            return $"File: {log.RecordingFile}";
+        }
+        if (!string.IsNullOrEmpty(log.CameraName))
+        {
+            return $"Camera: {log.CameraName}";
+        }
+        return "N/A";
+    }
+}
