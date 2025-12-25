@@ -78,6 +78,8 @@ public class SystemSettings
     // Video Streaming Quality Settings
     public int LocalQualityMaxBitrate { get; set; } = 8000; // kbps
     public int RemoteQualityMaxBitrate { get; set; } = 2000; // kbps
+    public bool EnableGeofencing { get; set; } = false;
+    public bool EnableConnectionQualityAlerts { get; set; } = true;
     
     // Director Access Control
     public DateTime? DirectorAccessExpiryDate { get; set; }
