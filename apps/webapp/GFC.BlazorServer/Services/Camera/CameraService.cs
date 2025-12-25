@@ -169,8 +169,8 @@ namespace GFC.BlazorServer.Services.Camera
             var videoAgentBaseUrl = _configuration["VideoAgent:BaseUrl"] ?? "http://localhost:8888";
 
             // The request path should match what the Video Agent expects for HLS streams.
-            // Let's assume it's `/live/{cameraId}/index.m3u8` as seen in ViewCameras.razor
-            var streamPath = $"live/{camera.Id}/index.m3u8";
+            // Let's assume it's `/stream/{cameraId}/index.m3u8` as seen in ViewCameras.razor
+            var streamPath = $"stream/{camera.Id}/index.m3u8";
 
             return $"{videoAgentBaseUrl}/{streamPath}?token={Uri.EscapeDataString(token)}";
         }
