@@ -24,5 +24,7 @@ namespace GFC.Core.Models
         public string HeadingFont { get; set; } = "Outfit";
         public string BodyFont { get; set; } = "Inter";
         public bool HighAccessibilityMode { get; set; } = false;
+
+        public bool IsClubOpen { get; set; } = true;
     }
 }

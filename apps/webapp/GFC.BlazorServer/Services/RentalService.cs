@@ -134,5 +134,11 @@ namespace GFC.BlazorServer.Services
                 .Where(r => r.Status == RentalStatus.Approved)
                 .ToListAsync();
         }
+
+        public async Task CreateRentalInquiryAsync(HallRentalInquiry inquiry)
+        {
+            _context.HallRentalInquiries.Add(inquiry);
+            await _context.SaveChangesAsync();
+        }
     }
 }
