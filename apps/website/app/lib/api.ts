@@ -1,5 +1,5 @@
 // [MODIFIED]
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
 
 export async function getPageBySlug(slug: string) {
   // This function is mocked to allow frontend rendering without a live backend
@@ -11,22 +11,21 @@ export async function getPageBySlug(slug: string) {
     sections: [
       {
         id: 'clxjy2q4p000108l8g2j3e4f5',
+        clientId: 'client-hero-1',
         sectionType: 'Hero',
-        content: {
-          title: 'Gloucester Fraternity Club',
-          subtitle: 'A place for community and connection.',
-          imageUrl: '/images/hero-image.jpg',
-          buttonText: 'Learn More',
-          buttonLink: '/about',
+        properties: {
+          headline: 'Gloucester Fraternity Club',
+          backgroundImage: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=2000&auto=format&fit=crop',
         },
-        animationSettings: { effect: 'fadeInUp', duration: 0.8, delay: 0.2 },
+        animationSettingsJson: JSON.stringify({ Effect: 'SlideUp', Duration: 1, Delay: 0.2 }),
         sortOrder: 1,
       },
       {
         id: 'clxjy3a9b000208l8h4f5k6g7',
+        clientId: 'client-feature-1',
         sectionType: 'FeatureGrid',
-        content: {},
-        animationSettings: { effect: 'slideInFromLeft', duration: 0.8, delay: 0.4 },
+        properties: {},
+        animationSettingsJson: JSON.stringify({ Effect: 'FadeIn', Duration: 1, Delay: 0.4 }),
         sortOrder: 2,
       },
     ],
@@ -35,18 +34,18 @@ export async function getPageBySlug(slug: string) {
 }
 
 export async function getEvents() {
-    console.log('Mocking API call for /api/content/events');
-    const mockEvents = [
-        { title: 'Community BBQ', eventDate: '2025-07-20T12:00:00Z', description: 'Join us for our annual summer BBQ.' },
-        { title: 'Holiday Party', eventDate: '2025-12-15T18:00:00Z', description: 'Celebrate the holidays with the community.' },
-    ];
-    return Promise.resolve(mockEvents);
+  console.log('Mocking API call for /api/content/events');
+  const mockEvents = [
+    { title: 'Community BBQ', eventDate: '2025-07-20T12:00:00Z', description: 'Join us for our annual summer BBQ.' },
+    { title: 'Holiday Party', eventDate: '2025-12-15T18:00:00Z', description: 'Celebrate the holidays with the community.' },
+  ];
+  return Promise.resolve(mockEvents);
 }
 
 export async function getRentalAvailability() {
-    console.log('Mocking API call for /api/content/rental-availability');
-    const mockAvailability = {
-        bookedDates: ['2025-08-01', '2025-08-15', '2025-09-05'],
-    };
-    return Promise.resolve(mockAvailability);
+  console.log('Mocking API call for /api/content/rental-availability');
+  const mockAvailability = {
+    bookedDates: ['2025-08-01', '2025-08-15', '2025-09-05'],
+  };
+  return Promise.resolve(mockAvailability);
 }

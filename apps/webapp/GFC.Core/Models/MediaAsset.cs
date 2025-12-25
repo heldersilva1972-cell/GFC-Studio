@@ -1,7 +1,7 @@
 // [NEW]
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
@@ -12,29 +12,24 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(255)]
-        public string FileName { get; set; }
+        public string FileName { get; set; } // Original client file name
+
+        [Required]
+        [StringLength(255)]
+        public string StoredFileName { get; set; } // Unique name on the server
 
         [Required]
         [StringLength(100)]
-        public string FileType { get; set; } // e.g., "image/jpeg", "video/mp4"
+        public string ContentType { get; set; }
 
-        public long FileSize { get; set; } // in bytes
+        public long FileSize { get; set; }
 
-        [Required]
-        public string FilePath { get; set; } // Relative path to the original file
+        public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
-        // For responsive image variants
-        public string FilePath_xl { get; set; }
-        public string FilePath_lg { get; set; }
-        public string FilePath_md { get; set; }
-        public string FilePath_sm { get; set; }
+        // Navigation property for different versions (renditions) of the asset
+        public virtual ICollection<MediaRendition> Renditions { get; set; } = new List<MediaRendition>();
 
-        public int? AssetFolderId { get; set; }
-
-        [ForeignKey("AssetFolderId")]
-        public virtual AssetFolder AssetFolder { get; set; }
-
-        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        // For tracking where the image is used, e.g., "Home Page", "About Us"
+        public string Usage { get; set; }
     }
 }

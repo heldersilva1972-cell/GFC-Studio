@@ -60,6 +60,7 @@ public class GfcDbContext : DbContext
     public DbSet<StudioSection> StudioSections => Set<StudioSection>();
     public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
     public DbSet<StudioTemplate> StudioTemplates => Set<StudioTemplate>();
+    public DbSet<StudioSetting> StudioSettings => Set<StudioSetting>();
     public DbSet<HallRental> HallRentals => Set<HallRental>();
     public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
@@ -71,14 +72,15 @@ public class GfcDbContext : DbContext
     public DbSet<NavMenuEntry> NavMenuEntries => Set<NavMenuEntry>();
     public DbSet<WebsiteSettings> WebsiteSettings => Set<WebsiteSettings>();
 
-    // Asset Manager
-    public DbSet<MediaAsset> MediaAssets { get; set; }
-    public DbSet<AssetFolder> AssetFolders { get; set; }
-
-    // Form Builder
-    public DbSet<Form> Forms { get; set; }
-    public DbSet<FormField> FormFields { get; set; }
-    public DbSet<FormSubmission> FormSubmissions { get; set; }
+    // Phase 14: Integrated Utility Suite
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaRendition> MediaRenditions => Set<MediaRendition>();
+    public DbSet<Form> Forms => Set<Form>();
+    public DbSet<FormField> FormFields => Set<FormField>();
+    public DbSet<FormSubmission> FormSubmissions => Set<FormSubmission>();
+    public DbSet<HallRentalInquiry> HallRentalInquiries => Set<HallRentalInquiry>();
+    public DbSet<SeoSettings> SeoSettings => Set<SeoSettings>();
+    public DbSet<ProtectedDocument> ProtectedDocuments => Set<ProtectedDocument>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -442,30 +444,54 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // GFC Ecosystem Foundation
+        // GFC Ecosystem Foundation / Studio V2
         modelBuilder.Entity<StudioPage>(entity =>
         {
-            entity.ToTable("StudioPages");
+            entity.ToTable("Pages");
+
+            entity.HasIndex(p => p.Slug).IsUnique();
+            entity.HasIndex(p => p.Status);
+            entity.HasIndex(p => p.IsDeleted);
+            entity.Ignore(p => p.IsPublished);
+
             entity.HasMany(p => p.Sections)
                 .WithOne(s => s.StudioPage)
                 .HasForeignKey(s => s.StudioPageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(p => p.Drafts)
+                .WithOne(d => d.StudioPage)
+                .HasForeignKey(d => d.PageId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StudioSection>(entity =>
         {
-            entity.ToTable("StudioSections");
+            entity.ToTable("Sections");
+
+            entity.HasIndex(s => s.OrderIndex);
+            entity.HasIndex(s => s.ComponentType);
         });
 
         modelBuilder.Entity<StudioDraft>(entity =>
         {
-            entity.ToTable("StudioDrafts");
+            entity.ToTable("Drafts");
+
+            entity.HasOne(d => d.StudioPage)
+                  .WithMany(p => p.Drafts)
+                  .HasForeignKey(d => d.PageId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(d => new { d.PageId, d.Version }).IsDescending(false, true);
+            entity.HasIndex(d => d.CreatedAt).IsDescending();
         });
 
         modelBuilder.Entity<StudioTemplate>(entity =>
         {
-            entity.ToTable("StudioTemplates");
+            entity.ToTable("Templates");
             entity.HasIndex(t => t.Category);
+            entity.HasIndex(t => t.CreatedBy);
+            entity.HasIndex(t => t.UsageCount).IsDescending();
         });
 
         modelBuilder.Entity<HallRental>(entity =>
@@ -513,30 +539,31 @@ public class GfcDbContext : DbContext
             entity.ToTable("WebsiteSettings");
         });
 
-        // Asset Manager
+        modelBuilder.Entity<StudioSetting>(entity =>
+        {
+            entity.ToTable("StudioSettings");
+            entity.HasIndex(s => s.SettingKey).IsUnique();
+        });
+
+        // Phase 14: Integrated Utility Suite
         modelBuilder.Entity<MediaAsset>(entity =>
         {
             entity.ToTable("MediaAssets");
-            entity.HasOne(a => a.AssetFolder)
-                .WithMany(f => f.MediaAssets)
-                .HasForeignKey(a => a.AssetFolderId)
-                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasMany(a => a.Renditions)
+                .WithOne(r => r.MediaAsset)
+                .HasForeignKey(r => r.MediaAssetId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<AssetFolder>(entity =>
+        modelBuilder.Entity<MediaRendition>(entity =>
         {
-            entity.ToTable("AssetFolders");
-            entity.HasOne(f => f.ParentFolder)
-                .WithMany(f => f.SubFolders)
-                .HasForeignKey(f => f.ParentFolderId)
-                .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable("MediaRenditions");
         });
 
-        // Form Builder
         modelBuilder.Entity<Form>(entity =>
         {
             entity.ToTable("Forms");
-            entity.HasMany(f => f.Fields)
+            entity.HasMany(f => f.FormFields)
                 .WithOne(ff => ff.Form)
                 .HasForeignKey(ff => ff.FormId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -550,10 +577,23 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<FormSubmission>(entity =>
         {
             entity.ToTable("FormSubmissions");
-            entity.HasOne(fs => fs.Form)
-                .WithMany()
-                .HasForeignKey(fs => fs.FormId)
-                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<HallRentalInquiry>(entity =>
+        {
+            entity.ToTable("HallRentalInquiries");
+            entity.HasIndex(i => i.ResumeToken).IsUnique();
+        });
+
+        modelBuilder.Entity<SeoSettings>(entity =>
+        {
+            entity.ToTable("SeoSettings");
+            entity.HasIndex(s => s.StudioPageId).IsUnique();
+        });
+
+        modelBuilder.Entity<ProtectedDocument>(entity =>
+        {
+            entity.ToTable("ProtectedDocuments");
         });
     }
 

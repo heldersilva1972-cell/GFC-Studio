@@ -17,9 +17,8 @@ namespace GFC.Core.Models
         public virtual Form Form { get; set; }
 
         [Required]
-        public string SubmittedData { get; set; } // JSON string of the submitted form data
+        public string SubmissionData { get; set; } // JSON string of submitted data
 
-        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     }
 }

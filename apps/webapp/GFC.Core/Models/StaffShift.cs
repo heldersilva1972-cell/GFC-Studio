@@ -19,6 +19,10 @@ namespace GFC.Core.Models
 
         public string? Status { get; set; }
 
+        public DateTime? ClockInTime { get; set; }
+
+        public DateTime? ClockOutTime { get; set; }
+
         [NotMapped]
         public string StaffName { get; set; }
 

@@ -16,6 +16,11 @@ namespace GFC.Core.Models
         [StringLength(500)]
         public string Description { get; set; }
 
-        public virtual ICollection<FormField> Fields { get; set; } = new List<FormField>();
+        // Navigation property for the fields in this form
+        public virtual ICollection<FormField> FormFields { get; set; } = new List<FormField>();
+
+        // For routing submissions
+        [StringLength(100)]
+        public string SubmissionTarget { get; set; } // e.g., "RentalInquiries", "ContactSubmissions"
     }
 }

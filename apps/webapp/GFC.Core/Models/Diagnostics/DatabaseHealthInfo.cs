@@ -91,5 +91,10 @@ namespace GFC.Core.Models.Diagnostics
         /// Gets or sets when this health info was collected.
         /// </summary>
         public DateTime CollectedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// Gets or sets the response time of a sample slow query in milliseconds.
+        /// </summary>
+        public long SlowQueryResponseTimeMs { get; set; }
     }
 }

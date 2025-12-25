@@ -1,0 +1,120 @@
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<div class="modal fade show" style="display: @(IsVisible ? "block" : "none");" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New Page</h5>
+                <button type="button" class="btn-close" @onclick="CloseModal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row text-center">
+                    <!-- Blank Page -->
+                    <div class="col-md-4">
+                        <div class="card card-selectable" @onclick="() => SelectOption(PageCreationOption.Blank)">
+                            <div class="card-body">
+                                <i class="bi bi-file-earmark-plus display-4"></i>
+                                <h6 class="card-title mt-3">Blank Page</h6>
+                                <p class="card-text small">Start with an empty canvas.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- From Template -->
+                    <div class="col-md-4">
+                        <div class="card card-selectable disabled">
+                            <div class="card-body">
+                                <i class="bi bi-layout-wtf display-4"></i>
+                                <h6 class="card-title mt-3">From Template</h6>
+                                <p class="card-text small">Choose a pre-made layout.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Duplicate Page -->
+                    <div class="col-md-4">
+                        <div class="card card-selectable disabled">
+                            <div class="card-body">
+                                <i class="bi bi-files display-4"></i>
+                                <h6 class="card-title mt-3">Duplicate Page</h6>
+                                <p class="card-text small">Copy an existing page.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @if (selectedOption == PageCreationOption.Blank)
+                {
+                    <div class="mt-4">
+                        <div class="mb-3">
+                            <label for="pageTitle" class="form-label">Page Title</label>
+                            <input type="text" id="pageTitle" class="form-control" @bind="newPageTitle" placeholder="e.g., About Us" />
+                        </div>
+                        <button class="btn btn-primary" @onclick="CreateBlankPage" disabled="@string.IsNullOrWhiteSpace(newPageTitle)">Create and Edit</button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal-backdrop fade show" style="display: @(IsVisible ? "block" : "none");"></div>
+
+@code {
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private enum PageCreationOption { None, Blank, FromTemplate, Duplicate }
+    private PageCreationOption selectedOption = PageCreationOption.None;
+
+    private string newPageTitle = string.Empty;
+
+    private void SelectOption(PageCreationOption option)
+    {
+        selectedOption = option;
+    }
+
+    private async Task CreateBlankPage()
+    {
+        if (string.IsNullOrWhiteSpace(newPageTitle)) return;
+
+        using var context = DbFactory.CreateDbContext();
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userName = authState.User.Identity?.Name ?? "System";
+
+        var newPage = new StudioPage
+        {
+            Title = newPageTitle,
+            Slug = GenerateSlug(newPageTitle),
+            Status = "Draft",
+            CreatedBy = userName,
+            UpdatedBy = userName
+        };
+
+        context.StudioPages.Add(newPage);
+        await context.SaveChangesAsync();
+
+        NavigationManager.NavigateTo($"/studio/{newPage.Id}");
+    }
+
+    private string GenerateSlug(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return Guid.NewGuid().ToString("N").ToLower();
+        var slug = title.ToLowerInvariant().Replace(" ", "-");
+        // Basic slug cleanup
+        slug = System.Text.RegularExpressions.Regex.Replace(slug, @"[^a-z0-9-/]", "");
+        return slug;
+    }
+
+    private void CloseModal()
+    {
+        selectedOption = PageCreationOption.None;
+        newPageTitle = string.Empty;
+        OnClose.InvokeAsync();
+    }
+}

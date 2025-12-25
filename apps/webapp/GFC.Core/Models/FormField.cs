@@ -16,19 +16,16 @@ namespace GFC.Core.Models
         public virtual Form Form { get; set; }
 
         [Required]
-        [StringLength(50)]
-        public string FieldType { get; set; } // e.g., "text", "email", "date", "dropdown"
+        [StringLength(100)]
+        public string FieldType { get; set; } // e.g., "text", "email", "date", "textarea"
 
         [Required]
         [StringLength(100)]
         public string Label { get; set; }
 
-        public string Options { get; set; } // For dropdowns, radios, etc. (e.g., JSON or CSV)
+        public string Placeholder { get; set; }
 
         public bool IsRequired { get; set; }
-
-        [StringLength(200)]
-        public string ValidationPattern { get; set; } // Regex for validation
 
         public int Order { get; set; }
     }
