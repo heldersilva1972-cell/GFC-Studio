@@ -15,7 +15,7 @@ export async function getPageBySlug(slug: string) {
         sectionType: 'Hero',
         properties: {
           headline: 'Gloucester Fraternity Club',
-          backgroundImage: '/images/hero-bg.jpg',
+          backgroundImage: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=2000&auto=format&fit=crop',
         },
         animationSettingsJson: JSON.stringify({ Effect: 'SlideUp', Duration: 1, Delay: 0.2 }),
         sortOrder: 1,
