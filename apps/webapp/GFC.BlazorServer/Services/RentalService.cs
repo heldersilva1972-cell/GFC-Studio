@@ -134,5 +134,13 @@ namespace GFC.BlazorServer.Services
                 .Where(r => r.Status == RentalStatus.Approved)
                 .ToListAsync();
         }
+
+        public async Task<List<DateTime>> GetReservedDatesAsync()
+        {
+            return await _context.AvailabilityCalendars
+                                 .Where(d => d.Status == "Booked")
+                                 .Select(d => d.Date)
+                                 .ToListAsync();
+        }
     }
 }
