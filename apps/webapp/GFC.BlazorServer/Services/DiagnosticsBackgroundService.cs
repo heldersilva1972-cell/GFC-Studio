@@ -24,38 +24,47 @@ namespace GFC.BlazorServer.Services
         {
             _logger.LogInformation("Diagnostics Background Service is starting.");
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    using (var scope = _services.CreateScope())
+                    try
                     {
-                        var systemPerformanceService = scope.ServiceProvider.GetRequiredService<ISystemPerformanceService>();
-                        var performanceHistoryService = scope.ServiceProvider.GetRequiredService<IPerformanceHistoryService>();
-                        var alertManagementService = scope.ServiceProvider.GetRequiredService<IAlertManagementService>();
+                        using (var scope = _services.CreateScope())
+                        {
+                            var systemPerformanceService = scope.ServiceProvider.GetRequiredService<ISystemPerformanceService>();
+                            var performanceHistoryService = scope.ServiceProvider.GetRequiredService<IPerformanceHistoryService>();
+                            var alertManagementService = scope.ServiceProvider.GetRequiredService<IAlertManagementService>();
 
-                        // 1. Get current performance metrics
-                        var metrics = await systemPerformanceService.GetPerformanceMetricsAsync(stoppingToken);
+                            // 1. Get current performance metrics
+                            var metrics = await systemPerformanceService.GetPerformanceMetricsAsync(stoppingToken);
 
-                        // 2. Store a snapshot
-                        await performanceHistoryService.AddPerformanceSnapshotAsync(metrics, stoppingToken);
+                            // 2. Store a snapshot
+                            await performanceHistoryService.AddPerformanceSnapshotAsync(metrics, stoppingToken);
 
-                        // 3. Check for alerts
-                        await alertManagementService.CheckAlertsAsync(metrics, stoppingToken);
+                            // 3. Check for alerts
+                            await alertManagementService.CheckAlertsAsync(metrics, stoppingToken);
 
-                        // 4. Purge old snapshots
-                        await performanceHistoryService.PurgeOldSnapshotsAsync(7, stoppingToken);
+                            // 4. Purge old snapshots
+                            await performanceHistoryService.PurgeOldSnapshotsAsync(7, stoppingToken);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "An error occurred while collecting diagnostics.");
-                }
+                    catch (Exception ex) when (!(ex is OperationCanceledException))
+                    {
+                        _logger.LogError(ex, "An error occurred while collecting diagnostics.");
+                    }
 
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                }
             }
-
-            _logger.LogInformation("Diagnostics Background Service is stopping.");
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Diagnostics Background Service is shutting down gracefully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, "Diagnostics Background Service failed unexpectedly.");
+            }
         }
     }
 }

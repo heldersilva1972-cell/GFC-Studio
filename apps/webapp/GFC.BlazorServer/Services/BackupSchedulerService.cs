@@ -29,37 +29,46 @@ public class BackupSchedulerService : BackgroundService
     {
         _logger.LogInformation("Backup Scheduler Service started.");
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                var config = _configService.Load();
-                
-                if (config.IsConfigured && ShouldRunBackup(config))
+                try
                 {
-                    _logger.LogInformation("Scheduled backup time reached. Starting backup...");
-                    var success = await _backupService.ExecuteBackupAsync(stoppingToken);
+                    var config = _configService.Load();
                     
-                    if (success)
+                    if (config.IsConfigured && ShouldRunBackup(config))
                     {
-                        _logger.LogInformation("Scheduled backup completed successfully.");
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Scheduled backup failed.");
+                        _logger.LogInformation("Scheduled backup time reached. Starting backup...");
+                        var success = await _backupService.ExecuteBackupAsync(stoppingToken);
+                        
+                        if (success)
+                        {
+                            _logger.LogInformation("Scheduled backup completed successfully.");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Scheduled backup failed.");
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in backup scheduler");
-            }
+                catch (Exception ex) when (!(ex is OperationCanceledException))
+                {
+                    _logger.LogError(ex, "Error in backup scheduler");
+                }
 
-            // Wait before checking again
-            await Task.Delay(_checkInterval, stoppingToken);
+                // Wait before checking again
+                await Task.Delay(_checkInterval, stoppingToken);
+            }
         }
-
-        _logger.LogInformation("Backup Scheduler Service stopped.");
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Backup Scheduler Service is shutting down gracefully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "Backup Scheduler Service failed unexpectedly.");
+        }
     }
 
     private bool ShouldRunBackup(BackupConfig config)

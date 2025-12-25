@@ -22,53 +22,64 @@ public class DirectorAccessExpiryWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                using (var scope = _serviceProvider.CreateScope())
+                try
                 {
-                    var systemSettingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
-                    var vpnManagementService = scope.ServiceProvider.GetRequiredService<IVpnManagementService>();
-                    var dbContext = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
-
-                    var settings = await systemSettingsService.GetAsync();
-                    if (settings.DirectorAccessExpiryDate.HasValue && settings.DirectorAccessExpiryDate.Value < DateTime.UtcNow)
+                    using (var scope = _serviceProvider.CreateScope())
                     {
-                        _logger.LogInformation($"Director access expiry date ({settings.DirectorAccessExpiryDate.Value}) has passed. Revoking access for all directors.");
+                        var systemSettingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
+                        var vpnManagementService = scope.ServiceProvider.GetRequiredService<IVpnManagementService>();
+                        var dbContext = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
 
-                        // TODO: Implement role-based access revocation when ASP.NET Identity is configured
-                        // This requires Roles and UserRoles tables which are not currently in the DbContext
-                        /*
-                        var directorRole = await dbContext.Roles.FirstOrDefaultAsync(r => r.Name == "Director");
-                        if (directorRole != null)
+                        var settings = await systemSettingsService.GetAsync();
+                        if (settings.DirectorAccessExpiryDate.HasValue && settings.DirectorAccessExpiryDate.Value < DateTime.UtcNow)
                         {
-                            var directorUserIds = await dbContext.UserRoles
-                                .Where(ur => ur.RoleId == directorRole.Id)
-                                .Select(ur => ur.UserId)
-                                .ToListAsync();
+                            _logger.LogInformation($"Director access expiry date ({settings.DirectorAccessExpiryDate.Value}) has passed. Revoking access for all directors.");
 
-                            foreach (var userId in directorUserIds)
+                            // TODO: Implement role-based access revocation when ASP.NET Identity is configured
+                            // This requires Roles and UserRoles tables which are not currently in the DbContext
+                            /*
+                            var directorRole = await dbContext.Roles.FirstOrDefaultAsync(r => r.Name == "Director");
+                            if (directorRole != null)
                             {
-                                await vpnManagementService.RevokeUserAccessAsync(userId);
-                                _logger.LogInformation($"Revoked VPN access for director with user ID: {userId}");
-                            }
-                        }
-                        */
+                                var directorUserIds = await dbContext.UserRoles
+                                    .Where(ur => ur.RoleId == directorRole.Id)
+                                    .Select(ur => ur.UserId)
+                                    .ToListAsync();
 
-                        // Optional: Nullify the expiry date to prevent re-running this logic unnecessarily
-                        settings.DirectorAccessExpiryDate = null;
-                        await systemSettingsService.UpdateSecuritySettingsAsync(settings);
+                                foreach (var userId in directorUserIds)
+                                {
+                                    await vpnManagementService.RevokeUserAccessAsync(userId);
+                                    _logger.LogInformation($"Revoked VPN access for director with user ID: {userId}");
+                                }
+                            }
+                            */
+
+                            // Optional: Nullify the expiry date to prevent re-running this logic unnecessarily
+                            settings.DirectorAccessExpiryDate = null;
+                            await systemSettingsService.UpdateSecuritySettingsAsync(settings);
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "An error occurred while checking for director access expiry.");
-            }
+                catch (Exception ex) when (!(ex is OperationCanceledException))
+                {
+                    _logger.LogError(ex, "An error occurred while checking for director access expiry.");
+                }
 
-            // Check once every hour
-            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+                // Check once every hour
+                await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Director Access Expiry Worker is shutting down gracefully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "Director Access Expiry Worker failed unexpectedly.");
         }
     }
 }

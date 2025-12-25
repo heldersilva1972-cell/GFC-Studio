@@ -26,10 +26,29 @@ namespace GFC.BlazorServer.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                await CheckTunnelHealthAsync();
-                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await CheckTunnelHealthAsync();
+                    }
+                    catch (Exception ex) when (!(ex is OperationCanceledException))
+                    {
+                        _logger.LogError(ex, "An error occurred while checking Cloudflare tunnel health.");
+                    }
+
+                    await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Cloudflare Tunnel Health Service is shutting down gracefully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, "Cloudflare Tunnel Health Service failed unexpectedly.");
             }
         }
 
