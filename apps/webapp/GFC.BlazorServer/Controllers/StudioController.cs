@@ -36,7 +36,7 @@ namespace GFC.BlazorServer.Controllers
 
             page.MetaTitle = seoData.MetaTitle;
             page.MetaDescription = seoData.MetaDescription;
-            page.OgImageUrl = seoData.OgImageUrl;
+            page.OgImage = seoData.OgImage;
 
             _context.Entry(page).State = EntityState.Modified;
 

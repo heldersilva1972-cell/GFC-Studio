@@ -43,8 +43,9 @@ namespace GFC.BlazorServer.Controllers
         public async Task<IActionResult> GetAssets(int? folderId)
         {
             var assets = await _context.MediaAssets
+                .Include(a => a.Renditions)
                 .Where(a => a.AssetFolderId == folderId)
-                .OrderByDescending(a => a.CreatedAt)
+                .OrderByDescending(a => a.UploadedAt)
                 .ToListAsync();
             return Ok(assets);
         }
@@ -91,10 +92,10 @@ namespace GFC.BlazorServer.Controllers
             var asset = new MediaAsset
             {
                 FileName = file.FileName,
-                FileType = "image/webp", // Standardize on WebP
+                ContentType = "image/webp", // Standardize on WebP
                 FileSize = file.Length, // Original size
                 AssetFolderId = folderId,
-                CreatedAt = DateTime.UtcNow
+                UploadedAt = DateTime.UtcNow
             };
 
             using (var image = await Image.LoadAsync(file.OpenReadStream()))
@@ -103,6 +104,11 @@ namespace GFC.BlazorServer.Controllers
                 {
                     { "xl", 1920 }, { "lg", 1280 }, { "md", 768 }, { "sm", 375 }
                 };
+
+                asset.StoredFileName = $"/uploads/assets/{originalFileName}{uniqueFileNameSuffix}{fileExtension}"; // Example path logic
+                
+                // Save original
+                await image.SaveAsWebpAsync(Path.Combine(uploadsFolderPath, $"{originalFileName}{uniqueFileNameSuffix}{fileExtension}"));
 
                 foreach (var size in sizes)
                 {
@@ -118,17 +124,15 @@ namespace GFC.BlazorServer.Controllers
                     })))
                     {
                         await clonedImage.SaveAsWebpAsync(fullPath);
-                    }
-
-                    switch (size.Key)
-                    {
-                        case "xl": asset.FilePath_xl = relativePath; break;
-                        case "lg": asset.FilePath_lg = relativePath; break;
-                        case "md": asset.FilePath_md = relativePath; break;
-                        case "sm": asset.FilePath_sm = relativePath; break;
+                        
+                        asset.Renditions.Add(new MediaRendition 
+                        { 
+                            RenditionType = size.Key, 
+                            FilePath = relativePath,
+                            Width = size.Value
+                        });
                     }
                 }
-                asset.FilePath = asset.FilePath_xl; // Set main path to the largest version
             }
 
             _context.MediaAssets.Add(asset);
@@ -148,17 +152,21 @@ namespace GFC.BlazorServer.Controllers
             }
 
             // Delete files from storage
-            var paths = new[] { asset.FilePath, asset.FilePath_xl, asset.FilePath_lg, asset.FilePath_md, asset.FilePath_sm };
-            foreach (var path in paths)
+            // Delete files from storage
+            if (!string.IsNullOrEmpty(asset.StoredFileName))
             {
-                if (!string.IsNullOrEmpty(path))
-                {
-                    var fullPath = Path.Combine(_env.WebRootPath, path.TrimStart('/'));
-                    if (System.IO.File.Exists(fullPath))
-                    {
-                        System.IO.File.Delete(fullPath);
-                    }
-                }
+               var fullPath = Path.Combine(_env.WebRootPath, asset.StoredFileName.TrimStart('/'));
+               if (System.IO.File.Exists(fullPath)) System.IO.File.Delete(fullPath);
+            }
+            
+            // Delete renditions
+            foreach(var rendition in asset.Renditions)
+            {
+                 if (!string.IsNullOrEmpty(rendition.FilePath))
+                 {
+                     var fullPath = Path.Combine(_env.WebRootPath, rendition.FilePath.TrimStart('/'));
+                     if (System.IO.File.Exists(fullPath)) System.IO.File.Delete(fullPath);
+                 }
             }
 
             _context.MediaAssets.Remove(asset);

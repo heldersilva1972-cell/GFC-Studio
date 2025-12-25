@@ -22,7 +22,7 @@ namespace GFC.BlazorServer.Controllers
         [HttpGet("forms")]
         public async Task<IActionResult> GetForms()
         {
-            var forms = await _context.Forms.Include(f => f.Fields).ToListAsync();
+            var forms = await _context.Forms.Include(f => f.FormFields).ToListAsync();
             return Ok(forms);
         }
 
@@ -30,7 +30,7 @@ namespace GFC.BlazorServer.Controllers
         [HttpGet("forms/{id}")]
         public async Task<IActionResult> GetForm(int id)
         {
-            var form = await _context.Forms.Include(f => f.Fields).FirstOrDefaultAsync(f => f.Id == id);
+            var form = await _context.Forms.Include(f => f.FormFields).FirstOrDefaultAsync(f => f.Id == id);
             if (form == null)
             {
                 return NotFound();
