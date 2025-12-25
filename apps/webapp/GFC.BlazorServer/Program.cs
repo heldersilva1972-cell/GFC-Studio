@@ -219,6 +219,8 @@ public class Program
         
         builder.Services.AddScoped<ControllerTestService>();
 
+        builder.Services.AddHostedService<DirectorAccessExpiryWorker>();
+
         var app = builder.Build();
 
 
