@@ -452,6 +452,7 @@ public class GfcDbContext : DbContext
             entity.HasIndex(p => p.Slug).IsUnique();
             entity.HasIndex(p => p.Status);
             entity.HasIndex(p => p.IsDeleted);
+            entity.Ignore(p => p.IsPublished);
 
             entity.HasMany(p => p.Sections)
                 .WithOne(s => s.StudioPage)
