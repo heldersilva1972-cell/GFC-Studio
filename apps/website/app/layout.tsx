@@ -20,22 +20,27 @@ const outfit = Outfit({
   display: 'swap',
 });
 
-export const metadata: Metadata = {
-  title: 'Gloucester Fraternity Club | Building Community Since 1923',
-  description:
-    'Welcome to the Gloucester Fraternity Club — a place where friendship, family, and community come together. Hall rentals, events, and membership available.',
-  keywords:
-    'Gloucester Fraternity Club, GFC, hall rentals, community events, Gloucester MA, membership',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getWebsiteSettings();
+
+  const defaultTitle = 'Gloucester Fraternity Club | Building Community Since 1923';
+  const defaultDescription = 'Welcome to the Gloucester Fraternity Club — a place where friendship, family, and community come together. Hall rentals, events, and membership available.';
+
+  return {
+    title: settings?.seoTitle || defaultTitle,
+    description: settings?.seoDescription || defaultDescription,
+    keywords: settings?.seoKeywords || 'Gloucester Fraternity Club, GFC, hall rentals, community events, Gloucester MA, membership',
+  };
+}
 
 async function getWebsiteSettings() {
     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
     try {
         const res = await fetch(`${baseUrl}/api/WebsiteSettings`, {
-            cache: 'no-store',
+            cache: 'no-store', // Opt-out of caching
         });
         if (!res.ok) {
-            console.error(`Failed to fetch website settings from ${baseUrl}`);
+            console.error(`Failed to fetch website settings from ${baseUrl}, status: ${res.status}`);
             return null;
         }
         return res.json();

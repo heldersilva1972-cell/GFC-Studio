@@ -26,6 +26,10 @@ namespace GFC.Core.Models
         public bool HighAccessibilityMode { get; set; } = false;
 
         public bool IsClubOpen { get; set; } = true;
-        public bool IsClubOpen { get; set; } = false;
+
+        // SEO Settings
+        public string SeoTitle { get; set; }
+        public string SeoDescription { get; set; }
+        public string SeoKeywords { get; set; }
     }
 }
