@@ -9,11 +9,6 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace GFC.BlazorServer.Services
-{
-using Microsoft.AspNetCore.Http;
-
-namespace GFC.BlazorServer.Services
 {
     public class PageService : IPageService
     {
