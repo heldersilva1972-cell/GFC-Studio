@@ -2,6 +2,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using GFC.Core.Models;
 
 namespace GFC.BlazorServer.Data.Entities
 {
@@ -14,7 +15,7 @@ namespace GFC.BlazorServer.Data.Entities
         public int UserId { get; set; }
 
         [ForeignKey("UserId")]
-        public virtual User User { get; set; }
+        public virtual AppUser User { get; set; }
 
         [Required]
         [StringLength(50)]
