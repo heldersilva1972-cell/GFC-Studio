@@ -175,7 +175,7 @@ public class Program
         builder.Services.AddHttpClient();
         builder.Services.AddScoped<IMediaStorageService, MediaStorageService>();
         builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
-        builder.Services.AddScoped<IStudioService, StudioService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
         builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();

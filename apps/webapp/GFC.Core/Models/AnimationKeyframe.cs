@@ -9,5 +9,6 @@ namespace GFC.Core.Models
         public double Duration { get; set; } = 1.0;
         public double Delay { get; set; } = 0.0;
         public string Easing { get; set; } = "easeOut";
+        public string Trigger { get; set; } = "onLoad"; // "onLoad" or "onScroll"
     }
 }
