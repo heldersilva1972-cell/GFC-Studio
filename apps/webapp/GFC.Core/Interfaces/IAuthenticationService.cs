@@ -5,6 +5,8 @@ namespace GFC.Core.Interfaces;
 public interface IAuthenticationService
 {
     Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null);
+    Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null);
+    MfaSetupInfo GenerateMfaSetup(AppUser user);
     void Logout();
     AppUser? GetCurrentUser();
 }
@@ -14,6 +16,7 @@ public enum LoginResultCode
     Success,
     InvalidCredentials,
     AccountLockedOrDisabled,
+    MfaRequired,
     Error
 }
 
