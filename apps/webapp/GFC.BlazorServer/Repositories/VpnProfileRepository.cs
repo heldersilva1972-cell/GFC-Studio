@@ -1,14 +1,13 @@
 // [NEW]
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
-using GFC.Data;
+using GFC.BlazorServer.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using GFC.BlazorServer.Data;
 
-namespace GFC.Data.Repositories
+namespace GFC.BlazorServer.Repositories
 {
     public class VpnProfileRepository : IVpnProfileRepository
     {
