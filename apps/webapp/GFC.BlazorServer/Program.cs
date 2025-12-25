@@ -69,6 +69,7 @@ public class Program
             var opts = sp.GetRequiredService<IOptions<AgentApiOptions>>().Value;
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
+        builder.Services.AddHttpClient<IImportService, ImportService>();
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
         builder.Services.AddScoped<GfcDbContext>(p => p.GetRequiredService<IDbContextFactory<GfcDbContext>>().CreateDbContext());
 
