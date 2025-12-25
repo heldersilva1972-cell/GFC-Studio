@@ -338,6 +338,7 @@ public class Program
         app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub
   
         app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
+        app.MapHub<GFC.BlazorServer.Hubs.VideoAccessHub>("/videoaccesshub");
         app.MapFallbackToPage("/_Host");
 
         app.Run();
