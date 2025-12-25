@@ -1,6 +1,9 @@
-// [NEW]
+// [MODIFIED]
 using GFC.VideoAgent.Services;
 using Microsoft.AspNetCore.Http;
+using GFC.VideoAgent.Middleware;
+using GFC.Core.Interfaces;
+using GFC.Core.Services;
 
 public class Program
 {
@@ -31,6 +34,7 @@ public class Startup
         services.AddSingleton<StreamManager>();
         services.AddSingleton<FFmpegService>();
         services.AddSingleton<NvrService>();
+        services.AddSingleton<IStreamSecurityService, StreamSecurityService>();
         services.AddHostedService<StreamManager>();
 
         services.AddCors(options =>
@@ -70,6 +74,9 @@ public class Startup
         {
             Directory.CreateDirectory(outputDirectory);
         }
+
+        // Token validation must come before serving the static files.
+        app.UseMiddleware<StreamTokenValidationMiddleware>();
 
         app.UseStaticFiles(new StaticFileOptions
         {
