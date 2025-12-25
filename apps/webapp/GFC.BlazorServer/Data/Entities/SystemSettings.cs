@@ -77,15 +77,7 @@ public class SystemSettings
     
     // Director Access Control
     public DateTime? DirectorAccessExpiryDate { get; set; }
-}
 
     // Cloudflare & WireGuard Remote Access Settings (Phase 1)
     public string? LanSubnet { get; set; } = "192.168.1.0/24";
-    public string? WireGuardServerPublicKey { get; set; }
-    public string? CloudflareTunnelToken { get; set; }
-    public string? PublicDomain { get; set; }
-    [DefaultValue(51820)]
-    public int WireGuardPort { get; set; } = 51820;
-    [DefaultValue("10.8.0.0/24")]
-    public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
 }
