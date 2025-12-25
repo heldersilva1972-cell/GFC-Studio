@@ -1,0 +1,134 @@
+// [NEW]
+@page "/admin/documents"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IDocumentService DocumentService
+@inject ToastService ToastService
+
+<div class="container-fluid">
+    <h3>Protected Document Management</h3>
+
+    <div class="card mb-4">
+        <div class="card-header">Upload New Document</div>
+        <div class="card-body">
+            <div class="form-group">
+                <label>Document Description</label>
+                <input @bind="newDocDescription" class="form-control" />
+            </div>
+            <div class="form-group">
+                <label>Visibility</label>
+                <select @bind="newDocVisibility" class="form-control">
+                    <option value="Public">Public</option>
+                    <option value="MembersOnly">Members Only</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <InputFile OnChange="HandleFileSelected" />
+            </div>
+            @if (_isUploading)
+            {
+                <p>Uploading...</p>
+            }
+            <button class="btn btn-primary" @onclick="UploadDocument" disabled="@(_isUploading || _selectedFile == null)">Upload</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Existing Documents</div>
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Description</th>
+                        <th>Visibility</th>
+                        <th>Uploaded At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_documents != null)
+                    {
+                        @foreach (var doc in _documents)
+                        {
+                            <tr>
+                                <td><a href="/api/downloads/@doc.Id" target="_blank">@doc.FileName</a></td>
+                                <td>@doc.Description</td>
+                                <td>@doc.Visibility</td>
+                                <td>@doc.UploadedAt.ToShortDateString()</td>
+                                <td>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteDocument(doc.Id)">Delete</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ProtectedDocument> _documents;
+    private string newDocDescription;
+    private string newDocVisibility = "Public";
+    private IBrowserFile _selectedFile;
+    private bool _isUploading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments()
+    {
+        _documents = await DocumentService.GetAllDocumentsAsync();
+    }
+
+    private void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _selectedFile = e.File;
+    }
+
+    private async Task UploadDocument()
+    {
+        if (_selectedFile == null)
+        {
+            ToastService.ShowError("Please select a file to upload.");
+            return;
+        }
+
+        _isUploading = true;
+        try
+        {
+            await DocumentService.UploadDocumentAsync(_selectedFile, newDocDescription, newDocVisibility);
+            ToastService.ShowSuccess("Document uploaded successfully!");
+            await LoadDocuments();
+            // Reset form
+            newDocDescription = "";
+            _selectedFile = null;
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Upload failed: {ex.Message}");
+        }
+        finally
+        {
+            _isUploading = false;
+        }
+    }
+
+    private async Task DeleteDocument(int id)
+    {
+        try
+        {
+            await DocumentService.DeleteDocumentAsync(id);
+            ToastService.ShowSuccess("Document deleted successfully!");
+            await LoadDocuments();
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Delete failed: {ex.Message}");
+        }
+    }
+}
