@@ -440,7 +440,8 @@ public class ScheduleService : IScheduleService
             holidayBlocks.Add(new TimeScheduleDto.HolidayBlock(
                 holidayBlocks.Count,
                 date,
-                date));
+                date,
+                0));
         }
 
         foreach (var specialEvent in specialEvents)
