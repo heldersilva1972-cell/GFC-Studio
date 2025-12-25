@@ -64,6 +64,7 @@ public class GfcDbContext : DbContext
     public DbSet<VpnSession> VpnSessions => Set<VpnSession>();
     public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
     public DbSet<AuthorizedUser> AuthorizedUsers => Set<AuthorizedUser>();
+    public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>();
 
     // GFC Ecosystem Foundation
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();
