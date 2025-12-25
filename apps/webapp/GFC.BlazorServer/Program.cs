@@ -118,6 +118,10 @@ public class Program
         builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
         builder.Services.AddScoped<IVpnProfileRepository, VpnProfileRepository>();
         builder.Services.AddScoped<IVpnSetupService, VpnSetupService>();
+        builder.Services.AddScoped<IVpnManagementService, VpnManagementService>();
+        builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+        builder.Services.AddScoped<IAuthorizedUserService, AuthorizedUserService>();
+        builder.Services.AddScoped<IRemoteAccessHealthService, RemoteAccessHealthService>();
         builder.Services.AddScoped<GFC.Core.Interfaces.INetworkLocationService, NetworkLocationService>();
         builder.Services.AddSingleton<BackupConfigService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Camera.ICameraVerificationService, GFC.BlazorServer.Services.Camera.CameraVerificationService>();

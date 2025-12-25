@@ -1,7 +1,9 @@
 -- =============================================
--- COMPLETE FIX - Rental Management Database
+-- FIX RENTAL MANAGEMENT DATABASE
 -- Created: 2025-12-25
--- Description: Ensures all required columns and tables exist
+-- Description: Ensures all rental-related tables and columns exist and match C# models
+-- USE ClubMembership; -- Uncomment and change if using a different DB
+-- GO
 -- =============================================
 
 PRINT '-----------------------------------------';
@@ -17,12 +19,12 @@ BEGIN
         [RequesterName] NVARCHAR(MAX) NOT NULL DEFAULT '',
         [RequesterEmail] NVARCHAR(MAX) NOT NULL DEFAULT '',
         [RequesterPhone] NVARCHAR(MAX) NOT NULL DEFAULT '',
-        [EventDate] DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        [EventDate] DATETIME2 NOT NULL,
         [MemberStatus] BIT NOT NULL DEFAULT 0,
         [GuestCount] INT NOT NULL DEFAULT 0,
         [RulesAgreed] BIT NOT NULL DEFAULT 0,
         [KitchenUsage] BIT NOT NULL DEFAULT 0,
-        [RequestedDate] DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        [RequestedDate] DATETIME2 NOT NULL,
         [TotalPrice] DECIMAL(18,2) NOT NULL DEFAULT 0,
         [Status] NVARCHAR(MAX) NOT NULL DEFAULT 'Pending',
         [ApprovedBy] NVARCHAR(MAX) NULL,
@@ -38,6 +40,15 @@ BEGIN
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'ApplicantName')
         ALTER TABLE [dbo].[HallRentalRequests] ADD [ApplicantName] NVARCHAR(MAX) NOT NULL DEFAULT '';
     
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequesterName')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequesterName] NVARCHAR(MAX) NOT NULL DEFAULT '';
+    
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequesterEmail')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequesterEmail] NVARCHAR(MAX) NOT NULL DEFAULT '';
+    
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequesterPhone')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequesterPhone] NVARCHAR(MAX) NOT NULL DEFAULT '';
+        
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'EventDate')
         ALTER TABLE [dbo].[HallRentalRequests] ADD [EventDate] DATETIME2 NOT NULL DEFAULT GETUTCDATE();
         
@@ -64,6 +75,28 @@ END
 ELSE
 BEGIN
     PRINT '✓ AvailabilityCalendars table already exists';
+END
+GO
+
+-- 3. Create/Update HallRentals Table (Just in case)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'HallRentals')
+BEGIN
+    CREATE TABLE [dbo].[HallRentals] (
+        [Id] INT IDENTITY(1,1) PRIMARY KEY,
+        [ApplicantName] NVARCHAR(MAX) NOT NULL,
+        [ContactInfo] NVARCHAR(MAX) NOT NULL,
+        [EventDate] DATETIME2 NOT NULL,
+        [Status] NVARCHAR(MAX) NOT NULL,
+        [GuestCount] INT NOT NULL,
+        [KitchenUsed] BIT NOT NULL DEFAULT 0,
+        [TotalPrice] DECIMAL(18,2) NOT NULL DEFAULT 0,
+        [InternalNotes] NVARCHAR(MAX) NULL
+    );
+    PRINT '✓ Created HallRentals table';
+END
+ELSE
+BEGIN
+    PRINT '✓ HallRentals table already exists';
 END
 GO
 
