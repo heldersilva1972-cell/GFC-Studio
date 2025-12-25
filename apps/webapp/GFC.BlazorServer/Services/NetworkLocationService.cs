@@ -12,11 +12,11 @@ namespace GFC.BlazorServer.Services
         private const string LanSubnet = "192.168.1.0/24";
         private const string VpnSubnet = "10.8.0.0/24";
 
-        public async Task<LocationType> DetectLocationAsync(string ipAddress)
+        public async Task<GFC.Core.Interfaces.LocationType> DetectLocationAsync(string ipAddress)
         {
             if (string.IsNullOrEmpty(ipAddress) || !IPAddress.TryParse(ipAddress, out var parsedIp))
             {
-                return LocationType.Unknown;
+                return GFC.Core.Interfaces.LocationType.Unknown;
             }
 
             // Simulate async operation
@@ -24,33 +24,33 @@ namespace GFC.BlazorServer.Services
 
             if (IsInSubnet(parsedIp, LanSubnet))
             {
-                return LocationType.LAN;
+                return GFC.Core.Interfaces.LocationType.LAN;
             }
 
             if (IsInSubnet(parsedIp, VpnSubnet))
             {
-                return LocationType.VPN;
+                return GFC.Core.Interfaces.LocationType.VPN;
             }
 
-            return LocationType.Public;
+            return GFC.Core.Interfaces.LocationType.Public;
         }
 
         public async Task<bool> IsAuthorizedForVideoAsync(string ipAddress)
         {
             var location = await DetectLocationAsync(ipAddress);
-            return location == LocationType.LAN || location == LocationType.VPN;
+            return location == GFC.Core.Interfaces.LocationType.LAN || location == GFC.Core.Interfaces.LocationType.VPN;
         }
 
         public async Task<bool> IsLanAddressAsync(string ipAddress)
         {
             var location = await DetectLocationAsync(ipAddress);
-            return location == LocationType.LAN;
+            return location == GFC.Core.Interfaces.LocationType.LAN;
         }
 
         public async Task<bool> IsVpnAddressAsync(string ipAddress)
         {
             var location = await DetectLocationAsync(ipAddress);
-            return location == LocationType.VPN;
+            return location == GFC.Core.Interfaces.LocationType.VPN;
         }
 
         private bool IsInSubnet(IPAddress address, string subnetCidr)

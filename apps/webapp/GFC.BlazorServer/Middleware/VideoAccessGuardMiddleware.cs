@@ -65,7 +65,7 @@ namespace GFC.BlazorServer.Middleware
                 var dbContext = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
 
                 var userId = context.User?.Identity?.IsAuthenticated == true
-                    ? (int?)Convert.ToInt32(context.User.FindFirst(CustomClaimTypes.UserId)?.Value)
+                    ? (int?)Convert.ToInt32(context.User.FindFirst("UserId")?.Value)
                     : null;
 
                 var auditLog = new VideoAccessAudit
