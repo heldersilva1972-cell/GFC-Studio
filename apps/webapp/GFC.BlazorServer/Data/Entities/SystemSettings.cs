@@ -64,5 +64,10 @@ public class SystemSettings
     
     // Security Settings
     public bool EnableTwoFactorAuth { get; set; } = false;
+    public bool EnableIPFiltering { get; set; } = false;
+    public int MinimumBandwidthMbps { get; set; } = 5;
+    
+    // Director Access Control
+    public DateTime? DirectorAccessExpiryDate { get; set; }
 }
 
