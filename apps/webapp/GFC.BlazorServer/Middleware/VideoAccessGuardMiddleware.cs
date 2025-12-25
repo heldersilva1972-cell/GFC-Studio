@@ -40,6 +40,14 @@ namespace GFC.BlazorServer.Middleware
             }
 
             var path = context.Request.Path;
+            
+            // Don't check the secure-access page itself to avoid redirect loop
+            if (path.StartsWithSegments("/cameras/secure-access"))
+            {
+                await _next(context);
+                return;
+            }
+            
             if (path.StartsWithSegments("/video") || path.StartsWithSegments("/cameras"))
             {
                 if (userConnectionService.LocationType == GFC.Core.Interfaces.LocationType.Public)
