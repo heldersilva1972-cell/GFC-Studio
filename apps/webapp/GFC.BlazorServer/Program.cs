@@ -1,3 +1,4 @@
+// [MODIFIED]
 using GFC.BlazorServer.Auth;
 using GFC.BlazorServer.Components;
 using GFC.BlazorServer.Configuration;
@@ -17,6 +18,7 @@ using GFC.Core.Services;
 using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
 using GFC.BlazorServer.Middleware;
+using GFC.BlazorServer.Hubs; // Add this using directive
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -50,6 +52,7 @@ public class Program
         // Add services to the container.
         builder.Services.AddRazorPages();
         builder.Services.AddServerSideBlazor();
+        builder.Services.AddSignalR(); // Add SignalR
         builder.Services.AddControllers();
         builder.Services.AddAuthenticationCore();
         builder.Services.AddAuthorizationCore(options =>
@@ -310,7 +313,11 @@ public class Program
         app.MapControllers();
 
         app.MapBlazorHub();
+     feature/animation-orchestrator-3412607048175802256
+        app.MapHub<AnimationHub>("/animationhub"); // Map the AnimationHub
+  
         app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
+     master
         app.MapFallbackToPage("/_Host");
 
         app.Run();
