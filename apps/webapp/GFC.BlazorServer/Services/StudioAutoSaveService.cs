@@ -59,7 +59,7 @@ namespace GFC.BlazorServer.Services
 
                 try
                 {
-                    var lastVersion = await context.Drafts
+                    var lastVersion = await context.StudioDrafts
                         .Where(d => d.PageId == pageId)
                         .OrderByDescending(d => d.Version)
                         .Select(d => d.Version)
@@ -74,7 +74,7 @@ namespace GFC.BlazorServer.Services
                         CreatedAt = DateTime.UtcNow
                     };
 
-                    context.Drafts.Add(newDraft);
+                    context.StudioDrafts.Add(newDraft);
                     await context.SaveChangesAsync();
                     _logger.LogInformation($"Auto-saved draft for page {pageId}, version {newDraft.Version}");
                 }
@@ -89,8 +89,9 @@ namespace GFC.BlazorServer.Services
 
         public async Task<int> GetLatestVersionAsync(int pageId)
         {
-            using var context = _dbFactory.CreateDbContext();
-            return await context.Drafts
+            using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
+            return await context.StudioDrafts
                 .Where(d => d.PageId == pageId)
                 .OrderByDescending(d => d.Version)
                 .Select(d => d.Version)
