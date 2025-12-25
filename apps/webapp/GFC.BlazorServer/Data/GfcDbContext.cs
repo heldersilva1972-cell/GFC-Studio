@@ -63,7 +63,6 @@ public class GfcDbContext : DbContext
     public DbSet<SecurityAlert> SecurityAlerts => Set<SecurityAlert>();
 
     // GFC Ecosystem Foundation
-    public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>();
     public DbSet<StudioPage> StudioPages => Set<StudioPage>();
     public DbSet<StudioSection> StudioSections => Set<StudioSection>();
     public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
