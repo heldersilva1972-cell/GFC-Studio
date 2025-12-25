@@ -164,22 +164,18 @@ public class Program
 
         // GFC Ecosystem Foundation
         builder.Services.AddSingleton<ToastService>();
-        feature/phase-14-utility-suite-5896472693059714692
         builder.Services.AddScoped<IStudioService, StudioService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
         builder.Services.AddScoped<IFormService, FormService>();
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
-        master
         builder.Services.AddScoped<IRentalService, RentalService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
         builder.Services.AddScoped<IBartenderShiftService, BartenderShiftService>();
-        builder.Services.AddScoped<IStudioService, StudioService>();
-        builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IPageService, PageService>();
         builder.Services.AddScoped<GFC.Core.Interfaces.IWebsiteSettingsService, WebsiteSettingsService>();
         
