@@ -70,6 +70,7 @@ public class Program
             client.BaseAddress = new Uri(opts.BaseUrl);
         });
         builder.Services.AddHttpClient<IImportService, ImportService>();
+        builder.Services.AddScoped<DomAnalysisService>();
         builder.Services.AddDbContextFactory<GfcDbContext>(options => options.UseSqlServer(efConnectionString));
         builder.Services.AddScoped<GfcDbContext>(p => p.GetRequiredService<IDbContextFactory<GfcDbContext>>().CreateDbContext());
 
