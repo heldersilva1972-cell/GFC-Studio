@@ -32,6 +32,13 @@ namespace GFC.Core.Models
         // --- Frontend / UI Compatibility Properties ---
 
         [NotMapped]
+        public string AnimationSettings 
+        { 
+            get => AnimationSettingsJson; 
+            set => AnimationSettingsJson = value; 
+        }
+
+        [NotMapped]
         public Guid ClientId { get; set; } = Guid.NewGuid();
 
         [NotMapped]

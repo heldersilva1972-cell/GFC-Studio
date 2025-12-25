@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
 {
-    public class WebsiteSettingsService : IWebsiteSettingsService
+    public class WebsiteSettingsService : GFC.Core.Interfaces.IWebsiteSettingsService
     {
         private readonly GfcDbContext _context;
 
