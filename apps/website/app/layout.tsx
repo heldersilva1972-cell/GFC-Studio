@@ -10,14 +10,46 @@ export const metadata: Metadata = {
     keywords: 'Gloucester Fraternity Club, GFC, hall rentals, community events, Gloucester MA, membership',
 }
 
-export default function RootLayout({
+async function getWebsiteSettings() {
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
+    try {
+        const res = await fetch(`${baseUrl}/api/WebsiteSettings`, {
+            cache: 'no-store',
+        });
+        if (!res.ok) {
+            console.error(`Failed to fetch website settings from ${baseUrl}`);
+            return null;
+        }
+        return res.json();
+    } catch (error) {
+        console.warn('Could not fetch website settings, using defaults:', error);
+        return null;
+    }
+}
+
+export default async function RootLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
+    const settings = await getWebsiteSettings();
+
+    const a11yClass = settings?.highAccessibilityMode ? 'high-accessibility' : '';
+
+    const globalStyles = {
+        '--primary-color': settings?.primaryColor || '#0D1B2A',
+        '--secondary-color': settings?.secondaryColor || '#FFD700',
+        '--font-heading': `'${settings?.headingFont || 'Outfit'}', sans-serif`,
+        '--font-body': `'${settings?.bodyFont || 'Inter'}', sans-serif`,
+    } as React.CSSProperties;
+
     return (
-        <html lang="en">
-            <body>
+        <html lang="en" suppressHydrationWarning>
+            <body
+                className={a11yClass}
+                data-motion-reduced={settings?.highAccessibilityMode ? 'true' : 'false'}
+                style={globalStyles}
+            >
                 <Header />
                 <main>{children}</main>
                 <Footer />

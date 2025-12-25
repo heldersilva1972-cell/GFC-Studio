@@ -60,6 +60,7 @@ namespace GFC.BlazorServer.Services
                 RecipientEmail = request.RequesterEmail,
                 Subject = "Hall Rental Request Approved",
                 Message = $"Your rental request for {request.EventDate:MMMM dd, yyyy} has been approved.",
+                Channel = "Email",
                 Status = "Sent",
                 SentAt = DateTime.UtcNow
             };
@@ -83,6 +84,25 @@ namespace GFC.BlazorServer.Services
                 RecipientEmail = request.RequesterEmail,
                 Subject = "Hall Rental Request Denied",
                 Message = $"Your rental request for {request.EventDate:MMMM dd, yyyy} has been denied. Reason: {reason}",
+                Channel = "Email",
+                Status = "Sent",
+                SentAt = DateTime.UtcNow
+            };
+
+            _context.SystemNotifications.Add(notification);
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task SendEmailAsync(string email, string subject, string body)
+        {
+            if (_masterKillSwitchEnabled) return;
+
+            var notification = new SystemNotification
+            {
+                RecipientEmail = email,
+                Subject = subject,
+                Message = body,
+                Channel = "Email",
                 Status = "Sent",
                 SentAt = DateTime.UtcNow
             };
