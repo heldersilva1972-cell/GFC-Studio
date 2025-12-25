@@ -60,6 +60,7 @@ public class GfcDbContext : DbContext
     public DbSet<StudioSection> StudioSections => Set<StudioSection>();
     public DbSet<StudioDraft> StudioDrafts => Set<StudioDraft>();
     public DbSet<StudioTemplate> StudioTemplates => Set<StudioTemplate>();
+    public DbSet<StudioSetting> StudioSettings => Set<StudioSetting>();
     public DbSet<HallRental> HallRentals => Set<HallRental>();
     public DbSet<HallRentalRequest> HallRentalRequests => Set<HallRentalRequest>();
     public DbSet<StaffShift> StaffShifts => Set<StaffShift>();
@@ -514,6 +515,12 @@ public class GfcDbContext : DbContext
             entity.ToTable("WebsiteSettings");
         });
 
+       feature/gfc-studio-phase-1-668448862994436057
+        modelBuilder.Entity<StudioSetting>(entity =>
+        {
+            entity.ToTable("StudioSettings");
+            entity.HasIndex(s => s.SettingKey).IsUnique();
+            
         // Phase 14: Integrated Utility Suite
         modelBuilder.Entity<MediaAsset>(entity =>
         {
@@ -563,6 +570,7 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<ProtectedDocument>(entity =>
         {
             entity.ToTable("ProtectedDocuments");
+ master
         });
     }
 

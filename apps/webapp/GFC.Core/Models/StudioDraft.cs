@@ -9,10 +9,15 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
+        feature/gfc-studio-phase-1-668448862994436057
+        [ForeignKey("StudioPage")]
+        public int PageId { get; set; }
+
         public int StudioPageId { get; set; } // Renamed from PageId to match common pattern if needed, but keeping PageId mapping valid
 
         [ForeignKey("StudioPageId")]
         public StudioPage StudioPage { get; set; }
+         master
 
         // Mapped column
         public string ContentSnapshotJson { get; set; }
@@ -34,6 +39,18 @@ namespace GFC.Core.Models
         }
 
         [Required]
+       feature/gfc-studio-phase-1-668448862994436057
+        public string ContentJson { get; set; } = "[]";
+
+        [StringLength(500)]
+        public string? ChangeDescription { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        [Required]
+        [StringLength(100)]
+        public string CreatedBy { get; set; } = string.Empty;
+
         public string CreatedBy { get; set; }
 
         public DateTime CreatedAt { get; set; }
@@ -43,5 +60,6 @@ namespace GFC.Core.Models
         public bool IsPublished { get; set; }
         
         public DateTime? PublishedAt { get; set; }
+     master
     }
 }
