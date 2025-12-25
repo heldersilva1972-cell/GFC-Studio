@@ -9,7 +9,7 @@ namespace GFC.BlazorServer.Services
     {
         Task<StudioPage> GetPageAsync(int pageId);
         Task<StudioDraft> GetLatestDraftAsync(int pageId);
-        Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string createdBy);
+        Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string createdBy, string changeDescription = null);
         Task<IEnumerable<StudioDraft>> GetDraftHistoryAsync(int pageId);
         Task PublishDraftAsync(int draftId);
     }

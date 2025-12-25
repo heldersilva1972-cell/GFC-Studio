@@ -189,8 +189,8 @@ namespace GFC.BlazorServer.Data.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_Templates_UsageCount",
                 table: "Templates",
-                column: "UsageCount",
-                descending: true);
+                columns: new[] { "UsageCount" },
+                descending: new[] { true });
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)

@@ -45,7 +45,7 @@ namespace GFC.BlazorServer.Services
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string createdBy)
+        public async Task<StudioDraft> SaveDraftAsync(int pageId, string contentJson, string createdBy, string changeDescription = null)
         {
             using var context = await _dbContextFactory.CreateDbContextAsync();
             
@@ -64,7 +64,8 @@ namespace GFC.BlazorServer.Services
                 CreatedBy = createdBy,
                 CreatedAt = DateTime.UtcNow,
                 Version = newVersion,
-                IsPublished = false
+                IsPublished = false,
+                ChangeDescription = changeDescription
             };
 
             context.StudioDrafts.Add(draft);
