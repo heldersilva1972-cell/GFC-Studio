@@ -18,11 +18,13 @@ namespace GFC.BlazorServer.Services
     {
         private readonly GfcDbContext _context;
         private readonly IWebHostEnvironment _env;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public MediaAssetService(GfcDbContext context, IWebHostEnvironment env)
+        public MediaAssetService(GfcDbContext context, IWebHostEnvironment env, IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _env = env;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task<MediaAsset> CreateAssetAsync(IBrowserFile file, string usage)
@@ -108,7 +110,28 @@ namespace GFC.BlazorServer.Services
 
         public async Task<MediaAsset> GetAssetByIdAsync(int id)
         {
-            return await _context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
+            var asset = await _context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
+
+            if (asset != null && !string.IsNullOrEmpty(asset.RequiredRole))
+            {
+                var user = _httpContextAccessor.HttpContext?.User;
+                if (user == null || !user.IsInRole(asset.RequiredRole))
+                {
+                    return null; // Or throw an exception, depending on desired behavior
+                }
+            }
+
+            return asset;
+        }
+
+        public async Task UpdateAssetRoleAsync(int assetId, string? role)
+        {
+            var asset = await _context.MediaAssets.FindAsync(assetId);
+            if (asset != null)
+            {
+                asset.RequiredRole = role;
+                await _context.SaveChangesAsync();
+            }
         }
 
         public async Task DeleteAssetAsync(int id)

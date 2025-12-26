@@ -222,6 +222,8 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
         builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
         builder.Services.AddScoped<IPageService, PageService>();
+        builder.Services.AddScoped<IReviewService, ReviewService>();
+        builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
         
         // Controller Client Wiring
         

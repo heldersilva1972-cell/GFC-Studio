@@ -1,8 +1,8 @@
 // [NEW]
+using GFC.Core.Interfaces;
 using GFC.Core.Models;
-using GFC.BlazorServer.Data;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Controllers
@@ -11,68 +11,61 @@ namespace GFC.BlazorServer.Controllers
     [Route("api/[controller]")]
     public class ReviewsController : ControllerBase
     {
-        private readonly GfcDbContext _context;
+        private readonly IReviewService _reviewService;
 
-        public ReviewsController(GfcDbContext context)
+        public ReviewsController(IReviewService reviewService)
         {
-            _context = context;
-        }
-
-        [HttpPost]
-        public async Task<IActionResult> Post([FromBody] PublicReview review)
-        {
-            if (review == null)
-            {
-                return BadRequest();
-            }
-
-            review.IsApproved = false; // All reviews are unapproved by default
-            _context.PublicReviews.Add(review);
-            await _context.SaveChangesAsync();
-
-            return Ok();
+            _reviewService = reviewService;
         }
 
         [HttpGet]
-        public async Task<IActionResult> Get()
+        public async Task<ActionResult<List<PublicReview>>> GetReviews()
         {
-            var reviews = await _context.PublicReviews.Where(r => r.IsApproved).ToListAsync();
-            return Ok(reviews);
+            return await _reviewService.GetAllReviewsAsync();
         }
 
-        [HttpGet("all")]
-        public async Task<IActionResult> GetAll()
+        [HttpGet("featured")]
+        public async Task<ActionResult<List<PublicReview>>> GetFeaturedReviews()
         {
-            var reviews = await _context.PublicReviews.ToListAsync();
-            return Ok(reviews);
+            return await _reviewService.GetApprovedAndFeaturedReviewsAsync();
+        }
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<PublicReview>> GetReview(int id)
+        {
+            var review = await _reviewService.GetReviewByIdAsync(id);
+
+            if (review == null)
+            {
+                return NotFound();
+            }
+
+            return review;
+        }
+
+        [HttpPost]
+        public async Task<ActionResult<PublicReview>> PostReview(PublicReview review)
+        {
+            await _reviewService.CreateReviewAsync(review);
+            return CreatedAtAction(nameof(GetReview), new { id = review.Id }, review);
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> Put(int id, [FromBody] PublicReview review)
+        public async Task<IActionResult> PutReview(int id, PublicReview review)
         {
             if (id != review.Id)
             {
                 return BadRequest();
             }
 
-            _context.Entry(review).State = EntityState.Modified;
-            await _context.SaveChangesAsync();
-
+            await _reviewService.UpdateReviewAsync(review);
             return NoContent();
         }
 
         [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(int id)
+        public async Task<IActionResult> DeleteReview(int id)
         {
-            var review = await _context.PublicReviews.FindAsync(id);
-            if (review == null)
-            {
-                return NotFound();
-            }
-
-            _context.PublicReviews.Remove(review);
-            await _context.SaveChangesAsync();
-
+            await _reviewService.DeleteReviewAsync(id);
             return NoContent();
         }
     }

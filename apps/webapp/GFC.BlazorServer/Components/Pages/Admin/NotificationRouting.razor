@@ -1,0 +1,117 @@
+// [NEW]
+@page "/admin/notification-routing"
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@inject INotificationRoutingService RoutingService
+@inject IJSRuntime JSRuntime
+
+<h3>Notification Routing <span class="badge bg-success gfc-new-tag">[NEW]</span></h3>
+
+@if (_routings == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Action Name</th>
+                <th>Director Email</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var routing in _routings)
+            {
+                <tr>
+                    <td>@routing.ActionName</td>
+                    <td>@routing.DirectorEmail</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" @onclick="() => EditRouting(routing)">Edit</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteRouting(routing)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <hr />
+
+    <h3>@( _isEditing ? "Edit Routing" : "Add New Routing" )</h3>
+
+    <EditForm Model="@_routing" OnValidSubmit="@HandleValidSubmit">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label for="actionName" class="form-label">Action Name</label>
+            <InputText id="actionName" class="form-control" @bind-Value="_routing.ActionName" />
+        </div>
+
+        <div class="mb-3">
+            <label for="directorEmail" class="form-label">Director Email</label>
+            <InputText id="directorEmail" class="form-control" @bind-Value="_routing.DirectorEmail" />
+        </div>
+
+        <button type="submit" class="btn btn-primary">@(_isEditing ? "Update" : "Create")</button>
+        @if (_isEditing)
+        {
+            <button class="btn btn-secondary" @onclick="() => CancelEdit()">Cancel</button>
+        }
+    </EditForm>
+}
+
+@code {
+    private List<NotificationRouting> _routings;
+    private NotificationRouting _routing = new();
+    private bool _isEditing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRoutings();
+    }
+
+    private async Task LoadRoutings()
+    {
+        _routings = await RoutingService.GetAllRoutingsAsync();
+    }
+
+    private void EditRouting(NotificationRouting routing)
+    {
+        _routing = new NotificationRouting { Id = routing.Id, ActionName = routing.ActionName, DirectorEmail = routing.DirectorEmail };
+        _isEditing = true;
+    }
+
+    private void CancelEdit()
+    {
+        _routing = new();
+        _isEditing = false;
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (_isEditing)
+        {
+            await RoutingService.UpdateRoutingAsync(_routing);
+        }
+        else
+        {
+            await RoutingService.CreateRoutingAsync(_routing);
+        }
+
+        _routing = new();
+        _isEditing = false;
+        await LoadRoutings();
+    }
+
+    private async Task DeleteRouting(NotificationRouting routing)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this routing?");
+        if (confirmed)
+        {
+            await RoutingService.DeleteRoutingAsync(routing.Id);
+            await LoadRoutings();
+        }
+    }
+}

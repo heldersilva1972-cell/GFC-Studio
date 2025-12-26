@@ -37,5 +37,8 @@ namespace GFC.Core.Models
 
         // For tracking where the image is used, e.g., "Home Page", "About Us"
         public string Usage { get; set; }
+
+        [StringLength(100)]
+        public string? RequiredRole { get; set; }
     }
 }
