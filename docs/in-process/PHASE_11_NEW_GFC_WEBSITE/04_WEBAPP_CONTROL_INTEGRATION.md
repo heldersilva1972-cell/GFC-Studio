@@ -1,8 +1,15 @@
 # GFC Website - Web App Control Integration
 
-**Version:** 1.0.0  
-**Date:** December 24, 2024  
+**Version:** 1.1.0  
+**Date:** December 26, 2025  
 **Status:** Mandatory Specification  
+
+## 📜 REVISION HISTORY
+
+| Date | Version | Author | Description |
+|:---|:---|:---|:---|
+| 2024-12-24 | 1.0.0 | Helder Silva | Initial specification |
+| 2025-12-26 | 1.1.0 | Antigravity | Updated operational statuses to IMPLEMENTED |
 **Purpose:** Defining the bridge between internal club operations (Web App) and the public-facing website.
 
 ---
@@ -13,7 +20,7 @@ The GFC Website is designed to be **Static for Speed** but **Dynamic for Operati
 
 ---
 
-## 📡 1. Live Club Status (Open/Closed)
+## 📡 1. Live Club Status (Open/Closed) [COMPLETE]
 
 A real-time indicator on the website header/home page.
 
@@ -28,7 +35,7 @@ A real-time indicator on the website header/home page.
 
 ---
 
-## 📢 2. Announcements & News Engine
+## 📢 2. Announcements & News Engine [MOCKED]
 
 Handling the "Update Bar" and "Featured News Card."
 
@@ -43,7 +50,7 @@ Handling the "Update Bar" and "Featured News Card."
 
 ---
 
-## 📅 3. Calendar & Hall Availability
+## 📅 3. Calendar & Hall Availability [IMPLEMENTED]
 
 This is the most critical integration. It prevents double-booking and informs the public.
 
@@ -58,7 +65,7 @@ This is the most critical integration. It prevents double-booking and informs th
 
 ---
 
-## ⭐ 4. Social Proof (Review Moderation)
+## ⭐ 4. Social Proof (Review Moderation) [IMPLEMENTED]
 
 A system to collect public feedback and display only the best highlights.
 

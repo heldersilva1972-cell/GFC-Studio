@@ -1,8 +1,15 @@
 # GFC Website - Hall Rental Flow
 
-**Version:** 1.0.0  
-**Date:** December 24, 2024  
-**Status:** Core Feature Specification  
+**Version:** 1.1.0  
+**Date:** December 26, 2025  
+**Status:** Mandatory Specification  
+
+## 📜 REVISION HISTORY
+
+| Date | Version | Author | Description |
+|:---|:---|:---|:---|
+| 2024-12-24 | 1.0.0 | Helder Silva | Initial specification |
+| 2025-12-26 | 1.1.0 | Antigravity | Updated Step 1 status to COMPLETE |
 **UX Goal:** Frictionless, non-overwhelming, and professional.
 
 ---
@@ -13,12 +20,12 @@ To ensure users find the process easy and not confusing, we split the experience
 
 ---
 
-### 📥 Step 1: The "Visual Invitation"
+### 📥 Step 1: The "Visual Invitation" ✅ COMPLETE
 *   **Goal:** Showcase why they should choose GFC.
 *   **Content:**
-    *   **High-End Gallery:** Large, professional photos of both the Upper and Lower halls.
-    *   **Feature Grid:** Quick icons for "Full Bar," "Catering Kitchen," "150+ Capacity," "Ample Parking."
-    *   **Transparent Details:** A clean table showing rental rates for Members vs. Non-Members and Non-Profits.
+    *   **High-End Gallery:** Integrated venue photos with premium cinematic styling.
+    *   **Feature Grid:** Interactive icons for "Full Bar," "Catering Kitchen," etc.
+    *   **Transparent Details:** Dynamic pricing pulled live from the GFC Database (Member/Non-Member rates).
     *   **The Action:** A prominent button: **[Check Availability & Book]**.
 
 ---
