@@ -1,101 +1,100 @@
-// [MODIFIED]
 @using System.Text.Json
 @using GFC.Core.Models
-@using Microsoft.AspNetCore.SignalR.Client
 @using System.Threading
 @inject IJSRuntime JSRuntime
-@inject NavigationManager NavigationManager
 @implements IAsyncDisposable
 
-@if (TargetSection != null)
+@if (Keyframes != null && Keyframes.Any())
 {
-<div class="animation-orchestrator-panel-container">
-    <div class="timeline-section">
-        <div class="panel-toolbar">
-            <button class="btn btn-sm btn-light" @onclick="PlayAnimation">▶ Play</button>
-            <button class="btn btn-sm btn-light" @onclick="PauseAnimation">⏸ Pause</button>
-            <span class="time-display">@currentTime.ToString("0.00")s</span>
+    <div class="animation-orchestrator-panel-container">
+        <div class="timeline-section">
+            <div class="panel-toolbar">
+                <button class="btn btn-sm btn-light" @onclick="PlayAnimation">▶ Play</button>
+                <button class="btn btn-sm btn-light" @onclick="PauseAnimation">⏸ Pause</button>
+                <span class="time-display">@currentTime.ToString("0.00")s</span>
 
-            <div class="add-animation-controls ms-4">
-                <select class="form-select form-select-sm d-inline-block w-auto" @bind="selectedLayerForAdd">
-                    @foreach(var layer in animatableLayers)
+                <div class="add-animation-controls ms-4">
+                    <select class="form-select form-select-sm d-inline-block w-auto" @bind="selectedLayerForAdd">
+                        @foreach(var layer in animatableLayers)
+                        {
+                            <option value="@layer">@layer</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm btn-success" @onclick="AddKeyframe">Add Keyframe</button>
+                    <button class="btn btn-sm btn-danger" @onclick="RemoveSelectedKeyframe" disabled="@(selectedKeyframe == null)">Remove</button>
+                </div>
+            </div>
+            <div class="timeline-container" @ref="timelineContainerElement">
+                <div class="time-ruler">
+                    @for (int i = 0; i <= 10; i++)
                     {
-                        <option value="@layer">@layer</option>
+                        <div class="time-marker" style="left: @(i * 10)%;">@i s</div>
                     }
-                </select>
-                <button class="btn btn-sm btn-success" @onclick="AddKeyframe">Add Animation</button>
-                <button class="btn btn-sm btn-danger" @onclick="RemoveSelectedKeyframe" disabled="@(selectedKeyframe == null)">Remove</button>
-            </div>
-        </div>
-        <div class="timeline-container" @ref="timelineContainerElement">
-            <div class="time-ruler">
-                @for (int i = 0; i <= 10; i++)
-                {
-                    <div class="time-marker" style="left: @(i * 10)%;">@i s</div>
-                }
-            </div>
-            <div @ref="playheadElement" class="playhead" style="left: @(playheadPosition)%;"></div>
-            <div class="layers-container">
-                @foreach (var layer in animatableLayers)
-                {
-                    <div class="animation-layer">
-                        <div class="layer-header">@layer</div>
-                        <div class="layer-timeline">
-                            @foreach (var keyframe in GetKeyframesForLayer(layer))
-                            {
-                                <div class="motion-bar @(selectedKeyframe == keyframe ? "selected" : "")"
-                                     style="@GetMotionBarStyle(keyframe)"
-                                     data-id="@keyframe.Id"
-                                     @onclick="() => SelectKeyframe(keyframe)">
-                                    @keyframe.Effect
-                                </div>
-                            }
+                </div>
+                <div @ref="playheadElement" class="playhead" style="left: @(playheadPosition)%;"></div>
+                <div class="layers-container">
+                    @foreach (var layer in animatableLayers)
+                    {
+                        <div class="animation-layer">
+                            <div class="layer-header">@layer</div>
+                            <div class="layer-timeline">
+                                @foreach (var keyframe in GetKeyframesForLayer(layer))
+                                {
+                                    <div class="motion-bar @(selectedKeyframe == keyframe ? "selected" : "")"
+                                         style="@GetMotionBarStyle(keyframe)"
+                                         data-id="@keyframe.Id"
+                                         @onclick="() => SelectKeyframe(keyframe)">
+                                        @keyframe.Effect
+                                    </div>
+                                }
+                            </div>
                         </div>
-                    </div>
-                }
+                    }
+                </div>
             </div>
         </div>
     </div>
-    <div class="editor-section">
-        <TransitionEditor SelectedKeyframe="selectedKeyframe" OnKeyframeChanged="NotifyChanges" />
-    </div>
-</div>
 }
+else
+{
+    <div class="placeholder-text">
+        <p>Load an animation from the library to begin.</p>
+    </div>
+}
+
 
 @code {
     [Parameter]
-    public StudioSection TargetSection { get; set; }
+    public List<AnimationKeyframe> Keyframes { get; set; } = new();
 
     [Parameter]
-    public EventCallback<string> OnAnimationSettingsChanged { get; set; }
+    public EventCallback<AnimationKeyframe> OnKeyframeSelected { get; set; }
 
-    private List<AnimationKeyframe> keyframes = new();
+    [Parameter]
+    public EventCallback OnAnimationChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<double> OnTimeChanged { get; set; }
+
     private AnimationKeyframe selectedKeyframe;
-    private List<string> animatableLayers = new List<string> { "Title", "Subtitle", "Image", "Button" };
-    private string selectedLayerForAdd = "Title";
+    private List<string> animatableLayers = new List<string> { "Element", "Title", "Subtitle", "Image", "Button" };
+    private string selectedLayerForAdd = "Element";
     private double currentTime = 0.0;
     private string playheadPosition = "0";
 
     private ElementReference timelineContainerElement;
     private ElementReference playheadElement;
     private DotNetObjectReference<AnimationOrchestrator> dotNetHelper;
-    private HubConnection hubConnection;
     private Timer animationTimer;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         dotNetHelper = DotNetObjectReference.Create(this);
-        var hubUrl = NavigationManager.ToAbsoluteUri("/animationhub");
-        hubConnection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
-            .Build();
-
-        await hubConnection.StartAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && TargetSection != null)
+        if (firstRender && Keyframes != null && Keyframes.Any())
         {
             await JSRuntime.InvokeVoidAsync("initializeAnimationOrchestrator", timelineContainerElement, playheadElement, dotNetHelper);
         }
@@ -103,21 +102,20 @@
 
     private async Task NotifyChanges()
     {
-        var json = JsonSerializer.Serialize(keyframes);
-        await OnAnimationSettingsChanged.InvokeAsync(json);
-        await SendAnimationUpdate();
+        await OnAnimationChanged.InvokeAsync();
     }
 
     private async void AddKeyframe()
     {
         var newKeyframe = new AnimationKeyframe
         {
+            Id = Guid.NewGuid().ToString(),
             Target = selectedLayerForAdd,
             Effect = "fadeIn",
             Duration = 1,
             Delay = currentTime
         };
-        keyframes.Add(newKeyframe);
+        Keyframes.Add(newKeyframe);
         await SelectKeyframe(newKeyframe);
         await NotifyChanges();
     }
@@ -126,8 +124,9 @@
     {
         if (selectedKeyframe != null)
         {
-            keyframes.Remove(selectedKeyframe);
+            Keyframes.Remove(selectedKeyframe);
             selectedKeyframe = null;
+            await OnKeyframeSelected.InvokeAsync(null);
             await NotifyChanges();
         }
     }
@@ -135,14 +134,14 @@
     private async Task SelectKeyframe(AnimationKeyframe keyframe)
     {
         selectedKeyframe = keyframe;
-        await SendAnimationUpdate();
+        await OnKeyframeSelected.InvokeAsync(keyframe);
         StateHasChanged();
     }
 
     [JSInvokable]
     public async Task UpdateKeyframeTiming(string keyframeId, double delay, double duration)
     {
-        var keyframe = keyframes.FirstOrDefault(k => k.Id.ToString() == keyframeId);
+        var keyframe = Keyframes.FirstOrDefault(k => k.Id.ToString() == keyframeId);
         if (keyframe != null)
         {
             keyframe.Delay = Math.Round(delay, 2);
@@ -158,7 +157,7 @@
         {
             animationTimer = new Timer(async _ =>
             {
-                currentTime += 0.05; // 20fps
+                currentTime += 0.05;
                 if (currentTime > 10)
                 {
                     currentTime = 0;
@@ -179,53 +178,37 @@
     public async Task SetCurrentTime(double time)
     {
         currentTime = time;
-        playheadPosition = ((currentTime / 10.0) * 100).ToString("F2");
-        await SendAnimationUpdate();
-    }
-
-    private async Task SendAnimationUpdate()
-    {
-        if (hubConnection is not null)
-        {
-            await hubConnection.SendAsync("SendAnimationUpdate", keyframes, currentTime);
-        }
+        playheadPosition = ((currentTime / 10.0) * 100).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+        await OnTimeChanged.InvokeAsync(currentTime);
     }
 
     protected override void OnParametersSet()
     {
-        if (TargetSection != null && !string.IsNullOrEmpty(TargetSection.AnimationSettings))
+        if (selectedKeyframe != null && !Keyframes.Contains(selectedKeyframe))
         {
-            keyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(TargetSection.AnimationSettings) ?? new List<AnimationKeyframe>();
-        }
-        else
-        {
-            keyframes = new List<AnimationKeyframe>();
+            selectedKeyframe = null;
         }
     }
 
     private IEnumerable<AnimationKeyframe> GetKeyframesForLayer(string layerName)
     {
-        return keyframes.Where(k => k.Target.Equals(layerName, StringComparison.OrdinalIgnoreCase));
+        return Keyframes.Where(k => k.Target.Equals(layerName, StringComparison.OrdinalIgnoreCase));
     }
 
     private string GetMotionBarStyle(AnimationKeyframe keyframe)
     {
         var left = (keyframe.Delay / 10.0) * 100;
         var width = (keyframe.Duration / 10.0) * 100;
-        return $"left: {left.ToString("F2")}%; width: {width.ToString("F2")}%;";
+        return $"left: {left.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}%; width: {width.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}%;";
     }
 
     public async ValueTask DisposeAsync()
     {
         dotNetHelper?.Dispose();
         animationTimer?.Dispose();
-        if (hubConnection is not null)
-        {
-            await hubConnection.DisposeAsync();
-        }
         if (JSRuntime is not null)
         {
-            await JSRuntime.InvokeVoidAsync("destroyAnimationOrchestrator");
+            _ = JSRuntime.InvokeVoidAsync("destroyAnimationOrchestrator");
         }
     }
 }
