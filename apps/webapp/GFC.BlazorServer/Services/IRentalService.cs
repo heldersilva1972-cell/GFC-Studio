@@ -21,5 +21,11 @@ namespace GFC.BlazorServer.Services
         Task<IEnumerable<HallRentalRequest>> GetApprovedRentalsAsync();
         Task CreateRentalInquiryAsync(HallRentalInquiry inquiry);
         Task<List<System.DateTime>> GetReservedDatesAsync();
+        Task<List<System.DateTime>> GetBlackoutDatesAsync();
+        Task AddBlackoutDateAsync(System.DateTime date);
+        Task RemoveBlackoutDateAsync(System.DateTime date);
+        Task<List<System.DateTime>> GetUnavailableDatesAsync();
+        Task<HallRentalInquiry> SaveInquiryAsync(string formData);
+        Task<HallRentalInquiry> GetInquiryAsync(string resumeToken);
     }
 }

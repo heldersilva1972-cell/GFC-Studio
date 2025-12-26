@@ -1,0 +1,76 @@
+// [NEW]
+@page "/admin/blackout-dates"
+@attribute [Authorize(Roles = "Admin")]
+@inject IRentalService RentalService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Blackout Date Manager</PageTitle>
+
+<h1>Blackout Date Manager</h1>
+<p>Use this page to mark specific dates as unavailable for hall rentals due to holidays, maintenance, or other reasons.</p>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">Add Blackout Date</div>
+            <div class="card-body">
+                <input type="date" class="form-control" @bind="_newBlackoutDate" />
+                <button class="btn btn-primary mt-2" @onclick="AddBlackoutDate">Add Date</button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">Current Blackout Dates</div>
+            <div class="card-body">
+                @if (_blackoutDates == null)
+                {
+                    <p><em>Loading...</em></p>
+                }
+                else
+                {
+                    <ul class="list-group">
+                        @foreach (var date in _blackoutDates.OrderBy(d => d))
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                @date.ToLongDateString()
+                                <button class="btn btn-danger btn-sm" @onclick="() => RemoveBlackoutDate(date)">Remove</button>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private DateTime _newBlackoutDate = DateTime.Now;
+    private List<DateTime>? _blackoutDates;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBlackoutDates();
+    }
+
+    private async Task LoadBlackoutDates()
+    {
+        _blackoutDates = await RentalService.GetBlackoutDatesAsync();
+    }
+
+    private async Task AddBlackoutDate()
+    {
+        await RentalService.AddBlackoutDateAsync(_newBlackoutDate);
+        await LoadBlackoutDates();
+    }
+
+    private async Task RemoveBlackoutDate(DateTime date)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to remove {date.ToLongDateString()} from the blackout list?");
+        if (confirmed)
+        {
+            await RentalService.RemoveBlackoutDateAsync(date);
+            await LoadBlackoutDates();
+        }
+    }
+}

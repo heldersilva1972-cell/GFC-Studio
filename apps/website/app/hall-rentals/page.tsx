@@ -1,31 +1,29 @@
-// [NEW]
+// [MODIFIED]
 'use client';
 import { useState } from 'react';
 import FeatureGrid from '../../components/FeatureGrid';
 import RentalAvailabilityCalendar from '../../components/RentalAvailabilityCalendar';
 import HallRentalForm from '../../components/HallRentalForm';
+import ApplicationSuccess from '../../components/ApplicationSuccess';
 
 const HallRentalPage = () => {
   const [step, setStep] = useState(1);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', details: '' });
 
   const handleDateSelect = (date: Date) => {
     setSelectedDate(date);
     setStep(3);
   };
 
-  const handleSuccess = () => {
+  const handleSuccess = (data: any) => {
+    setFormData(data);
     setIsSuccess(true);
   };
 
   if (isSuccess) {
-    return (
-        <div className="text-center p-8 bg-green-500/10 border border-green-500 rounded-lg">
-            <h3 className="font-display text-2xl font-bold text-green-400">Thank You!</h3>
-            <p className="mt-2 text-green-300">Your request has been submitted successfully.</p>
-        </div>
-    );
+    return <ApplicationSuccess formData={formData} selectedDate={selectedDate!} />;
   }
 
   return (

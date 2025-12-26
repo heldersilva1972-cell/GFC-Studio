@@ -1,21 +1,48 @@
-// [NEW]
+// [MODIFIED]
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { motion } from 'framer-motion';
 
 interface HallRentalFormProps {
     selectedDate: Date;
-    onSuccess: () => void;
+    onSuccess: (data: { name: string; email: string; phone: string; details: string; }) => void;
 }
 
 export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFormProps) {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [details, setDetails] = useState('');
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    details: '',
+  });
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'saving' | 'success' | 'error' | 'saved'>('idle');
   const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    // Check for a resume token in the URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const resumeToken = urlParams.get('resume');
+    if (resumeToken) {
+      const fetchInquiry = async () => {
+        try {
+          const res = await fetch(`/api/HallRentalInquiry/resume/${resumeToken}`);
+          if (res.ok) {
+            const data = await res.json();
+            setFormData(data);
+          }
+        } catch (error) {
+          console.error('Failed to fetch inquiry data:', error);
+        }
+      };
+      fetchInquiry();
+    }
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { id, value } = e.target;
+    setFormData((prev) => ({ ...prev, [id]: value }));
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -23,15 +50,15 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
     setMessage('');
 
     try {
-      const res = await fetch('/api/hall-rental/submit', {
+      const res = await fetch('/api/HallRentalInquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          requesterName: name,
-          requesterEmail: email,
-          requesterPhone: phone,
-          eventDetails: details,
-          eventDate: selectedDate,
+          requesterName: formData.name,
+          requesterEmail: formData.email,
+          requesterPhone: formData.phone,
+          eventDetails: formData.details,
+          requestedDate: selectedDate,
           status: 'Pending',
         }),
       });
@@ -42,7 +69,7 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
       }
 
       setStatus('success');
-      onSuccess();
+      onSuccess(formData);
 
     } catch (err) {
       setStatus('error');
@@ -50,14 +77,30 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
     }
   };
 
-  if (status === 'success') {
-    return (
-        <div className="text-center p-8 bg-green-500/10 border border-green-500 rounded-lg">
-            <h3 className="font-display text-2xl font-bold text-green-400">Thank You!</h3>
-            <p className="mt-2 text-green-300">Your request has been submitted successfully.</p>
-        </div>
-    );
-  }
+  const handleSave = async () => {
+    setStatus('saving');
+    setMessage('');
+
+    try {
+      const res = await fetch('/api/HallRentalInquiry/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Something went wrong');
+      }
+
+      setStatus('saved');
+      setMessage('Your application has been saved. A link to resume has been sent to your email.');
+
+    } catch (err) {
+      setStatus('error');
+      setMessage(err instanceof Error ? err.message : 'An unknown error occurred');
+    }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -68,8 +111,8 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
         <input
           type="text"
           id="name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          value={formData.name}
+          onChange={handleChange}
           required
           className="w-full bg-midnight-blue/50 border border-burnished-gold/30 rounded-md px-4 py-2 focus:ring-burnished-gold focus:border-burnished-gold transition-colors"
         />
@@ -82,8 +125,8 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
         <input
           type="email"
           id="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          value={formData.email}
+          onChange={handleChange}
           required
           className="w-full bg-midnight-blue/50 border border-burnished-gold/30 rounded-md px-4 py-2 focus:ring-burnished-gold focus:border-burnished-gold transition-colors"
         />
@@ -96,8 +139,8 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
         <input
           type="tel"
           id="phone"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          value={formData.phone}
+          onChange={handleChange}
           required
           className="w-full bg-midnight-blue/50 border border-burnished-gold/30 rounded-md px-4 py-2 focus:ring-burnished-gold focus:border-burnished-gold transition-colors"
         />
@@ -110,17 +153,27 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
         <textarea
           id="details"
           rows={4}
-          value={details}
-          onChange={(e) => setDetails(e.target.value)}
+          value={formData.details}
+          onChange={handleChange}
           required
           className="w-full bg-midnight-blue/50 border border-burnished-gold/30 rounded-md px-4 py-2 focus:ring-burnished-gold focus:border-burnished-gold transition-colors"
         ></textarea>
       </div>
 
-      <div>
+      <div className="flex space-x-4">
+        <motion.button
+          type="button"
+          onClick={handleSave}
+          disabled={status === 'saving' || status === 'submitting'}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="w-full bg-gray-500 text-white font-bold px-6 py-3 rounded-md hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {status === 'saving' ? 'Saving...' : 'Save & Resume Later'}
+        </motion.button>
         <motion.button
           type="submit"
-          disabled={status === 'submitting'}
+          disabled={status === 'submitting' || status === 'saving'}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           className="w-full bg-burnished-gold text-midnight-blue font-bold px-6 py-3 rounded-md hover:bg-burnished-gold/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -129,6 +182,7 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
         </motion.button>
       </div>
       {status === 'error' && <p className="text-red-400 text-sm mt-2">{message}</p>}
+      {status === 'saved' && <p className="text-green-400 text-sm mt-2">{message}</p>}
     </form>
   );
 }

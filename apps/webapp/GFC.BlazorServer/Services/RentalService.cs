@@ -148,5 +148,63 @@ namespace GFC.BlazorServer.Services
                                  .Select(d => d.Date)
                                  .ToListAsync();
         }
+
+        public async Task<List<DateTime>> GetBlackoutDatesAsync()
+        {
+            return await _context.AvailabilityCalendars
+                .Where(d => d.Status == "Blackout")
+                .Select(d => d.Date)
+                .ToListAsync();
+        }
+
+        public async Task AddBlackoutDateAsync(DateTime date)
+        {
+            var existing = await _context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date);
+            if (existing == null)
+            {
+                _context.AvailabilityCalendars.Add(new AvailabilityCalendar { Date = date.Date, Status = "Blackout" });
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task RemoveBlackoutDateAsync(DateTime date)
+        {
+            var existing = await _context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date && d.Status == "Blackout");
+            if (existing != null)
+            {
+                _context.AvailabilityCalendars.Remove(existing);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task<List<DateTime>> GetUnavailableDatesAsync()
+        {
+            return await _context.AvailabilityCalendars
+                .Where(d => d.Status == "Booked" || d.Status == "Blackout")
+                .Select(d => d.Date)
+                .ToListAsync();
+        }
+
+        public async Task<HallRentalInquiry> SaveInquiryAsync(string formData)
+        {
+            var inquiry = new HallRentalInquiry
+            {
+                ResumeToken = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"), // Longer, more random token
+                FormData = formData,
+                CreatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddDays(30) // Inquiries are valid for 30 days
+            };
+
+            _context.HallRentalInquiries.Add(inquiry);
+            await _context.SaveChangesAsync();
+
+            return inquiry;
+        }
+
+        public async Task<HallRentalInquiry> GetInquiryAsync(string resumeToken)
+        {
+            return await _context.HallRentalInquiries
+                .FirstOrDefaultAsync(i => i.ResumeToken == resumeToken && i.ExpiresAt > DateTime.UtcNow);
+        }
     }
 }
