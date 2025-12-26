@@ -31,17 +31,17 @@ namespace GFC.BlazorServer.Services
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<MediaAsset> CreateMediaAssetAsync(IBrowserFile file, string tag, string uploadedBy)
+        public async Task<MediaAsset> CreateMediaAssetAsync(Stream fileStream, string fileName, string tag, string uploadedBy)
         {
-            if (file == null) throw new ArgumentNullException(nameof(file));
+            if (fileStream == null) throw new ArgumentNullException(nameof(fileStream));
 
             var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads", "media");
             Directory.CreateDirectory(uploadsFolderPath);
 
-            var uniqueFileName = $"{Guid.NewGuid()}{Path.GetExtension(file.Name)}";
+            var uniqueFileName = $"{Guid.NewGuid()}{Path.GetExtension(fileName)}";
             var originalFilePath = Path.Combine(uploadsFolderPath, uniqueFileName);
 
-            using (var image = await Image.LoadAsync(file.OpenReadStream(long.MaxValue)))
+            using (var image = await Image.LoadAsync(fileStream))
             {
                 // Save original
                 await image.SaveAsync(originalFilePath);

@@ -13,30 +13,37 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(255)]
-        public string FileName { get; set; } // Original client file name
+        public string FileName { get; set; } = string.Empty; // Original name or unique name depending on usage
 
-        [Required]
         [StringLength(255)]
-        public string StoredFileName { get; set; } // Unique name on the server
+        public string? StoredFileName { get; set; } // Unique name on the server
 
-        [Required]
+        [StringLength(255)]
+        public string? FilePath { get; set; } // URL path
+
         [StringLength(100)]
-        public string ContentType { get; set; }
+        public string? Tag { get; set; }
+
+        [StringLength(100)]
+        public string? ContentType { get; set; }
 
         public long FileSize { get; set; }
 
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
+        [StringLength(100)]
+        public string? UploadedBy { get; set; }
+
         public int? AssetFolderId { get; set; }
 
         [ForeignKey("AssetFolderId")]
-        public virtual AssetFolder AssetFolder { get; set; }
+        public virtual AssetFolder? AssetFolder { get; set; }
 
         // Navigation property for different versions (renditions) of the asset
         public virtual ICollection<MediaRendition> Renditions { get; set; } = new List<MediaRendition>();
 
         // For tracking where the image is used, e.g., "Home Page", "About Us"
-        public string Usage { get; set; }
+        public string? Usage { get; set; }
 
         [StringLength(100)]
         public string? RequiredRole { get; set; }
