@@ -10,7 +10,6 @@ interface HeroProps {
   secondaryCtaText?: string;
   secondaryCtaLink?: string;
   stats?: { label: string; value: string }[];
-  backgroundImage?: string;
 }
 
 export default function Hero({
@@ -21,18 +20,11 @@ export default function Hero({
   primaryCtaLink,
   secondaryCtaText,
   secondaryCtaLink,
-  stats,
-  backgroundImage
+  stats
 }: HeroProps) {
   return (
     <section className={styles.hero}>
       <div className={styles.heroBackground}>
-        {backgroundImage && (
-          <div
-            className={styles.imageOverlay}
-            style={{ backgroundImage: `url(${backgroundImage})` }}
-          ></div>
-        )}
         <div className={styles.gradientOverlay}></div>
         <div className={styles.patternOverlay}></div>
       </div>

@@ -228,9 +228,7 @@ END";
 
     private static AuditLogRecord MapReaderToRecord(SqlDataReader reader)
     {
-        var timestampOrdinal = reader.GetOrdinal("TimestampUtc");
-        var timestamp = reader.IsDBNull(timestampOrdinal) ? DateTime.UtcNow : reader.GetDateTime(timestampOrdinal);
-        
+        var timestamp = reader.GetDateTime(reader.GetOrdinal("TimestampUtc"));
         var performedByValue = reader["PerformedByUserId"];
         var targetValue = reader["TargetUserId"];
         var performedByUserId = performedByValue is DBNull ? (int?)null : Convert.ToInt32(performedByValue);
@@ -239,19 +237,13 @@ END";
         var performedByMemberName = BuildMemberName(reader, "PerformedByFirstName", "PerformedByLastName");
         var targetMemberName = BuildMemberName(reader, "TargetFirstName", "TargetLastName");
 
-        var actionOrdinal = reader.GetOrdinal("Action");
-        var actionValue = reader.IsDBNull(actionOrdinal) ? "Unknown" : reader.GetString(actionOrdinal);
-
-        var auditLogIdOrdinal = reader.GetOrdinal("AuditLogId");
-        var auditLogId = reader.IsDBNull(auditLogIdOrdinal) ? 0 : reader.GetInt32(auditLogIdOrdinal);
-
         return new AuditLogRecord
         {
-            AuditLogId = auditLogId,
+            AuditLogId = reader.GetInt32(reader.GetOrdinal("AuditLogId")),
             TimestampUtc = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc),
             PerformedByUserId = performedByUserId,
             TargetUserId = targetUserId,
-            Action = actionValue,
+            Action = reader.GetString(reader.GetOrdinal("Action")),
             Details = reader["Details"] as string,
             PerformedByDisplayName = BuildDisplayName(performedByUserId, reader["PerformedByUsername"] as string, performedByMemberName),
             TargetDisplayName = BuildDisplayName(targetUserId, reader["TargetUsername"] as string, targetMemberName)

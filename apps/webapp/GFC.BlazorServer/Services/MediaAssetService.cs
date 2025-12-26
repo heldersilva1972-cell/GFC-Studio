@@ -1,20 +1,16 @@
 // [NEW]
-using GFC.Core.Interfaces;
-using GFC.Core.Models;
 using GFC.BlazorServer.Data;
+using GFC.Core.Models;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.EntityFrameworkCore;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
+using SixLabors.ImageSharp.Formats.Webp;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using System.Security.Claims;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Processing;
-using SixLabors.ImageSharp.Formats.Webp;
 
 namespace GFC.BlazorServer.Services
 {
@@ -31,91 +27,135 @@ namespace GFC.BlazorServer.Services
             _httpContextAccessor = httpContextAccessor;
         }
 
-        public async Task<MediaAsset> CreateMediaAssetAsync(Stream fileStream, string fileName, string tag, string uploadedBy)
+        public async Task<MediaAsset> CreateAssetAsync(IBrowserFile file, string usage)
         {
-            if (fileStream == null) throw new ArgumentNullException(nameof(fileStream));
+            if (file == null)
+                throw new ArgumentNullException(nameof(file));
 
-            var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads", "media");
-            Directory.CreateDirectory(uploadsFolderPath);
-
-            var uniqueFileName = $"{Guid.NewGuid()}{Path.GetExtension(fileName)}";
-            var originalFilePath = Path.Combine(uploadsFolderPath, uniqueFileName);
-
-            using (var image = await Image.LoadAsync(fileStream))
+            var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads");
+            if (!Directory.Exists(uploadsFolderPath))
             {
-                // Save original
-                await image.SaveAsync(originalFilePath);
-
-                // Create renditions
-                await CreateRenditionAsync(image, "desktop", 1920, originalFilePath);
-                await CreateRenditionAsync(image, "tablet", 1024, originalFilePath);
-                await CreateRenditionAsync(image, "mobile", 640, originalFilePath);
+                Directory.CreateDirectory(uploadsFolderPath);
             }
 
-            var mediaAsset = new MediaAsset
+            var uniqueFileName = $"{Guid.NewGuid()}_{file.Name}";
+            var filePath = Path.Combine(uploadsFolderPath, uniqueFileName);
+
+            await using (var stream = file.OpenReadStream(long.MaxValue))
+            await using (var fs = new FileStream(filePath, FileMode.Create))
             {
-                FileName = uniqueFileName,
-                FilePath = $"/uploads/media/{uniqueFileName}",
-                Tag = tag,
-                UploadedBy = uploadedBy,
+                await stream.CopyToAsync(fs);
+            }
+
+            var asset = new MediaAsset
+            {
+                FileName = file.Name,
+                StoredFileName = uniqueFileName,
+                ContentType = file.ContentType,
+                FileSize = file.Size,
+                Usage = usage,
                 UploadedAt = DateTime.UtcNow
             };
 
-            _context.MediaAssets.Add(mediaAsset);
-            await _context.SaveChangesAsync();
-
-            return mediaAsset;
-        }
-
-        private async Task CreateRenditionAsync(Image sourceImage, string size, int width, string originalPath)
-        {
-            var renditionPath = Path.ChangeExtension(originalPath, $".{size}.webp");
-
-            using var clonedImage = sourceImage.Clone(ctx => ctx.Resize(new ResizeOptions
+            if (file.ContentType.StartsWith("image/"))
             {
-                Size = new Size(width, 0),
-                Mode = ResizeMode.Max
-            }));
+                await GenerateRenditionsAsync(asset, filePath);
+            }
 
-            await clonedImage.SaveAsync(renditionPath, new WebpEncoder { Quality = 80 });
-        }
-
-        public async Task DeleteMediaAssetAsync(int id)
-        {
-            var mediaAsset = await _context.MediaAssets.FindAsync(id);
-            if (mediaAsset == null) return;
-
-            // Delete the original file and all renditions
-            var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads", "media");
-            var originalPath = Path.Combine(uploadsFolderPath, mediaAsset.FileName);
-
-            File.Delete(originalPath);
-            File.Delete(Path.ChangeExtension(originalPath, ".desktop.webp"));
-            File.Delete(Path.ChangeExtension(originalPath, ".tablet.webp"));
-            File.Delete(Path.ChangeExtension(originalPath, ".mobile.webp"));
-
-            _context.MediaAssets.Remove(mediaAsset);
+            _context.MediaAssets.Add(asset);
             await _context.SaveChangesAsync();
+
+            return asset;
         }
 
-        public async Task<IEnumerable<MediaAsset>> GetMediaAssetsAsync()
+        private async Task GenerateRenditionsAsync(MediaAsset asset, string originalFilePath)
         {
-            return await _context.MediaAssets.OrderByDescending(m => m.UploadedAt).ToListAsync();
+            using var image = await Image.LoadAsync(originalFilePath);
+
+            // Desktop (1920px), Tablet (1024px), Mobile (640px)
+            var sizes = new Dictionary<string, int>
+            {
+                { "desktop", 1920 },
+                { "tablet", 1024 },
+                { "mobile", 640 }
+            };
+
+            foreach (var size in sizes)
+            {
+                var renditionFileName = $"{Path.GetFileNameWithoutExtension(originalFilePath)}_{size.Key}.webp";
+                var renditionFilePath = Path.Combine(Path.GetDirectoryName(originalFilePath), renditionFileName);
+
+                var clone = image.Clone(ctx => ctx.Resize(new ResizeOptions
+                {
+                    Size = new Size(size.Value, 0),
+                    Mode = ResizeMode.Max
+                }));
+
+                await clone.SaveAsync(renditionFilePath, new WebpEncoder());
+
+                asset.Renditions.Add(new MediaRendition
+                {
+                    RenditionType = $"{size.Key}-webp",
+                    Url = $"/uploads/{renditionFileName}",
+                    Width = clone.Width,
+                    Height = clone.Height
+                });
+            }
         }
 
-        public async Task<IEnumerable<MediaAsset>> GetPublicWebsiteGalleryAsync()
+        public async Task<List<MediaAsset>> GetAllAssetsAsync()
         {
-            return await _context.MediaAssets
-                .Where(m => m.Tag == "Public Website Gallery")
-                .OrderByDescending(m => m.UploadedAt)
-                .ToListAsync();
+            return await _context.MediaAssets.Include(a => a.Renditions).ToListAsync();
         }
-        public async Task UpdateAssetRoleAsync(int id, string? role)
+
+        public async Task<MediaAsset> GetAssetByIdAsync(int id)
         {
-            var asset = await _context.MediaAssets.FindAsync(id);
+            var asset = await _context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
+
+            if (asset != null && !string.IsNullOrEmpty(asset.RequiredRole))
+            {
+                var user = _httpContextAccessor.HttpContext?.User;
+                if (user == null || !user.IsInRole(asset.RequiredRole))
+                {
+                    return null; // Or throw an exception, depending on desired behavior
+                }
+            }
+
+            return asset;
+        }
+
+        public async Task UpdateAssetRoleAsync(int assetId, string? role)
+        {
+            var asset = await _context.MediaAssets.FindAsync(assetId);
             if (asset != null)
             {
                 asset.RequiredRole = role;
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task DeleteAssetAsync(int id)
+        {
+            var asset = await GetAssetByIdAsync(id);
+            if (asset != null)
+            {
+                // Delete physical files
+                foreach (var rendition in asset.Renditions)
+                {
+                    var filePath = Path.Combine(_env.WebRootPath, rendition.Url.TrimStart('/'));
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                    }
+                }
+                var originalFilePath = Path.Combine(_env.WebRootPath, "uploads", asset.StoredFileName);
+                if (File.Exists(originalFilePath))
+                {
+                    File.Delete(originalFilePath);
+                }
+
+
+                _context.MediaAssets.Remove(asset);
                 await _context.SaveChangesAsync();
             }
         }

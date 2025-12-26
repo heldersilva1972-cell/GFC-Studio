@@ -27,16 +27,6 @@ window.studioInterop = {
         }
     },
 
-    updateAnimationInPreview: function (iframeElement, keyframes) {
-        if (iframeElement && iframeElement.contentWindow) {
-            const targetOrigin = new URL(iframeElement.src).origin;
-            iframeElement.contentWindow.postMessage({
-                type: 'UPDATE_ANIMATION',
-                payload: keyframes
-            }, targetOrigin);
-        }
-    },
-
     updateStyleInPreview: function (iframeElement, sectionId, style) {
         if (iframeElement && iframeElement.contentWindow) {
             const targetOrigin = new URL(iframeElement.src).origin;

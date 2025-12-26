@@ -75,12 +75,9 @@
         await LoadAssets();
     }
 
-@inject IJSRuntime JSRuntime
-
     private async Task LoadAssets()
     {
-        var assets = await MediaAssetService.GetMediaAssetsAsync();
-        _assets = assets.ToList();
+        _assets = await MediaAssetService.GetAllAssetsAsync();
         StateHasChanged();
     }
 
@@ -91,10 +88,7 @@
 
         try
         {
-            var user = (await JSRuntime.InvokeAsync<string>("sessionStorage.getItem", "userName")) ?? "System";
-            using var stream = e.File.OpenReadStream(long.MaxValue);
-            // Defaulting tag to "General" as in previous code, though new service might expect something specific
-            await MediaAssetService.CreateMediaAssetAsync(stream, e.File.Name, "General", user);
+            await MediaAssetService.CreateAssetAsync(e.File, "General");
             ToastService.ShowSuccess("File uploaded successfully!");
             await LoadAssets();
         }
@@ -146,13 +140,8 @@
 
     private string GetThumbnailUrl(MediaAsset asset)
     {
-        // Try to construct mobile rendition path from original path
-        // Original: /uploads/media/guid.jpg
-        // Rendition: /uploads/media/guid.mobile.webp
-        if (!string.IsNullOrEmpty(asset.FilePath))
-        {
-             return System.IO.Path.ChangeExtension(asset.FilePath, ".mobile.webp");
-        }
-        return "/images/placeholder.png";
+        // Prefer mobile-sized WebP for thumbnail preview
+        var rendition = asset.Renditions?.FirstOrDefault(r => r.RenditionType == "mobile-webp");
+        return rendition?.Url ?? "/images/placeholder.png";
     }
 }

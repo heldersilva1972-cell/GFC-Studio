@@ -28,7 +28,7 @@ export default function StudioPreviewPage({ params }: PreviewPageProps) {
 
     // Set up message listener
     const handleMessage = (event: MessageEvent) => {
-      const { type, component, sectionId, style, payload } = event.data;
+      const { type, component, sectionId, style } = event.data;
 
       switch (type) {
         case 'ADD_COMPONENT':
@@ -36,9 +36,6 @@ export default function StudioPreviewPage({ params }: PreviewPageProps) {
           break;
         case 'UPDATE_STYLE':
           updateSectionStyle(sectionId, style);
-          break;
-        case 'UPDATE_ANIMATION':
-          usePageStore.getState().updateAnimation(payload);
           break;
         case 'REQUEST_STATE':
             const currentState = usePageStore.getState().sections;
@@ -55,11 +52,10 @@ export default function StudioPreviewPage({ params }: PreviewPageProps) {
   }, [params.slug, setSections, addSection, updateSectionStyle]);
 
   const sections = usePageStore((state) => state.sections);
-  const animationKeyframes = usePageStore((state) => state.animationKeyframes);
 
   return (
     <div>
-      <DynamicRenderer sections={sections} animationKeyframes={animationKeyframes} />
+      <DynamicRenderer sections={sections} />
     </div>
   );
 }

@@ -204,10 +204,8 @@ public class Program
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
         builder.Services.AddScoped<IFormService, FormService>();
-        builder.Services.AddScoped<IFormBuilderService, FormBuilderService>();
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
-builder.Services.AddScoped<IAnimationService, AnimationService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
@@ -226,7 +224,6 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IPageService, PageService>();
         builder.Services.AddScoped<IReviewService, ReviewService>();
         builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
-        builder.Services.AddScoped(typeof(UndoRedoService<>));
         
         // Controller Client Wiring
         

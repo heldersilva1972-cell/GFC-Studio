@@ -113,13 +113,6 @@ namespace GFC.BlazorServer.Services
             await _context.SaveChangesAsync();
         }
 
-        public async Task SendFormResumeEmailAsync(string email, string resumeUrl)
-        {
-            var subject = "Resume Your GFC Form Submission";
-            var body = $"<p>You can resume your form submission by clicking the link below:</p><a href='{resumeUrl}'>{resumeUrl}</a><p>This link will remain active for 14 days.</p>";
-            await SendEmailAsync(email, subject, body);
-        }
-
         public async Task<List<SystemNotification>> GetActiveNotificationsAsync()
         {
             return await _context.SystemNotifications

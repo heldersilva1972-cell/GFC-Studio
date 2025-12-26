@@ -10,7 +10,7 @@ import RichTextBlock from './RichTextBlock';
 import ButtonCTA from './ButtonCTA';
 import LayoutGrid from './LayoutGrid';
 import { usePageStore } from '@/app/lib/store';
-import { StudioSection, AnimationKeyframe } from '@/app/lib/types';
+import { StudioSection } from '@/app/lib/types';
 import styles from './DynamicRenderer.module.css';
 
 const getAnimationVariants = (effect: string) => {
@@ -28,10 +28,9 @@ const sectionComponentMap: { [key: string]: React.ComponentType<any> } = {
 
 interface DynamicRendererProps {
   sections: StudioSection[];
-  animationKeyframes?: AnimationKeyframe[];
 }
 
-const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections, animationKeyframes }) => {
+const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections }) => {
   const { selectedSectionId, setSelectedSectionId } = usePageStore();
   const controls = useAnimation();
   const [isInStudio, setIsInStudio] = useState(false);
@@ -83,35 +82,32 @@ const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections, animationKe
         const isSelected = section.clientId === selectedSectionId;
         const selectionStyle = isSelected ? { border: '2px solid #007bff', boxShadow: '0 0 10px #007bff' } : {};
 
-        const keyframe = animationKeyframes?.find(k => k.target === section.sectionType);
+        const animationSettings = section.animationSettingsJson ? JSON.parse(section.animationSettingsJson) : {};
 
         const getInitialState = (effect) => {
             switch (effect) {
-                case 'fadeIn': return { opacity: 0 };
-                case 'slideUp': return { opacity: 0, y: 50 };
-                case 'slideDown': return { opacity: 0, y: -50 };
-                case 'slideLeft': return { opacity: 0, x: -50 };
-                case 'slideRight': return { opacity: 0, x: 50 };
-                case 'scaleIn': return { opacity: 0, scale: 0.5 };
-                case 'bounceIn': return { opacity: 0, scale: 0.5 };
+                case 'FadeIn': return { opacity: 0 };
+                case 'SlideUp': return { opacity: 0, y: 50 };
+                case 'Scale': return { opacity: 0, scale: 0.5 };
+                case 'Rotate': return { opacity: 0, rotate: -45 };
                 default: return { opacity: 1 };
             }
         };
 
-        const variants = keyframe ? {
-          hidden: getInitialState(keyframe.effect),
+        const variants = {
+          hidden: getInitialState(animationSettings.Effect),
           visible: {
             opacity: 1,
             y: 0,
-            x: 0,
             scale: 1,
+            rotate: 0,
             transition: {
-              duration: keyframe.duration || 1,
-              delay: keyframe.delay || 0,
-              ease: keyframe.easing || 'easeInOut'
+              duration: animationSettings.Duration || 1,
+              delay: animationSettings.Delay || 0,
+              ease: animationSettings.Easing || 'easeInOut'
             }
           }
-        } : {};
+        };
 
         return (
             <motion.div

@@ -51,9 +51,9 @@ public class SystemSettings
     public string? CloudflareTunnelToken { get; set; } // Encrypted
     public string? PublicDomain { get; set; } // e.g., gfc-cameras.yourclub.com
     public int WireGuardPort { get; set; } = 51820;
-    public string? WireGuardSubnet { get; set; } = "10.8.0.0/24";
+    public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
     public string? WireGuardServerPublicKey { get; set; }
-    public string? WireGuardAllowedIPs { get; set; } = "10.8.0.0/24, 192.168.1.0/24";
+    public string WireGuardAllowedIPs { get; set; } = "10.8.0.0/24, 192.168.1.0/24";
     public int MaxSimultaneousViewers { get; set; } = 10;
     
     // Security Settings
@@ -64,9 +64,9 @@ public class SystemSettings
     public int SessionTimeoutMinutes { get; set; } = 30;
     public bool EnableFailedLoginProtection { get; set; } = true;
     public int MaxFailedLoginAttempts { get; set; } = 5;
-    public string? IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
+    public string IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
     public int LoginLockDurationMinutes { get; set; } = 30;
-    public string? WatermarkPosition { get; set; } = "BottomRight"; // TopLeft, TopRight, BottomLeft, BottomRight
+    public string WatermarkPosition { get; set; } = "BottomRight"; // TopLeft, TopRight, BottomLeft, BottomRight
     public bool EnableWatermarking { get; set; } = false;
     
     // Video Streaming Quality Settings

@@ -20,14 +20,5 @@ namespace GFC.Core.Models
         public string SubmissionData { get; set; } // JSON string of submitted data
 
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
-
-        [EmailAddress]
-        public string SubmitterEmail { get; set; }
-
-        [StringLength(50)]
-        public string Status { get; set; } // e.g., "Complete", "Incomplete"
-
-        [StringLength(128)]
-        public string ResumeToken { get; set; }
     }
 }

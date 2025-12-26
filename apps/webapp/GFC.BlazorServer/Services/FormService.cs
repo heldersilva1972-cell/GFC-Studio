@@ -106,25 +106,6 @@ namespace GFC.BlazorServer.Services
             return inquiry;
         }
 
-        public async Task SaveSubmissionAsync(FormSubmission submission)
-        {
-            if (submission.Id == 0)
-            {
-                _context.FormSubmissions.Add(submission);
-            }
-            else
-            {
-                _context.FormSubmissions.Update(submission);
-            }
-            await _context.SaveChangesAsync();
-        }
-
-        public async Task<FormSubmission> GetSubmissionByTokenAsync(string token)
-        {
-            return await _context.FormSubmissions
-                .FirstOrDefaultAsync(s => s.ResumeToken == token);
-        }
-
         public async Task<HallRentalInquiry> GetRentalInquiryByTokenAsync(string token)
         {
             return await _context.HallRentalInquiries

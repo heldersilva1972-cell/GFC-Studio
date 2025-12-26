@@ -97,7 +97,6 @@ public class GfcDbContext : DbContext
     public DbSet<HallRentalInquiry> HallRentalInquiries => Set<HallRentalInquiry>();
     public DbSet<SeoSettings> SeoSettings => Set<SeoSettings>();
     public DbSet<ProtectedDocument> ProtectedDocuments => Set<ProtectedDocument>();
-    public DbSet<DynamicForm> DynamicForms => Set<DynamicForm>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -621,12 +620,6 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<ProtectedDocument>(entity =>
         {
             entity.ToTable("ProtectedDocuments");
-        });
-
-        modelBuilder.Entity<DynamicForm>(entity =>
-        {
-            entity.ToTable("DynamicForms");
-            entity.HasIndex(f => f.Name).IsUnique();
         });
     }
 
