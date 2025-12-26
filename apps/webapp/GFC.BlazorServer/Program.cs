@@ -327,6 +327,32 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                     Console.WriteLine($">>> WARNING: Security schema script not found at {securityScriptPath}");
                 }
 
+                // [AUTO-FIX 3] Run the Public Reviews Table script
+                var reviewsScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-public-reviews-table.sql");
+                if (File.Exists(reviewsScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Public Reviews Schema Fixes from: {reviewsScriptPath}");
+                    var revSqlFile = File.ReadAllText(reviewsScriptPath);
+                    var revBatches = System.Text.RegularExpressions.Regex.Split(revSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in revBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing reviews batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Public Reviews Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Reviews schema script not found at {reviewsScriptPath}");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
                 // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }
