@@ -1,28 +1,3 @@
-// [MODIFIED]
-import Link from 'next/link';
-import { Facebook, Instagram, Twitter, Mail, Phone, MapPin } from 'lucide-react';
-
-const socialLinks = [
-  { icon: Facebook, href: 'https://www.facebook.com/GloucesterFraternityClub/', name: 'Facebook' },
-  { icon: Instagram, href: 'https://instagram.com/gfc9651/', name: 'Instagram' },
-  { icon: Twitter, href: 'https://twitter.com/GFC_club/', name: 'Twitter' },
-];
-
-const quickLinks = [
-    { name: 'Hall Rentals', href: '/hall-rentals' },
-    { name: 'Events', href: '/events' },
-    { name: 'Membership', href: '/membership' },
-    { name: 'Contact Us', href: '/contact' },
-];
-
-const moreLinks = [
-    { name: 'Photo Gallery', href: '/gallery' },
-    { name: 'About Us', href: '/about' },
-    { name: 'Member Login', href: 'http://localhost:5000' }, // Link to Web App
-    { name: 'Privacy Policy', href: '/privacy-policy' },
-    { name: 'Terms of Service', href: '/terms-of-service' },
-    { name: 'Hall Rental Rules', href: '/hall-rental-rules' },
-]
 
 'use client';
 import { useState, useEffect } from 'react';
@@ -36,19 +11,19 @@ const socialLinks = [
 ];
 
 const quickLinks = [
-    { name: 'Hall Rentals', href: '/hall-rentals' },
-    { name: 'Events', href: '/events' },
-    { name: 'Membership', href: '/membership' },
-    { name: 'Contact Us', href: '/contact' },
+  { name: 'Hall Rentals', href: '/hall-rentals' },
+  { name: 'Events', href: '/events' },
+  { name: 'Membership', href: '/membership' },
+  { name: 'Contact Us', href: '/contact' },
 ];
 
 const moreLinks = [
-    { name: 'Photo Gallery', href: '/gallery' },
-    { name: 'About Us', href: '/about' },
-    { name: 'Member Login', href: 'http://localhost:5000' }, // Link to Web App
-    { name: 'Privacy Policy', href: '/privacy-policy' },
-    { name: 'Terms of Service', href: '/terms-of-service' },
-    { name: 'Hall Rental Rules', href: '/hall-rental-rules' },
+  { name: 'Photo Gallery', href: '/gallery' },
+  { name: 'About Us', href: '/about' },
+  { name: 'Member Login', href: 'http://localhost:5000' }, // Link to Web App
+  { name: 'Privacy Policy', href: '/privacy-policy' },
+  { name: 'Terms of Service', href: '/terms-of-service' },
+  { name: 'Hall Rental Rules', href: '/hall-rental-rules' },
 ]
 
 export default function Footer() {
