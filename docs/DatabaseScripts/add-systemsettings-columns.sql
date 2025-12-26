@@ -246,5 +246,17 @@ BEGIN
 END
 GO
 
+-- 6. Enforce Constraints on WebsiteSettings (Prevent future NULLs)
+PRINT 'Enforcing constraints on WebsiteSettings...';
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'WebsiteSettings')
+BEGIN
+    ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [MemberRate] DECIMAL(18,2) NOT NULL;
+    ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [NonMemberRate] DECIMAL(18,2) NOT NULL;
+    ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [IsClubOpen] BIT NOT NULL;
+    ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [MasterEmailKillSwitch] BIT NOT NULL;
+    ALTER TABLE [dbo].[WebsiteSettings] ALTER COLUMN [HighAccessibilityMode] BIT NOT NULL;
+END
+GO
+
 PRINT 'Database fix successfully completed!';
 GO
