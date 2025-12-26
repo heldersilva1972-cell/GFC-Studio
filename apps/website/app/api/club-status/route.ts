@@ -15,18 +15,24 @@ const getClubStatusFromWebApp = async () => {
 
 export async function GET() {
   try {
-    const data = await getClubStatusFromWebApp();
+    const res = await fetch('http://localhost:5207/api/WebsiteSettings', { cache: 'no-store' });
 
-    // Validate the data from the API
-    if (!data || typeof data.status !== 'string') {
-      throw new Error('Invalid data format from Web App API');
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`Backend returned ${res.status}:`, text);
+      return new NextResponse(JSON.stringify({ message: `Backend error: ${res.status}`, detail: text }), {
+        status: res.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    return NextResponse.json(data);
+    const data = await res.json();
+    return NextResponse.json({ status: data.isClubOpen ? 'Open' : 'Closed' });
+
   } catch (error) {
     console.error('Failed to fetch club status:', error);
     return new NextResponse(
-      JSON.stringify({ message: 'Failed to fetch club status' }),
+      JSON.stringify({ message: 'Failed to fetch club status', error: String(error) }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

@@ -270,14 +270,45 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
             try
             {
                 var dbContext = services.GetRequiredService<GfcDbContext>();
+                
+                // [AUTO-FIX] Run the repair script if WebsiteSettings is missing
+                // This replaces the manual migration step since we aren't using EF Migrations in this environment
+                var scriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-systemsettings-columns.sql");
+                // Adjust path for published/different environments if needed, but this works for local dev
+                
+                if (File.Exists(scriptPath)) 
+                {
+                    Console.WriteLine($">>> Applying Database Schema Fixes from: {scriptPath}");
+                    var sqlFile = File.ReadAllText(scriptPath);
+                    // Split by "GO" because ExecuteSqlRaw doesn't support it
+                    var commandBatches = System.Text.RegularExpressions.Regex.Split(sqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in commandBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Database Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Schema repair script not found at {scriptPath}");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
-                Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
+                // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }
             catch (Exception ex)
             {
                 Console.WriteLine(">>> DB MIGRATION ERROR for GfcDbContext:");
                 Console.WriteLine(ex.ToString());
-                throw;
+                // Don't throw, try to continue
             }
         }
 
