@@ -6,8 +6,17 @@
 @inject IRentalService RentalService
 @inject ToastService ToastService
 @inject IJSRuntime JSRuntime
+@inject Microsoft.AspNetCore.Http.IHttpContextAccessor HttpContextAccessor
 
-<h3>Hall Rental Management</h3>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>Hall Rental Management</h3>
+    <div>
+        <small class="text-muted me-3">Last updated: @lastUpdated.ToString("h:mm:ss tt")</small>
+        <button class="btn btn-sm btn-primary" @onclick="RefreshData">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
 
 <div class="card">
     <div class="card-header">
@@ -87,7 +96,28 @@ else
                 <div class="modal-body">
                     <p><strong>Applicant:</strong> @selectedRequest.ApplicantName</p>
                     <p><strong>Date:</strong> @selectedRequest.RequestedDate.ToShortDateString()</p>
-                    <p><strong>Status:</strong> @selectedRequest.Status</p>
+                    <p><strong>Status:</strong> <span class="badge @GetStatusBadgeClass(selectedRequest.Status)">@selectedRequest.Status</span></p>
+                    
+                    <hr />
+                    <h6 class="text-muted">Audit Trail</h6>
+                    <p><strong>Created:</strong> @selectedRequest.CreatedDate.ToLocalTime().ToString("g")</p>
+                    
+                    @if (selectedRequest.ApprovedBy != null)
+                    {
+                        <p><strong>Approved By:</strong> @selectedRequest.ApprovedBy on @selectedRequest.ApprovalDate?.ToLocalTime().ToString("g")</p>
+                    }
+                    
+                    @if (selectedRequest.DeniedBy != null)
+                    {
+                        <p><strong>Denied By:</strong> @selectedRequest.DeniedBy on @selectedRequest.DenialDate?.ToLocalTime().ToString("g")</p>
+                    }
+                    
+                    @if (selectedRequest.StatusChangedBy != null)
+                    {
+                        <p><strong>Last Status Change:</strong> @selectedRequest.StatusChangedBy on @selectedRequest.StatusChangedDate?.ToLocalTime().ToString("g")</p>
+                    }
+                    
+                    <hr />
                     <div class="mb-3">
                         <label for="internalNotes" class="form-label">Internal Notes</label>
                         <textarea id="internalNotes" class="form-control" rows="3" @bind="selectedRequest.InternalNotes"></textarea>
@@ -145,12 +175,21 @@ else
     private string selectedStatus = "";
     private DateTime? startDate;
     private DateTime? endDate;
+    private DateTime lastUpdated = DateTime.Now;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadRequests();
         await LoadApprovedRentals();
         RenderCalendar();
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadRequests();
+        await LoadApprovedRentals();
+        lastUpdated = DateTime.Now;
+        StateHasChanged();
     }
 
     private async Task LoadRequests()
@@ -242,22 +281,42 @@ else
 
     private async Task ApproveRequest(HallRentalRequest request)
     {
-        var success = await RentalService.ApproveRentalRequestAsync(request.Id, "Approved via admin panel.");
-        if (success)
+        try
         {
-            await ToastService.ShowToastAsync($"Request for {request.ApplicantName} approved.", ToastLevel.Success);
+            var currentUser = HttpContextAccessor.HttpContext?.User?.Identity?.Name ?? "Admin";
+            var success = await RentalService.ApproveRentalRequestAsync(request.Id, "Approved via admin panel.", currentUser);
+            if (success)
+            {
+                await ToastService.ShowToastAsync($"Request for {request.ApplicantName} approved.", ToastLevel.Success);
+                await LoadApprovedRentals(); // Refresh calendar
+            }
+            else
+            {
+                await ToastService.ShowToastAsync("Failed to approve request. The date is already booked.", ToastLevel.Error);
+            }
+            await LoadRequests();
         }
-        else
+        catch (Exception ex)
         {
-            await ToastService.ShowToastAsync("Failed to approve request. The date is already booked.", ToastLevel.Error);
+            await ToastService.ShowToastAsync($"Error approving request: {ex.Message}", ToastLevel.Error);
+            Console.WriteLine($"Approval error: {ex}");
         }
-        await LoadRequests();
     }
 
     private async Task DenyRequest(HallRentalRequest request)
     {
-        await RentalService.DenyRentalRequestAsync(request.Id, "Denied via admin panel.");
-        await ToastService.ShowToastAsync($"Request for {request.ApplicantName} denied.", ToastLevel.Info);
-        await LoadRequests();
+        try
+        {
+            var currentUser = HttpContextAccessor.HttpContext?.User?.Identity?.Name ?? "Admin";
+            await RentalService.DenyRentalRequestAsync(request.Id, "Denied via admin panel.", currentUser);
+            await ToastService.ShowToastAsync($"Request for {request.ApplicantName} denied.", ToastLevel.Info);
+            await LoadApprovedRentals(); // Refresh calendar
+            await LoadRequests();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowToastAsync($"Error denying request: {ex.Message}", ToastLevel.Error);
+            Console.WriteLine($"Denial error: {ex}");
+        }
     }
 }

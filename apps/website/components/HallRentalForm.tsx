@@ -7,11 +7,14 @@ import { motion } from 'framer-motion';
 interface HallRentalFormProps {
   selectedDate: Date;
   onSuccess: (data: any) => void;
+  initialData?: any;
+  onChange?: (data: any) => void;
 }
 
 const EVENT_TYPES = [
   "Wedding",
   "Birthday Party",
+  "Baby Shower",
   "Fundraiser",
   "Bereavement / Collation",
   "Meeting / Seminar",
@@ -21,8 +24,8 @@ const EVENT_TYPES = [
   "Other"
 ];
 
-export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFormProps) {
-  const [formData, setFormData] = useState({
+export default function HallRentalForm({ selectedDate, onSuccess, initialData, onChange }: HallRentalFormProps) {
+  const [formData, setFormData] = useState(initialData || {
     name: '',
     address: '',
     city: '',
@@ -58,11 +61,19 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { id, value } = e.target;
+    let newFormData;
+
+    // Checkbox handling
     if ((e.target as HTMLInputElement).type === 'checkbox') {
-      setFormData((prev) => ({ ...prev, [id]: (e.target as HTMLInputElement).checked }));
+      newFormData = { ...formData, [id]: (e.target as HTMLInputElement).checked };
     } else {
-      setFormData((prev) => ({ ...prev, [id]: value }));
+      newFormData = { ...formData, [id]: value };
     }
+
+    setFormData(newFormData);
+
+    // Propagate changes for auto-save/draft
+    if (onChange) onChange(newFormData);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -146,12 +157,25 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
           eventDetails: compiledDetails,
           requestedDate: selectedDate,
           status: 'Pending',
+          eventType: finalEventType,
+          startTime: formData.startTime,
+          endTime: formData.endTime,
         }),
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Something went wrong');
+        // [FIX] Read text once, then parse
+        const text = await res.text();
+        let errorMsg = 'Something went wrong';
+        try {
+          const data = JSON.parse(text);
+          errorMsg = data.message || errorMsg;
+          if (data.details) errorMsg += `: ${data.details}`;
+        } catch {
+          console.error('Server Error:', text);
+          errorMsg = `Server Error: ${text.substring(0, 200)}`;
+        }
+        throw new Error(errorMsg);
       }
 
       setStatus('success');
@@ -187,8 +211,78 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
             </div>
           )}
           <div>
-            <label htmlFor="dob" className="block text-sm font-medium mb-1">Date of Birth (Must be 21+) *</label>
-            <input type="date" id="dob" value={formData.dob} onChange={handleChange} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 focus:border-burnished-gold outline-none text-white text-sm" />
+            <label className="block text-sm font-medium mb-1">Date of Birth (Must be 21+) *</label>
+            <div className="flex gap-2">
+              <select
+                id="dobMonth"
+                value={formData.dob.split('-')[1] || ''}
+                onChange={(e) => {
+                  const month = e.target.value;
+                  const day = formData.dob.split('-')[2] || '01';
+                  const year = formData.dob.split('-')[0] || '';
+                  if (year) setFormData({ ...formData, dob: `${year}-${month}-${day}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="">Month</option>
+                <option value="01">January</option>
+                <option value="02">February</option>
+                <option value="03">March</option>
+                <option value="04">April</option>
+                <option value="05">May</option>
+                <option value="06">June</option>
+                <option value="07">July</option>
+                <option value="08">August</option>
+                <option value="09">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+              </select>
+              <select
+                id="dobDay"
+                value={formData.dob.split('-')[2] || ''}
+                onChange={(e) => {
+                  const month = formData.dob.split('-')[1] || '01';
+                  const day = e.target.value;
+                  const year = formData.dob.split('-')[0] || '';
+                  if (year) setFormData({ ...formData, dob: `${year}-${month}-${day}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="">Day</option>
+                {[...Array(31)].map((_, i) => {
+                  const day = (i + 1).toString().padStart(2, '0');
+                  return <option key={day} value={day}>{day}</option>;
+                })}
+              </select>
+              <select
+                id="dobYear"
+                value={formData.dob.split('-')[0] || ''}
+                onChange={(e) => {
+                  const month = formData.dob.split('-')[1] || '01';
+                  const day = formData.dob.split('-')[2] || '01';
+                  const year = e.target.value;
+                  setFormData({ ...formData, dob: `${year}-${month}-${day}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="">Year</option>
+                {(() => {
+                  const currentYear = new Date().getFullYear();
+                  const minYear = currentYear - 100; // 100 years ago
+                  const maxYear = currentYear - 21; // Must be 21+
+                  const years = [];
+                  for (let year = maxYear; year >= minYear; year--) {
+                    years.push(<option key={year} value={year}>{year}</option>);
+                  }
+                  return years;
+                })()}
+              </select>
+            </div>
+            <p className="text-xs text-white/50 mt-1">You must be at least 21 years old to rent the hall</p>
           </div>
           <div className="md:col-span-2">
             <label htmlFor="address" className="block text-sm font-medium mb-1">Street Address *</label>
@@ -230,19 +324,123 @@ export default function HallRentalForm({ selectedDate, onSuccess }: HallRentalFo
             {formData.eventType === 'Other' && (
               <div className="mt-3 animate-fade-in">
                 <label htmlFor="otherEventType" className="block text-sm font-medium mb-1 text-burnished-gold">Please describe the function *</label>
-                <input type="text" id="otherEventType" value={formData.otherEventType} onChange={handleChange} required className="w-full bg-midnight-blue border border-burnished-gold rounded-md px-3 py-2 outline-none" placeholder="e.g. Retirement Party, Baby Shower" />
+                <input type="text" id="otherEventType" value={formData.otherEventType} onChange={handleChange} required className="w-full bg-midnight-blue border border-burnished-gold rounded-md px-3 py-2 outline-none" placeholder="e.g. Retirement Party" />
               </div>
             )}
           </div>
 
-          {/* Simplified Time Entry */}
+          {/* Start Time - Dropdown Selects */}
           <div>
-            <label htmlFor="startTime" className="block text-sm font-medium mb-1">Start Time *</label>
-            <input type="text" id="startTime" value={formData.startTime} onChange={handleChange} placeholder="e.g. 6:00 PM" required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+            <label className="block text-sm font-medium mb-1">Start Time *</label>
+            <div className="flex gap-2">
+              <select
+                id="startHour"
+                value={formData.startTime.split(':')[0] || ''}
+                onChange={(e) => {
+                  const hour = e.target.value;
+                  const minute = formData.startTime.split(':')[1]?.split(' ')[0] || '00';
+                  const period = formData.startTime.split(' ')[1] || 'PM';
+                  setFormData({ ...formData, startTime: `${hour}:${minute} ${period}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="">Hour</option>
+                {[...Array(12)].map((_, i) => {
+                  const hour = i + 1;
+                  return <option key={hour} value={hour}>{hour}</option>;
+                })}
+              </select>
+              <select
+                id="startMinute"
+                value={formData.startTime.split(':')[1]?.split(' ')[0] || '00'}
+                onChange={(e) => {
+                  const hour = formData.startTime.split(':')[0] || '1';
+                  const minute = e.target.value;
+                  const period = formData.startTime.split(' ')[1] || 'PM';
+                  setFormData({ ...formData, startTime: `${hour}:${minute} ${period}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="00">00</option>
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="45">45</option>
+              </select>
+              <select
+                id="startPeriod"
+                value={formData.startTime.split(' ')[1] || 'PM'}
+                onChange={(e) => {
+                  const hour = formData.startTime.split(':')[0] || '1';
+                  const minute = formData.startTime.split(':')[1]?.split(' ')[0] || '00';
+                  const period = e.target.value;
+                  setFormData({ ...formData, startTime: `${hour}:${minute} ${period}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
           </div>
+
+          {/* End Time - Dropdown Selects */}
           <div>
-            <label htmlFor="endTime" className="block text-sm font-medium mb-1">End Time *</label>
-            <input type="text" id="endTime" value={formData.endTime} onChange={handleChange} placeholder="e.g. 11:00 PM" required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+            <label className="block text-sm font-medium mb-1">End Time *</label>
+            <div className="flex gap-2">
+              <select
+                id="endHour"
+                value={formData.endTime.split(':')[0] || ''}
+                onChange={(e) => {
+                  const hour = e.target.value;
+                  const minute = formData.endTime.split(':')[1]?.split(' ')[0] || '00';
+                  const period = formData.endTime.split(' ')[1] || 'PM';
+                  setFormData({ ...formData, endTime: `${hour}:${minute} ${period}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="">Hour</option>
+                {[...Array(12)].map((_, i) => {
+                  const hour = i + 1;
+                  return <option key={hour} value={hour}>{hour}</option>;
+                })}
+              </select>
+              <select
+                id="endMinute"
+                value={formData.endTime.split(':')[1]?.split(' ')[0] || '00'}
+                onChange={(e) => {
+                  const hour = formData.endTime.split(':')[0] || '1';
+                  const minute = e.target.value;
+                  const period = formData.endTime.split(' ')[1] || 'PM';
+                  setFormData({ ...formData, endTime: `${hour}:${minute} ${period}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="00">00</option>
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="45">45</option>
+              </select>
+              <select
+                id="endPeriod"
+                value={formData.endTime.split(' ')[1] || 'PM'}
+                onChange={(e) => {
+                  const hour = formData.endTime.split(':')[0] || '1';
+                  const minute = formData.endTime.split(':')[1]?.split(' ')[0] || '00';
+                  const period = e.target.value;
+                  setFormData({ ...formData, endTime: `${hour}:${minute} ${period}` });
+                }}
+                required
+                className="w-1/3 bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none text-white"
+              >
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
           </div>
 
           <div>

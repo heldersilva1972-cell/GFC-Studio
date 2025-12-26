@@ -42,8 +42,21 @@ export async function getEvents() {
   return Promise.resolve(mockEvents);
 }
 
-export async function getUnavailableDates(): Promise<Date[]> {
-    const response = await fetch(`${API_URL}/api/Availability`);
-    const dates = await response.json();
-    return dates.map((dateString: string) => new Date(dateString));
+export async function getUnavailableDates(): Promise<{ date: Date; status: string; eventType?: string; eventTime?: string }[]> {
+  const response = await fetch(`${API_URL}/api/Availability`);
+  const data = await response.json();
+
+  // API returns objects but C# might capitalize properties: { Date, Status } or { date, status }
+  return data.map((item: any) => {
+    const dateValue = item.Date || item.date;
+    const statusValue = item.Status || item.status;
+    const eventTypeValue = item.EventType || item.eventType;
+    const eventTimeValue = item.EventTime || item.eventTime;
+    return {
+      date: new Date(dateValue),
+      status: statusValue,
+      eventType: eventTypeValue,
+      eventTime: eventTimeValue
+    };
+  });
 }

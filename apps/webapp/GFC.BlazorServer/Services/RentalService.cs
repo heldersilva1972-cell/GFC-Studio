@@ -1,6 +1,7 @@
 // [MODIFIED]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
+using GFC.Core.DTOs;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -61,7 +62,7 @@ namespace GFC.BlazorServer.Services
             return true; // Indicate success
         }
 
-        public async Task<bool> ApproveRentalRequestAsync(int requestId, string adminNotes)
+        public async Task<bool> ApproveRentalRequestAsync(int requestId, string adminNotes, string approvedBy = "Admin")
         {
             var request = await _context.HallRentalRequests.FindAsync(requestId);
             if (request == null) return false;
@@ -72,6 +73,10 @@ namespace GFC.BlazorServer.Services
             }
 
             request.Status = RentalStatus.Approved;
+            request.ApprovedBy = approvedBy;
+            request.ApprovalDate = DateTime.UtcNow;
+            request.StatusChangedBy = approvedBy;
+            request.StatusChangedDate = DateTime.UtcNow;
             request.InternalNotes = adminNotes;
             _context.Entry(request).State = EntityState.Modified;
 
@@ -84,15 +89,20 @@ namespace GFC.BlazorServer.Services
             return true;
         }
 
-        public async Task<bool> DenyRentalRequestAsync(int requestId, string adminNotes)
+        public async Task<bool> DenyRentalRequestAsync(int requestId, string adminNotes, string deniedBy = "Admin")
         {
             var request = await _context.HallRentalRequests.FindAsync(requestId);
             if (request == null) return false;
 
             request.Status = RentalStatus.Denied;
+            request.DeniedBy = deniedBy;
+            request.DenialDate = DateTime.UtcNow;
+            request.StatusChangedBy = deniedBy;
+            request.StatusChangedDate = DateTime.UtcNow;
             request.InternalNotes = adminNotes;
             _context.Entry(request).State = EntityState.Modified;
 
+            // Remove from calendar (make available again)
             await UpdateCalendarAvailabilityAsync(request.RequestedDate, "Available");
             await _context.SaveChangesAsync();
 
@@ -116,13 +126,25 @@ namespace GFC.BlazorServer.Services
         {
             var calendarEntry = await _context.AvailabilityCalendars.FirstOrDefaultAsync(c => c.Date.Date == date.Date);
 
-            if (calendarEntry != null)
+            if (status == "Available")
             {
-                calendarEntry.Status = status;
+                // Remove the entry to make the date available
+                if (calendarEntry != null)
+                {
+                    _context.AvailabilityCalendars.Remove(calendarEntry);
+                }
             }
             else
             {
-                _context.AvailabilityCalendars.Add(new AvailabilityCalendar { Date = date, Status = status });
+                // Add or update the entry for Booked/Blackout status
+                if (calendarEntry != null)
+                {
+                    calendarEntry.Status = status;
+                }
+                else
+                {
+                    _context.AvailabilityCalendars.Add(new AvailabilityCalendar { Date = date, Status = status });
+                }
             }
 
             await _context.SaveChangesAsync();
@@ -177,12 +199,57 @@ namespace GFC.BlazorServer.Services
             }
         }
 
-        public async Task<List<DateTime>> GetUnavailableDatesAsync()
+        public async Task<List<UnavailableDateDto>> GetUnavailableDatesAsync()
         {
-            return await _context.AvailabilityCalendars
+            var results = new List<UnavailableDateDto>();
+
+            // 1. Get manually blocked/booked dates
+            var calendarDates = await _context.AvailabilityCalendars
                 .Where(d => d.Status == "Booked" || d.Status == "Blackout")
-                .Select(d => d.Date)
+                .Select(d => new UnavailableDateDto 
+                { 
+                    Date = d.Date, 
+                    Status = "Booked" // Treat blackouts as hard booked
+                })
                 .ToListAsync();
+            
+            results.AddRange(calendarDates);
+
+            // 2. Get dates from requests
+            var requestDates = await _context.HallRentalRequests
+                .Where(r => r.Status != "Denied" && r.Status != "Cancelled")
+                .ToListAsync(); // First get the full objects
+            
+            // DEBUG: Log what we got
+            foreach (var req in requestDates)
+            {
+                Console.WriteLine($"DEBUG: ID={req.Id}, EventType={req.EventType}, StartTime={req.StartTime}, EndTime={req.EndTime}");
+            }
+            
+            // Now map to DTOs
+            var mappedDates = new List<UnavailableDateDto>();
+            foreach (var r in requestDates)
+            {
+                var dto = new UnavailableDateDto
+                {
+                    Date = r.RequestedDate,
+                    Status = r.Status == "Approved" ? "Booked" : "Pending",
+                    EventType = r.EventType,
+                    EventTime = r.StartTime != null && r.EndTime != null ? $"{r.StartTime} - {r.EndTime}" : null
+                };
+                Console.WriteLine($"MAPPED: EventType={dto.EventType}, EventTime={dto.EventTime}");
+                mappedDates.Add(dto);
+            }
+
+            results.AddRange(mappedDates);
+
+            // 3. Return distinct by Date (prioritizing entries with event details)
+            return results
+                .GroupBy(x => x.Date.Date)
+                .Select(g => g.OrderBy(x => string.IsNullOrEmpty(x.EventType) ? 1 : 0) // Prioritize entries WITH event details
+                              .ThenBy(x => x.Status == "Booked" ? 0 : 1) // Then prioritize Booked over Pending
+                              .First())
+                .ToList();
         }
 
         public async Task<HallRentalInquiry> SaveInquiryAsync(string formData)

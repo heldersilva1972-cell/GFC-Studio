@@ -1,5 +1,6 @@
 // [MODIFIED]
 using GFC.Core.Models;
+using GFC.Core.DTOs;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -16,15 +17,15 @@ namespace GFC.BlazorServer.Services
         Task<bool> UpdateRentalRequestAsync(HallRentalRequest request);
         Task DeleteRentalRequestAsync(int id);
         Task UpdateCalendarAvailabilityAsync(System.DateTime date, string status);
-        Task<bool> ApproveRentalRequestAsync(int requestId, string adminNotes);
-        Task<bool> DenyRentalRequestAsync(int requestId, string adminNotes);
+        Task<bool> ApproveRentalRequestAsync(int requestId, string adminNotes, string approvedBy = "Admin");
+        Task<bool> DenyRentalRequestAsync(int requestId, string adminNotes, string deniedBy = "Admin");
         Task<IEnumerable<HallRentalRequest>> GetApprovedRentalsAsync();
         Task CreateRentalInquiryAsync(HallRentalInquiry inquiry);
         Task<List<System.DateTime>> GetReservedDatesAsync();
         Task<List<System.DateTime>> GetBlackoutDatesAsync();
         Task AddBlackoutDateAsync(System.DateTime date);
         Task RemoveBlackoutDateAsync(System.DateTime date);
-        Task<List<System.DateTime>> GetUnavailableDatesAsync();
+        Task<List<UnavailableDateDto>> GetUnavailableDatesAsync();
         Task<HallRentalInquiry> SaveInquiryAsync(string formData);
         Task<HallRentalInquiry> GetInquiryAsync(string resumeToken);
     }

@@ -51,6 +51,55 @@ BEGIN
         
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'EventDate')
         ALTER TABLE [dbo].[HallRentalRequests] ADD [EventDate] DATETIME2 NOT NULL DEFAULT GETUTCDATE();
+
+    -- Missing boolean/int fields fix
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'MemberStatus')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [MemberStatus] BIT NOT NULL DEFAULT 0;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'GuestCount')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [GuestCount] INT NOT NULL DEFAULT 0;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RulesAgreed')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [RulesAgreed] BIT NOT NULL DEFAULT 0;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'KitchenUsage')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [KitchenUsage] BIT NOT NULL DEFAULT 0;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'RequestedDate')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [RequestedDate] DATETIME2 NOT NULL DEFAULT GETUTCDATE();
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'Status')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [Status] NVARCHAR(MAX) NOT NULL DEFAULT 'Pending';
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'ApprovedBy')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [ApprovedBy] NVARCHAR(MAX) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'ApprovalDate')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [ApprovalDate] DATETIME2 NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'DeniedBy')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [DeniedBy] NVARCHAR(MAX) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'DenialDate')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [DenialDate] DATETIME2 NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'StatusChangedBy')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [StatusChangedBy] NVARCHAR(MAX) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'StatusChangedDate')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [StatusChangedDate] DATETIME2 NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'CreatedDate')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [CreatedDate] DATETIME2 NOT NULL DEFAULT GETUTCDATE();
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'EventType')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [EventType] NVARCHAR(100) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'StartTime')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [StartTime] NVARCHAR(50) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'EndTime')
+        ALTER TABLE [dbo].[HallRentalRequests] ADD [EndTime] NVARCHAR(50) NULL;
         
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[HallRentalRequests]') AND name = 'TotalPrice')
         ALTER TABLE [dbo].[HallRentalRequests] ADD [TotalPrice] DECIMAL(18,2) NOT NULL DEFAULT 0;

@@ -14,6 +14,9 @@ namespace GFC.Core.Models
         
         // Event Details
         public DateTime EventDate { get; set; }
+        public string? EventType { get; set; } // e.g., "Wedding", "Birthday Party"
+        public string? StartTime { get; set; } // e.g., "2:00 PM"
+        public string? EndTime { get; set; } // e.g., "10:00 PM"
         public bool MemberStatus { get; set; }
         public int GuestCount { get; set; }
         public bool RulesAgreed { get; set; }
@@ -27,6 +30,11 @@ namespace GFC.Core.Models
         public string Status { get; set; } = "Pending";
         public string? ApprovedBy { get; set; }
         public DateTime? ApprovalDate { get; set; }
+        public string? DeniedBy { get; set; }
+        public DateTime? DenialDate { get; set; }
+        public string? StatusChangedBy { get; set; }
+        public DateTime? StatusChangedDate { get; set; }
+        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
         
         // Admin Notes
         public string? InternalNotes { get; set; }

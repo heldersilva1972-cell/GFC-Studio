@@ -18,7 +18,13 @@ namespace GFC.Core.Models
 
         public decimal? NonMemberRate { get; set; }
 
-        // Design Tokens
+        public int? MaxHallRentalDurationHours { get; set; }
+
+        public bool? EnableOnlineRentalsPayment { get; set; }
+        public string? PaymentGatewayUrl { get; set; }
+        public string? PaymentGatewayApiKey { get; set; }
+        
+        // System Settings
         public string PrimaryColor { get; set; } = "#0D1B2A"; // Midnight Blue
         public string SecondaryColor { get; set; } = "#FFD700"; // Gold
         public string HeadingFont { get; set; } = "Outfit";

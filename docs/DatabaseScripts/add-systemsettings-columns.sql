@@ -157,7 +157,17 @@ ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [SessionTimeoutMinutes] INT NOT 
 ALTER TABLE [dbo].[SystemSettings] ALTER COLUMN [WatermarkPosition] NVARCHAR(50) NOT NULL;
 
 -- 2. WebsiteSettings Table Repair
-PRINT 'Checking WebsiteSettings table...';
+    -- Online Payment Settings
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EnableOnlineRentalsPayment')
+        ALTER TABLE [dbo].[WebsiteSettings] ADD [EnableOnlineRentalsPayment] BIT NOT NULL DEFAULT 0;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentGatewayUrl')
+        ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentGatewayUrl] NVARCHAR(MAX) NULL;
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentGatewayApiKey')
+        ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentGatewayApiKey] NVARCHAR(MAX) NULL;
+
+PRINT '✓ Verified/Updated WebsiteSettings table';
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebsiteSettings')
 BEGIN
     CREATE TABLE [dbo].[WebsiteSettings] (
@@ -191,6 +201,19 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[We
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SeoKeywords')
     ALTER TABLE [dbo].[WebsiteSettings] ADD [SeoKeywords] NVARCHAR(500) NULL;
+
+-- Hall Rental Payment Settings
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'EnableOnlineRentalsPayment')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [EnableOnlineRentalsPayment] BIT NOT NULL DEFAULT 0;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentGatewayUrl')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentGatewayUrl] NVARCHAR(500) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'PaymentGatewayApiKey')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [PaymentGatewayApiKey] NVARCHAR(500) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'MaxHallRentalDurationHours')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [MaxHallRentalDurationHours] INT NULL DEFAULT 8;
 
 -- 3. ProtectedDocuments Table Repair
 PRINT 'Checking ProtectedDocuments table...';

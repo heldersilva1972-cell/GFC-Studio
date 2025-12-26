@@ -54,6 +54,19 @@ public class Program
         builder.Services.AddRazorPages();
         builder.Services.AddServerSideBlazor().AddHubOptions(options => options.ClientTimeoutInterval = TimeSpan.FromSeconds(60)).AddCircuitOptions(options => options.DetailedErrors = true);
         builder.Services.AddSignalR(); // Add SignalR
+        
+        // Add CORS for Next.js frontend
+        builder.Services.AddCors(options =>
+        {
+            options.AddPolicy("AllowNextJs", policy =>
+            {
+                policy.WithOrigins("http://localhost:3000")
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials();
+            });
+        });
+        
         builder.Services.AddControllers();
         builder.Services.AddAuthenticationCore();
         builder.Services.AddAuthorizationCore(options =>
@@ -249,6 +262,9 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         app.UseStaticFiles();
 
         app.UseRouting();
+        
+        // Enable CORS
+        app.UseCors("AllowNextJs");
 
         // IMPORTANT: DevAuth must run after UseRouting and before authorization policies.
         if (app.Environment.IsDevelopment())
@@ -373,6 +389,32 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                 else
                 {
                     Console.WriteLine($">>> WARNING: Reviews schema script not found at {reviewsScriptPath}");
+                }
+
+                // [AUTO-FIX 4] Run the Rental Management Fix script
+                var rentalScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "FixRentalManagement.sql");
+                if (File.Exists(rentalScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Rental Management Schema Fixes from: {rentalScriptPath}");
+                    var rentSqlFile = File.ReadAllText(rentalScriptPath);
+                    var rentBatches = System.Text.RegularExpressions.Regex.Split(rentSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in rentBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing rental batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Rental Management Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Rental schema script not found at {rentalScriptPath}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

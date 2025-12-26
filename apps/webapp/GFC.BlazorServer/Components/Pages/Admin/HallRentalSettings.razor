@@ -1,0 +1,372 @@
+@page "/admin/hall-rental-settings"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "RequireAdmin")]
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject GFC.Core.Interfaces.IWebsiteSettingsService WebsiteSettingsService
+
+<div class="settings-page">
+    <div class="page-header">
+        <h2><i class="bi bi-building-gear"></i> Hall Rental Settings</h2>
+        <p class="text-muted">Configure pricing, payments, and policies for hall rentals</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i> @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+
+    @if (_successMessage != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill"></i> @_successMessage
+            <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+        </div>
+    }
+
+    @if (_settings == null)
+    {
+        @if (string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-3 text-muted">Loading settings...</p>
+            </div>
+        }
+    }
+    else
+    {
+        <EditForm Model="@_settings" OnValidSubmit="SaveChanges">
+            <DataAnnotationsValidator />
+
+            <!-- Rental Pricing -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div class="section-icon bg-success">
+                        <i class="bi bi-cash-stack"></i>
+                    </div>
+                    <div>
+                        <h4>Rental Rates</h4>
+                        <p class="text-muted mb-0">Set pricing for hall rentals</p>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <div class="pricing-card">
+                                <div class="pricing-header bg-success bg-opacity-10">
+                                    <i class="bi bi-person-check-fill text-success fs-2"></i>
+                                    <h5 class="mt-2 mb-0">Member Rate</h5>
+                                </div>
+                                <div class="pricing-body">
+                                    <div class="input-group input-group-lg">
+                                        <span class="input-group-text">$</span>
+                                        <InputNumber class="form-control" @bind-Value="MemberRateProxy" />
+                                        <span class="input-group-text">.00</span>
+                                    </div>
+                                    <small class="form-text text-muted mt-2 d-block">
+                                        <i class="bi bi-info-circle"></i> Price for club members in good standing
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="pricing-card">
+                                <div class="pricing-header bg-primary bg-opacity-10">
+                                    <i class="bi bi-person-fill text-primary fs-2"></i>
+                                    <h5 class="mt-2 mb-0">Non-Member Rate</h5>
+                                </div>
+                                <div class="pricing-body">
+                                    <div class="input-group input-group-lg">
+                                        <span class="input-group-text">$</span>
+                                        <InputNumber class="form-control" @bind-Value="NonMemberRateProxy" />
+                                        <span class="input-group-text">.00</span>
+                                    </div>
+                                    <small class="form-text text-muted mt-2 d-block">
+                                        <i class="bi bi-info-circle"></i> Price for non-members and guests
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment Settings -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div class="section-icon bg-warning">
+                        <i class="bi bi-credit-card-fill"></i>
+                    </div>
+                    <div>
+                        <h4>Online Payments</h4>
+                        <p class="text-muted mb-0">Configure online payment processing</p>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="status-toggle mb-4">
+                        <div class="d-flex align-items-center justify-content-between p-4 bg-light rounded-3">
+                            <div>
+                                <h5 class="mb-1">
+                                    <i class="bi bi-toggle-on text-warning"></i> Enable Online Payments
+                                </h5>
+                                <p class="text-muted mb-0">
+                                    Allow customers to pay for hall rentals online via payment gateway
+                                </p>
+                            </div>
+                            <div class="form-check form-switch">
+                                <InputCheckbox id="enableOnlinePayment" class="form-check-input" style="width: 3.5rem; height: 1.75rem;" @bind-Value="EnableOnlineRentalsPaymentProxy" />
+                                <label for="enableOnlinePayment" class="form-check-label ms-2 fw-bold fs-5">
+                                    @if (EnableOnlineRentalsPaymentProxy)
+                                    {
+                                        <span class="text-success">ENABLED</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-secondary">DISABLED</span>
+                                    }
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (EnableOnlineRentalsPaymentProxy)
+                    {
+                        <div class="alert alert-info border-info">
+                            <div class="d-flex align-items-start">
+                                <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+                                <div>
+                                    <h6 class="alert-heading mb-2">Payment Gateway Configuration</h6>
+                                    <p class="mb-0">
+                                        Enter your payment processor credentials below. These are securely stored and encrypted in the database.
+                                        Never share your API keys publicly.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row g-3 mt-2">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">
+                                    <i class="bi bi-link-45deg text-warning"></i> Gateway URL
+                                </label>
+                                <InputText class="form-control form-control-lg" @bind-Value="_settings.PaymentGatewayUrl" placeholder="https://api.paymentgateway.com" />
+                                <small class="form-text text-muted">
+                                    Your payment processor's API endpoint (e.g., Stripe, Square, PayPal)
+                                </small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">
+                                    <i class="bi bi-key-fill text-warning"></i> API Key
+                                </label>
+                                <div class="input-group input-group-lg">
+                                    <InputText type="password" class="form-control" @bind-Value="_settings.PaymentGatewayApiKey" placeholder="sk_live_..." />
+                                    <button class="btn btn-outline-secondary" type="button" title="API keys are masked for security">
+                                        <i class="bi bi-eye-slash"></i>
+                                    </button>
+                                </div>
+                                <small class="form-text text-muted">
+                                    <i class="bi bi-shield-lock-fill text-danger"></i> Keep this secure - never share publicly
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-warning border-warning mt-3">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <strong>Important:</strong> Test your payment gateway in a sandbox environment before going live.
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="sticky-bottom bg-white border-top p-3 shadow-sm">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="text-muted">
+                        <i class="bi bi-info-circle"></i> Changes are saved to the database
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg px-5" disabled="@_isSaving">
+                        @if (_isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-circle-fill me-2"></i>
+                            <span>Save Changes</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </EditForm>
+    }
+</div>
+
+<style>
+    .settings-page {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .page-header {
+        margin-bottom: 2rem;
+    }
+
+    .page-header h2 {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        margin-bottom: 0.5rem;
+    }
+
+    .settings-section {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .section-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.5rem;
+    }
+
+    .section-header h4 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #1a1a1a;
+    }
+
+    .section-body {
+        padding: 2rem;
+    }
+
+    .pricing-card {
+        border: 2px solid #e9ecef;
+        border-radius: 12px;
+        overflow: hidden;
+        transition: all 0.3s ease;
+    }
+
+    .pricing-card:hover {
+        border-color: #0d6efd;
+        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.15);
+        transform: translateY(-2px);
+    }
+
+    .pricing-header {
+        padding: 1.5rem;
+        text-align: center;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .pricing-body {
+        padding: 1.5rem;
+    }
+
+    .status-toggle {
+        transition: all 0.3s ease;
+    }
+
+    .status-toggle:hover {
+        transform: translateY(-2px);
+    }
+
+    .form-control:focus {
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
+    }
+
+    .sticky-bottom {
+        position: sticky;
+        bottom: 0;
+        z-index: 1000;
+    }
+</style>
+
+@code {
+    private GFC.Core.Models.WebsiteSettings _settings;
+    private string _errorMessage;
+    private string _successMessage;
+    private bool _isSaving = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _settings = await WebsiteSettingsService.GetWebsiteSettingsAsync();
+            if (_settings == null)
+            {
+               _settings = new GFC.Core.Models.WebsiteSettings();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading settings: {ex.Message}. Using default settings.";
+            _settings = new GFC.Core.Models.WebsiteSettings();
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        _isSaving = true;
+        _errorMessage = null;
+        _successMessage = null;
+        
+        try
+        {
+            await WebsiteSettingsService.UpdateWebsiteSettingsAsync(_settings);
+            _successMessage = "Hall rental settings saved successfully!";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error saving settings: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    // Proxy properties
+    public decimal MemberRateProxy
+    {
+        get => _settings?.MemberRate ?? 0;
+        set { if (_settings != null) _settings.MemberRate = value; }
+    }
+
+    public decimal NonMemberRateProxy
+    {
+        get => _settings?.NonMemberRate ?? 0;
+        set { if (_settings != null) _settings.NonMemberRate = value; }
+    }
+
+    public bool EnableOnlineRentalsPaymentProxy
+    {
+        get => _settings?.EnableOnlineRentalsPayment ?? false;
+        set { if (_settings != null) _settings.EnableOnlineRentalsPayment = value; }
+    }
+}
