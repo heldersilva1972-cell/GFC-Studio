@@ -12,5 +12,6 @@ namespace GFC.BlazorServer.Services
         Task<List<MediaAsset>> GetAllAssetsAsync();
         Task<MediaAsset> GetAssetByIdAsync(int id);
         Task DeleteAssetAsync(int id);
+        Task UpdateAssetRoleAsync(int assetId, string? role);
     }
 }
