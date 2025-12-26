@@ -1,8 +1,15 @@
 # GFC Website - Sitemap & Navigation
 
-**Version:** 1.0.0  
-**Date:** December 24, 2024  
-**Status:** Planning Phase  
+**Version:** 1.1.0  
+**Date:** December 26, 2025  
+**Status:** ✅ Active Implementation  
+
+## 📜 REVISION HISTORY
+
+| Date | Version | Author | Description |
+|:---|:---|:---|:---|
+| 2024-12-24 | 1.0.0 | Helder Silva | Initial specification |
+| 2025-12-26 | 1.1.0 | Antigravity | Added Legal/Compliance pages and SEO assets to roadmap |
 **Focus:** User flow and information hierarchy.
 
 ---
@@ -17,7 +24,8 @@ The navigation is designed to be **Shallow & Direct**. No buried pages. Every ke
 3.  **CLUB EVENTS:** The community engagement hub.
 4.  **OUR IMPACT:** The history and community stories.
 5.  **CONTACT:** Direct reach-out.
-6.  **[MEMBER LOGIN] (CTA):** A distinct button (optional/removable).
+6.  **LEGAL:** Privacy Policy, Terms of Service, Hall Rental Rules.
+7.  **[MEMBER LOGIN] (CTA):** A distinct button (optional/removable).
 
 ---
 
@@ -31,7 +39,8 @@ The navigation is designed to be **Shallow & Direct**. No buried pages. Every ke
     *   *Tile 3:* "Our Impact" (History link).
 5.  **Featured News:** The latest announcement card.
 6.  **Social Proof:** Approved community review carousel.
-7.  **Sleek Footer:** Address, Phone (with mobile click-to-call), Social Links.
+7.  **Sleek Footer:** Address, Phone (with mobile click-to-call), Social Links, and Legal Links.
+8.  **Compliance Suite:** Privacy Policy, Terms of Service, and Hall Rental Rules (Integrated by Jules).
 
 ---
 
