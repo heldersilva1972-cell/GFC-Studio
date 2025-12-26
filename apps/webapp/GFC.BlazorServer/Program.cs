@@ -271,6 +271,28 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
             {
                 var dbContext = services.GetRequiredService<GfcDbContext>();
                 
+                // [CRITICAL FIX] Force-Fix NULL values in WebsiteSettings preventing app load
+                // We run this directly to ensure it happens regardless of external script parsing
+                try 
+                {
+                    var fixNullsSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'WebsiteSettings')
+                        BEGIN
+                            UPDATE [dbo].[WebsiteSettings] SET [MemberRate] = 0 WHERE [MemberRate] IS NULL;
+                            UPDATE [dbo].[WebsiteSettings] SET [NonMemberRate] = 0 WHERE [NonMemberRate] IS NULL;
+                            UPDATE [dbo].[WebsiteSettings] SET [IsClubOpen] = 1 WHERE [IsClubOpen] IS NULL;
+                            UPDATE [dbo].[WebsiteSettings] SET [MasterEmailKillSwitch] = 0 WHERE [MasterEmailKillSwitch] IS NULL;
+                            UPDATE [dbo].[WebsiteSettings] SET [HighAccessibilityMode] = 0 WHERE [HighAccessibilityMode] IS NULL;
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(fixNullsSql);
+                    Console.WriteLine(">>> CRITICAL: Applied direct NULL fix for WebsiteSettings.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error applying critical NULL fix: {ex.Message}");
+                }
+
                 // [AUTO-FIX] Run the repair script if WebsiteSettings is missing
                 // This replaces the manual migration step since we aren't using EF Migrations in this environment
                 var scriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-systemsettings-columns.sql");
