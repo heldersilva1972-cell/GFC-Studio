@@ -12,20 +12,20 @@ namespace GFC.Core.Models
 
         public string ClubAddress { get; set; }
 
-        public bool MasterEmailKillSwitch { get; set; }
+        public bool? MasterEmailKillSwitch { get; set; }
 
-        public decimal MemberRate { get; set; }
+        public decimal? MemberRate { get; set; }
 
-        public decimal NonMemberRate { get; set; }
+        public decimal? NonMemberRate { get; set; }
 
         // Design Tokens
         public string PrimaryColor { get; set; } = "#0D1B2A"; // Midnight Blue
         public string SecondaryColor { get; set; } = "#FFD700"; // Gold
         public string HeadingFont { get; set; } = "Outfit";
         public string BodyFont { get; set; } = "Inter";
-        public bool HighAccessibilityMode { get; set; } = false;
+        public bool? HighAccessibilityMode { get; set; } = false;
 
-        public bool IsClubOpen { get; set; } = true;
+        public bool? IsClubOpen { get; set; } = true;
 
         // SEO Settings
         public string SeoTitle { get; set; }
