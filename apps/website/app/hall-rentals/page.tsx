@@ -553,12 +553,26 @@ const HallRentalPage = () => {
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             className="space-y-8"
           >
-            <div className="bg-white/5 p-8 rounded-xl border border-white/10 text-center">
-              <h2 className="text-4xl font-display text-burnished-gold mb-6">Our Historic Venue</h2>
-              <p className="text-xl text-pure-white/80 max-w-2xl mx-auto mb-8">
-                Host your event in true Gloucester style. Our hall features a full-service bar,
-                commercial kitchen, and capacity for up to 200 guests.
-              </p>
+            <div className="bg-white/5 p-8 rounded-xl border border-white/10 text-center overflow-hidden">
+              <motion.div
+                initial={{ opacity: 0, scale: 1.1 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 1.5, ease: "easeOut" }}
+                className="relative w-full h-[400px] mb-8 rounded-lg overflow-hidden border border-burnished-gold/20 shadow-2xl"
+              >
+                <img
+                  src="/images/hall-rentals/club2-1024x640.png"
+                  alt="Gloucester Fraternity Club - Historic Venue"
+                  className="w-full h-full object-cover transition-transform duration-700 hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-deep-navy via-transparent to-transparent opacity-60"></div>
+                <div className="absolute bottom-0 left-0 right-0 p-6">
+                  <h2 className="text-4xl font-display text-burnished-gold mb-2 shadow-sm">Our Historic Venue</h2>
+                  <p className="text-xl text-pure-white/90 max-w-2xl mx-auto drop-shadow-md">
+                    Host your event in true Gloucester style.
+                  </p>
+                </div>
+              </motion.div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left mb-8">
                 <div className="bg-black/20 p-6 rounded-lg border border-white/5">

@@ -12,6 +12,7 @@ const HomePage = () => {
                 primaryCtaLink="/hall-rentals"
                 secondaryCtaText="View Events"
                 secondaryCtaLink="/events"
+                backgroundImage="/images/hero-bg.jpg"
                 stats={[
                     { label: "Years of Service", value: "100+" },
                     { label: "Active Members", value: "500+" },
