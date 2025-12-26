@@ -294,11 +294,37 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                             }
                         }
                     }
-                    Console.WriteLine(">>> Database Schema Fixes Applied Successfully.");
+                    Console.WriteLine(">>> Database Schema Fixes Applied Successfully (SystemSettings).");
                 }
                 else
                 {
                     Console.WriteLine($">>> WARNING: Schema repair script not found at {scriptPath}");
+                }
+
+                // [AUTO-FIX 2] Run the Video Security Tables script
+                var securityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-video-security-tables.sql");
+                if (File.Exists(securityScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Video Security Schema Fixes from: {securityScriptPath}");
+                    var secSqlFile = File.ReadAllText(securityScriptPath);
+                    var secBatches = System.Text.RegularExpressions.Regex.Split(secSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in secBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing security batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Video Security Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Security schema script not found at {securityScriptPath}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
