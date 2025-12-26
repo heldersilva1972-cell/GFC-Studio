@@ -42,10 +42,8 @@ export async function getEvents() {
   return Promise.resolve(mockEvents);
 }
 
-export async function getRentalAvailability() {
-  console.log('Mocking API call for /api/content/rental-availability');
-  const mockAvailability = {
-    bookedDates: ['2025-08-01', '2025-08-15', '2025-09-05'],
-  };
-  return Promise.resolve(mockAvailability);
+export async function getUnavailableDates(): Promise<Date[]> {
+    const response = await fetch(`${API_URL}/api/Availability`);
+    const dates = await response.json();
+    return dates.map((dateString: string) => new Date(dateString));
 }

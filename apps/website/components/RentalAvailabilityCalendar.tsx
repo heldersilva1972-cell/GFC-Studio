@@ -1,28 +1,45 @@
 // [MODIFIED]
 'use client';
 import { useEffect, useState } from 'react';
-import { getRentalAvailability } from '@/app/lib/api';
+import { getUnavailableDates } from '@/app/lib/api';
 import { DayPicker } from 'react-day-picker';
 import 'react-day-picker/dist/style.css';
 
-const RentalAvailabilityCalendar = () => {
-  const [bookedDates, setBookedDates] = useState([]);
+interface RentalAvailabilityCalendarProps {
+    onDateSelect: (date: Date) => void;
+}
+
+const RentalAvailabilityCalendar = ({ onDateSelect }: RentalAvailabilityCalendarProps) => {
+  const [unavailableDates, setUnavailableDates] = useState<Date[]>([]);
 
   useEffect(() => {
     const fetchAvailability = async () => {
-      const data = await getRentalAvailability();
-      setBookedDates(data.bookedDates.map((dateString: string) => new Date(dateString)));
+      const dates = await getUnavailableDates();
+      setUnavailableDates(dates);
     };
 
     fetchAvailability();
   }, []);
 
   return (
-    <div>
-      <h2>Rental Availability</h2>
-      <DayPicker
-        modifiers={{ booked: bookedDates }}
-        modifiersStyles={{ booked: { color: 'red' } }}
+    <div className="bg-midnight-blue p-6 rounded-lg shadow-lg">
+      <h2 className="text-2xl font-bold text-center mb-4 text-pure-white">Select a Date</h2>
+        <DayPicker
+            className="text-pure-white"
+            onDayClick={onDateSelect}
+            disabled={unavailableDates}
+            styles={{
+                root: {  },
+                head: { color: '#FDB813' }, // Burnished Gold for day names
+                day: { color: '#FFFFFF' }, // White for day numbers
+
+            }}
+            modifiers={{
+                disabled: unavailableDates
+            }}
+            modifiersStyles={{
+                disabled: { color: '#a0a0a0', textDecoration: 'line-through' }
+            }}
       />
     </div>
   );

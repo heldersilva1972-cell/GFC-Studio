@@ -21,8 +21,8 @@ namespace GFC.BlazorServer.Controllers
         [HttpGet]
         public async Task<ActionResult<List<DateTime>>> Get()
         {
-            var reservedDates = await _rentalService.GetReservedDatesAsync();
-            return Ok(reservedDates);
+            var unavailableDates = await _rentalService.GetUnavailableDatesAsync();
+            return Ok(unavailableDates);
         }
     }
 }
