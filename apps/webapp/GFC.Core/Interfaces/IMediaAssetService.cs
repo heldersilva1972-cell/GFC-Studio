@@ -11,5 +11,6 @@ namespace GFC.Core.Interfaces
         Task<IEnumerable<MediaAsset>> GetMediaAssetsAsync();
         Task<IEnumerable<MediaAsset>> GetPublicWebsiteGalleryAsync();
         Task DeleteMediaAssetAsync(int id);
+        Task UpdateAssetRoleAsync(int id, string? role);
     }
 }

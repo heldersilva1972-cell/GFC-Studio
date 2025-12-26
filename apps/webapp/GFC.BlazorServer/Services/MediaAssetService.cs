@@ -110,5 +110,14 @@ namespace GFC.BlazorServer.Services
                 .OrderByDescending(m => m.UploadedAt)
                 .ToListAsync();
         }
+        public async Task UpdateAssetRoleAsync(int id, string? role)
+        {
+            var asset = await _context.MediaAssets.FindAsync(id);
+            if (asset != null)
+            {
+                asset.RequiredRole = role;
+                await _context.SaveChangesAsync();
+            }
+        }
     }
 }
