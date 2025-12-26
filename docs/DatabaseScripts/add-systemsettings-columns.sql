@@ -179,6 +179,19 @@ BEGIN
     INSERT INTO [dbo].[WebsiteSettings] (ClubPhone, PrimaryColor) VALUES ('978-283-0507', '#0D1B2A');
 END
 
+-- [AUTO-FIX] Ensure new columns exist even if table was already created
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'IsClubOpen')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [IsClubOpen] BIT NOT NULL DEFAULT 1;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SeoTitle')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [SeoTitle] NVARCHAR(200) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SeoDescription')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [SeoDescription] NVARCHAR(500) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[WebsiteSettings]') AND name = 'SeoKeywords')
+    ALTER TABLE [dbo].[WebsiteSettings] ADD [SeoKeywords] NVARCHAR(500) NULL;
+
 -- 3. ProtectedDocuments Table Repair
 PRINT 'Checking ProtectedDocuments table...';
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ProtectedDocuments')
@@ -213,6 +226,25 @@ BEGIN
     ALTER TABLE [dbo].[AppUsers] ADD [MfaSecretKey] NVARCHAR(MAX) NULL;
     PRINT 'Added MfaSecretKey column to AppUsers';
 END
+
+
+-- 5. Data Sanitization for WebsiteSettings (Fix 'Data is Null' errors)
+PRINT 'Sanitizing WebsiteSettings data...';
+IF EXISTS (SELECT * FROM sys.tables WHERE name = 'WebsiteSettings')
+BEGIN
+    UPDATE [dbo].[WebsiteSettings] SET [MemberRate] = 0 WHERE [MemberRate] IS NULL;
+    UPDATE [dbo].[WebsiteSettings] SET [NonMemberRate] = 0 WHERE [NonMemberRate] IS NULL;
+    UPDATE [dbo].[WebsiteSettings] SET [IsClubOpen] = 1 WHERE [IsClubOpen] IS NULL;
+    UPDATE [dbo].[WebsiteSettings] SET [MasterEmailKillSwitch] = 0 WHERE [MasterEmailKillSwitch] IS NULL;
+    UPDATE [dbo].[WebsiteSettings] SET [HighAccessibilityMode] = 0 WHERE [HighAccessibilityMode] IS NULL;
+    
+    -- Ensure colors have defaults if missing
+    UPDATE [dbo].[WebsiteSettings] SET [PrimaryColor] = '#0D1B2A' WHERE [PrimaryColor] IS NULL;
+    UPDATE [dbo].[WebsiteSettings] SET [SecondaryColor] = '#FFD700' WHERE [SecondaryColor] IS NULL;
+    UPDATE [dbo].[WebsiteSettings] SET [HeadingFont] = 'Outfit' WHERE [HeadingFont] IS NULL;
+    UPDATE [dbo].[WebsiteSettings] SET [BodyFont] = 'Inter' WHERE [BodyFont] IS NULL;
+END
+GO
 
 PRINT 'Database fix successfully completed!';
 GO
