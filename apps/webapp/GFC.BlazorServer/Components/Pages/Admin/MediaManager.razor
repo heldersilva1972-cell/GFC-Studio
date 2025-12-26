@@ -1,0 +1,133 @@
+// [NEW]
+@page "/admin/media"
+@attribute [Authorize(Roles = "Admin,Director")]
+@inject IMediaAssetService MediaAssetService
+@inject IJSRuntime JSRuntime
+
+<div class="container-fluid gfc-work-screen">
+    <div class="gfc-title-bar">
+        <h3>Media Manager</h3>
+    </div>
+
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    Upload New Image
+                </div>
+                <div class="card-body">
+                    <p>Upload new images to the website gallery or impact history section.</p>
+
+                    <div class="form-group">
+                        <label for="fileInput">Select Image</label>
+                        <InputFile OnChange="OnInputFileChange" class="form-control" id="fileInput" />
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="tagSelect">Tag</label>
+                        <select @bind="selectedTag" class="form-control" id="tagSelect">
+                            <option value="Public Website Gallery">Public Website Gallery</option>
+                            <option value="Impact History">Impact History</option>
+                        </select>
+                    </div>
+
+                    @if (selectedFile != null)
+                    {
+                        <button class="btn btn-primary mt-3" @onclick="UploadImage" disabled="@_isUploading">
+                            @if (_isUploading)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="sr-only">Loading...</span>
+                            }
+                            else
+                            {
+                                <span>Upload</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    Media Gallery
+                </div>
+                <div class="card-body">
+                    <p>Images uploaded for the website are shown here. </p>
+
+                    @if (mediaAssets == null)
+                    {
+                        <p><em>Loading...</em></p>
+                    }
+                    else
+                    {
+                        <div class="media-gallery">
+                            @foreach (var asset in mediaAssets)
+                            {
+                                <div class="media-item">
+                                    <img src="@asset.FilePath" alt="@asset.FileName" />
+                                    <div class="media-info">
+                                        <p><strong>Tag:</strong> @asset.Tag</p>
+                                        <p><strong>Uploaded:</strong> @asset.UploadedAt.ToShortDateString()</p>
+                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteAsset(asset.Id)">Delete</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IBrowserFile? selectedFile;
+    private string selectedTag = "Public Website Gallery";
+    private bool _isUploading = false;
+    private IEnumerable<MediaAsset> mediaAssets;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMediaAssets();
+    }
+
+    private async Task LoadMediaAssets()
+    {
+        mediaAssets = await MediaAssetService.GetMediaAssetsAsync();
+    }
+
+    private void OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+    }
+
+    private async Task UploadImage()
+    {
+        if (selectedFile == null) return;
+
+        _isUploading = true;
+
+        var user = (await JSRuntime.InvokeAsync<string>("sessionStorage.getItem", "userName")) ?? "System";
+
+        var newAsset = await MediaAssetService.CreateMediaAssetAsync(selectedFile, selectedTag, user);
+
+        _isUploading = false;
+        selectedFile = null;
+
+        await LoadMediaAssets();
+        StateHasChanged();
+    }
+
+     private async Task DeleteAsset(int id)
+     {
+         var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this asset?");
+         if (confirmed)
+         {
+             await MediaAssetService.DeleteMediaAssetAsync(id);
+             await LoadMediaAssets();
+             StateHasChanged();
+         }
+     }
+}

@@ -19,10 +19,60 @@ const moreLinks = [
     { name: 'Photo Gallery', href: '/gallery' },
     { name: 'About Us', href: '/about' },
     { name: 'Member Login', href: 'http://localhost:5000' }, // Link to Web App
+    { name: 'Privacy Policy', href: '/privacy-policy' },
+    { name: 'Terms of Service', href: '/terms-of-service' },
+    { name: 'Hall Rental Rules', href: '/hall-rental-rules' },
+]
+
+'use client';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { Facebook, Instagram, Twitter, Mail, Phone, MapPin } from 'lucide-react';
+
+const socialLinks = [
+  { icon: Facebook, href: 'https://www.facebook.com/GloucesterFraternityClub/', name: 'Facebook' },
+  { icon: Instagram, href: 'https://instagram.com/gfc9651/', name: 'Instagram' },
+  { icon: Twitter, href: 'https://twitter.com/GFC_club/', name: 'Twitter' },
+];
+
+const quickLinks = [
+    { name: 'Hall Rentals', href: '/hall-rentals' },
+    { name: 'Events', href: '/events' },
+    { name: 'Membership', href: '/membership' },
+    { name: 'Contact Us', href: '/contact' },
+];
+
+const moreLinks = [
+    { name: 'Photo Gallery', href: '/gallery' },
+    { name: 'About Us', href: '/about' },
+    { name: 'Member Login', href: 'http://localhost:5000' }, // Link to Web App
+    { name: 'Privacy Policy', href: '/privacy-policy' },
+    { name: 'Terms of Service', href: '/terms-of-service' },
+    { name: 'Hall Rental Rules', href: '/hall-rental-rules' },
 ]
 
 export default function Footer() {
+  const [isA11yMode, setIsA11yMode] = useState(false);
   const currentYear = new Date().getFullYear();
+
+  useEffect(() => {
+    const isA11y = localStorage.getItem('a11yMode') === 'true';
+    setIsA11yMode(isA11y);
+    if (isA11y) {
+      document.body.classList.add('high-accessibility');
+    }
+  }, []);
+
+  const toggleA11yMode = () => {
+    const newMode = !isA11yMode;
+    setIsA11yMode(newMode);
+    localStorage.setItem('a11yMode', newMode.toString());
+    if (newMode) {
+      document.body.classList.add('high-accessibility');
+    } else {
+      document.body.classList.remove('high-accessibility');
+    }
+  };
 
   return (
     <footer className="bg-midnight-blue border-t border-burnished-gold/20 text-pure-white/60">
@@ -112,6 +162,9 @@ export default function Footer() {
           <p className="text-sm text-center sm:text-left">
             © {currentYear} Gloucester Fraternity Club. All rights reserved.
           </p>
+          <button onClick={toggleA11yMode} className="text-sm mt-4 sm:mt-0 underline hover:text-burnished-gold transition-colors duration-300">
+            {isA11yMode ? 'Disable High Accessibility Mode' : 'Enable High Accessibility Mode'}
+          </button>
           <p className="text-sm mt-4 sm:mt-0">
             Website designed with modern legacy.
           </p>
