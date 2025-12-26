@@ -18,7 +18,27 @@ namespace GFC.BlazorServer.Services
 
         public async Task<WebsiteSettings> GetWebsiteSettingsAsync()
         {
-            return await _context.WebsiteSettings.FirstOrDefaultAsync() ?? new WebsiteSettings();
+            var settings = await _context.WebsiteSettings.FirstOrDefaultAsync();
+            if (settings == null)
+            {
+                settings = new WebsiteSettings
+                {
+                    MemberRate = 250,
+                    NonMemberRate = 500,
+                    NonProfitRate = 350,
+                    KitchenFee = 50,
+                    AvEquipmentFee = 25,
+                    SecurityDepositAmount = 100,
+                    MaxHallRentalDurationHours = 8,
+                    IsClubOpen = true,
+                    MasterEmailKillSwitch = false,
+                    HighAccessibilityMode = false,
+                    EnableOnlineRentalsPayment = false
+                };
+                _context.WebsiteSettings.Add(settings);
+                await _context.SaveChangesAsync();
+            }
+            return settings;
         }
 
         public async Task UpdateWebsiteSettingsAsync(WebsiteSettings settings)

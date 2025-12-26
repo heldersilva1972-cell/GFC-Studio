@@ -77,11 +77,34 @@ namespace GFC.BlazorServer.Controllers
                     request.InternalNotes = $"--- ONLINE APPLICATION DETAILS ---\n{details}";
                 }
 
+                if (body.TryGetProperty("renterType", out var renterTypeProp))
+                    request.RenterType = renterTypeProp.GetString() ?? "Non-Member";
+
+                if (body.TryGetProperty("memberStatus", out var memberStatusProp))
+                    request.MemberStatus = memberStatusProp.GetBoolean();
+
+                if (body.TryGetProperty("kitchenUsage", out var kitchenProp))
+                    request.KitchenUsage = kitchenProp.GetBoolean();
+
+                if (body.TryGetProperty("avEquipmentUsage", out var avProp))
+                    request.AvEquipmentUsage = avProp.GetBoolean();
+
+                if (body.TryGetProperty("totalPrice", out var totalProp))
+                    request.TotalPrice = totalProp.GetDecimal();
+
+                if (body.TryGetProperty("guestCount", out var guestCountProp))
+                {
+                    if (guestCountProp.ValueKind == JsonValueKind.Number)
+                        request.GuestCount = guestCountProp.GetInt32();
+                    else if (guestCountProp.ValueKind == JsonValueKind.String && int.TryParse(guestCountProp.GetString(), out var gc))
+                        request.GuestCount = gc;
+                }
+
+                if (body.TryGetProperty("rulesAgreed", out var rulesProp))
+                    request.RulesAgreed = rulesProp.GetBoolean();
+
                 // Default required fields
-                request.ApplicantName = !string.IsNullOrWhiteSpace(request.RequesterName) ? request.RequesterName : "Unknown Applicant";
-                request.GuestCount = 0; 
-                request.MemberStatus = false; 
-                request.RulesAgreed = true; 
+                request.ApplicantName = !string.IsNullOrWhiteSpace(request.RequesterName) ? request.RequesterName : "Unknown Applicant"; 
 
                 // FIX 2: Ensure we don't save invalid dates
                 if (request.EventDate.Year < 1753) request.EventDate = DateTime.UtcNow;

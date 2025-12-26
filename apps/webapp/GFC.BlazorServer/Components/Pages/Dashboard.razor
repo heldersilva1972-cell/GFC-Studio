@@ -18,6 +18,8 @@
 @inject IControllerClient ControllerClient
 @inject DashboardSessionState SessionState
 @using GFC.BlazorServer.Components.Shared
+@using GFC.Core.Models
+@inject IRentalService RentalService
 
 @if (_showSplash)
 {
@@ -274,27 +276,51 @@
 
                             @if (ShowEventsCard)
                             {
-                                <div class="card mb-3 shadow-sm rounded dash-hover-card">
+                                <div class="@($"card mb-3 shadow-sm rounded metric-card dash-card-action")" role="button" tabindex="0" aria-label="Open rental management" @onclick='() => NavMgr.NavigateTo("/admin/rental-management")'>
                                     <div class="card-header d-flex justify-content-between align-items-center dash-card-header">
-                                        <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-events-card" aria-expanded="true" aria-controls="dash-events-card">
+                                        <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-events-card" aria-expanded="true" aria-controls="dash-events-card" @onclick:stopPropagation="true">
                                             <h5 class="mb-0">
                                                 <i class="bi bi-calendar-event me-2"></i>Events &amp; Hall Rentals
                                             </h5>
                                         </button>
+                                        <NavLink href="/admin/rental-management" class="small text-decoration-none" @onclick:stopPropagation="true">
+                                            Manage rentals
+                                        </NavLink>
                                     </div>
                                     <div class="collapse show" id="dash-events-card">
                                         <div class="card-body">
                                             <div class="small text-info fw-semibold mb-2">
-                                                Current Activity
+                                                Current Schedule
                                             </div>
-                                            <p class="text-muted mb-2">
-                                                Upcoming events and rental activity will be shown here.
-                                            </p>
-                                            <ul class="mb-0 small">
-                                                <li>Upcoming Events: <span class="fw-semibold">[placeholder]</span></li>
-                                                <li>Hall Rentals This Month: <span class="fw-semibold">[placeholder]</span></li>
-                                            </ul>
-                                            @* TODO: Hook into events and hall rental data when available *@
+                                            @if (_upcomingRentals.Count == 0 && _pendingRentalCount == 0)
+                                            {
+                                                <p class="text-muted small mb-0">
+                                                    No upcoming events or pending requests.
+                                                </p>
+                                            }
+                                            else
+                                            {
+                                                <ul class="mb-0 small list-unstyled">
+                                                    @foreach (var rental in _upcomingRentals)
+                                                    {
+                                                        <li class="mb-2 d-flex justify-content-between align-items-center">
+                                                            <span>
+                                                                <span class="badge bg-info-subtle text-info me-1">@rental.RequestedDate.ToString("MMM dd")</span>
+                                                                <span class="fw-semibold">@rental.ApplicantName</span>
+                                                            </span>
+                                                            <span class="extra-small text-muted">@rental.StartTime</span>
+                                                        </li>
+                                                    }
+                                                    @if (_pendingRentalCount > 0)
+                                                    {
+                                                        <li class="mt-2 pt-2 border-top">
+                                                            <span class="text-warning">
+                                                                <i class="bi bi-clock-history me-1"></i> <strong>@_pendingRentalCount</strong> Pending Requests
+                                                            </span>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            }
                                         </div>
                                     </div>
                                 </div>
@@ -616,6 +642,8 @@
     private bool ShowSystemStatusCard { get; set; } = true;
     private string? _defaultControllerSerial;
     private int? _defaultDoorIndex;
+    private List<HallRentalRequest> _upcomingRentals = new();
+    private int _pendingRentalCount;
     private sealed class DashboardAlert
     {
         public string Severity { get; set; } = "Info";   // e.g., Info, Warning, Danger
@@ -668,7 +696,8 @@
         var memberTask = DashboardService.GetMemberSummaryAsync();
         var duesTask = DashboardService.GetCurrentYearDuesSummaryAsync();
         var alertsTask = DashboardService.GetAlertSummaryAsync();
-        var backupTask = DashboardService.GetBackupStatusAsync();
+        var backupStatusTask = DashboardService.GetBackupStatusAsync();
+        var rentalsTask = RentalService.GetRentalRequestsAsync();
 
         // 2. Define minimum splash duration (Ensure it stays for at least 2.0 seconds per user request)
         var minSplashDelay = includeSplash ? Task.Delay(2000) : Task.CompletedTask;
@@ -676,12 +705,16 @@
         try
         {
             // 3. Wait for critical data and internal delays in parallel
-            await Task.WhenAll(memberTask, duesTask, alertsTask, backupTask, minSplashDelay);
+            await Task.WhenAll(memberTask, duesTask, alertsTask, backupStatusTask, rentalsTask, minSplashDelay);
 
             _memberSummary = memberTask.Result;
             _duesSummary = duesTask.Result;
             _alerts = alertsTask.Result;
-            _backupStatus = backupTask.Result;
+            _backupStatus = backupStatusTask.Result;
+
+            var allRentals = rentalsTask.Result.ToList();
+            _upcomingRentals = allRentals.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
+            _pendingRentalCount = allRentals.Count(r => r.Status == RentalStatus.Pending);
 
             _importantAlerts.Clear();
             _alertPreview.Clear();

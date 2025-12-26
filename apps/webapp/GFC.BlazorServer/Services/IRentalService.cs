@@ -16,14 +16,14 @@ namespace GFC.BlazorServer.Services
         Task CreateRentalRequestAsync(HallRentalRequest request);
         Task<bool> UpdateRentalRequestAsync(HallRentalRequest request);
         Task DeleteRentalRequestAsync(int id);
-        Task UpdateCalendarAvailabilityAsync(System.DateTime date, string status);
+        Task UpdateCalendarAvailabilityAsync(System.DateTime date, string status, string? description = null, string? startTime = null, string? endTime = null);
         Task<bool> ApproveRentalRequestAsync(int requestId, string adminNotes, string approvedBy = "Admin");
         Task<bool> DenyRentalRequestAsync(int requestId, string adminNotes, string deniedBy = "Admin");
         Task<IEnumerable<HallRentalRequest>> GetApprovedRentalsAsync();
         Task CreateRentalInquiryAsync(HallRentalInquiry inquiry);
         Task<List<System.DateTime>> GetReservedDatesAsync();
-        Task<List<System.DateTime>> GetBlackoutDatesAsync();
-        Task AddBlackoutDateAsync(System.DateTime date);
+        Task<List<AvailabilityCalendar>> GetBlackoutEventsAsync();
+        Task AddBlackoutDateAsync(System.DateTime date, string? description = null, string? startTime = null, string? endTime = null);
         Task RemoveBlackoutDateAsync(System.DateTime date);
         Task<List<UnavailableDateDto>> GetUnavailableDatesAsync();
         Task<HallRentalInquiry> SaveInquiryAsync(string formData);

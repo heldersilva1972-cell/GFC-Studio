@@ -68,7 +68,7 @@ const rippleVariants = {
 
 // --- SUB-COMPONENTS ---
 
-const DayTile = ({ date, status, onClick, isCurrentMonth, isNewlyBooked, eventType, eventTime }: any) => {
+const DayTile = ({ date, status, onClick, isCurrentMonth, isNewlyBooked, eventType, eventTime, isPast }: any) => {
   const formattedDay = format(date, 'd');
 
   if (!isCurrentMonth) {
@@ -81,17 +81,41 @@ const DayTile = ({ date, status, onClick, isCurrentMonth, isNewlyBooked, eventTy
       <div className="relative h-28 sm:h-36 bg-black/20 border border-white/5 p-3 opacity-40 cursor-not-allowed">
         <div className="absolute top-2 right-2 text-white/20 text-lg font-display">{formattedDay}</div>
         <div className="flex flex-col items-center justify-center h-full gap-2">
-          {/* <CalendarOff size={16} className="text-white/20" /> */}
           <span className="text-[10px] uppercase tracking-widest text-white/20 font-medium">Past</span>
         </div>
       </div>
     );
   }
 
-  // 2. NEWLY BOOKED (Success State)
+  // Handle Booked dates that are also "past" - show details but keep it muted?
+  // Or just show them as booked. The user wants to see the event and time.
+  const isPastBooking = (status === 'pending' || status === 'booked') && isPast;
+  const opacityClass = isPastBooking ? 'opacity-50' : '';
+
+  // 2. NEWLY BOOKED (Success State) - PULSING ANIMATION!
   if (isNewlyBooked) {
     return (
-      <div className="relative h-28 sm:h-36 bg-emerald-900/30 border-2 border-emerald-500/50 p-3 overflow-hidden">
+      <motion.div
+        className="relative h-28 sm:h-36 bg-gradient-to-br from-emerald-500/30 to-emerald-600/20 border-2 border-emerald-400 p-3 overflow-hidden cursor-default"
+        animate={{
+          scale: [1, 1.05, 1],
+          boxShadow: [
+            '0 0 20px rgba(52, 211, 153, 0.6)',
+            '0 0 40px rgba(52, 211, 153, 0.9)',
+            '0 0 20px rgba(52, 211, 153, 0.6)'
+          ],
+          borderColor: [
+            'rgba(52, 211, 153, 0.8)',
+            'rgba(52, 211, 153, 1)',
+            'rgba(52, 211, 153, 0.8)'
+          ]
+        }}
+        transition={{
+          duration: 2,
+          repeat: Infinity,
+          ease: 'easeInOut'
+        }}
+      >
         {/* Ripple Effect */}
         <motion.div
           className="absolute inset-0 bg-emerald-500/20"
@@ -100,21 +124,69 @@ const DayTile = ({ date, status, onClick, isCurrentMonth, isNewlyBooked, eventTy
           animate="animate"
           style={{ originX: 0.5, originY: 0.5 }}
         />
+
+        {/* Shimmer overlay */}
+        <motion.div
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+          animate={{ x: ['-100%', '200%'] }}
+          transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+        />
+
+        {/* Particle burst */}
+        {[...Array(8)].map((_, i) => {
+          const angle = (i / 8) * Math.PI * 2;
+          return (
+            <motion.div
+              key={i}
+              className="absolute w-1 h-1 bg-emerald-400 rounded-full"
+              style={{
+                left: '50%',
+                top: '50%'
+              }}
+              animate={{
+                x: Math.cos(angle) * 30,
+                y: Math.sin(angle) * 30,
+                opacity: [0, 1, 0],
+                scale: [0, 1.5, 0]
+              }}
+              transition={{
+                duration: 2,
+                repeat: Infinity,
+                delay: i * 0.1
+              }}
+            />
+          );
+        })}
+
         <div className="absolute top-2 right-2 text-emerald-400 text-lg font-display font-bold">{formattedDay}</div>
-        <div className="flex flex-col items-center justify-center h-full gap-2">
+        <div className="flex flex-col items-center justify-center h-full gap-2 relative z-10">
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: "spring", delay: 0.5 }}
+            className="relative"
           >
-            <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/50">
+            {/* Rotating ring */}
+            <motion.div
+              className="absolute inset-0 rounded-full border-2 border-emerald-400/50"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+              style={{ width: 40, height: 40, left: -4, top: -4 }}
+            />
+            <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/50 relative z-10">
               <Check size={18} className="text-white font-bold" />
             </div>
           </motion.div>
-          <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mt-1">Your Booking</span>
+          <motion.span
+            className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mt-1"
+            animate={{ opacity: [0.7, 1, 0.7] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          >
+            Your Booking
+          </motion.span>
           <span className="text-[9px] text-emerald-200/60">(Pending Review)</span>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
@@ -122,46 +194,91 @@ const DayTile = ({ date, status, onClick, isCurrentMonth, isNewlyBooked, eventTy
   if (status === 'pending') {
     return (
       <motion.div
-        className="relative h-28 sm:h-36 bg-yellow-900/10 border border-burnished-gold/30 p-2 overflow-hidden"
+        className={`relative h-28 sm:h-36 bg-white/5 border border-burnished-gold/20 p-2 overflow-hidden ${opacityClass} group`}
         initial="idle"
         whileHover="hover"
       >
-        <div className="absolute top-1 right-1 text-burnished-gold/40 text-sm font-display">{formattedDay}</div>
+        <div className="absolute top-1 right-1 text-burnished-gold/20 text-sm font-display font-bold">
+          {formattedDay}
+        </div>
         <div className="flex flex-col items-center justify-center h-full gap-1">
           <motion.div variants={lockVariants}>
-            <Lock size={14} className="text-burnished-gold/60" />
+            <div className="w-8 h-8 rounded-full bg-burnished-gold/5 flex items-center justify-center mb-1 border border-burnished-gold/10 group-hover:border-burnished-gold/40 transition-colors">
+              <Lock size={14} className="text-burnished-gold/40" />
+            </div>
           </motion.div>
-          <span className="text-[9px] uppercase tracking-widest text-burnished-gold/60 font-medium text-center leading-tight">Pending</span>
-          <div className="text-center mt-1">
-            <p className="text-[11px] text-burnished-gold/90 font-bold truncate px-1">
+          <span className="text-[9px] uppercase tracking-widest text-burnished-gold/40 font-bold">Pending</span>
+          <div className="text-center mt-1 w-full">
+            <p className="text-[11px] text-burnished-gold/80 font-bold leading-tight px-1 line-clamp-2">
               {eventType || 'Private Event'}
             </p>
-            {eventTime && <p className="text-[10px] text-burnished-gold/70 font-medium">{eventTime}</p>}
+            {eventTime && (
+              <p className="text-[10px] text-burnished-gold/40 font-medium mt-1">
+                <span className="opacity-70">🕒</span> {eventTime}
+              </p>
+            )}
           </div>
         </div>
       </motion.div>
     );
   }
 
-  // 4. BOOKED (Confirmed/Unavailable)
-  if (status === 'booked') {
+  // 4. BLACKOUT (Club Closure / Maintenance)
+  if (status === 'blackout') {
     return (
       <motion.div
-        className="relative h-28 sm:h-36 bg-red-900/10 border border-red-500/20 p-2 overflow-hidden"
+        className={`relative h-28 sm:h-36 bg-blue-900/10 border border-blue-500/30 p-2 overflow-hidden ${opacityClass} group`}
         initial="idle"
         whileHover="hover"
       >
-        <div className="absolute top-1 right-1 text-red-500/30 text-sm font-display">{formattedDay}</div>
+        <div className="absolute top-1 right-1 text-blue-400/30 text-sm font-display font-bold">{formattedDay}</div>
         <div className="flex flex-col items-center justify-center h-full gap-1">
           <motion.div variants={lockVariants}>
-            <Lock size={14} className="text-red-400/60" />
+            <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center mb-1 border border-blue-500/20 group-hover:border-blue-500/50 transition-all">
+              <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+            </div>
           </motion.div>
-          <span className="text-[9px] uppercase tracking-widest text-red-400/60 font-medium">Reserved</span>
-          <div className="text-center mt-1">
-            <p className="text-[11px] text-red-400/90 font-bold truncate px-1">
+          <span className="text-[10px] uppercase tracking-widest text-blue-400/60 font-bold text-center">Club Event</span>
+          <div className="text-center mt-1 w-full">
+            <p className="text-[12px] text-blue-100 font-bold leading-tight px-1 line-clamp-2">
               {eventType || 'Private Event'}
             </p>
-            {eventTime && <p className="text-[10px] text-red-400/70 font-medium">{eventTime}</p>}
+            {eventTime && (
+              <p className="text-[10px] text-blue-300/70 font-medium mt-1">
+                <span className="opacity-70">🕒</span> {eventTime}
+              </p>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // 5. BOOKED (Confirmed/Unavailable)
+  if (status === 'booked') {
+    return (
+      <motion.div
+        className={`relative h-28 sm:h-36 bg-gradient-to-br from-burnished-gold/5 to-transparent border border-burnished-gold/40 p-2 overflow-hidden ${opacityClass} shadow-[inset_0_0_20px_rgba(212,175,55,0.05)] group`}
+        initial="idle"
+        whileHover="hover"
+      >
+        <div className="absolute top-1 right-1 text-burnished-gold/40 text-sm font-display font-bold">{formattedDay}</div>
+        <div className="flex flex-col items-center justify-center h-full gap-1">
+          <motion.div variants={lockVariants}>
+            <div className="w-9 h-9 rounded-full bg-burnished-gold/10 flex items-center justify-center mb-1 border border-burnished-gold/30 shadow-[0_0_15px_rgba(212,175,55,0.1)] group-hover:shadow-[0_0_20px_rgba(212,175,55,0.2)] transition-all">
+              <Lock size={16} className="text-burnished-gold" />
+            </div>
+          </motion.div>
+          <span className="text-[10px] uppercase tracking-widest text-burnished-gold/80 font-bold">Reserved</span>
+          <div className="text-center mt-1 w-full">
+            <p className="text-[12px] text-white font-bold leading-tight px-1 line-clamp-2">
+              {eventType || 'Private Event'}
+            </p>
+            {eventTime && (
+              <p className="text-[10px] text-burnished-gold/70 font-medium mt-1">
+                <span className="opacity-70">🕒</span> {eventTime}
+              </p>
+            )}
           </div>
         </div>
       </motion.div>
@@ -205,8 +322,13 @@ const DayTile = ({ date, status, onClick, isCurrentMonth, isNewlyBooked, eventTy
 
 const RentalAvailabilityCalendar = ({ onDateSelect, newlyBookedDate }: RentalAvailabilityCalendarProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  // [MODIFIED] State is now an object array
-  const [unavailableDates, setUnavailableDates] = useState<{ date: Date; status: string }[]>([]);
+  // [FIX] State now includes eventType and eventTime
+  const [unavailableDates, setUnavailableDates] = useState<{
+    date: Date;
+    status: string;
+    eventType?: string;
+    eventTime?: string;
+  }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [confirmDate, setConfirmDate] = useState<Date | null>(null);
 
@@ -245,30 +367,44 @@ const RentalAvailabilityCalendar = ({ onDateSelect, newlyBookedDate }: RentalAva
 
   const getDayStatus = (date: Date) => {
     // 1. Newly Booked Check
-    if (newlyBookedDate && isSameDay(date, newlyBookedDate)) {
-      return { status: 'newly_booked', eventType: undefined, eventTime: undefined };
+    if (newlyBookedDate && isSameDay(newlyBookedDate, date)) {
+      return { status: 'newly_booked', eventType: undefined, eventTime: undefined, isPast: false };
     }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     // 2. Past Date Check
-    if (isBefore(date, today)) return { status: 'past', eventType: undefined, eventTime: undefined };
+    const isPast = isBefore(date, today);
 
     // 3. Unavailable Check (Robust Comparison)
-    // Find matching object in array
-    const match = unavailableDates.find(u => isSameDay(new Date(u.date), date));
+    // We treat UTC dates from server as local "dates" to avoid timezone shifts
+    const match = unavailableDates.find(u => {
+      const uDate = new Date(u.date);
+      // Use string comparison of YYYY-MM-DD for robustness
+      const dateStr = format(date, 'yyyy-MM-dd');
+      const uDateStr = format(uDate, 'yyyy-MM-dd');
+
+      // If server sent UTC, but it's now local, it might have shifted.
+      // If we suspect it shifted, we can check uDate.toISOString().split('T')[0]
+      const uDateUtcStr = uDate.toISOString().split('T')[0];
+
+      return dateStr === uDateStr || dateStr === uDateUtcStr;
+    });
 
     if (match) {
-      // Return status with event details
+      // Return status even if it's "past" so we can see WHAT was booked in the past
       return {
         status: match.status.toLowerCase(),
         eventType: match.eventType,
-        eventTime: match.eventTime
+        eventTime: match.eventTime,
+        isPast: isPast
       };
     }
 
-    return { status: 'available', eventType: undefined, eventTime: undefined };
+    if (isPast) return { status: 'past', eventType: undefined, eventTime: undefined, isPast: true };
+
+    return { status: 'available', eventType: undefined, eventTime: undefined, isPast: false };
   };
 
   const handleDayClick = (date: Date) => {
@@ -308,6 +444,7 @@ const RentalAvailabilityCalendar = ({ onDateSelect, newlyBookedDate }: RentalAva
             isNewlyBooked={isNewlyBooked}
             eventType={dayInfo.eventType}
             eventTime={dayInfo.eventTime}
+            isPast={dayInfo.isPast}
             onClick={() => dayInfo.status === 'available' && handleDayClick(cloneDay)}
           />
         );

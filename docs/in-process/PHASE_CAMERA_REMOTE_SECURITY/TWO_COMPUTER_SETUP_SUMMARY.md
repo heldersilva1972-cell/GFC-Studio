@@ -1,6 +1,17 @@
 # 🎯 TWO-COMPUTER SETUP - QUICK SUMMARY
 
-**Your GFC Camera System uses TWO computers:**
+**Version:** 1.0.1  
+**Last Updated:** December 26, 2025  
+**Status:** ✅ INFRASTRUCTURE COMPLETED
+
+## 📜 REVISION HISTORY
+
+| Date | Version | Author | Description |
+|:---|:---|:---|:---|
+| 2025-12-24 | 1.0.0 | Jules (AI Agent) | Initial quick summary creation |
+| 2025-12-26 | 1.0.1 | Jules (AI Agent) | Updated status and moved to complete folder |
+
+---
 
 ---
 

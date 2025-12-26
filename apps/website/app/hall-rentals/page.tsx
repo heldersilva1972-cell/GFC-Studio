@@ -42,6 +42,14 @@ const HallRentalPage = () => {
   const [draftData, setDraftData] = useState<any>(null);
   const [formData, setFormData] = useState<any>(null); // To pass into form if resuming
   const [pendingNavigation, setPendingNavigation] = useState<number | null>(null);
+  const [pricing, setPricing] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/hall-rental/pricing')
+      .then(res => res.json())
+      .then(data => setPricing(data))
+      .catch(err => console.error('Error fetching pricing:', err));
+  }, []);
 
   useEffect(() => {
     // Check for draft on mount
@@ -171,60 +179,312 @@ const HallRentalPage = () => {
 
       {/* OVERLAYS */}
       <AnimatePresence>
-        {/* Success Modal (Replaces Toast) */}
+        {/* SUCCESS MODAL - INSANE CINEMATIC ANIMATIONS */}
         {showSuccessModal && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md bg-black/80 p-4"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
           >
+            {/* CINEMATIC ZOOM BACKGROUND */}
             <motion.div
-              className="bg-midnight-blue border-2 border-emerald-500 p-8 rounded-xl shadow-[0_0_50px_rgba(16,185,129,0.2)] max-w-lg w-full text-center relative overflow-hidden"
-              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="absolute inset-0 bg-black"
+              initial={{ scale: 3 }}
+              animate={{ scale: 1 }}
+              transition={{ duration: 1.2, ease: [0.6, 0.01, 0.05, 0.95] }}
             >
-              {/* Success Icon */}
-              <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/40">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
-              </div>
+              <motion.div
+                className="absolute inset-0"
+                style={{
+                  background: 'radial-gradient(circle at center, rgba(212,175,55,0.4) 0%, rgba(0,0,0,1) 70%)'
+                }}
+                animate={{
+                  scale: [1, 1.2, 1],
+                  opacity: [0.5, 0.8, 0.5]
+                }}
+                transition={{ duration: 3, repeat: Infinity }}
+              />
+            </motion.div>
 
-              <h3 className="text-3xl font-display font-bold text-white mb-2">Application Received!</h3>
-              <div className="bg-emerald-900/20 border border-emerald-500/30 p-4 rounded-lg mb-6">
-                <p className="text-emerald-100/70 text-xs uppercase tracking-widest mb-1">Reserved Date</p>
-                <p className="text-2xl font-bold text-white">
-                  {selectedDate?.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                </p>
-              </div>
+            {/* CONFETTI EXPLOSION - 150 PARTICLES */}
+            <div className="absolute inset-0 pointer-events-none">
+              {[...Array(150)].map((_, i) => {
+                const colors = ['#D4AF37', '#FFD700', '#FFF', '#FF6B6B', '#4ECDC4', '#A78BFA', '#FB923C'];
+                const angle = Math.random() * Math.PI * 2;
+                const velocity = 200 + Math.random() * 500;
+                const rotation = Math.random() * 1080 - 540;
+                const size = Math.random() * 12 + 4;
+                return (
+                  <motion.div
+                    key={i}
+                    className="absolute"
+                    style={{
+                      left: '50%',
+                      top: '50%',
+                      width: size,
+                      height: size,
+                      backgroundColor: colors[Math.floor(Math.random() * colors.length)],
+                      borderRadius: Math.random() > 0.5 ? '50%' : '0%',
+                      boxShadow: `0 0 ${size}px ${colors[Math.floor(Math.random() * colors.length)]}`
+                    }}
+                    initial={{ x: 0, y: 0, opacity: 1, rotate: 0, scale: 0 }}
+                    animate={{
+                      x: Math.cos(angle) * velocity,
+                      y: Math.sin(angle) * velocity - 300,
+                      opacity: 0,
+                      rotate: rotation,
+                      scale: [0, 1.5, 0.5]
+                    }}
+                    transition={{
+                      duration: 2.5 + Math.random() * 1.5,
+                      ease: 'easeOut'
+                    }}
+                  />
+                );
+              })}
+            </div>
 
-              <div className="bg-white/5 rounded-lg p-6 text-left mb-6 space-y-4 border border-white/10">
-                <div>
-                  <h4 className="text-burnished-gold font-bold mb-1 flex items-center gap-2">
-                    <span className="text-lg">⚠️</span> Important: Payment Required
-                  </h4>
-                  <p className="text-white/80 text-sm leading-relaxed">
-                    You have <span className="font-bold text-white underline decoration-burnished-gold">4 days</span> to submit payment to secure your date. If payment is not received, the date will be released.
-                  </p>
+            {/* PULSING ENERGY RINGS - 5 RINGS */}
+            {[...Array(5)].map((_, i) => (
+              <motion.div
+                key={i}
+                className="absolute rounded-full"
+                style={{
+                  left: '50%',
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  border: `${3 - i * 0.4}px solid rgba(212, 175, 55, ${0.8 - i * 0.15})`
+                }}
+                initial={{ width: 0, height: 0, opacity: 0.8 }}
+                animate={{
+                  width: 1000,
+                  height: 1000,
+                  opacity: 0
+                }}
+                transition={{
+                  duration: 2.5,
+                  delay: i * 0.2,
+                  repeat: Infinity,
+                  repeatDelay: 1
+                }}
+              />
+            ))}
+
+            {/* MAIN SUCCESS CARD WITH 3D ROTATION */}
+            <motion.div
+              initial={{
+                scale: 0,
+                rotateZ: -180,
+                rotateY: -90,
+                opacity: 0
+              }}
+              animate={{
+                scale: 1,
+                rotateZ: 0,
+                rotateY: 0,
+                opacity: 1
+              }}
+              transition={{
+                type: 'spring',
+                damping: 12,
+                stiffness: 80,
+                delay: 0.5
+              }}
+              className="relative bg-gradient-to-br from-midnight-blue via-deep-navy to-black border-4 border-burnished-gold rounded-3xl p-10 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto"
+              style={{ perspective: '1000px', transformStyle: 'preserve-3d' }}
+            >
+              {/* LENS FLARE EFFECTS */}
+              <motion.div
+                className="absolute -top-20 -right-20 w-40 h-40 bg-burnished-gold rounded-full blur-3xl opacity-50"
+                animate={{
+                  scale: [1, 1.5, 1],
+                  opacity: [0.3, 0.6, 0.3]
+                }}
+                transition={{ duration: 2, repeat: Infinity }}
+              />
+              <motion.div
+                className="absolute -bottom-20 -left-20 w-40 h-40 bg-emerald-500 rounded-full blur-3xl opacity-30"
+                animate={{
+                  scale: [1.2, 1, 1.2],
+                  opacity: [0.2, 0.4, 0.2]
+                }}
+                transition={{ duration: 3, repeat: Infinity }}
+              />
+
+              {/* GLITCH OVERLAY EFFECT */}
+              <motion.div
+                className="absolute inset-0 bg-burnished-gold/10 rounded-3xl pointer-events-none mix-blend-overlay"
+                animate={{
+                  opacity: [0, 0.3, 0, 0.5, 0],
+                  x: [0, -5, 5, -3, 0],
+                }}
+                transition={{ duration: 0.3, times: [0, 0.2, 0.4, 0.6, 1], repeat: 2, delay: 0.8 }}
+              />
+
+              {/* HOLOGRAPHIC SCANNING LINES */}
+              <motion.div
+                className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0, 0.3, 0] }}
+                transition={{ duration: 2, repeat: Infinity, delay: 1 }}
+              >
+                <motion.div
+                  className="absolute w-full h-1 bg-gradient-to-r from-transparent via-burnished-gold to-transparent"
+                  animate={{ y: ['0%', '100%'] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                />
+              </motion.div>
+
+              {/* SUCCESS ICON WITH ANIMATED CHECKMARK */}
+              <motion.div
+                initial={{ scale: 0, rotate: -180 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ delay: 0.8, type: 'spring', damping: 10 }}
+                className="text-center mb-6 relative z-10"
+              >
+                <motion.div
+                  className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-r from-green-400 to-emerald-600 flex items-center justify-center relative"
+                  animate={{
+                    boxShadow: [
+                      '0 0 30px rgba(52, 211, 153, 0.5)',
+                      '0 0 60px rgba(52, 211, 153, 0.8)',
+                      '0 0 30px rgba(52, 211, 153, 0.5)'
+                    ]
+                  }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  {/* Rotating ring behind checkmark */}
+                  <motion.div
+                    className="absolute inset-0 rounded-full border-4 border-white/30"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                  />
+                  <motion.svg
+                    className="w-12 h-12 text-white relative z-10"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    initial={{ pathLength: 0 }}
+                    animate={{ pathLength: 1 }}
+                    transition={{ delay: 1.2, duration: 0.5, ease: 'easeInOut' }}
+                  >
+                    <motion.path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="3"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </motion.svg>
+                </motion.div>
+
+                <motion.h2
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 1 }}
+                  className="text-5xl font-display font-bold mb-3"
+                  style={{
+                    background: 'linear-gradient(90deg, #D4AF37, #FFD700, #D4AF37)',
+                    backgroundSize: '200% auto',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text'
+                  }}
+                >
+                  <motion.span
+                    animate={{ backgroundPosition: ['0%', '100%', '0%'] }}
+                    transition={{ duration: 3, repeat: Infinity }}
+                    style={{ display: 'inline-block' }}
+                  >
+                    Application Received!
+                  </motion.span>
+                </motion.h2>
+
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 1.2 }}
+                  className="bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-burnished-gold/30 mb-6"
+                >
+                  <p className="text-pure-white/60 text-sm mb-1">RESERVED DATE</p>
+                  <motion.p
+                    className="text-2xl font-bold text-pure-white"
+                    animate={{ scale: [1, 1.05, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  >
+                    {selectedDate?.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </motion.p>
+                </motion.div>
+              </motion.div>
+
+              {/* PAYMENT INFORMATION - CRITICAL */}
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.4 }}
+                className="bg-yellow-900/20 p-6 rounded-xl border-2 border-yellow-600/50 mb-6 relative z-10"
+              >
+                <div className="flex items-start gap-3 mb-4">
+                  <motion.span
+                    className="text-3xl"
+                    animate={{ scale: [1, 1.2, 1], rotate: [0, -10, 10, 0] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                  >
+                    ⚠️
+                  </motion.span>
+                  <div>
+                    <h3 className="text-xl font-bold text-yellow-400 mb-2">Important: Payment Required</h3>
+                    <p className="text-pure-white/90">
+                      You have <strong className="text-yellow-400">4 days</strong> to submit payment to secure your date.
+                      If payment is not received, the date will be released.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="border-t border-white/10 pt-4">
-                  <h4 className="text-white font-bold text-sm mb-2">Payment Options:</h4>
-                  <ul className="text-white/70 text-sm space-y-2 list-disc list-inside">
-                    <li>Drop off a check at the Club (Bar or Office)</li>
-                    <li>Mail a check to the Club address</li>
-                    {/* Placeholder for Online Payment Feature */}
-                    {/* TODO: Check 'EnableOnlineRentalsPayment' setting here later */}
+                <div className="space-y-3">
+                  <p className="font-bold text-pure-white">Payment Options:</p>
+                  <ul className="space-y-2 text-pure-white/90">
                     <li className="flex items-center gap-2">
-                      <span>Pay Online</span>
-                      <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">Coming Soon</span>
+                      <span className="text-green-400">•</span>
+                      <span>Drop off a check at the Club (Bar or Office)</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-green-400">•</span>
+                      <span>Mail a check to the Club address</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-blue-400">•</span>
+                      <span>Pay Online <span className="bg-green-600 text-white text-xs px-2 py-1 rounded ml-2">Coming Soon</span></span>
                     </li>
                   </ul>
                 </div>
-              </div>
+              </motion.div>
 
-              <button
-                onClick={handleCloseSuccess}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-lg hover:shadow-emerald-500/20 transition-all transform hover:-translate-y-1"
+              {/* ACTION BUTTON */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.6 }}
+                className="relative z-10"
               >
-                I Understand - View Calendar
-              </button>
+                <motion.button
+                  onClick={handleCloseSuccess}
+                  whileHover={{
+                    scale: 1.05,
+                    boxShadow: '0 0 50px rgba(212, 175, 55, 0.6)'
+                  }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-full bg-gradient-to-r from-burnished-gold to-yellow-600 text-midnight-blue font-bold px-8 py-4 rounded-xl shadow-lg transition-all text-lg relative overflow-hidden group"
+                >
+                  <motion.div
+                    className="absolute inset-0 bg-white/20"
+                    initial={{ x: '-100%' }}
+                    whileHover={{ x: '100%' }}
+                    transition={{ duration: 0.5 }}
+                  />
+                  <span className="relative z-10">Return to Hall Rentals</span>
+                </motion.button>
+              </motion.div>
             </motion.div>
           </motion.div>
         )}
@@ -299,18 +559,43 @@ const HallRentalPage = () => {
                 Host your event in true Gloucester style. Our hall features a full-service bar,
                 commercial kitchen, and capacity for up to 200 guests.
               </p>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left mb-8">
-                <div className="bg-black/20 p-6 rounded-lg">
-                  <h3 className="text-burnished-gold font-bold mb-2">Capacity</h3>
-                  <p className="text-white">Up to 200 Guests</p>
+                <div className="bg-black/20 p-6 rounded-lg border border-white/5">
+                  <h3 className="text-burnished-gold font-bold mb-2">Member Rate</h3>
+                  <p className="text-3xl font-display text-white">${pricing?.memberRate || 250}</p>
+                  <p className="text-xs text-white/50 mt-1">For active club members</p>
                 </div>
-                <div className="bg-black/20 p-6 rounded-lg">
-                  <h3 className="text-burnished-gold font-bold mb-2">Amenities</h3>
-                  <p className="text-white">Full Bar & Kitchen</p>
+                <div className="bg-black/20 p-6 rounded-lg border border-burnished-gold/20">
+                  <h3 className="text-burnished-gold font-bold mb-2">Non-Member Rate</h3>
+                  <p className="text-3xl font-display text-white">${pricing?.nonMemberRate || 500}</p>
+                  <p className="text-xs text-white/50 mt-1">For guests and public events</p>
                 </div>
-                <div className="bg-black/20 p-6 rounded-lg">
-                  <h3 className="text-burnished-gold font-bold mb-2">Parking</h3>
-                  <p className="text-white">Private Lot Available</p>
+                <div className="bg-black/20 p-6 rounded-lg border border-white/5">
+                  <h3 className="text-burnished-gold font-bold mb-2">Non-Profit Rate</h3>
+                  <p className="text-3xl font-display text-white">${pricing?.nonProfitRate || 350}</p>
+                  <p className="text-xs text-white/50 mt-1">For certified 501(c)(3) orgs</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mb-8">
+                <div className="bg-white/5 p-4 rounded-lg flex items-center space-x-4">
+                  <div className="bg-burnished-gold/20 p-3 rounded-full text-burnished-gold">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-bold">Full Amenities</h4>
+                    <p className="text-sm text-white/60">Commercial kitchen & full-service bar access.</p>
+                  </div>
+                </div>
+                <div className="bg-white/5 p-4 rounded-lg flex items-center space-x-4">
+                  <div className="bg-burnished-gold/20 p-3 rounded-full text-burnished-gold">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-bold">Flexible Hours</h4>
+                    <p className="text-sm text-white/60">Available for day or evening functions.</p>
+                  </div>
                 </div>
               </div>
             </div>

@@ -22,6 +22,35 @@ namespace GFC.BlazorServer.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("GFC.BlazorServer.Data.Entities.AuthorizedUser", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AccessLevel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AuthorizedUsers");
+                });
+
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.CardReaderProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -1206,6 +1235,34 @@ namespace GFC.BlazorServer.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("GFC.BlazorServer.Data.Entities.SpecialEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("TimeProfileId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Date");
+
+                    b.HasIndex("TimeProfileId");
+
+                    b.ToTable("SpecialEvents", (string)null);
+                });
+
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.SystemSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -1214,11 +1271,99 @@ namespace GFC.BlazorServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("CloudflareTunnelToken")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("DirectorAccessExpiryDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("EnableConnectionQualityAlerts")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EnableFailedLoginProtection")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EnableGeofencing")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EnableIPFiltering")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EnableSessionTimeout")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EnableTwoFactorAuth")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EnableWatermarking")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("IPFilterMode")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LanSubnet")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime?>("LastUpdatedUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("LocalQualityMaxBitrate")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LoginLockDurationMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MaxFailedLoginAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MaxSimultaneousViewers")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MinimumBandwidthMbps")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NvrIpAddress")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NvrPassword")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("NvrPort")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NvrUsername")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PublicDomain")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("RemoteQualityMaxBitrate")
+                        .HasColumnType("int");
+
                     b.Property<int?>("ScannerControllerId")
                         .HasColumnType("int");
+
+                    b.Property<int>("SessionTimeoutMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("WatermarkPosition")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("WireGuardAllowedIPs")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("WireGuardPort")
+                        .HasColumnType("int");
+
+                    b.Property<string>("WireGuardServerPublicKey")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("WireGuardSubnet")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
@@ -1227,7 +1372,27 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.HasData(
                         new
                         {
-                            Id = 1
+                            Id = 1,
+                            EnableConnectionQualityAlerts = true,
+                            EnableFailedLoginProtection = true,
+                            EnableGeofencing = false,
+                            EnableIPFiltering = false,
+                            EnableSessionTimeout = true,
+                            EnableTwoFactorAuth = false,
+                            EnableWatermarking = false,
+                            IPFilterMode = "Whitelist",
+                            LanSubnet = "192.168.1.0/24",
+                            LocalQualityMaxBitrate = 8000,
+                            LoginLockDurationMinutes = 30,
+                            MaxFailedLoginAttempts = 5,
+                            MaxSimultaneousViewers = 10,
+                            MinimumBandwidthMbps = 5,
+                            RemoteQualityMaxBitrate = 2000,
+                            SessionTimeoutMinutes = 30,
+                            WatermarkPosition = "BottomRight",
+                            WireGuardAllowedIPs = "10.8.0.0/24, 192.168.1.0/24",
+                            WireGuardPort = 51820,
+                            WireGuardSubnet = "10.8.0.0/24"
                         });
                 });
 
@@ -1423,6 +1588,48 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.ToTable("Waivers", (string)null);
                 });
 
+            modelBuilder.Entity("GFC.Core.Models.AppPage", b =>
+                {
+                    b.Property<int>("PageId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("PageId"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("PageName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("PageRoute")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<bool>("RequiresAdmin")
+                        .HasColumnType("bit");
+
+                    b.HasKey("PageId");
+
+                    b.ToTable("AppPages");
+                });
+
             modelBuilder.Entity("GFC.Core.Models.AppUser", b =>
                 {
                     b.Property<int>("UserId")
@@ -1437,6 +1644,9 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -1448,6 +1658,12 @@ namespace GFC.BlazorServer.Data.Migrations
 
                     b.Property<int?>("MemberId")
                         .HasColumnType("int");
+
+                    b.Property<bool>("MfaEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MfaSecretKey")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Notes")
                         .HasColumnType("nvarchar(max)");
@@ -1468,7 +1684,7 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.ToTable("AppUsers", (string)null);
                 });
 
-            modelBuilder.Entity("GFC.Core.Models.Camera", b =>
+            modelBuilder.Entity("GFC.Core.Models.AssetFolder", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -1477,10 +1693,76 @@ namespace GFC.BlazorServer.Data.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2");
 
-                    b.Property<bool>("IsEnabled")
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("ParentFolderId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentFolderId");
+
+                    b.ToTable("AssetFolders");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.AvailabilityCalendar", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EndTime")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("StartTime")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AvailabilityCalendars", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.Camera", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("IpAddress")
+                        .IsRequired()
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<bool?>("IsEnabled")
                         .HasColumnType("bit");
+
+                    b.Property<string>("Manufacturer")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1497,7 +1779,7 @@ namespace GFC.BlazorServer.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
-                    b.Property<DateTime>("UpdatedAt")
+                    b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("Username")
@@ -1700,6 +1982,534 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.ToTable("PerformanceSnapshots");
                 });
 
+            modelBuilder.Entity("GFC.Core.Models.EventPromotion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("EventDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Skin")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EventPromotions", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.Form", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SubmissionTarget")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Forms", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.FormField", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FieldType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("FormId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Placeholder")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FormId");
+
+                    b.ToTable("FormFields", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.FormSubmission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("FormId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SubmissionData")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FormId");
+
+                    b.ToTable("FormSubmissions", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.HallRental", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApplicantName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ContactInfo")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("EventDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("GuestCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("InternalNotes")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("KitchenUsed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("TotalPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("HallRentals", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.HallRentalInquiry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FormData")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ResumeToken")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ResumeToken")
+                        .IsUnique();
+
+                    b.ToTable("HallRentalInquiries", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.HallRentalRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApplicantName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("ApprovalDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("AvEquipmentUsage")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DenialDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeniedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EndTime")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("EventDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EventType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("GuestCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("InternalNotes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsPaid")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("KitchenUsage")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("MemberStatus")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("PaymentDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PaymentMethod")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RenterType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("RequestedDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("RequesterEmail")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequesterName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequesterPhone")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("RulesAgreed")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("SecurityDepositPaid")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("StartTime")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("StatusChangedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("StatusChangedDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("TotalPrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("HallRentalRequests", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.MediaAsset", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AssetFolderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RequiredRole")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("StoredFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Usage")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetFolderId");
+
+                    b.ToTable("MediaAssets", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.MediaRendition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MediaAssetId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RenditionType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MediaAssetId");
+
+                    b.ToTable("MediaRenditions", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.NavMenuEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("ParentId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NavMenuEntries", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.NotificationRouting", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActionName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("DirectorEmail")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NotificationRoutings");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.PagePermission", b =>
+                {
+                    b.Property<int>("PermissionId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("PermissionId"));
+
+                    b.Property<int>("PageId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("PermissionId");
+
+                    b.HasIndex("PageId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PagePermissions");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.ProtectedDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ProtectedDocuments", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.PublicReview", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EventType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsApproved")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PublicReviews");
+                });
+
             modelBuilder.Entity("GFC.Core.Models.Recording", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1728,6 +2538,862 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.HasIndex("CameraId");
 
                     b.ToTable("Recordings", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.SecurityAlert", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AlertType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ClientIP")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("ReviewedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewedBy");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SecurityAlerts");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.SeoSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("MetaDescription")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("MetaTitle")
+                        .IsRequired()
+                        .HasMaxLength(70)
+                        .HasColumnType("nvarchar(70)");
+
+                    b.Property<string>("OpenGraphImageUrl")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<int>("StudioPageId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudioPageId")
+                        .IsUnique();
+
+                    b.ToTable("SeoSettings", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.ShiftReport", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("BarSales")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("BartenderId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsLate")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("LottoSales")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ShiftId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("TotalDeposit")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShiftId");
+
+                    b.ToTable("ShiftReports", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StaffMember", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("HireDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("HourlyRate")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("MemberId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("StaffMembers");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StaffShift", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ClockInTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ClockOutTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ShiftType")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StaffMemberId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StaffMemberId");
+
+                    b.ToTable("StaffShifts", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioDraft", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeDescription")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("ContentSnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsPublished")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("PageId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("StudioPageId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .IsDescending();
+
+                    b.HasIndex("PageId", "Version")
+                        .IsDescending(false, true);
+
+                    b.ToTable("Drafts", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioLock", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("LockedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LockedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("PageId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("StudioLocks");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioPage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MetaDescription")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("MetaTitle")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("OgImage")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PublishedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("Pages", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioSection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AnimationSettingsJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ComponentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Data")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsVisible")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("OrderIndex")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudioPageId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("VisibleOnDesktop")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("VisibleOnMobile")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("VisibleOnTablet")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComponentType");
+
+                    b.HasIndex("OrderIndex");
+
+                    b.HasIndex("StudioPageId");
+
+                    b.ToTable("Sections", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioSetting", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("SettingKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SettingType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SettingValue")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SettingKey")
+                        .IsUnique();
+
+                    b.ToTable("StudioSettings", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ComponentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ContentJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsPublic")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("UsageCount")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Category");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("UsageCount")
+                        .IsDescending();
+
+                    b.ToTable("Templates", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.SystemNotification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RecipientEmail")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Subject")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SystemNotifications", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.VideoAccessAudit", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AccessType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("CameraId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CameraName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("ClientIP")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ConnectionType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Notes")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RecordingFile")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("SessionEnd")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("SessionStart")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CameraId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("VideoAccessAudit");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.VpnProfile", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AssignedIP")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeviceName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("DeviceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PrivateKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("PublicKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("RevokedBy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RevokedReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RevokedBy");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("VpnProfiles");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.VpnSession", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<long>("BytesReceived")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("BytesSent")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ClientIP")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("ConnectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DisconnectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("VpnProfileId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("VpnProfileId");
+
+                    b.ToTable("VpnSessions");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.WebsiteSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("AdditionalHourRate")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("AvEquipmentFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("BaseFunctionHours")
+                        .HasColumnType("int");
+
+                    b.Property<string>("BodyFont")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ClubAddress")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ClubPhone")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool?>("EnableOnlineRentalsPayment")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("HeadingFont")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool?>("HighAccessibilityMode")
+                        .HasColumnType("bit");
+
+                    b.Property<bool?>("IsClubOpen")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("KitchenFee")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool?>("MasterEmailKillSwitch")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("MaxHallRentalDurationHours")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("MemberRate")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("NonMemberRate")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("NonProfitRate")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("PaymentGatewayApiKey")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PaymentGatewayUrl")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PrimaryColor")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SecondaryColor")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("SecurityDepositAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("SeoDescription")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SeoKeywords")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SeoTitle")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("WebsiteSettings", (string)null);
+                });
+
+            modelBuilder.Entity("GFC.BlazorServer.Data.Entities.AuthorizedUser", b =>
+                {
+                    b.HasOne("GFC.Core.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.ControllerBehaviorOptions", b =>
@@ -1921,6 +3587,17 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.Navigation("Request");
                 });
 
+            modelBuilder.Entity("GFC.BlazorServer.Data.Entities.SpecialEvent", b =>
+                {
+                    b.HasOne("GFC.BlazorServer.Data.Entities.TimeProfile", "TimeProfile")
+                        .WithMany()
+                        .HasForeignKey("TimeProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TimeProfile");
+                });
+
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.TaskEntry", b =>
                 {
                     b.HasOne("GFC.BlazorServer.Data.Entities.ControllerDevice", "Controller")
@@ -1941,6 +3618,15 @@ namespace GFC.BlazorServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("TimeProfile");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.AssetFolder", b =>
+                {
+                    b.HasOne("GFC.Core.Models.AssetFolder", "ParentFolder")
+                        .WithMany("SubFolders")
+                        .HasForeignKey("ParentFolderId");
+
+                    b.Navigation("ParentFolder");
                 });
 
             modelBuilder.Entity("GFC.Core.Models.CameraAuditLog", b =>
@@ -2003,6 +3689,67 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.Navigation("AlertThreshold");
                 });
 
+            modelBuilder.Entity("GFC.Core.Models.FormField", b =>
+                {
+                    b.HasOne("GFC.Core.Models.Form", "Form")
+                        .WithMany("FormFields")
+                        .HasForeignKey("FormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Form");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.FormSubmission", b =>
+                {
+                    b.HasOne("GFC.Core.Models.Form", "Form")
+                        .WithMany()
+                        .HasForeignKey("FormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Form");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.MediaAsset", b =>
+                {
+                    b.HasOne("GFC.Core.Models.AssetFolder", "AssetFolder")
+                        .WithMany("MediaAssets")
+                        .HasForeignKey("AssetFolderId");
+
+                    b.Navigation("AssetFolder");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.MediaRendition", b =>
+                {
+                    b.HasOne("GFC.Core.Models.MediaAsset", "MediaAsset")
+                        .WithMany("Renditions")
+                        .HasForeignKey("MediaAssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MediaAsset");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.PagePermission", b =>
+                {
+                    b.HasOne("GFC.Core.Models.AppPage", "Page")
+                        .WithMany()
+                        .HasForeignKey("PageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GFC.Core.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Page");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("GFC.Core.Models.Recording", b =>
                 {
                     b.HasOne("GFC.Core.Models.Camera", "Camera")
@@ -2012,6 +3759,129 @@ namespace GFC.BlazorServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Camera");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.SecurityAlert", b =>
+                {
+                    b.HasOne("GFC.Core.Models.AppUser", "ReviewedByUser")
+                        .WithMany()
+                        .HasForeignKey("ReviewedBy");
+
+                    b.HasOne("GFC.Core.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId");
+
+                    b.Navigation("ReviewedByUser");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.SeoSettings", b =>
+                {
+                    b.HasOne("GFC.Core.Models.StudioPage", "StudioPage")
+                        .WithMany()
+                        .HasForeignKey("StudioPageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("StudioPage");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.ShiftReport", b =>
+                {
+                    b.HasOne("GFC.Core.Models.StaffShift", "StaffShift")
+                        .WithMany()
+                        .HasForeignKey("ShiftId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("StaffShift");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StaffShift", b =>
+                {
+                    b.HasOne("GFC.Core.Models.StaffMember", "StaffMember")
+                        .WithMany("StaffShifts")
+                        .HasForeignKey("StaffMemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("StaffMember");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioDraft", b =>
+                {
+                    b.HasOne("GFC.Core.Models.StudioPage", "StudioPage")
+                        .WithMany("Drafts")
+                        .HasForeignKey("PageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("StudioPage");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioSection", b =>
+                {
+                    b.HasOne("GFC.Core.Models.StudioPage", "StudioPage")
+                        .WithMany("Sections")
+                        .HasForeignKey("StudioPageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("StudioPage");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.VideoAccessAudit", b =>
+                {
+                    b.HasOne("GFC.Core.Models.Camera", "Camera")
+                        .WithMany()
+                        .HasForeignKey("CameraId");
+
+                    b.HasOne("GFC.Core.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Camera");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.VpnProfile", b =>
+                {
+                    b.HasOne("GFC.Core.Models.AppUser", "RevokedByUser")
+                        .WithMany()
+                        .HasForeignKey("RevokedBy");
+
+                    b.HasOne("GFC.Core.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("RevokedByUser");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.VpnSession", b =>
+                {
+                    b.HasOne("GFC.Core.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GFC.Core.Models.VpnProfile", "VpnProfile")
+                        .WithMany()
+                        .HasForeignKey("VpnProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+
+                    b.Navigation("VpnProfile");
                 });
 
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.ControllerDevice", b =>
@@ -2043,6 +3913,35 @@ namespace GFC.BlazorServer.Data.Migrations
             modelBuilder.Entity("GFC.BlazorServer.Data.Entities.TimeProfile", b =>
                 {
                     b.Navigation("Intervals");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.AssetFolder", b =>
+                {
+                    b.Navigation("MediaAssets");
+
+                    b.Navigation("SubFolders");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.Form", b =>
+                {
+                    b.Navigation("FormFields");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.MediaAsset", b =>
+                {
+                    b.Navigation("Renditions");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StaffMember", b =>
+                {
+                    b.Navigation("StaffShifts");
+                });
+
+            modelBuilder.Entity("GFC.Core.Models.StudioPage", b =>
+                {
+                    b.Navigation("Drafts");
+
+                    b.Navigation("Sections");
                 });
 #pragma warning restore 612, 618
         }

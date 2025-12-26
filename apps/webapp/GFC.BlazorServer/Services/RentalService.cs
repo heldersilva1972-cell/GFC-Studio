@@ -2,6 +2,7 @@
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using GFC.Core.DTOs;
+using GFC.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -92,7 +93,9 @@ namespace GFC.BlazorServer.Services
             request.InternalNotes = adminNotes;
             _context.Entry(request).State = EntityState.Modified;
 
-            await UpdateCalendarAvailabilityAsync(request.RequestedDate, "Booked");
+            // Update calendar with the SPECIFIC details from the request so it shows correctly on the website
+            var displayTime = request.StartTime != null && request.EndTime != null ? $"{request.StartTime} - {request.EndTime}" : null;
+            await UpdateCalendarAvailabilityAsync(request.RequestedDate, "Booked", request.EventType, request.StartTime, request.EndTime);
             await _context.SaveChangesAsync();
 
             // Fire and forget email notification
@@ -134,7 +137,7 @@ namespace GFC.BlazorServer.Services
             }
         }
 
-        public async Task UpdateCalendarAvailabilityAsync(DateTime date, string status)
+        public async Task UpdateCalendarAvailabilityAsync(DateTime date, string status, string? description = null, string? startTime = null, string? endTime = null)
         {
             var calendarEntry = await _context.AvailabilityCalendars.FirstOrDefaultAsync(c => c.Date.Date == date.Date);
 
@@ -152,10 +155,20 @@ namespace GFC.BlazorServer.Services
                 if (calendarEntry != null)
                 {
                     calendarEntry.Status = status;
+                    if (description != null) calendarEntry.Description = description;
+                    if (startTime != null) calendarEntry.StartTime = startTime;
+                    if (endTime != null) calendarEntry.EndTime = endTime;
                 }
                 else
                 {
-                    _context.AvailabilityCalendars.Add(new AvailabilityCalendar { Date = date, Status = status });
+                    _context.AvailabilityCalendars.Add(new AvailabilityCalendar 
+                    { 
+                        Date = date, 
+                        Status = status,
+                        Description = description,
+                        StartTime = startTime,
+                        EndTime = endTime
+                    });
                 }
             }
 
@@ -183,22 +196,35 @@ namespace GFC.BlazorServer.Services
                                  .ToListAsync();
         }
 
-        public async Task<List<DateTime>> GetBlackoutDatesAsync()
+        public async Task<List<AvailabilityCalendar>> GetBlackoutEventsAsync()
         {
             return await _context.AvailabilityCalendars
                 .Where(d => d.Status == "Blackout")
-                .Select(d => d.Date)
                 .ToListAsync();
         }
 
-        public async Task AddBlackoutDateAsync(DateTime date)
+        public async Task AddBlackoutDateAsync(DateTime date, string? description = null, string? startTime = null, string? endTime = null)
         {
-            var existing = await _context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date);
+            var existing = await _context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date && d.Status == "Blackout");
             if (existing == null)
             {
-                _context.AvailabilityCalendars.Add(new AvailabilityCalendar { Date = date.Date, Status = "Blackout" });
-                await _context.SaveChangesAsync();
+                _context.AvailabilityCalendars.Add(new AvailabilityCalendar 
+                { 
+                    Date = date.Date, 
+                    Status = "Blackout",
+                    Description = description,
+                    StartTime = startTime,
+                    EndTime = endTime
+                });
             }
+            else 
+            {
+                existing.Description = description;
+                existing.StartTime = startTime;
+                existing.EndTime = endTime;
+                _context.Entry(existing).State = EntityState.Modified;
+            }
+            await _context.SaveChangesAsync();
         }
 
         public async Task RemoveBlackoutDateAsync(DateTime date)
@@ -215,13 +241,15 @@ namespace GFC.BlazorServer.Services
         {
             var results = new List<UnavailableDateDto>();
 
-            // 1. Get manually blocked/booked dates
+            // 1. Get manually blocked/booked dates (Blackouts/Club Events)
             var calendarDates = await _context.AvailabilityCalendars
                 .Where(d => d.Status == "Booked" || d.Status == "Blackout")
                 .Select(d => new UnavailableDateDto 
                 { 
                     Date = d.Date, 
-                    Status = "Booked" // Treat blackouts as hard booked
+                    Status = d.Status == "Blackout" ? "Blackout" : "Booked", 
+                    EventType = d.Description ?? "Private Event",
+                    EventTime = d.StartTime != null && d.EndTime != null ? $"{d.StartTime} - {d.EndTime}" : null
                 })
                 .ToListAsync();
             
@@ -258,7 +286,8 @@ namespace GFC.BlazorServer.Services
             // 3. Return distinct by Date (prioritizing entries with event details)
             return results
                 .GroupBy(x => x.Date.Date)
-                .Select(g => g.OrderBy(x => string.IsNullOrEmpty(x.EventType) ? 1 : 0) // Prioritize entries WITH event details
+                .Select(g => g.OrderBy(x => (x.EventType == "Private Event" || x.EventType == "Club Event" || string.IsNullOrEmpty(x.EventType)) ? 2 : 0) // Heavily deprioritize fallbacks
+                              .ThenBy(x => string.IsNullOrEmpty(x.EventType) ? 1 : 0) // Then prioritize ANY details over none
                               .ThenBy(x => x.Status == "Booked" ? 0 : 1) // Then prioritize Booked over Pending
                               .First())
                 .ToList();

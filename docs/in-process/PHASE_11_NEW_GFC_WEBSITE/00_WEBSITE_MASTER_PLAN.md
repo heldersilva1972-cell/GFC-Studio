@@ -1,8 +1,15 @@
-# GFC Website - Master Plan (Revision 3)
+# GFC Website - Master Plan (Revision 4)
 
-**Version:** 1.0.0 (R3)  
-**Date:** December 25, 2025  
+**Version:** 1.1.0 (R4)  
+**Date:** December 26, 2025  
 **Status:** ✅ Infrastructure Complete | 🛠️ Data Integration Active  
+
+## 📜 REVISION HISTORY
+
+| Date | Version | Author | Description |
+|:---|:---|:---|:---|
+| 2025-12-25 | 1.0.0 | Helder Silva | Initial master plan creation |
+| 2025-12-26 | 1.1.0 | Jules (AI Agent) | Updated status for Hall Rental Flow, Moderation, and Document Library |
 
 ---
 
@@ -27,17 +34,19 @@ The new GFC Website is designed to be a **"Modern Legacy"** platform. It combine
     - Footer with business hours and social links.
     - **Status Indicator** UI component (Open/Closed).
     - **Update Bar** UI component (Scrolling news).
+4. **Data Integration**:
+    - [x] Hall Rental Flow (3-step application wizard).
+    - [x] Hall Rental Inquiry backend submission.
+    - [x] Review Moderation dashboard.
+    - [x] Document Library management.
 
 ### 🛠️ REMAINING (The "Missing Links")
 1. **Live Data Integration**:
     - [ ] Replace `getClubStatusFromWebApp` mock with real Fetch call to `http://localhost:5207/api/WebsiteSettings`.
     - [ ] Connect `Announcements` API to the SQL `SystemNotifications` table.
     - [ ] Connect `Events` API to the SQL `AvailabilityCalendars` table.
-2. **Hall Rental Flow**:
-    - [ ] Build `/hall-rentals` multi-step page.
-    - [ ] Implement the `HallRentalInquiry` submission to the backend.
 3. **Social Proof Moderation**:
-    - [ ] Implement the "Approve/Reject" logic for member reviews in the Web App dashboard.
+    - [x] Implement the "Approve/Reject" logic for member reviews in the Web App dashboard.
 
 ---
 
