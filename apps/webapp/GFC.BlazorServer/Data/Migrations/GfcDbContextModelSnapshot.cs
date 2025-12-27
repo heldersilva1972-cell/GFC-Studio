@@ -1941,6 +1941,31 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.ToTable("DiagnosticAlerts");
                 });
 
+            modelBuilder.Entity("GFC.Core.Models.DynamicForm", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SchemaJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("DynamicForms", (string)null);
+                });
+
             modelBuilder.Entity("GFC.Core.Models.Diagnostics.PerformanceSnapshot", b =>
                 {
                     b.Property<Guid>("Id")

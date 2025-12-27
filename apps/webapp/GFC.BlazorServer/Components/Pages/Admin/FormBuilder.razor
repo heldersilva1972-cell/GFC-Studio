@@ -1,0 +1,138 @@
+@page "/admin/form-builder"
+@attribute [Authorize(Roles = "Admin")]
+@using GFC.Core.Models.FormBuilder
+@inject IFormBuilderService FormBuilderService
+
+<div class="form-builder-container">
+    <div class="toolbox">
+        <h5>Toolbox</h5>
+        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("text")'>Text Input</div>
+        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("select")'>Select Dropdown</div>
+        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("textarea")'>Text Area</div>
+        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("checkbox")'>Checkbox</div>
+    </div>
+
+    <div class="canvas" @ondragover="() => { /* Required to allow drop */ }">
+        <h5>Canvas</h5>
+        @if (formSchema != null)
+        {
+            for (int i = 0; i < formSchema.Fields.Count; i++)
+            {
+                var section = formSchema.Fields[i];
+                <div class="mb-3 p-2 border" @ondrop="() => HandleDrop(section)">
+                    <div class="d-flex justify-content-between">
+                        <input class="form-control" @bind="section.Section" />
+                        <button class="btn btn-sm btn-danger" @onclick="() => formSchema.Fields.Remove(section)">X</button>
+                    </div>
+                    @foreach (var field in section.Fields)
+                    {
+                        <div class="form-field @(selectedField == field ? "alert-info" : "")" @onclick='() => SelectField(field)'>
+                            @field.Label
+                            <button class="btn btn-sm btn-danger float-end" @onclick="() => section.Fields.Remove(field)">X</button>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        <button class="btn btn-secondary mt-2" @onclick="AddSection">Add Section</button>
+    </div>
+
+    <div class="properties">
+        <h5>Properties</h5>
+        @if (selectedField != null)
+        {
+            <div class="mb-2">
+                <label class="form-label">Label</label>
+                <input class="form-control form-control-sm" @bind="selectedField.Label" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Name</label>
+                <input class="form-control form-control-sm" @bind="selectedField.Name" />
+            </div>
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" @bind="selectedField.Required" />
+                <label class="form-check-label">Required</label>
+            </div>
+            @if (selectedField.Type == "select")
+            {
+                <div class="mb-2">
+                    <label class="form-label">Options (comma-separated)</label>
+                    <textarea class="form-control form-control-sm" @bind="options" @bind:event="oninput"></textarea>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<button class="btn btn-primary mt-3" @onclick="SaveForm">Save Form</button>
+
+@code {
+    private string draggedType;
+    private FormSchema formSchema;
+    private FormFieldDefinition selectedField;
+
+    private string options
+    {
+        get => selectedField?.Options != null ? string.Join(",", selectedField.Options) : "";
+        set => selectedField.Options = value.Split(',').Select(s => s.Trim()).ToList();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var form = await FormBuilderService.GetFormByNameAsync("hall-rental");
+        if (form != null)
+        {
+            formSchema = System.Text.Json.JsonSerializer.Deserialize<FormSchema>(form.SchemaJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        else
+        {
+            formSchema = new FormSchema
+            {
+                Name = "hall-rental",
+                Fields = new List<FormSection>()
+            };
+        }
+    }
+
+    private void HandleDragStart(string type)
+    {
+        draggedType = type;
+    }
+
+    private void HandleDrop(FormSection section)
+    {
+        if (draggedType != null)
+        {
+            var newField = new FormFieldDefinition
+            {
+                Name = "new_" + draggedType + "_" + Guid.NewGuid().ToString("N")[..5],
+                Label = "New " + draggedType,
+                Type = draggedType,
+                Required = false,
+                Options = new List<string>()
+            };
+            section.Fields.Add(newField);
+        }
+        draggedType = null;
+    }
+
+    private void SelectField(FormFieldDefinition field)
+    {
+        selectedField = field;
+    }
+
+    private void AddSection()
+    {
+        formSchema.Fields.Add(new FormSection { Section = "New Section", Fields = new List<FormFieldDefinition>() });
+    }
+
+    private async Task SaveForm()
+    {
+        var form = new GFC.Core.Models.DynamicForm
+        {
+            Name = formSchema.Name,
+            SchemaJson = System.Text.Json.JsonSerializer.Serialize(formSchema, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull })
+        };
+        await FormBuilderService.SaveFormAsync(form);
+    }
+}

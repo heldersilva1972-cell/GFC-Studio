@@ -1,79 +1,65 @@
 // [NEW]
+using GFC.Core.Interfaces;
 using GFC.Core.Models;
-using GFC.Core.Models;
-using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
-using System.Text.Json;
-using System.Web;
-using System.Linq;
 
 namespace GFC.BlazorServer.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/form-submissions")]
     public class FormSubmissionController : ControllerBase
     {
         private readonly IFormService _formService;
+        private readonly INotificationService _notificationService;
 
-        public FormSubmissionController(IFormService formService)
+        public FormSubmissionController(IFormService formService, INotificationService notificationService)
         {
             _formService = formService;
+            _notificationService = notificationService;
         }
 
-        [HttpPost]
-        public async Task<IActionResult> Submit([FromBody] FormSubmission submission)
+        [HttpPost("save")]
+        public async Task<IActionResult> SavePartialSubmission([FromBody] FormSubmission submission)
         {
-            if (submission == null || !ModelState.IsValid)
+            if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            // Sanitize all string inputs in the submission data to prevent XSS.
-            try
-            {
-                var submissionData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(submission.SubmissionData);
-                var sanitizedData = new Dictionary<string, object>();
+            submission.Status = "Incomplete";
+            submission.ResumeToken = GenerateSecureToken();
+            submission.SubmittedAt = DateTime.UtcNow;
 
-                foreach (var key in submissionData.Keys)
-                {
-                    var value = submissionData[key];
-                    if (value.ValueKind == JsonValueKind.String)
-                    {
-                        sanitizedData[key] = HttpUtility.HtmlEncode(value.GetString());
-                    }
-                    else
-                    {
-                        sanitizedData[key] = value;
-                    }
-                }
-                submission.SubmissionData = JsonSerializer.Serialize(sanitizedData);
-            }
-            catch (JsonException)
-            {
-                return BadRequest("Invalid submission data format.");
-            }
+            await _formService.SaveSubmissionAsync(submission);
 
-            var createdSubmission = await _formService.CreateSubmissionAsync(submission);
-            return Ok(createdSubmission);
+            // Send email with resume link
+            var resumeUrl = Url.Action("Resume", "HallRentals", new { token = submission.ResumeToken }, Request.Scheme);
+            await _notificationService.SendFormResumeEmailAsync(submission.SubmitterEmail, resumeUrl);
+
+            return Ok(new { message = "Your progress has been saved. A link to resume has been sent to your email." });
         }
 
-        [HttpPost("save-for-later")]
-        public async Task<IActionResult> SaveForLater([FromBody] SaveForLaterRequest request)
+        [HttpGet("resume/{token}")]
+        public async Task<IActionResult> GetSubmissionByToken(string token)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.FormData) || string.IsNullOrWhiteSpace(request.Email))
+            var submission = await _formService.GetSubmissionByTokenAsync(token);
+            if (submission == null)
             {
-                return BadRequest("Invalid request data.");
+                return NotFound();
             }
-
-            var inquiry = await _formService.SaveRentalInquiryForLaterAsync(request.FormData, request.Email);
-            return Ok(new { message = "Save link sent successfully." });
+            return Ok(submission);
         }
-    }
 
-    public class SaveForLaterRequest
-    {
-        public string FormData { get; set; }
-        public string Email { get; set; }
+        private string GenerateSecureToken()
+        {
+            using var randomNumberGenerator = new RNGCryptoServiceProvider();
+            var randomNumber = new byte[32];
+            randomNumberGenerator.GetBytes(randomNumber);
+            return Convert.ToBase64String(randomNumber).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        }
     }
 }
