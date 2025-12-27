@@ -9,16 +9,17 @@ namespace GFC.BlazorServer.Services
 {
     public class WebsiteSettingsService : GFC.Core.Interfaces.IWebsiteSettingsService
     {
-        private readonly GfcDbContext _context;
+        private readonly IDbContextFactory<GfcDbContext> _contextFactory;
 
-        public WebsiteSettingsService(GfcDbContext context)
+        public WebsiteSettingsService(IDbContextFactory<GfcDbContext> contextFactory)
         {
-            _context = context;
+            _contextFactory = contextFactory;
         }
 
         public async Task<WebsiteSettings> GetWebsiteSettingsAsync()
         {
-            var settings = await _context.WebsiteSettings.FirstOrDefaultAsync();
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var settings = await context.WebsiteSettings.FirstOrDefaultAsync();
             if (settings == null)
             {
                 settings = new WebsiteSettings
@@ -35,28 +36,30 @@ namespace GFC.BlazorServer.Services
                     HighAccessibilityMode = false,
                     EnableOnlineRentalsPayment = false
                 };
-                _context.WebsiteSettings.Add(settings);
-                await _context.SaveChangesAsync();
+                context.WebsiteSettings.Add(settings);
+                await context.SaveChangesAsync();
             }
             return settings;
         }
 
         public async Task UpdateWebsiteSettingsAsync(WebsiteSettings settings)
         {
-            var existingSettings = await _context.WebsiteSettings.FirstOrDefaultAsync();
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var existingSettings = await context.WebsiteSettings.FirstOrDefaultAsync();
             if (existingSettings == null)
             {
-                _context.WebsiteSettings.Add(settings);
+                context.WebsiteSettings.Add(settings);
             }
             else
             {
-                _context.Entry(existingSettings).CurrentValues.SetValues(settings);
+                context.Entry(existingSettings).CurrentValues.SetValues(settings);
             }
-            await _context.SaveChangesAsync();
+            await context.SaveChangesAsync();
         }
 
         private async Task HealDatabaseAsync()
         {
+             using var context = await _contextFactory.CreateDbContextAsync();
              var fixNullsSql = @"
                 UPDATE [dbo].[WebsiteSettings] SET [MemberRate] = 0 WHERE [MemberRate] IS NULL;
                 UPDATE [dbo].[WebsiteSettings] SET [NonMemberRate] = 0 WHERE [NonMemberRate] IS NULL;
@@ -64,7 +67,7 @@ namespace GFC.BlazorServer.Services
                 UPDATE [dbo].[WebsiteSettings] SET [MasterEmailKillSwitch] = 0 WHERE [MasterEmailKillSwitch] IS NULL;
                 UPDATE [dbo].[WebsiteSettings] SET [HighAccessibilityMode] = 0 WHERE [HighAccessibilityMode] IS NULL;
             ";
-            await _context.Database.ExecuteSqlRawAsync(fixNullsSql);
+            await context.Database.ExecuteSqlRawAsync(fixNullsSql);
         }
     }
 }

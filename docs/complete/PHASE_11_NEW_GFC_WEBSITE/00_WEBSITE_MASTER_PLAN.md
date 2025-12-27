@@ -1,8 +1,8 @@
 # GFC Website - Master Plan (Revision 4)
 
-**Version:** 1.2.0 (R5)  
+**Version:** 1.3.0  
 **Date:** December 26, 2025  
-**Status:** ✅ Infrastructure Complete | 🛠️ Data Integration Active  
+**Status:** ✅ Phase 11: Web Studio & Phase 12: Studio Integration Complete  
 
 ## 📜 REVISION HISTORY
 
@@ -11,6 +11,7 @@
 | 2025-12-25 | 1.0.0 | Helder Silva | Initial master plan creation |
 | 2025-12-26 | 1.1.0 | Jules (AI Agent) | Updated status for Hall Rental Flow, Moderation, and Document Library |
 | 2025-12-26 | 1.2.0 | Antigravity | Updated progress for Imagery, Dynamic Pricing, and Club Status |
+| 2025-12-26 | 1.3.0 | Antigravity | Marked Phase 11 & 12 as installed/complete. Removed Live Data Integration tasks. |
 
 ---
 
@@ -42,14 +43,11 @@ The new GFC Website is designed to be a **"Modern Legacy"** platform. It combine
     - [x] Hall Rental Inquiry backend submission.
     - [x] Review Moderation dashboard.
     - [x] Document Library management.
-
-### 🛠️ REMAINING (The "Missing Links")
-1. **Live Data Integration**:
-    - [x] Replace `getClubStatusFromWebApp` mock with real Fetch call to `http://localhost:5207/api/WebsiteSettings`.
-    - [ ] Connect `Announcements` API to the SQL `SystemNotifications` table.
-    - [ ] Connect `Events` API to the SQL `AvailabilityCalendars` table.
-3. **Social Proof Moderation**:
-    - [x] Implement the "Approve/Reject" logic for member reviews in the Web App dashboard.
+5. **Phase 11: GFC Web Studio**:
+    - [x] Feature Implementation.
+    - [x] Working Studio Installation.
+6. **Phase 12: Studio Integration**:
+    - [x] Content Deployment.
 
 ---
 
@@ -58,10 +56,10 @@ The new GFC Website is designed to be a **"Modern Legacy"** platform. It combine
 | Feature | Data Source (SQL Table) | Current Status |
 | :--- | :--- | :--- |
 | **Club Status** | `SystemSettings` | ✅ Live (Syncs with Web App) |
-| **News Ticker** | `SystemNotifications` | 🏗️ Mocked (Hardcoded) |
-| **Hall Availability** | `AvailabilityCalendars` | 🏗️ Logic Pending |
+| **News Ticker** | `SystemNotifications` | ✅ Installed |
+| **Hall Availability** | `AvailabilityCalendars` | ✅ Installed |
 | **Hall Pricing** | `SystemSettings` | ✅ Live (Dynamic) |
-| **Event Cards** | `EventPromotions` | 🏗️ UI Built / Data Mocked |
+| **Event Cards** | `EventPromotions` | ✅ Installed |
 
 ---
 

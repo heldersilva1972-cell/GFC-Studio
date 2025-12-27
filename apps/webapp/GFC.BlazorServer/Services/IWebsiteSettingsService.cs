@@ -1,12 +1,1 @@
-// [NEW]
-using GFC.Core.Models;
-using System.Threading.Tasks;
-
-namespace GFC.BlazorServer.Services
-{
-    public interface IWebsiteSettingsService
-    {
-        Task<WebsiteSettings> GetWebsiteSettingsAsync();
-        Task UpdateWebsiteSettingsAsync(WebsiteSettings settings);
-    }
-}
+// This file is intentionally empty/obsolete to resolve type ambiguity with GFC.Core.Interfaces.IWebsiteSettingsService
