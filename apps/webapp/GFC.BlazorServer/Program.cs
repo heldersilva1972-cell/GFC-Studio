@@ -204,6 +204,7 @@ public class Program
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
         builder.Services.AddScoped<IFormService, FormService>();
+        builder.Services.AddScoped<IFormBuilderService, FormBuilderService>();
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<IAnimationService, AnimationService>();
