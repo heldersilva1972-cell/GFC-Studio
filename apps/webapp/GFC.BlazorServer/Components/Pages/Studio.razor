@@ -7,6 +7,7 @@
 @using System.Text.Json
 @inject IJSRuntime JSRuntime
 @inject UndoRedoService<List<AnimationKeyframe>> UndoRedoService
+@inject IWebsiteSettingsService WebsiteSettingsService
 
 <div class="studio-grid-container">
     <div class="studio-sidebar">
@@ -26,7 +27,7 @@
     </div>
     <div class="studio-main-content">
         <div class="studio-canvas viewport-@_currentViewport">
-            <AnimationCanvas Keyframes="_activeKeyframes" CurrentTime="_currentTime" />
+            <iframe @ref="_previewIframe" src="http://localhost:3000/gfc-studio-preview" class="preview-iframe"></iframe>
         </div>
         <div class="studio-timeline">
             <AnimationOrchestrator @ref="_orchestrator"
@@ -52,6 +53,9 @@
                 case "Settings":
                     <p>Settings Content (Not Implemented)</p>
                     break;
+                case "Theme":
+                    <ThemeSettingsPanel WebsiteSettings="_websiteSettings" OnSettingsChanged="HandleSettingsChanged" />
+                    break;
             }
         </Drawer>
     </div>
@@ -65,8 +69,10 @@
     private double _currentTime = 0.0;
 
     private AnimationOrchestrator _orchestrator;
+    private ElementReference _previewIframe;
     private List<AnimationKeyframe> _activeKeyframes = new();
     private AnimationKeyframe _selectedKeyframe;
+    private WebsiteSettings _websiteSettings = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -76,6 +82,8 @@
             _activeKeyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(savedJson);
         }
         UndoRedoService.RecordState(_activeKeyframes);
+
+        _websiteSettings = await WebsiteSettingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
     }
 
     private void HandleModuleSelected(string moduleName)
@@ -157,5 +165,20 @@
             _isDirty = true;
             StateHasChanged();
         }
+        SendAnimationDataToPreview();
+    }
+
+    private async void SendAnimationDataToPreview()
+    {
+        if (_activeKeyframes.Any())
+        {
+            await JSRuntime.InvokeVoidAsync("studioInterop.updateAnimationInPreview", _previewIframe, _activeKeyframes);
+        }
+    }
+
+    private async Task HandleSettingsChanged(WebsiteSettings settings)
+    {
+        _websiteSettings = settings;
+        await WebsiteSettingsService.UpdateWebsiteSettingsAsync(_websiteSettings);
     }
 }
