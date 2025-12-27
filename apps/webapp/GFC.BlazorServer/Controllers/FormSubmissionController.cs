@@ -1,6 +1,7 @@
 // [NEW]
 using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Security.Cryptography;

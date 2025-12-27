@@ -18,6 +18,7 @@ namespace GFC.BlazorServer.Services
 
         // General email sending
         Task SendEmailAsync(string email, string subject, string body);
+        Task SendFormResumeEmailAsync(string email, string resumeUrl);
         Task<List<SystemNotification>> GetActiveNotificationsAsync();
     }
 }

@@ -21,6 +21,8 @@ namespace GFC.BlazorServer.Services
 
         // Submissions & "Save for Later"
         Task<FormSubmission> CreateSubmissionAsync(FormSubmission submission);
+        Task SaveSubmissionAsync(FormSubmission submission);
+        Task<FormSubmission> GetSubmissionByTokenAsync(string token);
         Task<HallRentalInquiry> SaveRentalInquiryForLaterAsync(string formData, string userEmail);
         Task<HallRentalInquiry> GetRentalInquiryByTokenAsync(string token);
     }
