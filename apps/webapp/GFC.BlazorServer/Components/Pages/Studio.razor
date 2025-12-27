@@ -1,185 +1,31 @@
 @page "/studio"
-@layout GFC.BlazorServer.Components.Layout.StudioLayout
-@using GFC.Core.Models
-@using GFC.Core.Interfaces
-@using GFC.BlazorServer.Components.Shared
-@using GFC.BlazorServer.Services
-@using static GFC.BlazorServer.Components.Shared.AnimationLibrary
-@using System.Text.Json
-@inject IJSRuntime JSRuntime
-@inject UndoRedoService<List<AnimationKeyframe>> UndoRedoService
-@inject IWebsiteSettingsService WebsiteSettingsService
 
-<div class="studio-grid-container">
-    <div class="studio-sidebar">
-        <StudioSidebar ActiveModule="@_activeModule" OnModuleSelected="HandleModuleSelected" />
+<div style="padding: 40px; background: #1a1a2e; min-height: 100vh; color: white; font-family: Arial;">
+    <h1>GFC Studio - Direct Test (No Layout)</h1>
+    <p>If you see this message, the /studio route is working.</p>
+    <p>Current Time: @DateTime.Now.ToString("HH:mm:ss")</p>
+    
+    <div style="margin-top: 20px; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+        <h3>Status Check:</h3>
+        <ul>
+            <li>✅ Studio page loaded successfully</li>
+            <li>✅ Blazor rendering working</li>
+            <li>⚠️ Layout bypassed for testing</li>
+        </ul>
     </div>
-    <div class="studio-top-toolbar">
-        <TopToolbar
-            IsDirty="@_isDirty"
-            CurrentViewport="@_currentViewport"
-            CanUndo="@UndoRedoService.CanUndo"
-            CanRedo="@UndoRedoService.CanRedo"
-            OnSave="HandleSave"
-            OnExport="HandleExport"
-            OnUndo="HandleUndo"
-            OnRedo="HandleRedo"
-            OnViewportChanged="HandleViewportChanged" />
-    </div>
-    <div class="studio-main-content">
-        <div class="studio-canvas viewport-@_currentViewport">
-            <iframe @ref="_previewIframe" src="http://localhost:3000/gfc-studio-preview" class="preview-iframe"></iframe>
-        </div>
-        <div class="studio-timeline">
-            <AnimationOrchestrator @ref="_orchestrator"
-                                   Keyframes="_activeKeyframes"
-                                   OnKeyframeSelected="HandleKeyframeSelected"
-                                   OnAnimationChanged="MarkAsDirty"
-                                   OnTimeChanged="HandleTimeChanged" />
-        </div>
-    </div>
-    <div class="studio-drawer-host">
-        <Drawer Title="@_activeModule" IsVisible="@(!string.IsNullOrEmpty(_activeModule))" OnClose="CloseDrawer">
-            @switch (_activeModule)
-            {
-                case "Animations":
-                    <AnimationLibrary OnLoadAnimation="LoadAnimation" />
-                    break;
-                case "Layers":
-                    <p>Layers Content (Not Implemented)</p>
-                    break;
-                case "Properties":
-                    <InspectorPanel SelectedKeyframe="_selectedKeyframe" OnKeyframeChanged="MarkAsDirty" />
-                    break;
-                case "Settings":
-                    <p>Settings Content (Not Implemented)</p>
-                    break;
-                case "Theme":
-                    <ThemeSettingsPanel WebsiteSettings="_websiteSettings" OnSettingsChanged="HandleSettingsChanged" />
-                    break;
-            }
-        </Drawer>
-    </div>
+    
+    <button style="margin-top: 20px; padding: 10px 20px; background: #4ade80; border: none; border-radius: 4px; color: black; cursor: pointer;" @onclick="TestClick">Test Button</button>
+    @if (_clicked)
+    {
+        <p style="color: #4ade80; margin-top: 10px;">✅ Button click works! Blazor interactivity confirmed.</p>
+    }
 </div>
 
 @code {
-    private const string LocalStorageKey = "gfc-studio-animation";
-    private string _activeModule;
-    private bool _isDirty = false;
-    private string _currentViewport = "desktop";
-    private double _currentTime = 0.0;
-
-    private AnimationOrchestrator _orchestrator;
-    private ElementReference _previewIframe;
-    private List<AnimationKeyframe> _activeKeyframes = new();
-    private AnimationKeyframe _selectedKeyframe;
-    private WebsiteSettings _websiteSettings = new();
-
-    protected override async Task OnInitializedAsync()
+    private bool _clicked = false;
+    
+    private void TestClick()
     {
-        var savedJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", LocalStorageKey);
-        if (!string.IsNullOrEmpty(savedJson))
-        {
-            _activeKeyframes = JsonSerializer.Deserialize<List<AnimationKeyframe>>(savedJson);
-        }
-        UndoRedoService.RecordState(_activeKeyframes);
-
-        _websiteSettings = await WebsiteSettingsService.GetWebsiteSettingsAsync() ?? new WebsiteSettings();
-    }
-
-    private void HandleModuleSelected(string moduleName)
-    {
-        if (_activeModule == moduleName)
-        {
-            _activeModule = null;
-        }
-        else
-        {
-            _activeModule = moduleName;
-        }
-    }
-
-    private void CloseDrawer()
-    {
-        _activeModule = null;
-    }
-
-    private async Task HandleSave()
-    {
-        var json = JsonSerializer.Serialize(_activeKeyframes);
-        await JSRuntime.InvokeVoidAsync("localStorage.setItem", LocalStorageKey, json);
-        _isDirty = false;
-    }
-
-    private async Task HandleExport()
-    {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        var json = JsonSerializer.Serialize(_activeKeyframes, options);
-        await JSRuntime.InvokeVoidAsync("blazorInterop.saveTextAsFile", "animation.json", json);
-    }
-
-    private void HandleUndo()
-    {
-        _activeKeyframes = UndoRedoService.Undo();
-        _isDirty = true;
-    }
-
-    private void HandleRedo()
-    {
-        _activeKeyframes = UndoRedoService.Redo();
-        _isDirty = true;
-    }
-
-    private void HandleViewportChanged(string viewport)
-    {
-        _currentViewport = viewport;
-    }
-
-    private void LoadAnimation(AnimationDefinition animation)
-    {
-        _activeKeyframes = new List<AnimationKeyframe>(animation.Keyframes);
-        _selectedKeyframe = null;
-        UndoRedoService.RecordState(_activeKeyframes);
-        MarkAsDirty();
-    }
-
-    private void HandleKeyframeSelected(AnimationKeyframe keyframe)
-    {
-        _selectedKeyframe = keyframe;
-        if (keyframe != null)
-        {
-            _activeModule = "Properties";
-        }
-    }
-
-    private void HandleTimeChanged(double newTime)
-    {
-        _currentTime = newTime;
-        StateHasChanged();
-    }
-
-    private void MarkAsDirty()
-    {
-        UndoRedoService.RecordState(_activeKeyframes);
-        if (!_isDirty)
-        {
-            _isDirty = true;
-            StateHasChanged();
-        }
-        SendAnimationDataToPreview();
-    }
-
-    private async void SendAnimationDataToPreview()
-    {
-        if (_activeKeyframes.Any())
-        {
-            await JSRuntime.InvokeVoidAsync("studioInterop.updateAnimationInPreview", _previewIframe, _activeKeyframes);
-        }
-    }
-
-    private async Task HandleSettingsChanged(WebsiteSettings settings)
-    {
-        _websiteSettings = settings;
-        await WebsiteSettingsService.UpdateWebsiteSettingsAsync(_websiteSettings);
+        _clicked = true;
     }
 }

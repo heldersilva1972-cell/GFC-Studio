@@ -99,7 +99,7 @@ namespace GFC.BlazorServer.Services
             config.AppendLine("[Peer]");
             config.AppendLine($"PublicKey = {settings.WireGuardServerPublicKey}");
             config.AppendLine($"Endpoint = {settings.PublicDomain}:{settings.WireGuardPort}");
-            config.AppendLine($"AllowedIPs = {settings.WireGuardAllowedIPs}");
+            config.AppendLine($"AllowedIPs = {settings.WireGuardAllowedIPs ?? "10.8.0.0/24, 192.168.1.0/24"}");
             config.AppendLine("PersistentKeepalive = 25");
 
             return config.ToString();
@@ -187,7 +187,7 @@ namespace GFC.BlazorServer.Services
         private async Task<string?> GetNextAvailableIpAddressAsync(GfcDbContext dbContext)
         {
             var settings = await dbContext.SystemSettings.FindAsync(1) ?? throw new InvalidOperationException("System settings not found.");
-            var subnet = IPNetwork.Parse(settings.WireGuardSubnet);
+            var subnet = IPNetwork.Parse(settings.WireGuardSubnet ?? "10.8.0.0/24");
 
             var usedIps = (await dbContext.VpnProfiles
                 .Where(p => p.RevokedAt == null)
