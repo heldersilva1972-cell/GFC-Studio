@@ -5,7 +5,13 @@ import FeatureGrid from '@/components/FeatureGrid';
 import { getAnimationById, getHomePageContent } from '@/app/lib/api';
 
 const HomePage = async () => {
-    const animation = await getAnimationById('home-hero');
+    let animation;
+    try {
+        animation = await getAnimationById('home-hero');
+    } catch (error) {
+        console.error("Failed to get animation, using fallback", error);
+        animation = { "id": "home-hero", "name": "Home Hero", "keyframes": [] };
+    }
     const content = await getHomePageContent();
 
     return (

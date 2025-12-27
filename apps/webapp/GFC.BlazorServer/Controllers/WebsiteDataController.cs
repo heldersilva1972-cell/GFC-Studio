@@ -16,19 +16,29 @@ namespace GFC.BlazorServer.Controllers
         private readonly IPublicReviewService _publicReviewService;
         private readonly IRentalService _rentalService;
         private readonly GFC.Core.Interfaces.IWebsiteSettingsService _websiteSettingsService;
+        private readonly IEventPromotionService _eventPromotionService;
 
         public WebsiteDataController(
             IAnnouncementService announcementService,
             IAvailabilityService availabilityService,
             IPublicReviewService publicReviewService,
             IRentalService rentalService,
-            GFC.Core.Interfaces.IWebsiteSettingsService websiteSettingsService)
+            GFC.Core.Interfaces.IWebsiteSettingsService websiteSettingsService,
+            IEventPromotionService eventPromotionService)
         {
             _announcementService = announcementService;
             _availabilityService = availabilityService;
             _publicReviewService = publicReviewService;
             _rentalService = rentalService;
             _websiteSettingsService = websiteSettingsService;
+            _eventPromotionService = eventPromotionService;
+        }
+
+        [HttpGet("EventPromotions")]
+        public async Task<IActionResult> GetEventPromotions()
+        {
+            var promotions = await _eventPromotionService.GetUpcomingEventPromotionsAsync(DateTime.UtcNow);
+            return Ok(promotions);
         }
 
         [HttpGet("Announcements")]

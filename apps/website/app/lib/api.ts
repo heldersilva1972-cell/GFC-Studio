@@ -34,12 +34,13 @@ export async function getPageBySlug(slug: string) {
 }
 
 export async function getEvents() {
-  console.log('Mocking API call for /api/content/events');
-  const mockEvents = [
-    { title: 'Community BBQ', eventDate: '2025-07-20T12:00:00Z', description: 'Join us for our annual summer BBQ.' },
-    { title: 'Holiday Party', eventDate: '2025-12-15T18:00:00Z', description: 'Celebrate the holidays with the community.' },
-  ];
-  return Promise.resolve(mockEvents);
+  const response = await fetch(`${API_URL}/api/WebsiteData/EventPromotions`);
+  if (!response.ok) {
+    console.error("Failed to fetch events");
+    return [];
+  }
+  const data = await response.json();
+  return data;
 }
 
 export async function getUnavailableDates(): Promise<{ date: Date; status: string; eventType?: string; eventTime?: string }[]> {
