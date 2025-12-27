@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, FormEvent, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface HallRentalFormProps {
   selectedDate: Date;
@@ -81,32 +81,140 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
     fetchPricing();
   }, []);
 
+  const getDurationHours = (start: string, end: string) => {
+    if (!start || !end || start.includes('Hour') || end.includes('Hour')) return 0;
+
+    const parseTime = (timeStr: string) => {
+      const parts = timeStr.split(' ');
+      if (parts.length < 2) return 0;
+      const [time, period] = parts;
+      let [hours, minutes] = time.split(':').map(Number);
+      if (period === 'PM' && hours < 12) hours += 12;
+      if (period === 'AM' && hours === 12) hours = 0;
+      return hours + minutes / 60;
+    };
+
+    const startTime = parseTime(start);
+    const endTime = parseTime(end);
+
+    let duration = endTime - startTime;
+    if (duration <= 0) duration += 24; // Handle overnight
+    return duration;
+  };
+
   const calculateEstimate = () => {
     if (!pricing) return 0;
 
     let total = 0;
+    const p = {
+      memberRate: pricing.memberRate || 250,
+      nonMemberRate: pricing.nonMemberRate || 500,
+      nonProfitRate: pricing.nonProfitRate || 350,
+      kitchenFee: pricing.kitchenFee || 50,
+      avEquipmentFee: pricing.avEquipmentFee || 25,
+      securityDepositAmount: pricing.securityDepositAmount || 100
+    };
 
     // Base Rate
-    if (formData.memberStatus === 'Member') total += pricing.memberRate;
-    else if (formData.memberStatus === 'Non-Profit') total += pricing.nonProfitRate;
-    else total += pricing.nonMemberRate;
+    if (formData.memberStatus === 'Member') total += p.memberRate;
+    else if (formData.memberStatus === 'Non-Profit') total += p.nonProfitRate;
+    else total += p.nonMemberRate;
+
+    // Additional Hours ($50/hr after 5 hrs)
+    const duration = getDurationHours(formData.startTime, formData.endTime);
+    if (duration > 5) {
+      // Round up to nearest hour for pricing
+      const extraHours = Math.ceil(duration - 5);
+      total += extraHours * 50;
+    }
 
     // Add-ons
-    if (formData.kitchenUse === 'Yes') total += pricing.kitchenFee;
-    if (formData.avEquipment === 'Yes') total += pricing.avEquipmentFee;
+    if (formData.kitchenUse === 'Yes') total += p.kitchenFee;
+    if (formData.avEquipment === 'Yes') total += p.avEquipmentFee;
 
     return total;
   };
 
   const estimatedTotal = calculateEstimate();
+  const eventDuration = getDurationHours(formData.startTime, formData.endTime);
 
   const [status, setStatus] = useState<'idle' | 'submitting' | 'saving' | 'success' | 'error' | 'saved'>('idle');
   const [message, setMessage] = useState('');
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+
+    // Required base fields
+    if (!formData.name?.trim()) errors.name = "Full name is required";
+    if (!formData.address?.trim()) errors.address = "Address is required";
+    if (!formData.city?.trim()) errors.city = "City is required";
+    if (!formData.zip?.trim()) errors.zip = "Zip code is required";
+    if (!formData.phone?.trim()) errors.phone = "Phone number is required";
+    if (!formData.email?.trim()) errors.email = "Email is required";
+    if (!formData.eventType) errors.eventType = "Event type is required";
+    if (!formData.guestCount?.trim()) errors.guestCount = "Guest count is required";
+
+    // Timing
+    if (!formData.startTime || formData.startTime.includes('Hour')) errors.startTime = "Start time is required";
+    if (!formData.endTime || formData.endTime.includes('Hour')) errors.endTime = "End time is required";
+
+    // Date of Birth / Age
+    if (!formData.dob || formData.dob.includes('--')) {
+      errors.dob = "Full date of birth is required";
+    } else {
+      const birthDate = new Date(formData.dob);
+      const ageDifMs = Date.now() - birthDate.getTime();
+      if (new Date(ageDifMs).getUTCFullYear() - 1970 < 21) {
+        errors.dob = "Must be at least 21 years old";
+      }
+    }
+
+    if (formData.eventType === 'Other' && !formData.otherEventType.trim()) {
+      errors.otherEventType = "Description required";
+    }
+
+    // Policies
+    const policies = [
+      'policyAge', 'policyAlcohol', 'policyDecorations', 'policyCancellation', 'policyPayment', 'policyDamage',
+      'policyFunctionTime', 'policyCommitteeApproval', 'policyKitchenRules', 'policySecurityDeposit'
+    ];
+
+    policies.forEach(p => {
+      if (!formData[p as keyof typeof formData]) {
+        errors[p] = "Agreement required";
+      }
+    });
+
+    return errors;
+  };
+
+  const ValidationError = ({ message, className = "" }: { message?: string, className?: string }) => (
+    <AnimatePresence>
+      {message && (
+        <motion.div
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -10 }}
+          className={`absolute z-20 left-full ml-4 top-1/2 -translate-y-1/2 bg-red-600 text-white text-xs font-bold py-1.5 px-3 rounded shadow-xl whitespace-nowrap pointer-events-none before:content-[''] before:absolute before:right-full before:top-1/2 before:-translate-y-1/2 before:border-[6px] before:border-transparent before:border-r-red-600 ${className}`}
+        >
+          {message}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { id, value } = e.target;
     let newFormData;
+
+    // Clear error for this field
+    if (validationErrors[id]) {
+      const newErrors = { ...validationErrors };
+      delete newErrors[id];
+      setValidationErrors(newErrors);
+    }
 
     // Checkbox handling
     if ((e.target as HTMLInputElement).type === 'checkbox') {
@@ -133,41 +241,25 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    const form = e.currentTarget;
-
-    // Don't prevent default yet - let browser validation run first
-    // Check if form is valid
-    const isValid = form.checkValidity();
-
-    console.log('=== FORM VALIDATION DEBUG ===');
-    console.log('Form is valid:', isValid);
-    console.log('First invalid element:', form.querySelector(':invalid'));
-
-    if (!isValid) {
-      // Form is invalid - trigger browser's validation UI
-      form.reportValidity();
-      e.preventDefault();
-      return;
-    }
-
-    // Form passed HTML5 validation, now prevent default and do custom validation
     e.preventDefault();
 
-    // Only do custom validation for business logic after HTML5 validation passes
+    // Clear global error
+    setStatus('idle');
+    setMessage('');
 
-    // Validate "Other" description if selected
-    if (formData.eventType === 'Other' && !formData.otherEventType.trim()) {
-      setStatus('error');
-      setMessage('Please describe your event type.');
-      return;
-    }
+    const errors = validateForm();
+    setValidationErrors(errors);
 
-    // Age Check 
-    const birthDate = new Date(formData.dob);
-    const ageDifMs = Date.now() - birthDate.getTime();
-    if (new Date(ageDifMs).getUTCFullYear() - 1970 < 21) {
+    if (Object.keys(errors).length > 0) {
+      // Find first visible error and scroll to it
+      const firstErrorId = Object.keys(errors)[0];
+      const element = document.getElementById(firstErrorId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.focus();
+      }
       setStatus('error');
-      setMessage('You must be at least 21 years of age to rent the hall.');
+      setMessage('Please correct the highlighted fields and policies.');
       return;
     }
 
@@ -265,9 +357,10 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
       <div className="bg-white/5 p-6 rounded-xl border border-white/10">
         <h3 className="text-xl font-display font-bold text-burnished-gold mb-4 border-b border-burnished-gold/20 pb-2">1. Applicant & Membership</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
+          <div className="relative">
             <label htmlFor="name" className="block text-sm font-medium mb-1">Full Name *</label>
-            <input type="text" id="name" value={formData.name} onChange={handleChange} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 focus:border-burnished-gold outline-none" />
+            <input type="text" id="name" value={formData.name} onChange={handleChange} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 focus:border-burnished-gold outline-none ${validationErrors.name ? 'border-red-500' : 'border-white/20'}`} />
+            <ValidationError message={validationErrors.name} />
           </div>
           <div>
             <label htmlFor="memberStatus" className="block text-sm font-medium mb-1">Membership Status *</label>
@@ -282,17 +375,27 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
               <p className="text-sm text-burnished-gold font-bold">Please note: Membership status will be verified against club records.</p>
             </div>
           )}
-          <div>
+          <div className="relative">
             <label className="block text-sm font-medium mb-1">Date of Birth (Must be 21+) *</label>
-            <div className="flex gap-2">
+            <div className={`flex gap-2 rounded-md ${validationErrors.dob ? 'border border-red-500 p-1' : ''}`}>
               <select
                 id="dobMonth"
                 value={formData.dob.split('-')[1] || ''}
                 onChange={(e) => {
+                  if (validationErrors.dob) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.dob;
+                    setValidationErrors(newErrors);
+                  }
                   const month = e.target.value;
                   const day = formData.dob.split('-')[2] || '';
                   const year = formData.dob.split('-')[0] || '';
-                  setFormData({ ...formData, dob: `${year}-${month}-${day}` });
+                  const newDob = `${year}-${month}-${day}`;
+                  setFormData(prev => {
+                    const next = { ...prev, dob: newDob };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -317,10 +420,20 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 id="dobDay"
                 value={formData.dob.split('-')[2] || ''}
                 onChange={(e) => {
+                  if (validationErrors.dob) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.dob;
+                    setValidationErrors(newErrors);
+                  }
                   const month = formData.dob.split('-')[1] || '';
                   const day = e.target.value;
                   const year = formData.dob.split('-')[0] || '';
-                  setFormData({ ...formData, dob: `${year}-${month}-${day}` });
+                  const newDob = `${year}-${month}-${day}`;
+                  setFormData(prev => {
+                    const next = { ...prev, dob: newDob };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -337,10 +450,20 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 id="dobYear"
                 value={formData.dob.split('-')[0] || ''}
                 onChange={(e) => {
+                  if (validationErrors.dob) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.dob;
+                    setValidationErrors(newErrors);
+                  }
                   const month = formData.dob.split('-')[1] || '01';
                   const day = formData.dob.split('-')[2] || '01';
                   const year = e.target.value;
-                  setFormData({ ...formData, dob: `${year}-${month}-${day}` });
+                  const newDob = `${year}-${month}-${day}`;
+                  setFormData(prev => {
+                    const next = { ...prev, dob: newDob };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -360,29 +483,35 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 })()}
               </select>
             </div>
+            <ValidationError message={validationErrors.dob} />
             <p className="text-xs text-white/50 mt-1">You must be at least 21 years old to rent the hall</p>
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 relative">
             <label htmlFor="address" className="block text-sm font-medium mb-1">Street Address *</label>
-            <input type="text" id="address" value={formData.address} onChange={handleChange} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+            <input type="text" id="address" value={formData.address} onChange={handleChange} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 outline-none ${validationErrors.address ? 'border-red-500' : 'border-white/20'}`} />
+            <ValidationError message={validationErrors.address} />
           </div>
           <div className="md:col-span-2 grid grid-cols-2 gap-4">
-            <div>
+            <div className="relative">
               <label htmlFor="city" className="block text-sm font-medium mb-1">City *</label>
-              <input type="text" id="city" value={formData.city} onChange={handleChange} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+              <input type="text" id="city" value={formData.city} onChange={handleChange} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 outline-none ${validationErrors.city ? 'border-red-500' : 'border-white/20'}`} />
+              <ValidationError message={validationErrors.city} />
             </div>
-            <div>
+            <div className="relative">
               <label htmlFor="zip" className="block text-sm font-medium mb-1">Zip Code *</label>
-              <input type="text" id="zip" value={formData.zip} onChange={handleChange} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+              <input type="text" id="zip" value={formData.zip} onChange={handleChange} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 outline-none ${validationErrors.zip ? 'border-red-500' : 'border-white/20'}`} />
+              <ValidationError message={validationErrors.zip} />
             </div>
           </div>
-          <div>
+          <div className="relative">
             <label htmlFor="phone" className="block text-sm font-medium mb-1">Phone Number *</label>
-            <input type="tel" id="phone" value={formData.phone} onChange={handleChange} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+            <input type="tel" id="phone" value={formData.phone} onChange={handleChange} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 outline-none ${validationErrors.phone ? 'border-red-500' : 'border-white/20'}`} />
+            <ValidationError message={validationErrors.phone} />
           </div>
-          <div>
+          <div className="relative">
             <label htmlFor="email" className="block text-sm font-medium mb-1">Email Address *</label>
-            <input type="email" id="email" value={formData.email} onChange={handleChange} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+            <input type="email" id="email" value={formData.email} onChange={handleChange} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 outline-none ${validationErrors.email ? 'border-red-500' : 'border-white/20'}`} />
+            <ValidationError message={validationErrors.email} />
           </div>
         </div>
       </div>
@@ -391,34 +520,45 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
       <div className="bg-white/5 p-6 rounded-xl border border-white/10">
         <h3 className="text-xl font-display font-bold text-burnished-gold mb-4 border-b border-burnished-gold/20 pb-2">2. Event Details</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 relative">
             <label htmlFor="eventType" className="block text-sm font-medium mb-1">Type of Function *</label>
-            <select id="eventType" value={formData.eventType} onChange={handleChange} onWheel={handleSelectWheel} required className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 text-white outline-none">
+            <select id="eventType" value={formData.eventType} onChange={handleChange} onWheel={handleSelectWheel} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 text-white outline-none ${validationErrors.eventType ? 'border-red-500' : 'border-white/20'}`}>
               <option value="" disabled>Select Function Type...</option>
               {EVENT_TYPES.map(type => (
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>
+            <ValidationError message={validationErrors.eventType} />
             {formData.eventType === 'Other' && (
-              <div className="mt-3 animate-fade-in">
+              <div className="mt-3 animate-fade-in relative">
                 <label htmlFor="otherEventType" className="block text-sm font-medium mb-1 text-burnished-gold">Please describe the function *</label>
-                <input type="text" id="otherEventType" value={formData.otherEventType} onChange={handleChange} required className="w-full bg-midnight-blue border border-burnished-gold rounded-md px-3 py-2 outline-none" placeholder="e.g. Retirement Party" />
+                <input type="text" id="otherEventType" value={formData.otherEventType} onChange={handleChange} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 outline-none ${validationErrors.otherEventType ? 'border-red-500' : 'border-burnished-gold'}`} placeholder="e.g. Retirement Party" />
+                <ValidationError message={validationErrors.otherEventType} />
               </div>
             )}
           </div>
 
-          {/* Start Time - Dropdown Selects */}
-          <div>
+          <div className="relative">
             <label className="block text-sm font-medium mb-1">Start Time *</label>
-            <div className="flex gap-2">
+            <div className={`flex gap-2 rounded-md ${validationErrors.startTime ? 'border border-red-500 p-1' : ''}`}>
               <select
                 id="startHour"
                 value={formData.startTime.split(':')[0] || ''}
                 onChange={(e) => {
+                  if (validationErrors.startTime) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.startTime;
+                    setValidationErrors(newErrors);
+                  }
                   const hour = e.target.value;
                   const minute = formData.startTime.split(':')[1]?.split(' ')[0] || '00';
                   const period = formData.startTime.split(' ')[1] || 'PM';
-                  setFormData({ ...formData, startTime: `${hour}:${minute} ${period}` });
+                  const newTime = `${hour}:${minute} ${period}`;
+                  setFormData(prev => {
+                    const next = { ...prev, startTime: newTime };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -435,10 +575,20 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 id="startMinute"
                 value={formData.startTime.split(':')[1]?.split(' ')[0] || '00'}
                 onChange={(e) => {
+                  if (validationErrors.startTime) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.startTime;
+                    setValidationErrors(newErrors);
+                  }
                   const hour = formData.startTime.split(':')[0] || '1';
                   const minute = e.target.value;
                   const period = formData.startTime.split(' ')[1] || 'PM';
-                  setFormData({ ...formData, startTime: `${hour}:${minute} ${period}` });
+                  const newTime = `${hour}:${minute} ${period}`;
+                  setFormData(prev => {
+                    const next = { ...prev, startTime: newTime };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -454,10 +604,20 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 id="startPeriod"
                 value={formData.startTime.split(' ')[1] || 'PM'}
                 onChange={(e) => {
+                  if (validationErrors.startTime) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.startTime;
+                    setValidationErrors(newErrors);
+                  }
                   const hour = formData.startTime.split(':')[0] || '1';
                   const minute = formData.startTime.split(':')[1]?.split(' ')[0] || '00';
                   const period = e.target.value;
-                  setFormData({ ...formData, startTime: `${hour}:${minute} ${period}` });
+                  const newTime = `${hour}:${minute} ${period}`;
+                  setFormData(prev => {
+                    const next = { ...prev, startTime: newTime };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -468,20 +628,30 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 <option value="PM">PM</option>
               </select>
             </div>
+            <ValidationError message={validationErrors.startTime} />
           </div>
 
-          {/* End Time - Dropdown Selects */}
-          <div>
+          <div className="relative">
             <label className="block text-sm font-medium mb-1">End Time *</label>
-            <div className="flex gap-2">
+            <div className={`flex gap-2 rounded-md ${validationErrors.endTime ? 'border border-red-500 p-1' : ''}`}>
               <select
                 id="endHour"
                 value={formData.endTime.split(':')[0] || ''}
                 onChange={(e) => {
+                  if (validationErrors.endTime) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.endTime;
+                    setValidationErrors(newErrors);
+                  }
                   const hour = e.target.value;
                   const minute = formData.endTime.split(':')[1]?.split(' ')[0] || '00';
                   const period = formData.endTime.split(' ')[1] || 'PM';
-                  setFormData({ ...formData, endTime: `${hour}:${minute} ${period}` });
+                  const newTime = `${hour}:${minute} ${period}`;
+                  setFormData(prev => {
+                    const next = { ...prev, endTime: newTime };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -498,10 +668,20 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 id="endMinute"
                 value={formData.endTime.split(':')[1]?.split(' ')[0] || '00'}
                 onChange={(e) => {
+                  if (validationErrors.endTime) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.endTime;
+                    setValidationErrors(newErrors);
+                  }
                   const hour = formData.endTime.split(':')[0] || '1';
                   const minute = e.target.value;
                   const period = formData.endTime.split(' ')[1] || 'PM';
-                  setFormData({ ...formData, endTime: `${hour}:${minute} ${period}` });
+                  const newTime = `${hour}:${minute} ${period}`;
+                  setFormData(prev => {
+                    const next = { ...prev, endTime: newTime };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -517,10 +697,20 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 id="endPeriod"
                 value={formData.endTime.split(' ')[1] || 'PM'}
                 onChange={(e) => {
+                  if (validationErrors.endTime) {
+                    const newErrors = { ...validationErrors };
+                    delete newErrors.endTime;
+                    setValidationErrors(newErrors);
+                  }
                   const hour = formData.endTime.split(':')[0] || '1';
                   const minute = formData.endTime.split(':')[1]?.split(' ')[0] || '00';
                   const period = e.target.value;
-                  setFormData({ ...formData, endTime: `${hour}:${minute} ${period}` });
+                  const newTime = `${hour}:${minute} ${period}`;
+                  setFormData(prev => {
+                    const next = { ...prev, endTime: newTime };
+                    if (onChange) onChange(next);
+                    return next;
+                  });
                   setTimeout(() => e.target.blur(), 100);
                 }}
                 onWheel={handleSelectWheel}
@@ -531,11 +721,13 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 <option value="PM">PM</option>
               </select>
             </div>
+            <ValidationError message={validationErrors.endTime} />
           </div>
 
-          <div>
+          <div className="relative">
             <label htmlFor="guestCount" className="block text-sm font-medium mb-1">Number of Guests (Max 200) *</label>
-            <input type="text" id="guestCount" inputMode="numeric" pattern="[0-9]*" value={formData.guestCount} onChange={handleChange} required placeholder="Enter number of guests (max 200)" className="w-full bg-midnight-blue border border-white/20 rounded-md px-3 py-2 outline-none" />
+            <input type="text" id="guestCount" inputMode="numeric" pattern="[0-9]*" value={formData.guestCount} onChange={handleChange} required placeholder="Enter number of guests (max 200)" className={`w-full bg-midnight-blue border rounded-md px-3 py-2 outline-none ${validationErrors.guestCount ? 'border-red-500' : 'border-white/20'}`} />
+            <ValidationError message={validationErrors.guestCount} />
           </div>
 
         </div>
@@ -615,21 +807,31 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
           <div className="flex justify-between items-center text-lg">
             <span>Base Rate ({formData.memberStatus})</span>
             <span className="font-mono text-xl">
-              ${formData.memberStatus === 'Member' ? pricing?.memberRate : formData.memberStatus === 'Non-Profit' ? pricing?.nonProfitRate : pricing?.nonMemberRate}
+              ${formData.memberStatus === 'Member' ? pricing?.memberRate || 250 : formData.memberStatus === 'Non-Profit' ? pricing?.nonProfitRate || 350 : pricing?.nonMemberRate || 500}
             </span>
           </div>
+
+          {eventDuration > 5 && (
+            <div className="flex justify-between items-center text-gray-300">
+              <div className="flex flex-col">
+                <span>Extra Time ({Math.ceil(eventDuration - 5)} hours)</span>
+                <span className="text-[10px] opacity-50">First 5 hours included</span>
+              </div>
+              <span className="font-mono">+${Math.ceil(eventDuration - 5) * 50}</span>
+            </div>
+          )}
 
           {formData.kitchenUse === 'Yes' && (
             <div className="flex justify-between items-center text-gray-300">
               <span>Kitchen Usage Fee</span>
-              <span className="font-mono">+${pricing?.kitchenFee}</span>
+              <span className="font-mono">+${pricing?.kitchenFee || 50}</span>
             </div>
           )}
 
           {formData.avEquipment === 'Yes' && (
             <div className="flex justify-between items-center text-gray-300">
               <span>Special Equipment Fee</span>
-              <span className="font-mono">+${pricing?.avEquipmentFee}</span>
+              <span className="font-mono">+${pricing?.avEquipmentFee || 25}</span>
             </div>
           )}
 
@@ -655,32 +857,36 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
         </h3>
 
         <div className="space-y-3 text-sm">
-          <div className="flex items-start gap-3 bg-black/30 p-3 rounded">
-            <input type="checkbox" id="policyFunctionTime" checked={formData.policyFunctionTime} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+          <div className="flex items-start gap-3 bg-black/30 p-3 rounded relative">
+            <input type="checkbox" id="policyFunctionTime" checked={formData.policyFunctionTime} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyFunctionTime ? 'ring-2 ring-red-500' : ''}`} />
             <label htmlFor="policyFunctionTime" className="cursor-pointer">
               I understand that the rental includes <strong className="text-burnished-gold">up to 5 hours of function time</strong>. Additional hours are available at <strong className="text-burnished-gold">$50 per hour</strong>. <span className="text-red-400 font-bold">Setup and cleanup time are NOT included</span> in the 5-hour function time.
             </label>
+            <ValidationError message={validationErrors.policyFunctionTime} className="!-top-2 !left-auto !right-0 translate-x-0" />
           </div>
 
-          <div className="flex items-start gap-3 bg-black/30 p-3 rounded">
-            <input type="checkbox" id="policyCommitteeApproval" checked={formData.policyCommitteeApproval} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+          <div className="flex items-start gap-3 bg-black/30 p-3 rounded relative">
+            <input type="checkbox" id="policyCommitteeApproval" checked={formData.policyCommitteeApproval} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyCommitteeApproval ? 'ring-2 ring-red-500' : ''}`} />
             <label htmlFor="policyCommitteeApproval" className="cursor-pointer">
               I understand that all rental requests are subject to <strong className="text-burnished-gold">Hall Rental Committee approval</strong>. The committee has the authority to set attendance limits and may require police presence for certain events (cost added to rental fee).
             </label>
+            <ValidationError message={validationErrors.policyCommitteeApproval} className="!-top-2 !left-auto !right-0 translate-x-0" />
           </div>
 
-          <div className="flex items-start gap-3 bg-black/30 p-3 rounded">
-            <input type="checkbox" id="policyKitchenRules" checked={formData.policyKitchenRules} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+          <div className="flex items-start gap-3 bg-black/30 p-3 rounded relative">
+            <input type="checkbox" id="policyKitchenRules" checked={formData.policyKitchenRules} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyKitchenRules ? 'ring-2 ring-red-500' : ''}`} />
             <label htmlFor="policyKitchenRules" className="cursor-pointer">
               I understand that <strong className="text-burnished-gold">NO CLUB UTENSILS</strong> are provided. If using a caterer for cooking, <strong className="text-red-400">proof of liability insurance</strong> must be on file. The <strong className="text-red-400">lower ovens on the gas stove are NOT to be used</strong> under any circumstances.
             </label>
+            <ValidationError message={validationErrors.policyKitchenRules} className="!-top-2 !left-auto !right-0 translate-x-0" />
           </div>
 
-          <div className="flex items-start gap-3 bg-black/30 p-3 rounded">
-            <input type="checkbox" id="policySecurityDeposit" checked={formData.policySecurityDeposit} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+          <div className="flex items-start gap-3 bg-black/30 p-3 rounded relative">
+            <input type="checkbox" id="policySecurityDeposit" checked={formData.policySecurityDeposit} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policySecurityDeposit ? 'ring-2 ring-red-500' : ''}`} />
             <label htmlFor="policySecurityDeposit" className="cursor-pointer">
               I understand that a <strong className="text-burnished-gold">refundable security deposit</strong> is required. Any additional janitorial effort or damages will be deducted from this deposit. The hall must be returned to its original clean and empty condition.
             </label>
+            <ValidationError message={validationErrors.policySecurityDeposit} className="!-top-2 !left-auto !right-0 translate-x-0" />
           </div>
 
           <div className="mt-4 p-3 bg-burnished-gold/10 rounded border border-burnished-gold/30 text-center">
@@ -695,34 +901,40 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
       <div className="bg-black/40 p-6 rounded-xl border border-white/10 space-y-4">
         <h3 className="text-xl font-display font-bold text-red-400 mb-2">Usage Agreement</h3>
 
-        <div className="flex items-start gap-3">
-          <input type="checkbox" id="policyAge" checked={formData.policyAge} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+        <div className="flex items-start gap-3 relative">
+          <input type="checkbox" id="policyAge" checked={formData.policyAge} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyAge ? 'ring-2 ring-red-500' : ''}`} />
           <label htmlFor="policyAge" className="text-sm cursor-pointer">I attest that I am at least <strong>21 years of age</strong>.</label>
+          <ValidationError message={validationErrors.policyAge} className="!-top-4 !left-auto !right-0 translate-x-0" />
         </div>
 
-        <div className="flex items-start gap-3">
-          <input type="checkbox" id="policyAlcohol" checked={formData.policyAlcohol} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+        <div className="flex items-start gap-3 relative">
+          <input type="checkbox" id="policyAlcohol" checked={formData.policyAlcohol} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyAlcohol ? 'ring-2 ring-red-500' : ''}`} />
           <label htmlFor="policyAlcohol" className="text-sm cursor-pointer">I understand that <strong>NO OUTSIDE ALCOHOL</strong> is permitted on the premises. Violation results in immediate termination of the event.</label>
+          <ValidationError message={validationErrors.policyAlcohol} className="!-top-4 !left-auto !right-0 translate-x-0" />
         </div>
 
-        <div className="flex items-start gap-3">
-          <input type="checkbox" id="policyDecorations" checked={formData.policyDecorations} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+        <div className="flex items-start gap-3 relative">
+          <input type="checkbox" id="policyDecorations" checked={formData.policyDecorations} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyDecorations ? 'ring-2 ring-red-500' : ''}`} />
           <label htmlFor="policyDecorations" className="text-sm cursor-pointer">I agree NOT to use scotch tape, tacks, or nails on any walls, ceilings, or equipment.</label>
+          <ValidationError message={validationErrors.policyDecorations} className="!-top-4 !left-auto !right-0 translate-x-0" />
         </div>
 
-        <div className="flex items-start gap-3">
-          <input type="checkbox" id="policyCancellation" checked={formData.policyCancellation} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+        <div className="flex items-start gap-3 relative">
+          <input type="checkbox" id="policyCancellation" checked={formData.policyCancellation} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyCancellation ? 'ring-2 ring-red-500' : ''}`} />
           <label htmlFor="policyCancellation" className="text-sm cursor-pointer">I understand that cancellations made less than <strong>30 days</strong> prior to the date will forfeit the rental fee.</label>
+          <ValidationError message={validationErrors.policyCancellation} className="!-top-4 !left-auto !right-0 translate-x-0" />
         </div>
 
-        <div className="flex items-start gap-3">
-          <input type="checkbox" id="policyPayment" checked={formData.policyPayment} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+        <div className="flex items-start gap-3 relative">
+          <input type="checkbox" id="policyPayment" checked={formData.policyPayment} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyPayment ? 'ring-2 ring-red-500' : ''}`} />
           <label htmlFor="policyPayment" className="text-sm cursor-pointer">I agree to pay the Hall Rental Fee in full within <strong>2 business days</strong> of approval to reserve the date.</label>
+          <ValidationError message={validationErrors.policyPayment} className="!-top-4 !left-auto !right-0 translate-x-0" />
         </div>
 
-        <div className="flex items-start gap-3">
-          <input type="checkbox" id="policyDamage" checked={formData.policyDamage} onChange={handleChange} required className="mt-1 w-5 h-5 accent-burnished-gold" />
+        <div className="flex items-start gap-3 relative">
+          <input type="checkbox" id="policyDamage" checked={formData.policyDamage} onChange={handleChange} required className={`mt-1 w-5 h-5 accent-burnished-gold ${validationErrors.policyDamage ? 'ring-2 ring-red-500' : ''}`} />
           <label htmlFor="policyDamage" className="text-sm cursor-pointer">I accept full responsibility for any damage to the building, equipment, or fixtures caused by my guests.</label>
+          <ValidationError message={validationErrors.policyDamage} className="!-top-4 !left-auto !right-0 translate-x-0" />
         </div>
       </div>
 
@@ -804,17 +1016,39 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
                   <div><span className="text-pure-white/60">Name:</span> <span className="text-pure-white font-semibold">{formData.name}</span></div>
                   <div><span className="text-pure-white/60">Membership:</span> <span className="text-burnished-gold font-semibold">{formData.memberStatus}</span></div>
+                  {formData.memberStatus === 'Member' && formData.sponsoringMember && (
+                    <div className="md:col-span-2"><span className="text-pure-white/60">Sponsoring Member:</span> <span className="text-pure-white">{formData.sponsoringMember}</span></div>
+                  )}
                   <div><span className="text-pure-white/60">Email:</span> <span className="text-pure-white">{formData.email}</span></div>
                   <div><span className="text-pure-white/60">Phone:</span> <span className="text-pure-white">{formData.phone}</span></div>
                   <div className="md:col-span-2"><span className="text-pure-white/60">Address:</span> <span className="text-pure-white">{formData.address}, {formData.city} {formData.zip}</span></div>
-                  <div><span className="text-pure-white/60">Event Type:</span> <span className="text-burnished-gold font-semibold">{formData.eventType === 'Other' ? formData.otherEventType : formData.eventType}</span></div>
+
+                  <div className="md:col-span-2 h-px bg-white/10 my-1"></div>
+
+                  <div><span className="text-pure-white/60">Function Type:</span> <span className="text-burnished-gold font-semibold">{formData.eventType === 'Other' ? formData.otherEventType : formData.eventType}</span></div>
                   <div><span className="text-pure-white/60">Event Date:</span> <span className="text-pure-white font-semibold">{selectedDate?.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span></div>
-                  <div><span className="text-pure-white/60">Time:</span> <span className="text-pure-white">{formData.startTime} - {formData.endTime}</span></div>
+                  <div><span className="text-pure-white/60">Function Times:</span> <span className="text-pure-white font-semibold">{formData.startTime} - {formData.endTime}</span></div>
+                  <div><span className="text-pure-white/60">Duration:</span> <span className="text-burnished-gold font-bold">{eventDuration.toFixed(1)} hours</span></div>
                   <div><span className="text-pure-white/60">Guests:</span> <span className="text-pure-white font-semibold">{formData.guestCount}</span></div>
+
+                  <div className="md:col-span-2 h-px bg-white/10 my-1"></div>
+
                   <div><span className="text-pure-white/60">Setup Time:</span> <span className="text-pure-white">{formData.setupNeeded}</span></div>
                   <div><span className="text-pure-white/60">Bar Service:</span> <span className="text-pure-white">{formData.barService}</span></div>
-                  <div><span className="text-pure-white/60">Kitchen Use:</span> <span className="text-pure-white">{formData.kitchenUse}</span></div>
+                  <div><span className="text-pure-white/60">Kitchen Access:</span> <span className="text-pure-white">{formData.kitchenUse}</span></div>
                   <div><span className="text-pure-white/60">A/V Equipment:</span> <span className="text-pure-white">{formData.avEquipment}</span></div>
+                  {formData.kitchenUse === 'Yes' && formData.catererName && (
+                    <div className="md:col-span-2"><span className="text-pure-white/60">Caterer:</span> <span className="text-pure-white">{formData.catererName}</span></div>
+                  )}
+
+                  {formData.details && (
+                    <div className="md:col-span-2 mt-2">
+                      <span className="text-pure-white/60 block mb-1">Additional Notes:</span>
+                      <div className="bg-white/5 p-3 rounded text-pure-white/80 lowercase italic leading-relaxed border border-white/5">
+                        {formData.details}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-4 border-t border-white/10">
