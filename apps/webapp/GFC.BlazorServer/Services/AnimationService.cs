@@ -21,11 +21,11 @@ namespace GFC.BlazorServer.Services
                     Tags = new List<string> { "hero", "homepage" },
                     Keyframes = new List<AnimationKeyframe>
                     {
-                        new AnimationKeyframe { Target = "headline", Effect = "slide-in-up", Duration = 0.8, Delay = 0.2, Easing = "ease-out" },
-                        new AnimationKeyframe { Target = "subtitle", Effect = "slide-in-up", Duration = 0.8, Delay = 0.4, Easing = "ease-out" },
-                        new AnimationKeyframe { Target = "primary-cta", Effect = "fade-in", Duration = 0.5, Delay = 0.8, Easing = "ease-in" },
-                        new AnimationKeyframe { Target = "secondary-cta", Effect = "fade-in", Duration = 0.5, Delay = 1.0, Easing = "ease-in" },
-                        new AnimationKeyframe { Target = "background-image", Effect = "scale-in", Duration = 1.5, Delay = 0, Easing = "ease-out-expo" }
+                        new AnimationKeyframe { Target = "headline", Effect = "slide-in-up", Duration = 0.8, Delay = 0.2, Easing = "easeOut" },
+                        new AnimationKeyframe { Target = "subtitle", Effect = "slide-in-up", Duration = 0.8, Delay = 0.4, Easing = "easeOut" },
+                        new AnimationKeyframe { Target = "primary-cta", Effect = "fade-in", Duration = 0.5, Delay = 0.8, Easing = "easeIn" },
+                        new AnimationKeyframe { Target = "secondary-cta", Effect = "fade-in", Duration = 0.5, Delay = 1.0, Easing = "easeIn" },
+                        new AnimationKeyframe { Target = "background-image", Effect = "scale-in", Duration = 1.5, Delay = 0, Easing = "circOut" }
                     }
                 });
             }
@@ -39,9 +39,9 @@ namespace GFC.BlazorServer.Services
                     Tags = new List<string> { "hero", "hall-rental" },
                     Keyframes = new List<AnimationKeyframe>
                     {
-                        new AnimationKeyframe { Target = "headline", Effect = "fade-in", Duration = 1.0, Delay = 0.2, Easing = "ease-in-out" },
-                        new AnimationKeyframe { Target = "subtitle", Effect = "fade-in", Duration = 1.0, Delay = 0.5, Easing = "ease-in-out" },
-                        new AnimationKeyframe { Target = "background-image", Effect = "scale-in", Duration = 1.5, Delay = 0, Easing = "ease-out-expo" }
+                        new AnimationKeyframe { Target = "headline", Effect = "fade-in", Duration = 1.0, Delay = 0.2, Easing = "easeInOut" },
+                        new AnimationKeyframe { Target = "subtitle", Effect = "fade-in", Duration = 1.0, Delay = 0.5, Easing = "easeInOut" },
+                        new AnimationKeyframe { Target = "background-image", Effect = "scale-in", Duration = 1.5, Delay = 0, Easing = "circOut" }
                     }
                 });
             }

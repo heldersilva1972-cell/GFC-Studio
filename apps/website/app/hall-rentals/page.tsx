@@ -10,7 +10,7 @@ const HallRentalPage = async () => {
 
   return (
     <>
-      <AnimationRenderer animation={animation} content={content} />
+      {/* <AnimationRenderer animation={animation} content={content} /> */}
       <HallRentalClientPage />
     </>
   );

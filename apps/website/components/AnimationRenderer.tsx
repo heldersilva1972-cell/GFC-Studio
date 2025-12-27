@@ -9,7 +9,15 @@ import styles from './AnimationRenderer.module.css';
 
 const getAnimationVariants = (keyframe) => {
     if (!keyframe) return {};
-    const { effect, duration, delay, easing } = keyframe;
+    let { effect, duration, delay, easing } = keyframe;
+    // [SAFEGUARD] Normalize easing to camelCase for Framer Motion
+    if (easing) {
+        if (easing === 'ease-out-expo') easing = 'circOut';
+        else if (easing === 'ease-out') easing = 'easeOut';
+        else if (easing === 'ease-in') easing = 'easeIn';
+        else if (easing === 'ease-in-out') easing = 'easeInOut';
+    }
+
     let initial = {};
     let animate = {};
 
@@ -48,7 +56,7 @@ const AnimationRenderer = ({ animation, content, fallbackImage = '/images/hero-b
         return (
             <div className={styles.fallbackContainer} style={{ backgroundImage: `url(${fallbackImage})` }}>
                 <div className={styles.fallbackOverlay}></div>
-                 <Hero {...content} />
+                <Hero {...content} />
             </div>
         );
     }
@@ -59,7 +67,7 @@ const AnimationRenderer = ({ animation, content, fallbackImage = '/images/hero-b
     // A more dynamic implementation would map targets to components.
     return (
         <div className={styles.rendererWrapper}>
-             <motion.div {...getAnimationVariants(keyframes.find(k => k.target === 'background-image'))}>
+            <motion.div {...getAnimationVariants(keyframes.find(k => k.target === 'background-image'))}>
                 <Hero
                     title={
                         <motion.span {...getAnimationVariants(keyframes.find(k => k.target === 'headline'))}>
@@ -72,14 +80,14 @@ const AnimationRenderer = ({ animation, content, fallbackImage = '/images/hero-b
                         </motion.span>
                     }
                     primaryCtaText={
-                         <motion.div {...getAnimationVariants(keyframes.find(k => k.target === 'primary-cta'))}>
-                           {content.primaryCtaText}
-                         </motion.div>
+                        <motion.div {...getAnimationVariants(keyframes.find(k => k.target === 'primary-cta'))}>
+                            {content.primaryCtaText}
+                        </motion.div>
                     }
-                     secondaryCtaText={
-                         <motion.div {...getAnimationVariants(keyframes.find(k => k.target === 'secondary-cta'))}>
-                           {content.secondaryCtaText}
-                         </motion.div>
+                    secondaryCtaText={
+                        <motion.div {...getAnimationVariants(keyframes.find(k => k.target === 'secondary-cta'))}>
+                            {content.secondaryCtaText}
+                        </motion.div>
                     }
                     primaryCtaLink={content.primaryCtaLink}
                     secondaryCtaLink={content.secondaryCtaLink}
