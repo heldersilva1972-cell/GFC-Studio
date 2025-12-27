@@ -222,6 +222,29 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
+        public async Task<IEnumerable<AvailabilityCalendar>> GetClubEventsAsync()
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.AvailabilityCalendars
+                .Where(d => d.Status == "Club Event")
+                .ToListAsync();
+        }
+
+        public async Task UpdateBlackoutDateAsync(int id, DateTime date, string description, string startTime, string endTime)
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var existing = await context.AvailabilityCalendars.FindAsync(id);
+            if (existing != null)
+            {
+                existing.Date = date;
+                existing.Description = description;
+                existing.StartTime = startTime;
+                existing.EndTime = endTime;
+                context.Entry(existing).State = EntityState.Modified;
+                await context.SaveChangesAsync();
+            }
+        }
+
         public async Task AddBlackoutDateAsync(DateTime date, string? description = null, string? startTime = null, string? endTime = null)
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
