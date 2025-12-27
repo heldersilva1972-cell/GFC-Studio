@@ -226,6 +226,7 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IPageService, PageService>();
         builder.Services.AddScoped<IReviewService, ReviewService>();
         builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
+        builder.Services.AddScoped<IMigrationService, MigrationService>();
         builder.Services.AddScoped(typeof(UndoRedoService<>));
         
         // Controller Client Wiring
