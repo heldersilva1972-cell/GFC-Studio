@@ -115,7 +115,7 @@
                         <div class="component-list">
                             @foreach (var component in availableComponents)
                             {
-                                <div class="component-item" draggable="true" @ondragstart="@(() => HandleComponentDragStart(component))">
+                                 <div class="component-item" draggable="true" @ondragstart="@(() => HandleComponentDragStart(component.ComponentType))">
                                     <span class="component-item-icon">@component.Icon</span>
                                     <div class="component-item-text">
                                         <div class="component-item-title">@component.Name</div>
@@ -148,7 +148,7 @@
             </div>
         </div>
         <div class="right-inspector">
-            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" />
+            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnPropertyChanged="HandlePropertyChange" />
             @if (!string.IsNullOrEmpty(lastWizardAction))
             {
                 <div class="inspector-header">
@@ -347,6 +347,7 @@
         new StudioComponentDefinition { Name = "Button CTA", Description = "Call to action button", Icon = "🔘", ComponentType = "ButtonCTA", DefaultProperties = "{ \"text\": \"Click Me\", \"link\": \"#\" }" }
     };
 
+    private string _draggedComponentType;
     private StudioComponentDefinition draggedComponent;
     public enum SaveStatus
     {
@@ -397,6 +398,41 @@
         }
     }
 
+    [JSInvokable]
+    public async Task MoveSection(string sectionId, int direction)
+    {
+        var index = sections.FindIndex(s => s.ClientId.ToString() == sectionId);
+        if (index < 0) return;
+
+        var newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= sections.Count) return;
+
+        var section = sections[index];
+        sections.RemoveAt(index);
+        sections.Insert(newIndex, section);
+
+        // Update OrderIndex
+        for (int i = 0; i < sections.Count; i++)
+        {
+            sections[i].OrderIndex = i;
+        }
+
+        await JSRuntime.InvokeVoidAsync("studioInterop.sendSectionsToPreview", _previewIframe, sections);
+        MarkAsDirty();
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task HandlePreviewReady()
+    {
+        Console.WriteLine("Blazor received PREVIEW_READY");
+        if (sections != null && sections.Any())
+        {
+            var sectionsJson = JsonSerializer.Serialize(sections);
+            await JSRuntime.InvokeVoidAsync("studioInterop.sendSectionsToPreview", _previewIframe, sections);
+        }
+    }
+
     private AnimationSettings currentAnimationSettings = new();
     private StudioWizard studioWizard;
     private List<StudioWizard.WizardWarning> wizardWarnings = new();
@@ -440,22 +476,37 @@
     }
 
     [JSInvokable]
-    public void SetSelectedSection(StudioSection section)
+    public void HandleSectionSelected(string sectionId)
     {
-        selectedSection = section;
+        selectedSection = sections.FirstOrDefault(s => s.ClientId.ToString() == sectionId);
         StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task DeleteSection(string sectionId)
+    {
+        var section = sections.FirstOrDefault(s => s.ClientId.ToString() == sectionId);
+        if (section != null)
+        {
+            sections.Remove(section);
+            await JSRuntime.InvokeVoidAsync("studioInterop.sendSectionsToPreview", _previewIframe, sections);
+            MarkAsDirty();
+            StateHasChanged();
+        }
     }
 
     private async Task HandlePropertyChange((string sectionId, string propertyName, object propertyValue) args)
     {
-        var styleUpdate = new Dictionary<string, object>
+        var section = sections.FirstOrDefault(s => s.ClientId.ToString() == args.sectionId);
+        if (section != null)
         {
-            { args.propertyName, args.propertyValue }
-        };
+            var content = JsonSerializer.Deserialize<Dictionary<string, object>>(section.Content ?? "{}");
+            content[args.propertyName] = args.propertyValue;
+            section.Content = JsonSerializer.Serialize(content);
 
-        if (_previewIframe.Context != null)
-        {
-            await JSRuntime.InvokeVoidAsync("studioInterop.updateStyleInPreview", _previewIframe, args.sectionId, styleUpdate);
+            await JSRuntime.InvokeVoidAsync("studioInterop.updateStyleInPreview", _previewIframe, args.sectionId, new { args.propertyName, args.propertyValue });
+            MarkAsDirty();
+            StateHasChanged();
         }
     }
 
@@ -570,10 +621,9 @@
         StateHasChanged();
     }
 
-    private void HandleComponentDragStart(StudioComponentDefinition component)
+    private void HandleComponentDragStart(string componentType)
     {
-        draggedComponent = component;
-        draggedTemplate = null;
+        _draggedComponentType = componentType;
     }
 
     private void HandleDragStart(StudioTemplate template)
@@ -582,9 +632,34 @@
         draggedComponent = null;
     }
 
+    private string GetDefaultContent(string componentType)
+    {
+        return componentType switch
+        {
+            "Hero" => JsonSerializer.Serialize(new { headline = "New Hero Section" }),
+            "RichTextBlock" => JsonSerializer.Serialize(new { content = "<p>Here is some default text.</p>" }),
+            _ => "{}"
+        };
+    }
+
     private async Task HandleDrop()
     {
-        // This is now handled by the JS interop
+        if (string.IsNullOrEmpty(_draggedComponentType)) return;
+
+        var newSection = new StudioSection
+        {
+            ClientId = Guid.NewGuid(),
+            ComponentType = _draggedComponentType,
+            OrderIndex = sections.Count,
+            Content = GetDefaultContent(_draggedComponentType),
+			StudioPageId = PageId
+        };
+
+        sections.Add(newSection);
+        await JSRuntime.InvokeVoidAsync("studioInterop.sendSectionsToPreview", _previewIframe, sections);
+        MarkAsDirty();
+
+        _draggedComponentType = null;
     }
 
     [JSInvokable]
@@ -679,11 +754,11 @@
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
             currentUserName = authState.User.Identity?.Name ?? "System";
 
-            if (PageId == 0)
+            if (PageId != 0)
             {
                 var dotNetHelper = DotNetObjectReference.Create(this);
                 await JSRuntime.InvokeVoidAsync("studioInterop.setDotNetHelper", dotNetHelper);
-                await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler");
+                await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler", _previewIframe);
             }
 
             var lockResult = await StudioService.AcquireLockAsync(PageId, "System"); // TODO: Use real user
@@ -820,28 +895,25 @@
         try
         {
             saveStatus = SaveStatus.Saving;
-            saveStatusText = "Saving manual version...";
+            saveStatusText = "Saving...";
             StateHasChanged();
 
-            if (selectedSection != null)
-            {
-               // Update animation settings logic if needed
-            }
-            
-            var json = JsonSerializer.Serialize(sections);
-            draft = await StudioService.SaveDraftAsync(PageId, json, "System", versionDescription); // TODO: Use real user
-            versionDescription = string.Empty; // Reset for next time
-            
-            await LoadHistory();
-            latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
+            var sectionsJson = JsonSerializer.Serialize(sections);
+            var savedDraft = await StudioService.SaveDraftAsync(PageId, sectionsJson, currentUserName, versionDescription);
 
+            latestVersion = savedDraft.Version;
             saveStatus = SaveStatus.Saved;
-            saveStatusText = "Manual version saved.";
+            saveStatusText = $"Saved v{latestVersion}";
+
+            await LoadHistory();
+
             StateHasChanged();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to save draft");
+            saveStatus = SaveStatus.Error;
+            saveStatusText = "Save failed";
             errorMessage = "Failed to save draft: " + ex.Message;
         }
     }

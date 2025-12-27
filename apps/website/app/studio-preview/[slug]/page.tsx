@@ -17,20 +17,24 @@ export default function StudioPreviewPage({ params }: PreviewPageProps) {
   const { setSections, addSection, updateSectionStyle } = usePageStore();
 
   useEffect(() => {
-    // Fetch initial page data
-    const fetchPageData = async () => {
-      const pageData = await getPageBySlug(params.slug);
-      if (pageData && pageData.sections) {
-        setSections(pageData.sections);
-      }
-    };
-    fetchPageData();
+    // Let the parent know the iframe is ready
+    window.parent.postMessage({ type: 'PREVIEW_READY' }, '*');
 
     // Set up message listener
     const handleMessage = (event: MessageEvent) => {
-      const { type, component, sectionId, style } = event.data;
+        // TODO: Make this configurable for production environments
+        if (event.origin !== 'http://localhost:5207') {
+             console.warn('Message from untrusted origin ignored:', event.origin);
+             return;
+        }
+
+      const { type, sections, component, sectionId, style } = event.data;
 
       switch (type) {
+        case 'LOAD_SECTIONS':
+          console.log('Preview received sections:', sections);
+          setSections(sections as StudioSection[]);
+          break;
         case 'ADD_COMPONENT':
           addSection(component as StudioSection);
           break;

@@ -67,6 +67,18 @@ const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections }) => {
     }
   };
 
+  const handleMoveUp = (sectionId: string) => {
+    window.parent.postMessage({ type: 'MOVE_SECTION', payload: { sectionId, direction: -1 } }, document.referrer);
+  };
+
+  const handleMoveDown = (sectionId: string) => {
+    window.parent.postMessage({ type: 'MOVE_SECTION', payload: { sectionId, direction: 1 } }, document.referrer);
+  };
+
+  const handleDelete = (sectionId: string) => {
+    window.parent.postMessage({ type: 'DELETE_SECTION', payload: { sectionId } }, document.referrer);
+  };
+
   if (!sections || sections.length === 0) {
     return <p>No content sections available.</p>;
   }
@@ -112,15 +124,24 @@ const DynamicRenderer: React.FC<DynamicRendererProps> = ({ sections }) => {
         return (
             <motion.div
                 key={section.id}
-                onClick={() => handleSectionClick(section)}
                 style={selectionStyle}
                 initial="hidden"
                 animate={isInStudio ? controls : undefined}
                 whileInView={!isInStudio ? "visible" : undefined}
                 viewport={{ once: true }}
                 variants={variants}
+                className={styles.sectionWrapper}
             >
-                <Component {...section.properties} />
+                {isInStudio && isSelected && (
+                    <div className={styles.sectionToolbar}>
+                        <button onClick={() => handleMoveUp(section.clientId)}>↑</button>
+                        <button onClick={() => handleMoveDown(section.clientId)}>↓</button>
+                        <button onClick={() => handleDelete(section.clientId)}>🗑️</button>
+                    </div>
+                )}
+                <div onClick={() => handleSectionClick(section)} className={styles.sectionContent}>
+                    <Component {...section.properties} />
+                </div>
             </motion.div>
         );
       })}

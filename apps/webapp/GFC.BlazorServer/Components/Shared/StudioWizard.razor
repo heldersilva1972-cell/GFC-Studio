@@ -6,55 +6,24 @@
     @if (TargetSection != null)
     {
         <div class="p-3">
-            <h6 class="border-bottom pb-2 mb-3">@TargetSection.sectionType</h6>
+            <h6 class="border-bottom pb-2 mb-3">@TargetSection.ComponentType</h6>
 
-            @switch (TargetSection.sectionType)
+            @switch (TargetSection.ComponentType)
             {
                 case "Hero":
                     <div class="form-group">
                         <label>Headline</label>
-                        <input type="text" class="form-control"
-                               value="@(TargetSection.properties.ContainsKey("headline") ? TargetSection.properties["headline"].ToString() : "")"
-                               @onchange="@((e) => HandlePropertyChanged("headline", e.Value.ToString()))" />
-                    </div>
-                    <div class="form-group">
-                        <label>Background Image URL</label>
-                        <input type="text" class="form-control"
-                               value="@(TargetSection.properties.ContainsKey("backgroundImage") ? TargetSection.properties["backgroundImage"].ToString() : "")"
-                               @onchange="@((e) => HandlePropertyChanged("backgroundImage", e.Value.ToString()))" />
+                        <input type="text" class="form-control" value="@(_properties.GetValueOrDefault("headline", ""))" @oninput="(e) => UpdateProperty("headline", e.Value)" />
                     </div>
                     break;
-
                 case "RichTextBlock":
                     <div class="form-group">
                         <label>Content</label>
-                        <textarea class="form-control" rows="5"
-                                  value="@(TargetSection.properties.ContainsKey("content") ? TargetSection.properties["content"].ToString() : "")"
-                                  @onchange="@((e) => HandlePropertyChanged("content", e.Value.ToString()))"></textarea>
+                        <textarea class="form-control" rows="10" value="@(_properties.GetValueOrDefault("content", ""))" @oninput="(e) => UpdateProperty("content", e.Value)"></textarea>
                     </div>
                     break;
-
-                case "ButtonCTA":
-                    <div class="form-group">
-                        <label>Text</label>
-                        <input type="text" class="form-control"
-                               value="@(TargetSection.properties.ContainsKey("text") ? TargetSection.properties["text"].ToString() : "")"
-                               @onchange="@((e) => HandlePropertyChanged("text", e.Value.ToString()))" />
-                    </div>
-                    <div class="form-group">
-                        <label>Link</label>
-                        <input type="text" class="form-control"
-                               value="@(TargetSection.properties.ContainsKey("link") ? TargetSection.properties["link"].ToString() : "")"
-                               @onchange="@((e) => HandlePropertyChanged("link", e.Value.ToString()))" />
-                    </div>
-                    <ColorPicker Label="Button Color"
-                                 Value="@(TargetSection.properties.ContainsKey("backgroundColor") ? TargetSection.properties["backgroundColor"].ToString() : "#007bff")"
-                                 ValueChanged="@((v) => HandlePropertyChanged("backgroundColor", v))" />
-                    break;
-
                 default:
                     <p class="text-muted">No properties available for this component.</p>
-                    <pre>@JsonSerializer.Serialize(TargetSection.properties, new JsonSerializerOptions { WriteIndented = true })</pre>
                     break;
             }
         </div>
@@ -72,23 +41,25 @@
     [Parameter]
     public EventCallback<(string sectionId, string propertyName, object propertyValue)> OnPropertyChanged { get; set; }
 
-    private async Task HandlePropertyChanged(string propertyName, object value)
-    {
-        if (TargetSection != null)
-        {
-            // Update local state optimistically
-            if (TargetSection.properties.ContainsKey(propertyName))
-            {
-                TargetSection.properties[propertyName] = value;
-            }
-            else
-            {
-                TargetSection.properties.Add(propertyName, value);
-            }
+    private Dictionary<string, object> _properties = new();
 
-            await OnPropertyChanged.InvokeAsync((TargetSection.ClientId.ToString(), propertyName, value));
-            StateHasChanged();
+    protected override void OnParametersSet()
+    {
+        if (TargetSection != null && !string.IsNullOrEmpty(TargetSection.Content))
+        {
+            _properties = JsonSerializer.Deserialize<Dictionary<string, object>>(TargetSection.Content);
         }
+        else
+        {
+            _properties = new();
+        }
+    }
+
+    private async Task UpdateProperty(string key, object value)
+    {
+        _properties[key] = value;
+        TargetSection.Content = JsonSerializer.Serialize(_properties);
+        await OnPropertyChanged.InvokeAsync((TargetSection.ClientId.ToString(), key, value));
     }
 
     public class WizardWarning
