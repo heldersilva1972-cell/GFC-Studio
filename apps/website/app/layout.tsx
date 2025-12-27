@@ -73,6 +73,7 @@ export default async function RootLayout({
     const settings = await getWebsiteSettings();
 
     const a11yClass = settings?.highAccessibilityMode ? 'high-accessibility' : '';
+    const largeTextClass = settings?.largeTextMode ? 'large-text' : '';
 
     const globalStyles = {
         '--primary-color': settings?.primaryColor || '#0D1B2A',
@@ -90,13 +91,13 @@ export default async function RootLayout({
                 <link rel="manifest" href="/site.webmanifest" />
             </head>
             <body
-                className={a11yClass}
+                className={`${a11yClass} ${largeTextClass}`}
                 data-motion-reduced={settings?.highAccessibilityMode ? 'true' : 'false'}
                 style={globalStyles}
             >
                 <Header />
                 <main>{children}</main>
-                <Footer />
+                <Footer highAccessibilityMode={settings?.highAccessibilityMode} largeTextMode={settings?.largeTextMode} />
                 <BackToWebAppButton />
             </body>
         </html>

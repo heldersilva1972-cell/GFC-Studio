@@ -26,26 +26,35 @@ const moreLinks = [
   { name: 'Hall Rental Rules', href: '/hall-rental-rules' },
 ]
 
-export default function Footer() {
-  const [isA11yMode, setIsA11yMode] = useState(false);
+interface FooterProps {
+  highAccessibilityMode?: boolean;
+  largeTextMode?: boolean;
+}
+
+export default function Footer({ highAccessibilityMode, largeTextMode }: FooterProps) {
   const currentYear = new Date().getFullYear();
 
-  useEffect(() => {
-    const isA11y = localStorage.getItem('a11yMode') === 'true';
-    setIsA11yMode(isA11y);
-    if (isA11y) {
-      document.body.classList.add('high-accessibility');
+  const toggleA11yMode = async () => {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
+    try {
+      await fetch(`${API_URL}/api/WebsiteSettings/toggle-accessibility`, {
+        method: 'POST',
+      });
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to toggle accessibility mode:', error);
     }
-  }, []);
+  };
 
-  const toggleA11yMode = () => {
-    const newMode = !isA11yMode;
-    setIsA11yMode(newMode);
-    localStorage.setItem('a11yMode', newMode.toString());
-    if (newMode) {
-      document.body.classList.add('high-accessibility');
-    } else {
-      document.body.classList.remove('high-accessibility');
+  const toggleLargeTextMode = async () => {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
+    try {
+      await fetch(`${API_URL}/api/WebsiteSettings/toggle-large-text`, {
+        method: 'POST',
+      });
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to toggle large text mode:', error);
     }
   };
 
@@ -137,9 +146,14 @@ export default function Footer() {
           <p className="text-sm text-center sm:text-left">
             © {currentYear} Gloucester Fraternity Club. All rights reserved.
           </p>
-          <button onClick={toggleA11yMode} className="text-sm mt-4 sm:mt-0 underline hover:text-burnished-gold transition-colors duration-300">
-            {isA11yMode ? 'Disable High Accessibility Mode' : 'Enable High Accessibility Mode'}
-          </button>
+          <div className="flex flex-col sm:flex-row sm:space-x-4 mt-4 sm:mt-0">
+            <button onClick={toggleA11yMode} className="text-sm underline hover:text-burnished-gold transition-colors duration-300">
+              {highAccessibilityMode ? 'Disable High Accessibility Mode' : 'Enable High Accessibility Mode'}
+            </button>
+            <button onClick={toggleLargeTextMode} className="text-sm underline hover:text-burnished-gold transition-colors duration-300 mt-2 sm:mt-0">
+              {largeTextMode ? 'Disable Senior-Friendly Mode' : 'Enable Senior-Friendly Mode'}
+            </button>
+          </div>
           <p className="text-sm mt-4 sm:mt-0">
             Website designed with modern legacy.
           </p>

@@ -23,5 +23,23 @@ namespace GFC.BlazorServer.Controllers
             var settings = await _settingsService.GetWebsiteSettingsAsync();
             return Ok(settings);
         }
+
+        [HttpPost("toggle-accessibility")]
+        public async Task<IActionResult> ToggleAccessibility()
+        {
+            var settings = await _settingsService.GetWebsiteSettingsAsync();
+            settings.HighAccessibilityMode = !settings.HighAccessibilityMode;
+            await _settingsService.UpdateWebsiteSettingsAsync(settings);
+            return Ok(settings);
+        }
+
+        [HttpPost("toggle-large-text")]
+        public async Task<IActionResult> ToggleLargeText()
+        {
+            var settings = await _settingsService.GetWebsiteSettingsAsync();
+            settings.LargeTextMode = !settings.LargeTextMode;
+            await _settingsService.UpdateWebsiteSettingsAsync(settings);
+            return Ok(settings);
+        }
     }
 }

@@ -61,6 +61,14 @@ export async function getUnavailableDates(): Promise<{ date: Date; status: strin
   });
 }
 
+export async function getWebsiteSettings() {
+  const res = await fetch(`${API_URL}/api/WebsiteSettings`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch website settings: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function getAnimationById(id: string) {
   const res = await fetch(`${API_URL}/api/animations/${id}`, { next: { revalidate: 60 } }); // Revalidate every 60 seconds
   if (!res.ok) {
