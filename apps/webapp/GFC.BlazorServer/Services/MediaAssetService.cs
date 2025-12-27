@@ -14,15 +14,15 @@ using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
 {
-    public class MediaAssetService : IMediaAssetService
+    public class MediaAssetService : IMediaAssetService, GFC.Core.Interfaces.IMediaAssetService
     {
-        private readonly GfcDbContext _context;
+        private readonly IDbContextFactory<GfcDbContext> _contextFactory;
         private readonly IWebHostEnvironment _env;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public MediaAssetService(GfcDbContext context, IWebHostEnvironment env, IHttpContextAccessor httpContextAccessor)
+        public MediaAssetService(IDbContextFactory<GfcDbContext> contextFactory, IWebHostEnvironment env, IHttpContextAccessor httpContextAccessor)
         {
-            _context = context;
+            _contextFactory = contextFactory;
             _env = env;
             _httpContextAccessor = httpContextAccessor;
         }
@@ -62,8 +62,9 @@ namespace GFC.BlazorServer.Services
                 await GenerateRenditionsAsync(asset, filePath);
             }
 
-            _context.MediaAssets.Add(asset);
-            await _context.SaveChangesAsync();
+            using var context = await _contextFactory.CreateDbContextAsync();
+            context.MediaAssets.Add(asset);
+            await context.SaveChangesAsync();
 
             return asset;
         }
@@ -105,12 +106,14 @@ namespace GFC.BlazorServer.Services
 
         public async Task<List<MediaAsset>> GetAllAssetsAsync()
         {
-            return await _context.MediaAssets.Include(a => a.Renditions).ToListAsync();
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.MediaAssets.Include(a => a.Renditions).ToListAsync();
         }
 
         public async Task<MediaAsset> GetAssetByIdAsync(int id)
         {
-            var asset = await _context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var asset = await context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
 
             if (asset != null && !string.IsNullOrEmpty(asset.RequiredRole))
             {
@@ -124,19 +127,80 @@ namespace GFC.BlazorServer.Services
             return asset;
         }
 
-        public async Task UpdateAssetRoleAsync(int assetId, string? role)
+        public async Task UpdateAssetRoleAsync(int id, string? role)
         {
-            var asset = await _context.MediaAssets.FindAsync(assetId);
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var asset = await context.MediaAssets.FindAsync(id);
             if (asset != null)
             {
                 asset.RequiredRole = role;
-                await _context.SaveChangesAsync();
+                await context.SaveChangesAsync();
             }
         }
 
         public async Task DeleteAssetAsync(int id)
         {
-            var asset = await GetAssetByIdAsync(id);
+            await DeleteMediaAssetAsync(id);
+        }
+
+        // GFC.Core.Interfaces.IMediaAssetService Implementation
+
+        public async Task<MediaAsset> CreateMediaAssetAsync(Stream fileStream, string fileName, string tag, string uploadedBy)
+        {
+            var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads");
+            if (!Directory.Exists(uploadsFolderPath))
+            {
+                Directory.CreateDirectory(uploadsFolderPath);
+            }
+
+            var uniqueFileName = $"{Guid.NewGuid()}_{fileName}";
+            var filePath = Path.Combine(uploadsFolderPath, uniqueFileName);
+
+            await using (var fs = new FileStream(filePath, FileMode.Create))
+            {
+                await fileStream.CopyToAsync(fs);
+            }
+
+            var asset = new MediaAsset
+            {
+                FileName = fileName,
+                StoredFileName = uniqueFileName,
+                ContentType = "image/jpeg", // Simplified for now
+                FileSize = new FileInfo(filePath).Length,
+                Usage = tag,
+                Tag = tag,
+                UploadedBy = uploadedBy,
+                UploadedAt = DateTime.UtcNow
+            };
+
+            await GenerateRenditionsAsync(asset, filePath);
+
+            using var context = await _contextFactory.CreateDbContextAsync();
+            context.MediaAssets.Add(asset);
+            await context.SaveChangesAsync();
+
+            return asset;
+        }
+
+        public async Task<IEnumerable<MediaAsset>> GetMediaAssetsAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.MediaAssets.Include(a => a.Renditions).ToListAsync();
+        }
+
+        public async Task<IEnumerable<MediaAsset>> GetPublicWebsiteGalleryAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.MediaAssets
+                .Include(a => a.Renditions)
+                .Where(a => a.Tag == "Public Website Gallery")
+                .ToListAsync();
+        }
+
+        public async Task DeleteMediaAssetAsync(int id)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var asset = await context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
             if (asset != null)
             {
                 // Delete physical files
@@ -154,9 +218,8 @@ namespace GFC.BlazorServer.Services
                     File.Delete(originalFilePath);
                 }
 
-
-                _context.MediaAssets.Remove(asset);
-                await _context.SaveChangesAsync();
+                context.MediaAssets.Remove(asset);
+                await context.SaveChangesAsync();
             }
         }
     }

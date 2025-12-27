@@ -26,6 +26,18 @@ namespace GFC.Core.Models
         public long FileSize { get; set; }
 
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
+        
+        [StringLength(100)]
+        public string? Tag { get; set; }
+
+        public string? UploadedBy { get; set; }
+
+        [NotMapped]
+        public string FilePath 
+        { 
+            get => Renditions?.FirstOrDefault()?.Url ?? "/images/placeholder.png";
+            set { /* Compatibility with older code */ }
+        }
 
         public int? AssetFolderId { get; set; }
 

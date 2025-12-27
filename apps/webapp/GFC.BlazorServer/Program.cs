@@ -202,8 +202,10 @@ public class Program
         builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
         builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
-        builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.IMediaAssetService, GFC.BlazorServer.Services.MediaAssetService>();
+        builder.Services.AddScoped<GFC.Core.Interfaces.IMediaAssetService, GFC.BlazorServer.Services.MediaAssetService>();
         builder.Services.AddScoped<IFormService, FormService>();
+        builder.Services.AddScoped<IFormBuilderService, FormBuilderService>();
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
