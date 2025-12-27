@@ -60,3 +60,38 @@ export async function getUnavailableDates(): Promise<{ date: Date; status: strin
     };
   });
 }
+
+export async function getAnimationById(id: string) {
+    const res = await fetch(`${API_URL}/api/animations/${id}`, { next: { revalidate: 60 } }); // Revalidate every 60 seconds
+    if (!res.ok) {
+        throw new Error(`Failed to fetch animation: ${res.statusText}`);
+    }
+    return res.json();
+}
+
+export async function getHomePageContent() {
+    // In a real application, this would fetch data from a CMS.
+    // For now, we'll return the same hardcoded content that was in the AnimationRenderer.
+    return Promise.resolve({
+        title: "Building Community, Friendship, and Tradition",
+        subtitle: "Welcome to the Gloucester Fraternity Club — a place where friendship, family, and community come together. Since our founding in the early 1920s, we've proudly served the Cape Ann area through fellowship, fun, and service.",
+        primaryCtaText: "Rent Our Hall",
+        primaryCtaLink: "/hall-rentals",
+        secondaryCtaText: "View Events",
+        secondaryCtaLink: "/events",
+        backgroundImage: "/images/hero-bg.jpg",
+        stats: [
+            { label: "Years of Service", value: "100+" },
+            { label: "Active Members", value: "500+" },
+            { label: "Events Yearly", value: "50+" }
+        ]
+    });
+}
+
+export async function getHallRentalPageContent() {
+    return Promise.resolve({
+        title: "Host Your Next Event With Us",
+        subtitle: "Our spacious and versatile hall is the perfect venue for weddings, parties, and corporate events. With a capacity of 180 guests, a full-service bar, and a stage for live entertainment, we have everything you need to make your event a success.",
+        backgroundImage: "/images/hall-rental-hero.jpg",
+    });
+}

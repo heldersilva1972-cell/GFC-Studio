@@ -206,6 +206,7 @@ public class Program
         builder.Services.AddScoped<IFormService, FormService>();
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
+builder.Services.AddScoped<IAnimationService, AnimationService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
