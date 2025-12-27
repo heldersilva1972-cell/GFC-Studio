@@ -9,15 +9,16 @@ namespace GFC.BlazorServer.Services
 {
     public class WebsiteSettingsService : GFC.Core.Interfaces.IWebsiteSettingsService
     {
-        private readonly GfcDbContext _context;
+        private readonly IDbContextFactory<GfcDbContext> _contextFactory;
 
-        public WebsiteSettingsService(GfcDbContext context)
+        public WebsiteSettingsService(IDbContextFactory<GfcDbContext> contextFactory)
         {
-            _context = context;
+            _contextFactory = contextFactory;
         }
 
         public async Task<WebsiteSettings> GetWebsiteSettingsAsync()
         {
+            await using var _context = await _contextFactory.CreateDbContextAsync();
             var settings = await _context.WebsiteSettings.FirstOrDefaultAsync();
             if (settings == null)
             {
@@ -43,6 +44,7 @@ namespace GFC.BlazorServer.Services
 
         public async Task UpdateWebsiteSettingsAsync(WebsiteSettings settings)
         {
+            await using var _context = await _contextFactory.CreateDbContextAsync();
             var existingSettings = await _context.WebsiteSettings.FirstOrDefaultAsync();
             if (existingSettings == null)
             {
@@ -57,6 +59,7 @@ namespace GFC.BlazorServer.Services
 
         private async Task HealDatabaseAsync()
         {
+            await using var _context = await _contextFactory.CreateDbContextAsync();
              var fixNullsSql = @"
                 UPDATE [dbo].[WebsiteSettings] SET [MemberRate] = 0 WHERE [MemberRate] IS NULL;
                 UPDATE [dbo].[WebsiteSettings] SET [NonMemberRate] = 0 WHERE [NonMemberRate] IS NULL;

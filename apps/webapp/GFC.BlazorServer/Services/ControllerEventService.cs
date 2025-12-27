@@ -11,12 +11,12 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class ControllerEventService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<ControllerEventService> _logger;
 
-    public ControllerEventService(GfcDbContext dbContext, ILogger<ControllerEventService> logger)
+    public ControllerEventService(IDbContextFactory<GfcDbContext> contextFactory, ILogger<ControllerEventService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -30,7 +30,8 @@ public class ControllerEventService
             return;
         }
 
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .Include(c => c.Doors)
             .FirstOrDefaultAsync(c => c.SerialNumber == controllerSerialNumber, cancellationToken);
 
@@ -46,7 +47,7 @@ public class ControllerEventService
         }
 
         var incomingIndexes = incomingList.Select(e => (int)e.RawIndex).ToArray();
-        var existingIndexes = await _dbContext.ControllerEvents
+        var existingIndexes = await dbContext.ControllerEvents
             .Where(e => e.ControllerId == controller.Id && incomingIndexes.Contains(e.RawIndex))
             .Select(e => e.RawIndex)
             .ToListAsync(cancellationToken);
@@ -84,10 +85,10 @@ public class ControllerEventService
 
         if (newEvents.Count > 0)
         {
-            await _dbContext.ControllerEvents.AddRangeAsync(newEvents, cancellationToken);
+            await dbContext.ControllerEvents.AddRangeAsync(newEvents, cancellationToken);
         }
 
-        var lastIndex = await _dbContext.ControllerLastIndexes
+        var lastIndex = await dbContext.ControllerLastIndexes
             .FirstOrDefaultAsync(li => li.ControllerId == controller.Id, cancellationToken);
         if (lastIndex == null)
         {
@@ -96,14 +97,14 @@ public class ControllerEventService
                 ControllerId = controller.Id,
                 LastRecordIndex = newLastIndex
             };
-            _dbContext.ControllerLastIndexes.Add(lastIndex);
+            dbContext.ControllerLastIndexes.Add(lastIndex);
         }
         else
         {
             lastIndex.LastRecordIndex = newLastIndex;
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
             "Saved {Count} new simulated events for controller {ControllerName} (SN {Serial}). LastIndex={Index}",
@@ -120,7 +121,8 @@ public class ControllerEventService
             return;
         }
 
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .Include(c => c.Doors)
             .FirstOrDefaultAsync(c => c.SerialNumber == controllerSerialNumber, cancellationToken);
 
@@ -136,7 +138,7 @@ public class ControllerEventService
         }
 
         var incomingIndexes = incomingList.Select(e => (int)e.RawIndex).ToArray();
-        var existingIndexes = await _dbContext.ControllerEvents
+        var existingIndexes = await dbContext.ControllerEvents
             .Where(e => e.ControllerId == controller.Id && incomingIndexes.Contains(e.RawIndex))
             .Select(e => e.RawIndex)
             .ToListAsync(cancellationToken);
@@ -172,10 +174,10 @@ public class ControllerEventService
 
         if (newEvents.Count > 0)
         {
-            await _dbContext.ControllerEvents.AddRangeAsync(newEvents, cancellationToken);
+            await dbContext.ControllerEvents.AddRangeAsync(newEvents, cancellationToken);
         }
 
-        var lastIndex = await _dbContext.ControllerLastIndexes
+        var lastIndex = await dbContext.ControllerLastIndexes
             .FirstOrDefaultAsync(li => li.ControllerId == controller.Id, cancellationToken);
         if (lastIndex == null)
         {
@@ -184,14 +186,14 @@ public class ControllerEventService
                 ControllerId = controller.Id,
                 LastRecordIndex = newLastIndex
             };
-            _dbContext.ControllerLastIndexes.Add(lastIndex);
+            dbContext.ControllerLastIndexes.Add(lastIndex);
         }
         else
         {
             lastIndex.LastRecordIndex = newLastIndex;
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
             "Saved {Count} new events for controller {ControllerName} (SN {Serial}). LastIndex={Index}",
@@ -212,7 +214,8 @@ public class ControllerEventService
         int? limit = 500,
         CancellationToken cancellationToken = default)
     {
-        var query = _dbContext.ControllerEvents
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var query = dbContext.ControllerEvents
             .AsNoTracking()
             .Include(e => e.Controller)
             .Include(e => e.Door)
@@ -279,7 +282,8 @@ public class ControllerEventService
         if (page <= 0) page = 1;
         if (pageSize <= 0) pageSize = 50;
 
-        var query = _dbContext.ControllerEvents.AsQueryable();
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var query = dbContext.ControllerEvents.AsQueryable();
 
         if (startUtc.HasValue)
         {
@@ -339,7 +343,8 @@ public class ControllerEventService
             return new Dictionary<int, ControllerEvent>();
         }
 
-        var latest = await _dbContext.ControllerEvents
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var latest = await dbContext.ControllerEvents
             .AsNoTracking()
             .Where(e => idList.Contains(e.ControllerId))
             .GroupBy(e => e.ControllerId)

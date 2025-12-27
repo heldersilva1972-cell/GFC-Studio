@@ -60,7 +60,7 @@ namespace GFC.BlazorServer.Services
                 try
                 {
                     var lastVersion = await context.StudioDrafts
-                        .Where(d => d.PageId == pageId)
+                        .Where(d => d.StudioPageId == pageId)
                         .OrderByDescending(d => d.Version)
                         .Select(d => d.Version)
                         .FirstOrDefaultAsync();
@@ -93,7 +93,7 @@ namespace GFC.BlazorServer.Services
             using var scope = _serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
             return await context.StudioDrafts
-                .Where(d => d.PageId == pageId)
+                .Where(d => d.StudioPageId == pageId)
                 .OrderByDescending(d => d.Version)
                 .Select(d => d.Version)
                 .FirstOrDefaultAsync();

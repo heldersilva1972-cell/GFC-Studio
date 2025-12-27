@@ -8,21 +8,23 @@ namespace GFC.BlazorServer.Services
 {
     public class SeoService : ISeoService
     {
-        private readonly GfcDbContext _context;
+        private readonly IDbContextFactory<GfcDbContext> _contextFactory;
 
-        public SeoService(GfcDbContext context)
+        public SeoService(IDbContextFactory<GfcDbContext> contextFactory)
         {
-            _context = context;
+            _contextFactory = contextFactory;
         }
 
         public async Task<SeoSettings> GetSeoSettingsForPageAsync(int studioPageId)
         {
+            await using var _context = await _contextFactory.CreateDbContextAsync();
             var settings = await _context.SeoSettings.FirstOrDefaultAsync(s => s.StudioPageId == studioPageId);
             return settings ?? new SeoSettings { StudioPageId = studioPageId };
         }
 
         public async Task<SeoSettings> SaveSeoSettingsAsync(SeoSettings settings)
         {
+            await using var _context = await _contextFactory.CreateDbContextAsync();
             if (settings.Id > 0)
             {
                 _context.SeoSettings.Update(settings);

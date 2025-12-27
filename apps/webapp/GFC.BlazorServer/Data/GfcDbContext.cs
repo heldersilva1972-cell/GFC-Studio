@@ -488,13 +488,16 @@ public class GfcDbContext : DbContext
 
             entity.HasMany(p => p.Drafts)
                 .WithOne(d => d.StudioPage)
-                .HasForeignKey(d => d.PageId)
+                .HasForeignKey(d => d.StudioPageId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StudioSection>(entity =>
         {
             entity.ToTable("Sections");
+            entity.Property(s => s.StudioPageId).HasColumnName("PageId");
+            entity.Property(s => s.Data).HasColumnName("ContentJson");
+            entity.Property(s => s.AnimationSettingsJson).HasColumnName("AnimationJson");
 
             entity.HasIndex(s => s.OrderIndex);
             entity.HasIndex(s => s.ComponentType);
@@ -506,10 +509,10 @@ public class GfcDbContext : DbContext
 
             entity.HasOne(d => d.StudioPage)
                   .WithMany(p => p.Drafts)
-                  .HasForeignKey(d => d.PageId)
+                  .HasForeignKey(d => d.StudioPageId)
                   .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasIndex(d => new { d.PageId, d.Version }).IsDescending(false, true);
+            entity.HasIndex(d => new { d.StudioPageId, d.Version }).IsDescending(false, true);
             entity.HasIndex(d => d.CreatedAt).IsDescending();
         });
 

@@ -13,49 +13,55 @@ namespace GFC.BlazorServer.Services
 {
     public class RentalService : IRentalService
     {
-        private readonly GfcDbContext _context;
+        private readonly IDbContextFactory<GfcDbContext> _contextFactory;
         private readonly INotificationService _notificationService;
         private readonly INotificationRoutingService _routingService;
 
-        public RentalService(GfcDbContext context, INotificationService notificationService, INotificationRoutingService routingService)
+        public RentalService(IDbContextFactory<GfcDbContext> contextFactory, INotificationService notificationService, INotificationRoutingService routingService)
         {
-            _context = context;
+            _contextFactory = contextFactory;
             _notificationService = notificationService;
             _routingService = routingService;
         }
 
         public async Task<HallRentalRequest> GetRentalRequestAsync(int id)
         {
-            return await _context.HallRentalRequests.FindAsync(id);
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.HallRentalRequests.FindAsync(id);
         }
 
         public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsAsync()
         {
-            return await _context.HallRentalRequests.ToListAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.HallRentalRequests.ToListAsync();
         }
 
         public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsByStatusAsync(string status)
         {
-            return await _context.HallRentalRequests.Where(r => r.Status == status).ToListAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.HallRentalRequests.Where(r => r.Status == status).ToListAsync();
         }
 
         public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsByDateRangeAsync(DateTime startDate, DateTime endDate)
         {
-            return await _context.HallRentalRequests
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.HallRentalRequests
                 .Where(r => r.RequestedDate.Date >= startDate.Date && r.RequestedDate.Date <= endDate.Date)
                 .ToListAsync();
         }
 
         public async Task<bool> IsDateAlreadyBookedAsync(DateTime date)
         {
-            return await _context.HallRentalRequests
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.HallRentalRequests
                 .AnyAsync(r => r.RequestedDate.Date == date.Date && r.Status == RentalStatus.Approved);
         }
 
         public async Task CreateRentalRequestAsync(HallRentalRequest request)
         {
-            _context.HallRentalRequests.Add(request);
-            await _context.SaveChangesAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            context.HallRentalRequests.Add(request);
+            await context.SaveChangesAsync();
 
             var directorEmail = await _routingService.GetEmailForActionAsync("Rental Inquiry");
             if (!string.IsNullOrEmpty(directorEmail))
@@ -70,14 +76,16 @@ namespace GFC.BlazorServer.Services
 
         public async Task<bool> UpdateRentalRequestAsync(HallRentalRequest request)
         {
-            _context.Entry(request).State = EntityState.Modified;
-            await _context.SaveChangesAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            context.Entry(request).State = EntityState.Modified;
+            await context.SaveChangesAsync();
             return true; // Indicate success
         }
 
         public async Task<bool> ApproveRentalRequestAsync(int requestId, string adminNotes, string approvedBy = "Admin")
         {
-            var request = await _context.HallRentalRequests.FindAsync(requestId);
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var request = await context.HallRentalRequests.FindAsync(requestId);
             if (request == null) return false;
 
             if (await IsDateAlreadyBookedAsync(request.RequestedDate))
@@ -91,12 +99,12 @@ namespace GFC.BlazorServer.Services
             request.StatusChangedBy = approvedBy;
             request.StatusChangedDate = DateTime.UtcNow;
             request.InternalNotes = adminNotes;
-            _context.Entry(request).State = EntityState.Modified;
+            context.Entry(request).State = EntityState.Modified;
 
             // Update calendar with the SPECIFIC details from the request so it shows correctly on the website
             var displayTime = request.StartTime != null && request.EndTime != null ? $"{request.StartTime} - {request.EndTime}" : null;
-            await UpdateCalendarAvailabilityAsync(request.RequestedDate, "Booked", request.EventType, request.StartTime, request.EndTime);
-            await _context.SaveChangesAsync();
+            await UpdateCalendarAvailabilityInternalAsync(context, request.RequestedDate, "Booked", request.EventType, request.StartTime, request.EndTime);
+            await context.SaveChangesAsync();
 
             // Fire and forget email notification
             _ = _notificationService.SendRentalConfirmationEmailAsync(request);
@@ -106,7 +114,8 @@ namespace GFC.BlazorServer.Services
 
         public async Task<bool> DenyRentalRequestAsync(int requestId, string adminNotes, string deniedBy = "Admin")
         {
-            var request = await _context.HallRentalRequests.FindAsync(requestId);
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var request = await context.HallRentalRequests.FindAsync(requestId);
             if (request == null) return false;
 
             request.Status = RentalStatus.Denied;
@@ -115,11 +124,11 @@ namespace GFC.BlazorServer.Services
             request.StatusChangedBy = deniedBy;
             request.StatusChangedDate = DateTime.UtcNow;
             request.InternalNotes = adminNotes;
-            _context.Entry(request).State = EntityState.Modified;
+            context.Entry(request).State = EntityState.Modified;
 
             // Remove from calendar (make available again)
-            await UpdateCalendarAvailabilityAsync(request.RequestedDate, "Available");
-            await _context.SaveChangesAsync();
+            await UpdateCalendarAvailabilityInternalAsync(context, request.RequestedDate, "Available");
+            await context.SaveChangesAsync();
 
             // Fire and forget email notification
             _ = _notificationService.SendRentalDenialEmailAsync(request, "Request denied by administrator");
@@ -129,24 +138,32 @@ namespace GFC.BlazorServer.Services
 
         public async Task DeleteRentalRequestAsync(int id)
         {
-            var request = await _context.HallRentalRequests.FindAsync(id);
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var request = await context.HallRentalRequests.FindAsync(id);
             if (request != null)
             {
-                _context.HallRentalRequests.Remove(request);
-                await _context.SaveChangesAsync();
+                context.HallRentalRequests.Remove(request);
+                await context.SaveChangesAsync();
             }
         }
 
         public async Task UpdateCalendarAvailabilityAsync(DateTime date, string status, string? description = null, string? startTime = null, string? endTime = null)
         {
-            var calendarEntry = await _context.AvailabilityCalendars.FirstOrDefaultAsync(c => c.Date.Date == date.Date);
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            await UpdateCalendarAvailabilityInternalAsync(context, date, status, description, startTime, endTime);
+            await context.SaveChangesAsync();
+        }
+
+        private async Task UpdateCalendarAvailabilityInternalAsync(GfcDbContext context, DateTime date, string status, string? description = null, string? startTime = null, string? endTime = null)
+        {
+            var calendarEntry = await context.AvailabilityCalendars.FirstOrDefaultAsync(c => c.Date.Date == date.Date);
 
             if (status == "Available")
             {
                 // Remove the entry to make the date available
                 if (calendarEntry != null)
                 {
-                    _context.AvailabilityCalendars.Remove(calendarEntry);
+                    context.AvailabilityCalendars.Remove(calendarEntry);
                 }
             }
             else
@@ -161,7 +178,7 @@ namespace GFC.BlazorServer.Services
                 }
                 else
                 {
-                    _context.AvailabilityCalendars.Add(new AvailabilityCalendar 
+                    context.AvailabilityCalendars.Add(new AvailabilityCalendar 
                     { 
                         Date = date, 
                         Status = status,
@@ -171,26 +188,27 @@ namespace GFC.BlazorServer.Services
                     });
                 }
             }
-
-            await _context.SaveChangesAsync();
         }
 
         public async Task<IEnumerable<HallRentalRequest>> GetApprovedRentalsAsync()
         {
-            return await _context.HallRentalRequests
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.HallRentalRequests
                 .Where(r => r.Status == RentalStatus.Approved)
                 .ToListAsync();
         }
 
         public async Task CreateRentalInquiryAsync(HallRentalInquiry inquiry)
         {
-            _context.HallRentalInquiries.Add(inquiry);
-            await _context.SaveChangesAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            context.HallRentalInquiries.Add(inquiry);
+            await context.SaveChangesAsync();
         }
 
         public async Task<List<DateTime>> GetReservedDatesAsync()
         {
-            return await _context.AvailabilityCalendars
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.AvailabilityCalendars
                                  .Where(d => d.Status == "Booked")
                                  .Select(d => d.Date)
                                  .ToListAsync();
@@ -198,17 +216,19 @@ namespace GFC.BlazorServer.Services
 
         public async Task<List<AvailabilityCalendar>> GetBlackoutEventsAsync()
         {
-            return await _context.AvailabilityCalendars
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.AvailabilityCalendars
                 .Where(d => d.Status == "Blackout")
                 .ToListAsync();
         }
 
         public async Task AddBlackoutDateAsync(DateTime date, string? description = null, string? startTime = null, string? endTime = null)
         {
-            var existing = await _context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date && d.Status == "Blackout");
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var existing = await context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date && d.Status == "Blackout");
             if (existing == null)
             {
-                _context.AvailabilityCalendars.Add(new AvailabilityCalendar 
+                context.AvailabilityCalendars.Add(new AvailabilityCalendar 
                 { 
                     Date = date.Date, 
                     Status = "Blackout",
@@ -222,27 +242,29 @@ namespace GFC.BlazorServer.Services
                 existing.Description = description;
                 existing.StartTime = startTime;
                 existing.EndTime = endTime;
-                _context.Entry(existing).State = EntityState.Modified;
+                context.Entry(existing).State = EntityState.Modified;
             }
-            await _context.SaveChangesAsync();
+            await context.SaveChangesAsync();
         }
 
         public async Task RemoveBlackoutDateAsync(DateTime date)
         {
-            var existing = await _context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date && d.Status == "Blackout");
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var existing = await context.AvailabilityCalendars.FirstOrDefaultAsync(d => d.Date.Date == date.Date && d.Status == "Blackout");
             if (existing != null)
             {
-                _context.AvailabilityCalendars.Remove(existing);
-                await _context.SaveChangesAsync();
+                context.AvailabilityCalendars.Remove(existing);
+                await context.SaveChangesAsync();
             }
         }
 
         public async Task<List<UnavailableDateDto>> GetUnavailableDatesAsync()
         {
             var results = new List<UnavailableDateDto>();
+            await using var context = await _contextFactory.CreateDbContextAsync();
 
             // 1. Get manually blocked/booked dates (Blackouts/Club Events)
-            var calendarDates = await _context.AvailabilityCalendars
+            var calendarDates = await context.AvailabilityCalendars
                 .Where(d => d.Status == "Booked" || d.Status == "Blackout")
                 .Select(d => new UnavailableDateDto 
                 { 
@@ -256,10 +278,11 @@ namespace GFC.BlazorServer.Services
             results.AddRange(calendarDates);
 
             // 2. Get dates from requests
-            var requestDates = await _context.HallRentalRequests
+            var requestDates = await context.HallRentalRequests
                 .Where(r => r.Status != "Denied" && r.Status != "Cancelled")
                 .ToListAsync(); // First get the full objects
             
+            // ... (rest of method remains same using results and requestDates)
             // DEBUG: Log what we got
             foreach (var req in requestDates)
             {
@@ -295,6 +318,7 @@ namespace GFC.BlazorServer.Services
 
         public async Task<HallRentalInquiry> SaveInquiryAsync(string formData)
         {
+            await using var context = await _contextFactory.CreateDbContextAsync();
             var inquiry = new HallRentalInquiry
             {
                 ResumeToken = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"), // Longer, more random token
@@ -303,15 +327,16 @@ namespace GFC.BlazorServer.Services
                 ExpiresAt = DateTime.UtcNow.AddDays(30) // Inquiries are valid for 30 days
             };
 
-            _context.HallRentalInquiries.Add(inquiry);
-            await _context.SaveChangesAsync();
+            context.HallRentalInquiries.Add(inquiry);
+            await context.SaveChangesAsync();
 
             return inquiry;
         }
 
         public async Task<HallRentalInquiry> GetInquiryAsync(string resumeToken)
         {
-            return await _context.HallRentalInquiries
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.HallRentalInquiries
                 .FirstOrDefaultAsync(i => i.ResumeToken == resumeToken && i.ExpiresAt > DateTime.UtcNow);
         }
     }

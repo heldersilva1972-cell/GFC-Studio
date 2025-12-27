@@ -9,16 +9,17 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class ControllerRegistryService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
 
-    public ControllerRegistryService(GfcDbContext dbContext)
+    public ControllerRegistryService(IDbContextFactory<GfcDbContext> contextFactory)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
     }
 
     public async Task<IReadOnlyList<ControllerDevice>> GetControllersAsync(bool includeDoors = true, CancellationToken cancellationToken = default)
     {
-        var query = _dbContext.Controllers.AsNoTracking().AsQueryable();
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var query = dbContext.Controllers.AsNoTracking().AsQueryable();
         if (includeDoors)
         {
             query = query.Include(c => c.Doors.OrderBy(d => d.DoorIndex));
@@ -29,24 +30,27 @@ public class ControllerRegistryService
 
     public async Task<IReadOnlyList<Door>> GetDoorsAsync(int controllerId, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.Doors
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.Doors
             .AsNoTracking()
             .Where(d => d.ControllerId == controllerId)
             .OrderBy(d => d.DoorIndex)
             .ToListAsync(cancellationToken);
     }
 
-    public Task<ControllerDevice?> GetControllerBySerialNumberAsync(uint serialNumber, CancellationToken cancellationToken = default)
+    public async Task<ControllerDevice?> GetControllerBySerialNumberAsync(uint serialNumber, CancellationToken cancellationToken = default)
     {
-        return _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.Controllers
             .AsNoTracking()
             .Include(c => c.Doors)
             .FirstOrDefaultAsync(c => c.SerialNumber == serialNumber, cancellationToken);
     }
 
-    public Task<ControllerDevice?> GetControllerByIdAsync(int controllerId, CancellationToken cancellationToken = default)
+    public async Task<ControllerDevice?> GetControllerByIdAsync(int controllerId, CancellationToken cancellationToken = default)
     {
-        return _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.Controllers
             .AsNoTracking()
             .Include(c => c.Doors)
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);

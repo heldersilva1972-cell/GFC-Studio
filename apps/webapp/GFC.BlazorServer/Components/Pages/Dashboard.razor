@@ -189,11 +189,11 @@
         {
             <div class="alert alert-danger">@_errorMessage</div>
         }
-        else if (_memberSummary is not null && _duesSummary is not null && _alerts is not null && _backupStatus is not null)
+        else
         {
-            var totalMembers = _metrics?.TotalMembers ?? _memberSummary.TotalMembers;
-            var activeMembers = _metrics?.ActiveMembers ?? _memberSummary.RegularMembers + _memberSummary.LifeMembers;
-            var overdueCount = _metrics?.PastDueMembers ?? _duesSummary.UnpaidCount;
+            var totalMembers = _metrics?.TotalMembers ?? _memberSummary?.TotalMembers ?? 0;
+            var activeMembers = _metrics?.ActiveMembers ?? (_memberSummary is not null ? _memberSummary.RegularMembers + _memberSummary.LifeMembers : 0);
+            var overdueCount = _metrics?.PastDueMembers ?? _duesSummary?.UnpaidCount ?? 0;
 
             <div class="container-fluid">
                 <div class="row g-3">
@@ -432,7 +432,7 @@
                                             <li>Database: <span class="fw-semibold">[placeholder]</span></li>
                                             <li>
                                                 Backups:
-                                                <span class="badge bg-secondary-subtle text-dark dash-pill-hover">@FormatDate(_backupStatus.LastBackupUtc)</span>
+                                                <span class="badge bg-secondary-subtle text-dark dash-pill-hover">@FormatDate(_backupStatus?.LastBackupUtc)</span>
                                             </li>
                                         </ul>
                                         @* TODO: Connect to maintenance/health metrics *@
@@ -699,47 +699,54 @@
         var backupStatusTask = DashboardService.GetBackupStatusAsync();
         var rentalsTask = RentalService.GetRentalRequestsAsync();
 
-        // 2. Define minimum splash duration (Ensure it stays for at least 2.0 seconds per user request)
-        var minSplashDelay = includeSplash ? Task.Delay(2000) : Task.CompletedTask;
+        // 2. Define minimum splash duration (Reduced for faster perceived speed)
+        var minSplashDelay = includeSplash ? Task.Delay(800) : Task.CompletedTask;
 
         try
         {
-            // 3. Wait for critical data and internal delays in parallel
-            await Task.WhenAll(memberTask, duesTask, alertsTask, backupStatusTask, rentalsTask, minSplashDelay);
+            // 3. Show the UI shell as soon as the splash/delay is done
+            if (includeSplash)
+            {
+                await minSplashDelay;
+                _isSplashFadingOut = true;
+                StateHasChanged();
+                await Task.Delay(400); // Sync with CSS
+                _showSplash = false;
+            }
 
-            _memberSummary = memberTask.Result;
-            _duesSummary = duesTask.Result;
-            _alerts = alertsTask.Result;
-            _backupStatus = backupStatusTask.Result;
+            _isLoading = false;
+            StateHasChanged();
 
-            var allRentals = rentalsTask.Result.ToList();
-            _upcomingRentals = allRentals.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
-            _pendingRentalCount = allRentals.Count(r => r.Status == RentalStatus.Pending);
+            // 4. Update data as it arrives (Progressive Loading)
+            _memberSummary = await memberTask;
+            _duesSummary = await duesTask;
+            _alerts = await alertsTask;
+            _backupStatus = await backupStatusTask;
+            
+            var allRentals = await rentalsTask;
+            var rentalList = allRentals.ToList();
+            _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
+            _pendingRentalCount = rentalList.Count(r => r.Status == RentalStatus.Pending);
 
             _importantAlerts.Clear();
             _alertPreview.Clear();
-            var important = BuildAlertPreview(_alerts);
-            _alertPreview.AddRange(important);
-            _importantAlerts.AddRange(important);
+            if (_alerts != null)
+            {
+                var important = BuildAlertPreview(_alerts);
+                _alertPreview.AddRange(important);
+                _importantAlerts.AddRange(important);
+            }
             
-            _isLoading = false; // Data is ready
+            StateHasChanged();
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[Dashboard] {ex}");
-            _errorMessage = "We couldn't load the dashboard metrics right now. Please try again shortly.";
+            // Only show error if we haven't shown the shell yet
+            if (_isLoading) _errorMessage = "We couldn't load the dashboard metrics right now.";
             _isLoading = false;
         }
 
-        // 4. Handle the smooth transition out
-        if (includeSplash)
-        {
-            _isSplashFadingOut = true;
-            StateHasChanged();
-            await Task.Delay(600); // Wait for fade-out to complete (synced with CSS 0.6s)
-            _showSplash = false;
-        }
-        
         // 5. Cleanup metrics and controllers (secondary)
         try { _metrics = await metricsTask; } catch { /* log handled elsewhere */ }
         await controllerModeTask;
@@ -857,12 +864,12 @@
                 "dash-alert-pill-warn"));
         }
 
-        if (summary.BoardAlertYear > 0 && (!summary.BoardConfirmed || summary.BoardPositionsUnfilled.Count > 0))
+        if (summary.BoardAlertYear > 0 && (!summary.BoardConfirmed || (summary.BoardPositionsUnfilled?.Count ?? 0) > 0))
         {
             items.Add(new AlertPreviewItem(
                 "Board roles open",
-                $"Board {summary.BoardAlertYear} needs: {string.Join(", ", summary.BoardPositionsUnfilled)}",
-                Math.Max(1, summary.BoardPositionsUnfilled.Count),
+                $"Board {summary.BoardAlertYear} needs: {string.Join(", ", summary.BoardPositionsUnfilled ?? Array.Empty<string>())}",
+                Math.Max(1, summary.BoardPositionsUnfilled?.Count ?? 0),
                 now,
                 "dash-alert-pill-danger"));
         }
