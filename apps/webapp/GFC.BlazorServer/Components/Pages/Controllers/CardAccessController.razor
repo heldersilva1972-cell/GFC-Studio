@@ -1,4 +1,4 @@
-@page "/controllers/card-access"
+@page "/controllers"
 @attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Data
@@ -7,47 +7,40 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
 @inject ControllerRegistryService RegistryService
+@inject ControllerEventService EventService
 @inject IControllerClient ControllerClient
 @inject GfcDbContext DbContext
+@inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject ILogger<CardAccessController> Logger
+@inject IJSRuntime JSRuntime
 
-<PageTitle>Card Access Controller - GFC</PageTitle>
+<PageTitle>Controller Dashboard - GFC</PageTitle>
 
-<div class="gfc-modified-tag">
-    <span class="gfc-tag-label">MODIFIED</span>
-    <strong>Controller Diagnostics Update:</strong> Removed the "Interface" field from the Node Diagnostics panel. This field is no longer needed as the system now exclusively uses the real hardware TCP/IP agent.
-</div>
-
-<div class="controller-container">
-    <header class="page-header">
-        <div class="header-title">
-            <h1>Card Access Controller</h1>
-            <p>Manage hardware devices, door settings, and unlock schedules.</p>
-        </div>
-        <div class="header-actions">
-            @if (_selectedController != null)
-            {
-                <div class="d-flex gap-2">
-                    <button class="btn-modern btn-outline-modern" @onclick="TestConnection" disabled="@_isTesting">
-                        @if (_isTesting) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                        else { <i class="bi bi-broadcast"></i> }
-                        Test Connection
-                    </button>
-                    <button class="btn-modern btn-primary-modern" @onclick="SyncAllToController" disabled="@_isSyncing">
-                        @if (_isSyncing) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                        else { <i class="bi bi-cloud-arrow-up"></i> }
-                        @( _isSyncing ? "Syncing..." : "Sync All Settings" )
-                    </button>
-                </div>
-            }
+<div class="dashboard-container">
+    <header class="dashboard-header fadeIn">
+        <div class="header-content">
+            <div class="header-title">
+                <h1><i class="bi bi-hdd-rack-fill me-3"></i>Controller Dashboard</h1>
+                <p class="header-subtitle">Real-time monitoring and control center</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn-modern btn-outline-modern" @onclick="NavigateToSettings">
+                    <i class="bi bi-gear-fill"></i> Configuration
+                </button>
+                <button class="btn-modern btn-primary-modern" @onclick="RefreshDashboard" disabled="@_isRefreshing">
+                    @if (_isRefreshing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    else { <i class="bi bi-arrow-clockwise"></i> }
+                    Refresh
+                </button>
+            </div>
         </div>
     </header>
 
     @if (_errorMessage != null)
     {
-        <div class="alert alert-danger alert-dismissible fade show glass-panel py-3 px-4 mb-4" role="alert">
+        <div class="alert alert-danger alert-dismissible fade show glass-panel py-3 px-4 mb-4 fadeIn" role="alert">
             <i class="bi bi-exclamation-octagon-fill me-2"></i> @_errorMessage
             <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
         </div>
@@ -55,7 +48,7 @@
 
     @if (_successMessage != null)
     {
-        <div class="alert alert-success alert-dismissible fade show glass-panel py-3 px-4 mb-4" role="alert">
+        <div class="alert alert-success alert-dismissible fade show glass-panel py-3 px-4 mb-4 fadeIn" role="alert">
             <i class="bi bi-check-circle-fill me-2"></i> @_successMessage
             <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
         </div>
@@ -67,89 +60,134 @@
             <div class="spinner-grow text-primary" role="status" style="width: 3rem; height: 3rem;">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-3 text-muted">Checking system status...</p>
+            <p class="mt-3 text-muted">Loading controller status...</p>
         </div>
     }
     else
     {
-        <section class="selection-grid">
+        <!-- Controller Status Grid -->
+        <section class="status-grid fadeIn">
             @foreach (var controller in _controllers)
             {
-                <div class="controller-card @(_selectedControllerId == controller.Id ? "active" : "")" 
+                <div class="status-card @(controller.IsOnline ? "online" : "offline") @(_selectedControllerId == controller.Id ? "selected" : "")" 
                      @onclick="() => SelectController(controller.Id)">
-                    <div class="card-icon">
-                        <i class="bi @(controller.IsOnline ? "bi-hdd-network-fill" : "bi-hdd-network")"></i>
-                    </div>
-                    <div class="card-info">
-                        <h3>@controller.Name</h3>
-                        <div class="card-status">
-                            <span class="status-indicator @(controller.IsOnline ? "status-online" : "status-offline")"></span>
-                            <span>@(controller.IsOnline ? "Online" : "Offline")</span>
+                    <div class="status-card-header">
+                        <div class="status-indicator-large">
+                            <span class="pulse-dot @(controller.IsOnline ? "online" : "offline")"></span>
+                        </div>
+                        <div class="status-card-title">
+                            <h3>@controller.Name</h3>
+                            <span class="status-label">@(controller.IsOnline ? "Online" : "Offline")</span>
                         </div>
                     </div>
-                    <div class="mt-3 small text-muted">
-                        <i class="bi bi-door-open"></i> @controller.Doors.Count Units active
+                    <div class="status-card-body">
+                        <div class="metric-row">
+                            <div class="metric">
+                                <i class="bi bi-door-open-fill"></i>
+                                <div>
+                                    <span class="metric-value">@controller.Doors.Count</span>
+                                    <span class="metric-label">Doors</span>
+                                </div>
+                            </div>
+                            <div class="metric">
+                                <i class="bi bi-activity"></i>
+                                <div>
+                                    <span class="metric-value">@GetRecentEventCount(controller.Id)</span>
+                                    <span class="metric-label">Events (24h)</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quick-info">
+                            <span><i class="bi bi-hdd-network"></i> @controller.IpAddress</span>
+                            <span><i class="bi bi-hash"></i> SN: @controller.SerialNumberDisplay</span>
+                        </div>
+                    </div>
+                    <div class="status-card-footer">
+                        <button class="btn-card-action" @onclick:stopPropagation="true" @onclick="() => TestControllerConnection(controller.Id)" disabled="@_isTesting">
+                            <i class="bi bi-broadcast"></i> Test
+                        </button>
+                        <button class="btn-card-action primary" @onclick:stopPropagation="true" @onclick="() => NavigateToControllerSettings(controller.Id)">
+                            <i class="bi bi-gear"></i> Configure
+                        </button>
                     </div>
                 </div>
             }
-            <div class="controller-card add-card" @onclick="ShowAddControllerModal">
-                <div class="opacity-50">
-                   <i class="bi bi-plus-circle" style="font-size: 2rem;"></i>
-                   <p class="mt-2 fw-600">Add Controller</p>
-                </div>
-            </div>
         </section>
 
         @if (_selectedController != null)
         {
-            <div class="dashboard-grid @(_isChangingTab ? "opacity-50 fadeOut" : "fadeIn")">
-                <!-- Left Column: Device Identity & Setup -->
-                <div class="details-column">
-                    <!-- Door Management (The Main Focus) -->
-                    <div class="glass-panel stagger-1 main-management-panel">
+            <!-- Dashboard Details -->
+            <div class="dashboard-details fadeIn">
+                <!-- Left Column: Door Status & Quick Actions -->
+                <div class="details-main">
+                    <!-- Door Status Panel -->
+                    <div class="glass-panel">
                         <div class="panel-header">
-                            <h2><i class="bi bi-door-open-fill"></i> Door Configuration</h2>
-                            <button class="btn-modern btn-primary-modern btn-sm" @onclick="ShowAddDoorModal">
-                                <i class="bi bi-plus-lg"></i> Add New Door
+                            <h2><i class="bi bi-door-open-fill"></i> Door Status</h2>
+                            <button class="btn-modern btn-sm btn-outline-modern" @onclick="() => NavigateToControllerSettings(_selectedController.Id)">
+                                <i class="bi bi-plus-lg"></i> Manage Doors
                             </button>
-                        </div>
-                        
-                        <div class="door-status-summary mb-4">
-                            <div class="summary-pill">
-                                <span class="label">Total Doors</span>
-                                <span class="value">@_selectedController.Doors.Count / 4</span>
-                            </div>
-                            <div class="summary-pill">
-                                <span class="label">Relay Slots Open</span>
-                                <span class="value">@(4 - _selectedController.Doors.Count)</span>
-                            </div>
                         </div>
 
                         @if (!_selectedController.Doors.Any())
                         {
-                            <div class="text-center py-5 empty-doors-placeholder">
-                                <i class="bi bi-plus-square-dotted mb-3 d-block" style="font-size: 3rem; opacity: 0.2;"></i>
-                                <p class="text-muted">No doors have been set up for this controller yet.</p>
-                                <button class="btn btn-link text-decoration-none" @onclick="ShowAddDoorModal">Start Setup Wizard</button>
+                            <div class="empty-state">
+                                <i class="bi bi-door-closed"></i>
+                                <p>No doors configured</p>
+                                <button class="btn-modern btn-primary-modern btn-sm" @onclick="() => NavigateToControllerSettings(_selectedController.Id)">
+                                    Set Up Doors
+                                </button>
                             </div>
                         }
                         else
                         {
-                            <div class="door-list-simple">
+                            <div class="door-grid">
                                 @foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
                                 {
-                                    <div class="door-item-row fadeIn">
-                                        <div class="door-icon-circle @(door.IsEnabled ? "active" : "")">
-                                            <i class="bi bi-door-@(door.IsEnabled ? "open" : "closed")"></i>
-                                            <span class="port-tag">#@door.DoorIndex</span>
+                                    var isUnlocked = _unlockedDoors.Contains(door.Id);
+                                    <div class="door-status-item @(door.IsEnabled ? "enabled" : "disabled") @(isUnlocked ? "unlocked" : "")">
+                                        <div class="door-status-icon">
+                                            <i class="bi bi-door-@(door.IsEnabled ? "open" : "closed")-fill"></i>
+                                            <span class="door-index">#@door.DoorIndex</span>
+                                            @if (isUnlocked)
+                                            {
+                                                <div class="unlock-indicator">
+                                                    <i class="bi bi-unlock-fill"></i>
+                                                </div>
+                                            }
                                         </div>
-                                        <div class="door-details-text">
-                                            <div class="door-title">@door.Name</div>
-                                            <div class="door-subtitle">@(string.IsNullOrEmpty(door.Notes) ? "No location notes" : door.Notes)</div>
+                                        <div class="door-status-info">
+                                            <div class="door-name">@door.Name</div>
+                                            <div class="door-location">@(string.IsNullOrEmpty(door.Notes) ? "No location" : door.Notes)</div>
+                                            
+                                            <!-- Card Scanner Input -->
+                                            <div class="card-scanner-input mt-2">
+                                                <input type="text" 
+                                                       class="scanner-field" 
+                                                       placeholder="Scan card to test access..."
+                                                       @onkeydown="@(e => HandleCardScan(e, door.Id))"
+                                                       disabled="@(!door.IsEnabled)" />
+                                            </div>
                                         </div>
-                                        <div class="door-row-actions">
-                                            <button class="btn-icon" title="Edit Door" @onclick="() => EditDoor(door)"><i class="bi bi-pencil-square"></i></button>
-                                            <button class="btn-icon delete" title="Remove Door" @onclick="() => DeleteDoor(door)"><i class="bi bi-trash3"></i></button>
+                                        <div class="door-status-actions">
+                                            <button class="btn-unlock-test" 
+                                                    title="Test Unlock" 
+                                                    @onclick="() => UnlockDoor(door.Id)" 
+                                                    disabled="@(!door.IsEnabled || _isUnlocking)">
+                                                @if (_isUnlocking && _unlockingDoorId == door.Id)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm"></span>
+                                                }
+                                                else if (isUnlocked)
+                                                {
+                                                    <i class="bi bi-check-circle-fill"></i>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-unlock-fill"></i>
+                                                }
+                                                <span>@(isUnlocked ? "Unlocked" : "Test Unlock")</span>
+                                            </button>
                                         </div>
                                     </div>
                                 }
@@ -157,158 +195,85 @@
                         }
                     </div>
 
-                    <!-- System Info & Scanner (Secondary Settings) -->
-                    <div class="glass-panel stagger-2 secondary-settings">
-                        <div class="accordion" id="settingsAccordion">
-                            <div class="accordion-item bg-transparent border-0">
-                                <h2 class="accordion-header">
-                                     <button class="accordion-button collapsed bg-transparent shadow-none px-0" type="button" data-bs-toggle="collapse" data-bs-target="#systemSettings" style="color: var(--text-primary); font-weight: 700;">
-                                         <i class="bi bi-gear-fill me-2"></i> System & Hardware Settings
-                                     </button>
-                                </h2>
-                                <div id="systemSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
-                                    <div class="accordion-body px-0 pt-3">
-                                        <div class="info-grid-simple">
-                                            <div class="mini-info">
-                                                <span class="label">IP Address</span>
-                                                <span class="value">@_selectedController.IpAddress</span>
-                                            </div>
-                                            <div class="mini-info">
-                                                <span class="label">SN</span>
-                                                <span class="value">@_selectedController.SerialNumberDisplay</span>
-                                            </div>
-                                        </div>
-
-                                        <div class="mt-3">
-                                            <label class="form-label-small">Card Scanner Input</label>
-                                            <select class="modern-input-small" @bind="_cardReaderControllerId" @bind:after="SaveCardReaderConfig">
-                                                <option value="0">Disabled</option>
-                                                @foreach (var controller in _controllers)
-                                                {
-                                                    <option value="@controller.Id">@controller.Name</option>
-                                                }
-                                            </select>
-                                        </div>
-
-                                        <div class="mt-3 pt-2">
-                                            <button class="btn-modern btn-outline-modern btn-sm w-100" @onclick="RebootController">
-                                                <i class="bi bi-arrow-clockwise"></i> Restart Controller
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                    <!-- Quick Actions Panel -->
+                    <div class="glass-panel">
+                        <div class="panel-header">
+                            <h2><i class="bi bi-lightning-charge-fill"></i> Quick Actions</h2>
                         </div>
-                    </div>
-
-                    <!-- Advanced Management Links -->
-                    <div class="glass-panel stagger-3">
-                        <div class="panel-header mb-3">
-                            <h2><i class="bi bi-tools"></i> Advanced Configuration</h2>
-                        </div>
-                        <div class="d-flex flex-column gap-2">
-                            <a href="/controllers/@(_selectedController.Id)/network-config" class="btn-modern btn-outline-modern w-100 justify-content-between">
-                                <span class="d-flex align-items-center gap-2"><i class="bi bi-router"></i> Network Setup</span>
-                                <i class="bi bi-chevron-right small"></i>
-                            </a>
-                            <a href="/controllers/door-configuration" class="btn-modern btn-outline-modern w-100 justify-content-between">
-                                <span class="d-flex align-items-center gap-2"><i class="bi bi-clock-history"></i> Door Timers & Alarms</span>
-                                <i class="bi bi-chevron-right small"></i>
-                            </a>
-                            <a href="/controllers/auto-open" class="btn-modern btn-outline-modern w-100 justify-content-between">
-                                <span class="d-flex align-items-center gap-2"><i class="bi bi-calendar2-week"></i> Auto-Unlock Rules</span>
-                                <i class="bi bi-chevron-right small"></i>
-                            </a>
-                            <a href="/controllers/advanced-modes" class="btn-modern btn-outline-modern w-100 justify-content-between">
-                                <span class="d-flex align-items-center gap-2"><i class="bi bi-shield-check"></i> Secondary Access Modes</span>
-                                <i class="bi bi-chevron-right small"></i>
-                            </a>
+                        <div class="quick-actions-grid">
+                            <button class="action-card" @onclick="SyncTime">
+                                <i class="bi bi-clock-history"></i>
+                                <span>Sync Time</span>
+                            </button>
+                            <button class="action-card" @onclick="() => NavigateToScheduler(_selectedController.Id)">
+                                <i class="bi bi-calendar3"></i>
+                                <span>Schedules</span>
+                            </button>
+                            <button class="action-card" @onclick="() => NavigateToControllerSettings(_selectedController.Id)">
+                                <i class="bi bi-sliders"></i>
+                                <span>Settings</span>
+                            </button>
+                            <button class="action-card danger" @onclick="ShowEmergencyLockdown">
+                                <i class="bi bi-shield-fill-exclamation"></i>
+                                <span>Emergency</span>
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right Column: Schedules & Monitoring -->
-                <div class="content-column">
-                    <div class="glass-panel stagger-4">
+                <!-- Right Column: Event Feed & System Info -->
+                <div class="details-sidebar">
+                    <!-- Recent Events -->
+                    <div class="glass-panel">
                         <div class="panel-header">
-                            <h2>
-                                @if (_activeTab == "schedules") { <i class="bi bi-calendar-range"></i> }
-                                else { <i class="bi bi-shield-lock"></i> }
-                                @GetTabTitle()
-                            </h2>
-                            <div class="header-actions">
-                                @if (_activeTab == "schedules") {
-                                    <button class="btn-modern btn-primary-modern btn-sm" @onclick="ShowAddProfileModal">
-                                        <i class="bi bi-plus-lg"></i> New Schedule
-                                    </button>
-                                }
-                            </div>
+                            <h2><i class="bi bi-activity"></i> Recent Events</h2>
                         </div>
-
-                        <div class="modern-tabs">
-                            <button class="tab-btn @(_activeTab == "schedules" ? "active" : "")" @onclick='() => ChangeTab("schedules")'>Unlock Schedules</button>
-                            <button class="tab-btn @(_activeTab == "advanced" ? "active" : "")" @onclick='() => ChangeTab("advanced")'>Auto-Unlock Cycles</button>
-                        </div>
-
-                        <div class="tab-content mt-4">
-                            @if (_activeTab == "schedules")
+                        <div class="event-feed">
+                            @if (_recentEvents.Any())
                             {
-                                <div class="schedule-grid">
-                                    @foreach (var profile in _timeProfiles)
-                                    {
-                                        <div class="schedule-card fadeIn">
-                                            <div class="schedule-header">
-                                                <span class="schedule-tag">SCHEDULE</span>
-                                                <div class="schedule-actions">
-                                                    <button class="btn-icon" @onclick="() => EditProfile(profile)"><i class="bi bi-pencil"></i></button>
-                                                    <button class="btn-icon delete" @onclick="() => DeleteProfile(profile)"><i class="bi bi-trash3"></i></button>
-                                                </div>
-                                            </div>
-                                            <div class="schedule-name">@profile.Name</div>
-                                            <div class="schedule-meta">
-                                                <span>@profile.Intervals.Count Active Hours</span>
-                                                <span class="dot"></span>
-                                                <span>4 Members Linked</span>
-                                            </div>
+                                @foreach (var evt in _recentEvents.Take(10))
+                                {
+                                    <div class="event-item">
+                                        <div class="event-icon @GetEventTypeClass(evt.EventType)">
+                                            <i class="bi @GetEventIcon(evt.EventType)"></i>
                                         </div>
-                                    }
-                                    @if (!_timeProfiles.Any())
-                                    {
-                                        <div class="text-center py-5 w-100">
-                                            <p class="text-muted">No schedules found. Create one to manage restricted access.</p>
+                                        <div class="event-details">
+                                            <div class="event-description">@GetEventDescription(evt)</div>
+                                            <div class="event-time">@evt.TimestampUtc.ToLocalTime().ToString("g")</div>
                                         </div>
-                                    }
-                                </div>
-                            }
-                            else if (_activeTab == "advanced")
-                            {
-                                <div class="alert glass-panel border-info d-flex align-items-start gap-3">
-                                    <i class="bi bi-info-circle-fill text-info mt-1"></i>
-                                    <div>
-                                        <div class="fw-bold fs-5 mb-1">Automatic Unlock Cycles</div>
-                                        <p class="text-muted small mb-2">Configure your doors to unlock automatically during business hours or special events.</p>
-                                         <a href="/controllers/auto-open" class="btn btn-sm btn-info text-decoration-none fw-bold" style="color: #fff">Open Scheduler</a>
                                     </div>
-                                </div>
-                                
-                                <div class="door-list-simple mt-4">
-                                    @foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
-                                    {
-                                        <div class="door-item-row fadeIn">
-                                            <div class="door-icon-circle active">
-                                                <i class="bi bi-unlock"></i>
-                                            </div>
-                                            <div class="door-details-text">
-                                                <div class="door-title">@door.Name</div>
-                                                <div class="door-subtitle">Auto-Unlock not configured</div>
-                                            </div>
-                                            <div class="door-row-actions">
-                                                <a href="/controllers/auto-open" class="btn-icon" title="Configure"><i class="bi bi-gear"></i></a>
-                                            </div>
-                                        </div>
-                                    }
+                                }
+                            }
+                            else
+                            {
+                                <div class="empty-state-small">
+                                    <i class="bi bi-inbox"></i>
+                                    <p>No recent events</p>
                                 </div>
                             }
+                        </div>
+                    </div>
+
+                    <!-- System Health -->
+                    <div class="glass-panel">
+                        <div class="panel-header">
+                            <h2><i class="bi bi-heart-pulse-fill"></i> System Health</h2>
+                        </div>
+                        <div class="health-metrics">
+                            <div class="health-item">
+                                <span class="health-label">Connection</span>
+                                <span class="health-status @(_selectedController.IsOnline ? "healthy" : "error")">
+                                    @(_selectedController.IsOnline ? "Stable" : "Disconnected")
+                                </span>
+                            </div>
+                            <div class="health-item">
+                                <span class="health-label">Active Doors</span>
+                                <span class="health-status healthy">@_selectedController.Doors.Count(d => d.IsEnabled) / @_selectedController.Doors.Count</span>
+                            </div>
+                            <div class="health-item">
+                                <span class="health-label">Last Sync</span>
+                                <span class="health-status">@GetLastSyncTime()</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -317,489 +282,310 @@
     }
 </div>
 
-<!-- Door Modal -->
-@if (_showDoorModal)
-{
-    <div class="modal-overlay" @onclick="CloseDoorModal">
-        <div class="modern-modal" @onclick:stopPropagation="true">
-            <div class="panel-header mb-4">
-                <h2><i class="bi bi-door-open"></i> @(_editingDoor == null ? "Add Door" : "Edit Door Settings")</h2>
-                <button type="button" class="btn-close" @onclick="CloseDoorModal"></button>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Hardware Port (Relay)</label>
-                <p class="small text-muted mb-2">Each controller has 4 relay outputs. Select which one this door is connected to.</p>
-                <div class="port-selector mb-3">
-                    @for (int i = 1; i <= 4; i++)
-                    {
-                        var index = i;
-                        var isOccupied = _selectedController.Doors.Any(d => d.DoorIndex == index && d.Id != (_editingDoor?.Id ?? 0));
-                        <button class="port-btn @(_doorForm.DoorIndex == index ? "active" : "") @(isOccupied ? "occupied" : "")" 
-                                @onclick="() => { if(!isOccupied) _doorForm.DoorIndex = index; }"
-                                disabled="@isOccupied">
-                            <span class="port-number">@index</span>
-                            <span class="port-status">@(isOccupied ? "Used" : "Open")</span>
-                        </button>
-                    }
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Door Name</label>
-                <input type="text" class="modern-input" @bind="_doorForm.Name" placeholder="e.g. Front Entrance" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Location / Notes</label>
-                <textarea class="modern-input" @bind="_doorForm.Notes" rows="2" placeholder="Describe where this door is located..."></textarea>
-            </div>
-
-            <div class="status-box mt-3 mb-4">
-                 <div class="d-flex align-items-center justify-content-between">
-                    <div>
-                         <div class="fw-bold fs-5">Door Active</div>
-                         <div class="form-label-desc">Toggle to enable or disable card access for this door.</div>
-                    </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" @bind="_doorForm.IsEnabled" />
-                    </div>
-                </div>
-            </div>
-
-            @if (_doorModalError != null)
-            {
-                <div class="alert alert-danger py-2 border-0 rounded-4 mb-4 small">
-                    <i class="bi bi-exclamation-triangle-fill me-2"></i> @_doorModalError
-                </div>
-            }
-
-            <div class="d-flex gap-3">
-                <button class="btn-modern btn-outline-modern flex-grow-1" @onclick="CloseDoorModal">Cancel</button>
-                <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveDoor" disabled="@_savingDoor">
-                    @if (_savingDoor) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                    Save Settings
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- Controller Modal -->
-@if (_showControllerModal)
-{
-    <div class="modal-overlay" @onclick="() => _showControllerModal = false">
-        <div class="modern-modal" @onclick:stopPropagation="true">
-            <div class="panel-header mb-4">
-                <h2><i class="bi bi-cpu"></i> Add Controller</h2>
-                <button type="button" class="btn-close" @onclick="() => _showControllerModal = false"></button>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Controller Name</label>
-                <input type="text" class="modern-input" @bind="_controllerForm.Name" placeholder="Main Entrance, Server Room..." />
-            </div>
-
-            <div class="d-flex gap-3">
-                <div class="form-group flex-grow-1">
-                    <label class="form-label">Serial Number</label>
-                    <input type="number" class="modern-input" @bind="_controllerForm.SerialNumber" placeholder="e.g. 10203040" />
-                </div>
-                <div class="form-group flex-grow-1">
-                    <label class="form-label">Port</label>
-                    <input type="number" class="modern-input" @bind="_controllerForm.Port" />
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">IP Address</label>
-                <input type="text" class="modern-input" @bind="_controllerForm.IpAddress" placeholder="192.168.1.100" />
-            </div>
-
-            @if (_controllerModalError != null)
-            {
-                <div class="alert alert-danger py-2 border-0 rounded-4 mb-4 small">
-                    <i class="bi bi-exclamation-triangle-fill me-2"></i> @_controllerModalError
-                </div>
-            }
-
-            <div class="d-flex gap-3">
-                <button class="btn-modern btn-outline-modern flex-grow-1" @onclick="() => _showControllerModal = false">Cancel</button>
-                <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveController">Save Controller</button>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- Profile Modal (Phase 2 Placeholder) -->
-@if (_showProfileModal)
-{
-    <div class="modal-overlay" @onclick="() => _showProfileModal = false">
-        <div class="modern-modal" @onclick:stopPropagation="true">
-             <div class="panel-header mb-4">
-                <h2><i class="bi bi-calendar-check"></i> Define Schedule</h2>
-                <button type="button" class="btn-close" @onclick="() => _showProfileModal = false"></button>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Schedule Name</label>
-                <input type="text" class="modern-input" @bind="_newProfileName" placeholder="e.g. Member Access 24/7" />
-            </div>
-            <div class="alert glass-panel border-warning small">
-                <i class="bi bi-cone-striped text-warning me-2"></i> Visual interval builder is processing. Use preset profiles for now.
-            </div>
-            <div class="d-flex gap-3 mt-4">
-                <button class="btn-modern btn-outline-modern flex-grow-1" @onclick="() => _showProfileModal = false">Cancel</button>
-                <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveProfile">Create Schedule</button>
-            </div>
-        </div>
-    </div>
-}
-
 @code {
     private List<ControllerDevice> _controllers = new();
-    private List<TimeProfile> _timeProfiles = new();
     private ControllerDevice? _selectedController;
-    private int _selectedControllerId = 0;
-    private int _cardReaderControllerId = 0;
+    private int? _selectedControllerId;
+    private List<ControllerEvent> _recentEvents = new();
+    private HashSet<int> _unlockedDoors = new();
     private bool _isLoading = true;
+    private bool _isRefreshing = false;
+    private bool _isTesting = false;
+    private bool _isUnlocking = false;
+    private int? _unlockingDoorId;
     private string? _errorMessage;
     private string? _successMessage;
 
-    // UI state
-    private string _activeTab = "schedules";
-    private bool _isChangingTab = false;
-
-    // Door State
-    private bool _showDoorModal = false;
-    private bool _savingDoor = false;
-    private string? _doorModalError;
-    private Door? _editingDoor;
-    private DoorForm _doorForm = new();
-    
-    // Controller State
-    private bool _showControllerModal = false;
-    private ControllerForm _controllerForm = new();
-    private string? _controllerModalError;
-
-    // Profile State
-    private bool _showProfileModal = false;
-    private string _newProfileName = "";
-
-    // Action State
-    private bool _isTesting = false;
-    private bool _isSyncing = false;
-
     protected override async Task OnInitializedAsync()
     {
-        var isAdmin = await CheckAdminAccess();
-        if (!isAdmin)
+        await LoadControllers();
+        if (_controllers.Any())
         {
-            _isLoading = false;
-            return;
-        }
-
-        try {
-            await LoadData();
-            await LoadCardReaderConfig();
-        } catch (Exception ex) {
-            Logger.LogError(ex, "Failed to initialize Card Access Controller page");
-            _errorMessage = "Initialization error: " + ex.Message;
-        } finally {
-            _isLoading = false;
-        }
-    }
-
-    private string GetTabTitle() => _activeTab switch {
-        "schedules" => "Access Schedules",
-        "advanced" => "Hardware Automation",
-        _ => "Control Console"
-    };
-
-    private async Task ChangeTab(string tab) {
-        if (_activeTab == tab) return;
-        _isChangingTab = true;
-        StateHasChanged();
-        await Task.Delay(300); // Visual transition
-        _activeTab = tab;
-        _isChangingTab = false;
-        StateHasChanged();
-    }
-
-    private async Task<bool> CheckAdminAccess()
-    {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
-        
-        if (!isAdmin) {
-            var currentUser = AuthStateProvider.GetCurrentUser();
-            if (currentUser != null) isAdmin = currentUser.IsAdmin;
-        }
-
-        if (!isAdmin) {
-            Logger.LogWarning("System Hub Access Violation");
-            Navigation.NavigateTo("/", forceLoad: true);
-            return false;
-        }
-        return true;
-    }
-
-    private async Task LoadData()
-    {
-        _controllers = (await RegistryService.GetControllersAsync(true, CancellationToken.None)).ToList();
-        _timeProfiles = await DbContext.TimeProfiles.Include(t => t.Intervals).OrderBy(t => t.Name).ToListAsync();
-        
-        // Refresh online status for all controllers to avoid the "Everything is Offline" bug on load
-        foreach (var controller in _controllers)
-        {
-            try {
-                var status = await ControllerClient.GetRunStatusAsync(controller.Id, CancellationToken.None);
-                controller.IsOnline = status.IsOnline;
-            } catch {
-                controller.IsOnline = false;
-            }
-        }
-
-        if (_selectedControllerId != 0) {
-            await SelectController(_selectedControllerId);
-        } else if (_controllers.Any()) {
             await SelectController(_controllers.First().Id);
         }
+        _isLoading = false;
     }
 
-    private async Task LoadCardReaderConfig() {
-        var settings = await DbContext.SystemSettings.FirstOrDefaultAsync(s => s.Id == 1);
-        if (settings != null) {
-            _cardReaderControllerId = settings.ScannerControllerId ?? 0;
+    private string _currentCardInput = "";
+    
+    private async Task HandleCardScan(KeyboardEventArgs e, int doorId)
+    {
+        if (e.Key == "Enter")
+        {
+            if (!string.IsNullOrWhiteSpace(_currentCardInput))
+            {
+                await ValidateCardAccess(_currentCardInput, doorId);
+                _currentCardInput = "";
+            }
+        }
+        else if (e.Key.Length == 1)
+        {
+            _currentCardInput += e.Key;
         }
     }
 
-    private async Task SaveCardReaderConfig() {
-        var settings = await DbContext.SystemSettings.FirstOrDefaultAsync(s => s.Id == 1);
-        if (settings != null) {
-            settings.ScannerControllerId = _cardReaderControllerId > 0 ? _cardReaderControllerId : null;
-            settings.LastUpdatedUtc = DateTime.UtcNow;
-            await DbContext.SaveChangesAsync();
-            ShowSuccess("Scanner proxy persistent configuration updated.");
+    private async Task ValidateCardAccess(string cardNumber, int doorId)
+    {
+        try
+        {
+            var door = _selectedController?.Doors.FirstOrDefault(d => d.Id == doorId);
+            if (door == null || _selectedController == null) return;
+
+            // Check if card has access to this door
+            await using var db = await DbFactory.CreateDbContextAsync();
+            
+            var hasAccess = await db.MemberDoorAccesses
+                .AnyAsync(mda => mda.CardNumber.ToString() == cardNumber && 
+                                 mda.DoorId == doorId &&
+                                 mda.IsEnabled);
+
+            if (hasAccess)
+            {
+                // Grant access - unlock the door
+                await ControllerClient.OpenDoorAsync(_selectedController.SerialNumber.ToString(), door.DoorIndex);
+                
+                // Add visual feedback
+                _unlockedDoors.Add(doorId);
+                _successMessage = $"✓ Access Granted - Card {cardNumber} unlocked '{door.Name}'";
+                
+                // Auto-remove unlock indicator after 3 seconds
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(3000);
+                    _unlockedDoors.Remove(doorId);
+                    await InvokeAsync(StateHasChanged);
+                });
+            }
+            else
+            {
+                _errorMessage = $"✗ Access Denied - Card {cardNumber} does not have access to '{door.Name}'";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error validating card access");
+            _errorMessage = "Card validation error: " + ex.Message;
         }
     }
 
-    private async Task SelectController(int controllerId) {
+    private async Task LoadControllers()
+    {
+        try
+        {
+            _controllers = (await RegistryService.GetControllersAsync(includeDoors: true)).ToList();
+            
+            // Check online status for each controller
+            foreach (var controller in _controllers)
+            {
+                try
+                {
+                    var status = await ControllerClient.GetRunStatusAsync(controller.SerialNumber.ToString());
+                    controller.IsOnline = status != null;
+                }
+                catch
+                {
+                    controller.IsOnline = false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load controllers");
+            _errorMessage = "Failed to load controllers: " + ex.Message;
+        }
+    }
+
+    private async Task SelectController(int controllerId)
+    {
         _selectedControllerId = controllerId;
         _selectedController = _controllers.FirstOrDefault(c => c.Id == controllerId);
-        if (_selectedController != null) {
-            try {
-                var status = await ControllerClient.GetRunStatusAsync(_selectedController.Id, CancellationToken.None);
-                _selectedController.IsOnline = status.IsOnline;
-            } catch { }
-        }
-        StateHasChanged();
-    }
-
-    // Door Management
-    private void ShowAddDoorModal() {
-        if (_selectedController == null) return;
-        _editingDoor = null;
-        _doorForm = new DoorForm { 
-            DoorIndex = _selectedController.Doors.Any() ? _selectedController.Doors.Max(d => d.DoorIndex) + 1 : 1,
-            IsEnabled = true 
-        };
-        if (_doorForm.DoorIndex > 4) _doorForm.DoorIndex = 1;
-        _doorModalError = null;
-        _showDoorModal = true;
-    }
-
-    private void EditDoor(Door door) {
-        _editingDoor = door;
-        _doorForm = new DoorForm {
-            DoorIndex = door.DoorIndex,
-            Name = door.Name,
-            Notes = door.Notes,
-            IsEnabled = door.IsEnabled
-        };
-        _doorModalError = null;
-        _showDoorModal = true;
-    }
-
-    private void CloseDoorModal() {
-        _showDoorModal = false;
-    }
-
-    private async Task SaveDoor() {
-        if (_selectedController == null) return;
-        if (string.IsNullOrWhiteSpace(_doorForm.Name)) {
-            _doorModalError = "Please identity the hardware node.";
-            return;
-        }
-
-        var dup = _selectedController.Doors.FirstOrDefault(d => 
-            d.DoorIndex == _doorForm.DoorIndex && d.Id != (_editingDoor?.Id ?? 0));
-        if (dup != null) {
-            _doorModalError = $"Relay #{_doorForm.DoorIndex} is already occupied.";
-            return;
-        }
-
-        _savingDoor = true;
-        try {
-            if (_editingDoor == null) {
-                var newDoor = new Door {
-                    ControllerId = _selectedController.Id,
-                    DoorIndex = _doorForm.DoorIndex,
-                    Name = _doorForm.Name,
-                    Notes = _doorForm.Notes,
-                    IsEnabled = _doorForm.IsEnabled
-                };
-                DbContext.Doors.Add(newDoor);
-            } else {
-                _editingDoor.DoorIndex = _doorForm.DoorIndex;
-                _editingDoor.Name = _doorForm.Name;
-                _editingDoor.Notes = _doorForm.Notes;
-                _editingDoor.IsEnabled = _doorForm.IsEnabled;
-                DbContext.Doors.Update(_editingDoor);
-            }
-            await DbContext.SaveChangesAsync();
-            ShowSuccess("Settings saved successfully.");
-            CloseDoorModal();
-            await LoadData();
-        } catch (Exception ex) {
-            _doorModalError = "Commit error: " + ex.Message;
-        } finally {
-            _savingDoor = false;
-        }
-    }
-
-    private async Task DeleteDoor(Door door) {
-        _errorMessage = $"Confirming removal of '{door.Name}'...";
-        StateHasChanged();
-        await Task.Delay(500);
-
-        try {
-            DbContext.Doors.Remove(door);
-            await DbContext.SaveChangesAsync();
-            ShowSuccess("Door unlinked.");
-            _errorMessage = null;
-            await LoadData();
-        } catch (Exception ex) {
-            _errorMessage = "Unlink failure: " + ex.Message;
-        }
-    }
-
-    // Profile Management
-    private void ShowAddProfileModal() {
-        _newProfileName = "";
-        _showProfileModal = true;
-    }
-    
-    private void EditProfile(TimeProfile p) {
-        ShowSuccess($"Editing {p.Name} (Feature in progress)");
-    }
-    
-    private async Task SaveProfile() {
-        if (string.IsNullOrWhiteSpace(_newProfileName)) return;
         
-        try {
-            var profile = new TimeProfile { Name = _newProfileName };
-            DbContext.TimeProfiles.Add(profile);
-            await DbContext.SaveChangesAsync();
-            ShowSuccess("Access schedule created.");
-            _showProfileModal = false;
-            await LoadData();
-        } catch (Exception ex) {
-            _errorMessage = "Profile creation error: " + ex.Message;
+        if (_selectedController != null)
+        {
+            await LoadRecentEvents(controllerId);
         }
     }
 
-    private async Task DeleteProfile(TimeProfile p) {
-        try {
-            DbContext.TimeProfiles.Remove(p);
-            await DbContext.SaveChangesAsync();
-            ShowSuccess("Schedule deleted.");
-            await LoadData();
-        } catch (Exception ex) {
-            _errorMessage = "Scrub error: " + ex.Message;
+    private async Task LoadRecentEvents(int controllerId)
+    {
+        try
+        {
+            var since = DateTime.UtcNow.AddHours(-24);
+            _recentEvents = await DbContext.ControllerEvents
+                .Where(e => e.ControllerId == controllerId && e.TimestampUtc >= since)
+                .OrderByDescending(e => e.TimestampUtc)
+                .Take(50)
+                .Include(e => e.Door)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load events for controller {Id}", controllerId);
         }
     }
 
-    private async Task TestConnection() {
-        if (_selectedController == null) return;
+    private async Task RefreshDashboard()
+    {
+        _isRefreshing = true;
+        await LoadControllers();
+        if (_selectedControllerId.HasValue)
+        {
+            await SelectController(_selectedControllerId.Value);
+        }
+        _isRefreshing = false;
+        _successMessage = "Dashboard refreshed successfully.";
+    }
+
+    private async Task TestControllerConnection(int controllerId)
+    {
         _isTesting = true;
-        try {
-            var status = await ControllerClient.GetRunStatusAsync(_selectedController.Id, CancellationToken.None);
-            _selectedController.IsOnline = status.IsOnline;
-            if (status.IsOnline) ShowSuccess("Connection successful.");
-            else _errorMessage = "Connection Failed: Device unreachable.";
-        } catch (Exception ex) { 
-            _errorMessage = "Protocol Error: " + ex.Message; 
+        try
+        {
+            var controller = _controllers.FirstOrDefault(c => c.Id == controllerId);
+            if (controller != null)
+            {
+                var status = await ControllerClient.GetRunStatusAsync(controller.SerialNumber.ToString());
+                controller.IsOnline = status != null;
+                _successMessage = $"Connection test successful for {controller.Name}.";
+            }
         }
-        finally { _isTesting = false; }
+        catch (Exception ex)
+        {
+            _errorMessage = "Connection test failed: " + ex.Message;
+        }
+        finally
+        {
+            _isTesting = false;
+        }
     }
 
-    private void ShowAddControllerModal() {
-        _controllerForm = new ControllerForm { Port = 60000 };
-        _controllerModalError = null;
-        _showControllerModal = true;
+    private async Task UnlockDoor(int doorId)
+    {
+        _isUnlocking = true;
+        _unlockingDoorId = doorId;
+        
+        try
+        {
+            var door = _selectedController?.Doors.FirstOrDefault(d => d.Id == doorId);
+            if (door != null && _selectedController != null)
+            {
+                await ControllerClient.OpenDoorAsync(_selectedController.SerialNumber.ToString(), door.DoorIndex);
+                
+                // Add visual feedback
+                _unlockedDoors.Add(doorId);
+                _successMessage = $"✓ Door '{door.Name}' unlocked successfully!";
+                
+                // Auto-remove unlock indicator after 3 seconds
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(3000);
+                    _unlockedDoors.Remove(doorId);
+                    await InvokeAsync(StateHasChanged);
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Failed to unlock door: " + ex.Message;
+        }
+        finally
+        {
+            _isUnlocking = false;
+            _unlockingDoorId = null;
+        }
     }
 
-    private async Task SaveController() {
-        if (string.IsNullOrWhiteSpace(_controllerForm.Name) || string.IsNullOrWhiteSpace(_controllerForm.IpAddress)) {
-            _controllerModalError = "All fields are required.";
-            return;
+    private async Task SyncTime()
+    {
+        try
+        {
+            if (_selectedController != null)
+            {
+                await ControllerClient.SyncTimeAsync(_selectedController.Id, CancellationToken.None);
+                _successMessage = "Controller time synchronized successfully.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Failed to sync time: " + ex.Message;
+        }
+    }
+
+    private void ShowEmergencyLockdown()
+    {
+        // TODO: Implement emergency lockdown modal
+        _errorMessage = "Emergency lockdown feature coming soon.";
+    }
+
+    private void NavigateToSettings()
+    {
+        Navigation.NavigateTo("/controllers/settings");
+    }
+
+    private void NavigateToControllerSettings(int controllerId)
+    {
+        Navigation.NavigateTo($"/controllers/settings?controller={controllerId}");
+    }
+
+    private void NavigateToScheduler(int controllerId)
+    {
+        Navigation.NavigateTo($"/controllers/{controllerId}/schedules");
+    }
+
+    private int GetRecentEventCount(int controllerId)
+    {
+        return _recentEvents.Count(e => e.ControllerId == controllerId);
+    }
+
+    private string GetLastSyncTime()
+    {
+        var lastEvent = _recentEvents.OrderByDescending(e => e.TimestampUtc).FirstOrDefault();
+        return lastEvent != null ? lastEvent.TimestampUtc.ToLocalTime().ToString("g") : "Never";
+    }
+
+    private string GetEventTypeClass(int eventType)
+    {
+        return eventType switch
+        {
+            1 => "success",
+            2 => "error",
+            3 => "warning",
+            _ => "info"
+        };
+    }
+
+    private string GetEventIcon(int eventType)
+    {
+        return eventType switch
+        {
+            1 => "bi-check-circle-fill",
+            2 => "bi-x-circle-fill",
+            3 => "bi-exclamation-triangle-fill",
+            _ => "bi-info-circle-fill"
+        };
+    }
+
+    private string GetEventDescription(ControllerEvent evt)
+    {
+        var desc = evt.EventType switch
+        {
+            1 => "Access Granted",
+            2 => "Access Denied",
+            3 => "Door Forced Open",
+            4 => "Door Opened",
+            _ => "Event"
+        };
+        
+        if (evt.CardNumber.HasValue)
+        {
+            desc += $" - Card: {evt.CardNumber}";
         }
         
-        try {
-            var newController = new ControllerDevice {
-                Name = _controllerForm.Name,
-                SerialNumber = _controllerForm.SerialNumber,
-                IpAddress = _controllerForm.IpAddress,
-                Port = _controllerForm.Port,
-                IsEnabled = true
-            };
-            DbContext.Controllers.Add(newController);
-            await DbContext.SaveChangesAsync();
-            ShowSuccess("Controller added successfully.");
-            _showControllerModal = false;
-            await LoadData();
-        } catch (Exception ex) {
-            _controllerModalError = "Provisioning error: " + ex.Message;
+        if (evt.Door != null)
+        {
+            desc += $" - {evt.Door.Name}";
         }
-    }
-
-    private bool IsHealthy(ControllerDevice? c) => c != null && c.IsEnabled && c.IsOnline;
-
-    private async Task SyncAllToController() {
-        if (_selectedController == null) return;
-        _isSyncing = true;
-        try { 
-            await Task.Delay(2000); 
-            ShowSuccess("Settings synchronized to hardware.");
-        } 
-        catch (Exception ex) {
-            _errorMessage = "Sync Error: " + ex.Message;
-        }
-        finally { _isSyncing = false; }
-    }
-
-    private void RebootController() => ShowSuccess("Restart command sent.");
-
-    private void ShowSuccess(string msg) {
-        _successMessage = msg;
-        StateHasChanged();
-        _ = Task.Delay(3000).ContinueWith(_ => {
-            _successMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
-
-    private class DoorForm {
-        public int DoorIndex { get; set; }
-        public string Name { get; set; } = "";
-        public string? Notes { get; set; }
-        public bool IsEnabled { get; set; }
-    }
-
-    private class ControllerForm {
-        public string Name { get; set; } = "";
-        public uint SerialNumber { get; set; }
-        public string IpAddress { get; set; } = "";
-        public int Port { get; set; } = 60000;
+        
+        return desc;
     }
 }

@@ -1,0 +1,330 @@
+@page "/controllers/door-management"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Services
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject ControllerRegistryService RegistryService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Door Management - GFC</PageTitle>
+
+<div class="door-management-container">
+    <header class="page-header">
+        <div class="header-title">
+            <h1><i class="bi bi-door-open-fill me-3"></i>Door Management</h1>
+            <p>Add, edit, or remove doors connected to your controllers</p>
+        </div>
+        <button class="btn-modern btn-primary-modern" @onclick="ShowAddDoorModal">
+            <i class="bi bi-plus-lg"></i> Add New Door
+        </button>
+    </header>
+
+    @if (_errorMessage != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-octagon-fill me-2"></i> @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+
+    @if (_successMessage != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i> @_successMessage
+            <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+        </div>
+    }
+
+    @if (_isLoading)
+    {
+        <div class="text-center my-5 py-5">
+            <div class="spinner-grow text-primary" style="width: 3rem; height: 3rem;"></div>
+            <p class="mt-3 text-muted">Loading doors...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Controller Selection -->
+        <section class="controller-selector mb-4">
+            <label class="form-label">Select Controller:</label>
+            <select class="form-select" @bind="_selectedControllerId" @bind:after="LoadDoors">
+                @foreach (var controller in _controllers)
+                {
+                    <option value="@controller.Id">@controller.Name (SN: @controller.SerialNumberDisplay)</option>
+                }
+            </select>
+        </section>
+
+        @if (_selectedController != null)
+        {
+            <!-- Doors List -->
+            <div class="doors-grid">
+                @if (!_doors.Any())
+                {
+                    <div class="empty-state">
+                        <i class="bi bi-door-closed"></i>
+                        <h3>No Doors Configured</h3>
+                        <p>This controller doesn't have any doors set up yet.</p>
+                        <button class="btn-modern btn-primary-modern" @onclick="ShowAddDoorModal">
+                            <i class="bi bi-plus-lg"></i> Add Your First Door
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var door in _doors.OrderBy(d => d.DoorIndex))
+                    {
+                        <div class="door-card @(door.IsEnabled ? "enabled" : "disabled")">
+                            <div class="door-card-header">
+                                <div class="door-icon">
+                                    <i class="bi bi-door-@(door.IsEnabled ? "open" : "closed")-fill"></i>
+                                    <span class="door-number">#@door.DoorIndex</span>
+                                </div>
+                                <div class="door-info">
+                                    <h3>@door.Name</h3>
+                                    <p>@(string.IsNullOrEmpty(door.Notes) ? "No location specified" : door.Notes)</p>
+                                </div>
+                                <div class="door-status">
+                                    <span class="badge @(door.IsEnabled ? "bg-success" : "bg-secondary")">
+                                        @(door.IsEnabled ? "Active" : "Disabled")
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="door-card-actions">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => EditDoor(door)">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDoor(door)">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <!-- Capacity Info -->
+            <div class="capacity-info mt-4">
+                <i class="bi bi-info-circle"></i>
+                <span>@_doors.Count / 4 relay slots used</span>
+            </div>
+        }
+    }
+</div>
+
+<!-- Add/Edit Door Modal -->
+@if (_showModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModal"></div>
+    <div class="modal-dialog-custom">
+        <div class="modal-content-custom">
+            <div class="modal-header-custom">
+                <h2>@(_editingDoor == null ? "Add New Door" : "Edit Door")</h2>
+                <button class="btn-close-custom" @onclick="CloseModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body-custom">
+                <div class="mb-3">
+                    <label class="form-label">Door Name *</label>
+                    <input type="text" class="form-control" @bind="_doorName" placeholder="e.g., Main Entrance" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Relay Port (1-4) *</label>
+                    <select class="form-select" @bind="_doorIndex">
+                        @for (int i = 1; i <= 4; i++)
+                        {
+                            var isOccupied = _doors.Any(d => d.DoorIndex == i && d.Id != (_editingDoor?.Id ?? 0));
+                            <option value="@i" disabled="@isOccupied">
+                                Port @i @(isOccupied ? "(In Use)" : "")
+                            </option>
+                        }
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Location / Notes</label>
+                    <input type="text" class="form-control" @bind="_doorNotes" placeholder="e.g., Building A, 2nd Floor" />
+                </div>
+                <div class="mb-3">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" @bind="_doorEnabled" id="doorEnabled" />
+                        <label class="form-check-label" for="doorEnabled">
+                            Enable this door
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer-custom">
+                <button class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveDoor" disabled="@_isSaving">
+                    @if (_isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    Save Door
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ControllerDevice> _controllers = new();
+    private ControllerDevice? _selectedController;
+    private int _selectedControllerId;
+    private List<Door> _doors = new();
+    private bool _isLoading = true;
+    private bool _showModal = false;
+    private bool _isSaving = false;
+    private string? _errorMessage;
+    private string? _successMessage;
+
+    // Modal fields
+    private Door? _editingDoor;
+    private string _doorName = "";
+    private int _doorIndex = 1;
+    private string _doorNotes = "";
+    private bool _doorEnabled = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadControllers();
+        _isLoading = false;
+    }
+
+    private async Task LoadControllers()
+    {
+        _controllers = (await RegistryService.GetControllersAsync(includeDoors: true)).ToList();
+        if (_controllers.Any())
+        {
+            _selectedControllerId = _controllers.First().Id;
+            _selectedController = _controllers.First();
+            await LoadDoors();
+        }
+    }
+
+    private async Task LoadDoors()
+    {
+        _selectedController = _controllers.FirstOrDefault(c => c.Id == _selectedControllerId);
+        if (_selectedController != null)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _doors = await db.Doors
+                .Where(d => d.ControllerId == _selectedControllerId)
+                .OrderBy(d => d.DoorIndex)
+                .ToListAsync();
+        }
+    }
+
+    private void ShowAddDoorModal()
+    {
+        _editingDoor = null;
+        _doorName = "";
+        _doorIndex = GetNextAvailablePort();
+        _doorNotes = "";
+        _doorEnabled = true;
+        _showModal = true;
+    }
+
+    private void EditDoor(Door door)
+    {
+        _editingDoor = door;
+        _doorName = door.Name;
+        _doorIndex = door.DoorIndex;
+        _doorNotes = door.Notes ?? "";
+        _doorEnabled = door.IsEnabled;
+        _showModal = true;
+    }
+
+    private async Task SaveDoor()
+    {
+        if (string.IsNullOrWhiteSpace(_doorName))
+        {
+            _errorMessage = "Door name is required.";
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            if (_editingDoor == null)
+            {
+                // Add new door
+                var newDoor = new Door
+                {
+                    ControllerId = _selectedControllerId,
+                    Name = _doorName.Trim(),
+                    DoorIndex = _doorIndex,
+                    Notes = _doorNotes.Trim(),
+                    IsEnabled = _doorEnabled
+                };
+                db.Doors.Add(newDoor);
+            }
+            else
+            {
+                // Update existing door
+                var door = await db.Doors.FindAsync(_editingDoor.Id);
+                if (door != null)
+                {
+                    door.Name = _doorName.Trim();
+                    door.DoorIndex = _doorIndex;
+                    door.Notes = _doorNotes.Trim();
+                    door.IsEnabled = _doorEnabled;
+                }
+            }
+
+            await db.SaveChangesAsync();
+            await LoadDoors();
+            _successMessage = _editingDoor == null ? "Door added successfully!" : "Door updated successfully!";
+            CloseModal();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Failed to save door: " + ex.Message;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task DeleteDoor(Door door)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{door.Name}'?"))
+            return;
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.Doors.Remove(door);
+            await db.SaveChangesAsync();
+            await LoadDoors();
+            _successMessage = $"Door '{door.Name}' deleted successfully.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Failed to delete door: " + ex.Message;
+        }
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _editingDoor = null;
+    }
+
+    private int GetNextAvailablePort()
+    {
+        for (int i = 1; i <= 4; i++)
+        {
+            if (!_doors.Any(d => d.DoorIndex == i))
+                return i;
+        }
+        return 1;
+    }
+}
