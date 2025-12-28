@@ -45,9 +45,16 @@ const HallRentalPage = () => {
   const [pricing, setPricing] = useState<any>(null);
 
   useEffect(() => {
+    console.log('Fetching pricing from API...');
     fetch('/api/hall-rental/pricing')
-      .then(res => res.json())
-      .then(data => setPricing(data))
+      .then(res => {
+        console.log('Pricing API response status:', res.status);
+        return res.json();
+      })
+      .then(data => {
+        console.log('Pricing data received:', data);
+        setPricing(data);
+      })
       .catch(err => console.error('Error fetching pricing:', err));
   }, []);
 

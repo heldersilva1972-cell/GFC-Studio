@@ -70,52 +70,81 @@ namespace GFC.BlazorServer.Services
         public async Task UpdateWebsiteSettingsAsync(WebsiteSettings settings)
         {
             await using var _context = await _contextFactory.CreateDbContextAsync();
-            var existingSettings = await _context.WebsiteSettings.FirstOrDefaultAsync();
-            if (existingSettings == null)
+            
+            try
             {
-                // Ensure Id is set to 1 for new settings
-                settings.Id = 1;
-                _context.WebsiteSettings.Add(settings);
-            }
-            else
-            {
-                // Preserve the Id from existing settings
-                settings.Id = existingSettings.Id;
+                // FORCE all pricing fields to have values - NO NULLS ALLOWED
+                settings.FunctionHallNonMemberRate ??= 400;
+                settings.FunctionHallMemberRate ??= 300;
+                settings.CoalitionNonMemberRate ??= 200;
+                settings.CoalitionMemberRate ??= 100;
+                settings.YouthOrganizationNonMemberRate ??= 100;
+                settings.YouthOrganizationMemberRate ??= 100;
+                settings.BartenderServiceFee ??= 100;
+                settings.BaseFunctionHours ??= 5;
+                settings.AdditionalHourRate ??= 50;
+                settings.KitchenFee ??= 50;
+                settings.AvEquipmentFee ??= 25;
+                settings.SecurityDepositAmount ??= 100;
                 
-                // Update all properties
-                existingSettings.FunctionHallNonMemberRate = settings.FunctionHallNonMemberRate;
-                existingSettings.FunctionHallMemberRate = settings.FunctionHallMemberRate;
-                existingSettings.CoalitionNonMemberRate = settings.CoalitionNonMemberRate;
-                existingSettings.CoalitionMemberRate = settings.CoalitionMemberRate;
-                existingSettings.YouthOrganizationNonMemberRate = settings.YouthOrganizationNonMemberRate;
-                existingSettings.YouthOrganizationMemberRate = settings.YouthOrganizationMemberRate;
-                existingSettings.BartenderServiceFee = settings.BartenderServiceFee;
-                existingSettings.KitchenFee = settings.KitchenFee;
-                existingSettings.AvEquipmentFee = settings.AvEquipmentFee;
-                existingSettings.SecurityDepositAmount = settings.SecurityDepositAmount;
-                existingSettings.BaseFunctionHours = settings.BaseFunctionHours;
-                existingSettings.AdditionalHourRate = settings.AdditionalHourRate;
-                existingSettings.MemberRate = settings.MemberRate;
-                existingSettings.NonMemberRate = settings.NonMemberRate;
-                existingSettings.NonProfitRate = settings.NonProfitRate;
-                existingSettings.MaxHallRentalDurationHours = settings.MaxHallRentalDurationHours;
-                existingSettings.EnableOnlineRentalsPayment = settings.EnableOnlineRentalsPayment;
-                existingSettings.PaymentGatewayUrl = settings.PaymentGatewayUrl;
-                existingSettings.PaymentGatewayApiKey = settings.PaymentGatewayApiKey;
-                existingSettings.ClubPhone = settings.ClubPhone;
-                existingSettings.ClubAddress = settings.ClubAddress;
-                existingSettings.MasterEmailKillSwitch = settings.MasterEmailKillSwitch;
-                existingSettings.PrimaryColor = settings.PrimaryColor;
-                existingSettings.SecondaryColor = settings.SecondaryColor;
-                existingSettings.HeadingFont = settings.HeadingFont;
-                existingSettings.BodyFont = settings.BodyFont;
-                existingSettings.HighAccessibilityMode = settings.HighAccessibilityMode;
-                existingSettings.IsClubOpen = settings.IsClubOpen;
-                existingSettings.SeoTitle = settings.SeoTitle;
-                existingSettings.SeoDescription = settings.SeoDescription;
-                existingSettings.SeoKeywords = settings.SeoKeywords;
+                var existingSettings = await _context.WebsiteSettings.FirstOrDefaultAsync();
+                
+                if (existingSettings == null)
+                {
+                    settings.Id = 1;
+                    _context.WebsiteSettings.Add(settings);
+                }
+                else
+                {
+                    // Update using direct assignment - simpler approach
+                    existingSettings.FunctionHallNonMemberRate = settings.FunctionHallNonMemberRate;
+                    existingSettings.FunctionHallMemberRate = settings.FunctionHallMemberRate;
+                    existingSettings.CoalitionNonMemberRate = settings.CoalitionNonMemberRate;
+                    existingSettings.CoalitionMemberRate = settings.CoalitionMemberRate;
+                    existingSettings.YouthOrganizationNonMemberRate = settings.YouthOrganizationNonMemberRate;
+                    existingSettings.YouthOrganizationMemberRate = settings.YouthOrganizationMemberRate;
+                    existingSettings.BartenderServiceFee = settings.BartenderServiceFee;
+                    existingSettings.KitchenFee = settings.KitchenFee;
+                    existingSettings.AvEquipmentFee = settings.AvEquipmentFee;
+                    existingSettings.SecurityDepositAmount = settings.SecurityDepositAmount;
+                    existingSettings.BaseFunctionHours = settings.BaseFunctionHours;
+                    existingSettings.AdditionalHourRate = settings.AdditionalHourRate;
+                    
+                    // Only update non-null values for other fields
+                    if (settings.MemberRate.HasValue) existingSettings.MemberRate = settings.MemberRate;
+                    if (settings.NonMemberRate.HasValue) existingSettings.NonMemberRate = settings.NonMemberRate;
+                    if (settings.NonProfitRate.HasValue) existingSettings.NonProfitRate = settings.NonProfitRate;
+                    if (settings.MaxHallRentalDurationHours.HasValue) existingSettings.MaxHallRentalDurationHours = settings.MaxHallRentalDurationHours;
+                    if (settings.EnableOnlineRentalsPayment.HasValue) existingSettings.EnableOnlineRentalsPayment = settings.EnableOnlineRentalsPayment;
+                    if (!string.IsNullOrEmpty(settings.PaymentGatewayUrl)) existingSettings.PaymentGatewayUrl = settings.PaymentGatewayUrl;
+                    if (!string.IsNullOrEmpty(settings.PaymentGatewayApiKey)) existingSettings.PaymentGatewayApiKey = settings.PaymentGatewayApiKey;
+                    if (!string.IsNullOrEmpty(settings.ClubPhone)) existingSettings.ClubPhone = settings.ClubPhone;
+                    if (!string.IsNullOrEmpty(settings.ClubAddress)) existingSettings.ClubAddress = settings.ClubAddress;
+                    if (settings.MasterEmailKillSwitch.HasValue) existingSettings.MasterEmailKillSwitch = settings.MasterEmailKillSwitch;
+                    if (!string.IsNullOrEmpty(settings.PrimaryColor)) existingSettings.PrimaryColor = settings.PrimaryColor;
+                    if (!string.IsNullOrEmpty(settings.SecondaryColor)) existingSettings.SecondaryColor = settings.SecondaryColor;
+                    if (!string.IsNullOrEmpty(settings.HeadingFont)) existingSettings.HeadingFont = settings.HeadingFont;
+                    if (!string.IsNullOrEmpty(settings.BodyFont)) existingSettings.BodyFont = settings.BodyFont;
+                    if (settings.HighAccessibilityMode.HasValue) existingSettings.HighAccessibilityMode = settings.HighAccessibilityMode;
+                    if (settings.IsClubOpen.HasValue) existingSettings.IsClubOpen = settings.IsClubOpen;
+                    if (!string.IsNullOrEmpty(settings.SeoTitle)) existingSettings.SeoTitle = settings.SeoTitle;
+                    if (!string.IsNullOrEmpty(settings.SeoDescription)) existingSettings.SeoDescription = settings.SeoDescription;
+                    if (!string.IsNullOrEmpty(settings.SeoKeywords)) existingSettings.SeoKeywords = settings.SeoKeywords;
+                }
+                
+                await _context.SaveChangesAsync();
             }
-            await _context.SaveChangesAsync();
+            catch (Exception ex)
+            {
+                // Log the full exception details
+                Console.WriteLine($"ERROR in UpdateWebsiteSettingsAsync: {ex.Message}");
+                Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+                }
+                throw;
+            }
         }
 
         private async Task HealDatabaseAsync()

@@ -16,6 +16,7 @@ namespace GFC.BlazorServer.Controllers
         }
 
         [HttpGet("pricing")]
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
         public async Task<IActionResult> GetPricing()
         {
             try
