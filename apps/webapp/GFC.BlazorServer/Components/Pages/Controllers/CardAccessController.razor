@@ -24,7 +24,7 @@
     <header class="page-header">
         <div class="header-title">
             <h1>Card Access Controller</h1>
-            <p>Unified hardware management and automation suite</p>
+            <p>Manage hardware devices, door settings, and unlock schedules.</p>
         </div>
         <div class="header-actions">
             @if (_selectedController != null)
@@ -33,12 +33,12 @@
                     <button class="btn-modern btn-outline-modern" @onclick="TestConnection" disabled="@_isTesting">
                         @if (_isTesting) { <span class="spinner-border spinner-border-sm me-2"></span> }
                         else { <i class="bi bi-broadcast"></i> }
-                        Test Link
+                        Test Connection
                     </button>
                     <button class="btn-modern btn-primary-modern" @onclick="SyncAllToController" disabled="@_isSyncing">
                         @if (_isSyncing) { <span class="spinner-border spinner-border-sm me-2"></span> }
                         else { <i class="bi bi-cloud-arrow-up"></i> }
-                        @( _isSyncing ? "Syncing Logic..." : "Sync All" )
+                        @( _isSyncing ? "Syncing..." : "Sync All Settings" )
                     </button>
                 </div>
             }
@@ -67,7 +67,7 @@
             <div class="spinner-grow text-primary" role="status" style="width: 3rem; height: 3rem;">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-3 text-muted">Initialize neural link...</p>
+            <p class="mt-3 text-muted">Checking system status...</p>
         </div>
     }
     else
@@ -95,7 +95,7 @@
             <div class="controller-card add-card" @onclick="ShowAddControllerModal">
                 <div class="opacity-50">
                    <i class="bi bi-plus-circle" style="font-size: 2rem;"></i>
-                   <p class="mt-2 fw-600">Register Node</p>
+                   <p class="mt-2 fw-600">Add Controller</p>
                 </div>
             </div>
         </section>
@@ -103,170 +103,179 @@
         @if (_selectedController != null)
         {
             <div class="dashboard-grid @(_isChangingTab ? "opacity-50 fadeOut" : "fadeIn")">
-                <!-- Left Column: Device Context -->
+                <!-- Left Column: Device Identity & Setup -->
                 <div class="details-column">
-                    <div class="glass-panel stagger-1">
+                    <!-- Door Management (The Main Focus) -->
+                    <div class="glass-panel stagger-1 main-management-panel">
                         <div class="panel-header">
-                            <h2><i class="bi bi-cpu"></i> Node Diagnostics</h2>
-                            <span class="door-index">@_selectedController.SerialNumberDisplay</span>
-                        </div>
-                        
-                        <div class="info-grid mt-4">
-                            <div class="info-item">
-                                <div class="info-label">Address</div>
-                                <div class="info-value">@_selectedController.IpAddress</div>
-                            </div>
-                            <div class="info-item">
-                                <div class="info-label">Port</div>
-                                <div class="info-value">@_selectedController.Port</div>
-                            </div>
-                            <div class="info-item">
-                                <div class="info-label">Health</div>
-                                <div class="info-value @(IsHealthy(_selectedController) ? "text-success" : "text-warning")">
-                                    @(IsHealthy(_selectedController) ? "Nominal" : "Warning")
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="mt-4 pt-2">
-                             <button class="btn-modern btn-outline-modern w-100" @onclick="RebootController">
-                                <i class="bi bi-arrow-clockwise"></i> Request Soft Reboot
+                            <h2><i class="bi bi-door-open-fill"></i> Door Configuration</h2>
+                            <button class="btn-modern btn-primary-modern btn-sm" @onclick="ShowAddDoorModal">
+                                <i class="bi bi-plus-lg"></i> Add New Door
                             </button>
                         </div>
-                    </div>
+                        
+                        <div class="door-status-summary mb-4">
+                            <div class="summary-pill">
+                                <span class="label">Total Doors</span>
+                                <span class="value">@_selectedController.Doors.Count / 4</span>
+                            </div>
+                            <div class="summary-pill">
+                                <span class="label">Relay Slots Open</span>
+                                <span class="value">@(4 - _selectedController.Doors.Count)</span>
+                            </div>
+                        </div>
 
-                    <!-- Card Reader Configuration -->
-                    <div class="glass-panel stagger-2">
-                        <div class="panel-header">
-                            <h2><i class="bi bi-upc-scan"></i> Scanner Proxy</h2>
-                        </div>
-                        <p class="small text-muted mb-3">Redirect card capture events to the system manager.</p>
-                        
-                        <div class="mb-3">
-                            <label class="form-label">Active Scanner Node</label>
-                            <select class="modern-input" @bind="_cardReaderControllerId" @bind:after="SaveCardReaderConfig">
-                                <option value="0">Disabled (Manual Entry)</option>
-                                @foreach (var controller in _controllers)
-                                {
-                                    <option value="@controller.Id">@controller.Name</option>
-                                }
-                            </select>
-                        </div>
-                        
-                        @if (_cardReaderControllerId > 0)
+                        @if (!_selectedController.Doors.Any())
                         {
-                            <div class="p-3 rounded-4 mt-2 proxy-active-banner">
-                                <div class="d-flex align-items-center gap-2 text-success fw-bold small">
-                                    <i class="bi bi-record-circle-fill animate-pulse"></i>
-                                    <span>Proxying events from @_controllers.FirstOrDefault(c => c.Id == _cardReaderControllerId)?.Name</span>
-                                </div>
+                            <div class="text-center py-5 empty-doors-placeholder">
+                                <i class="bi bi-plus-square-dotted mb-3 d-block" style="font-size: 3rem; opacity: 0.2;"></i>
+                                <p class="text-muted">No doors have been set up for this controller yet.</p>
+                                <button class="btn btn-link text-decoration-none" @onclick="ShowAddDoorModal">Start Setup Wizard</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="door-list-simple">
+                                @foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
+                                {
+                                    <div class="door-item-row fadeIn">
+                                        <div class="door-icon-circle @(door.IsEnabled ? "active" : "")">
+                                            <i class="bi bi-door-@(door.IsEnabled ? "open" : "closed")"></i>
+                                            <span class="port-tag">#@door.DoorIndex</span>
+                                        </div>
+                                        <div class="door-details-text">
+                                            <div class="door-title">@door.Name</div>
+                                            <div class="door-subtitle">@(string.IsNullOrEmpty(door.Notes) ? "No location notes" : door.Notes)</div>
+                                        </div>
+                                        <div class="door-row-actions">
+                                            <button class="btn-icon" title="Edit Door" @onclick="() => EditDoor(door)"><i class="bi bi-pencil-square"></i></button>
+                                            <button class="btn-icon delete" title="Remove Door" @onclick="() => DeleteDoor(door)"><i class="bi bi-trash3"></i></button>
+                                        </div>
+                                    </div>
+                                }
                             </div>
                         }
                     </div>
+
+                    <!-- System Info & Scanner (Secondary Settings) -->
+                    <div class="glass-panel stagger-2 secondary-settings">
+                        <div class="accordion" id="settingsAccordion">
+                            <div class="accordion-item bg-transparent border-0">
+                                <h2 class="accordion-header">
+                                     <button class="accordion-button collapsed bg-transparent shadow-none px-0" type="button" data-bs-toggle="collapse" data-bs-target="#systemSettings" style="color: var(--text-primary); font-weight: 700;">
+                                         <i class="bi bi-gear-fill me-2"></i> System & Hardware Settings
+                                     </button>
+                                </h2>
+                                <div id="systemSettings" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion">
+                                    <div class="accordion-body px-0 pt-3">
+                                        <div class="info-grid-simple">
+                                            <div class="mini-info">
+                                                <span class="label">IP Address</span>
+                                                <span class="value">@_selectedController.IpAddress</span>
+                                            </div>
+                                            <div class="mini-info">
+                                                <span class="label">SN</span>
+                                                <span class="value">@_selectedController.SerialNumberDisplay</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="mt-3">
+                                            <label class="form-label-small">Card Scanner Input</label>
+                                            <select class="modern-input-small" @bind="_cardReaderControllerId" @bind:after="SaveCardReaderConfig">
+                                                <option value="0">Disabled</option>
+                                                @foreach (var controller in _controllers)
+                                                {
+                                                    <option value="@controller.Id">@controller.Name</option>
+                                                }
+                                            </select>
+                                        </div>
+
+                                        <div class="mt-3 pt-2">
+                                            <button class="btn-modern btn-outline-modern btn-sm w-100" @onclick="RebootController">
+                                                <i class="bi bi-arrow-clockwise"></i> Restart Controller
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Management Links -->
+                    <div class="glass-panel stagger-3">
+                        <div class="panel-header mb-3">
+                            <h2><i class="bi bi-tools"></i> Advanced Configuration</h2>
+                        </div>
+                        <div class="d-flex flex-column gap-2">
+                            <a href="/controllers/@(_selectedController.Id)/network-config" class="btn-modern btn-outline-modern w-100 justify-content-between">
+                                <span class="d-flex align-items-center gap-2"><i class="bi bi-router"></i> Network Setup</span>
+                                <i class="bi bi-chevron-right small"></i>
+                            </a>
+                            <a href="/controllers/door-configuration" class="btn-modern btn-outline-modern w-100 justify-content-between">
+                                <span class="d-flex align-items-center gap-2"><i class="bi bi-clock-history"></i> Door Timers & Alarms</span>
+                                <i class="bi bi-chevron-right small"></i>
+                            </a>
+                            <a href="/controllers/auto-open" class="btn-modern btn-outline-modern w-100 justify-content-between">
+                                <span class="d-flex align-items-center gap-2"><i class="bi bi-calendar2-week"></i> Auto-Unlock Rules</span>
+                                <i class="bi bi-chevron-right small"></i>
+                            </a>
+                            <a href="/controllers/advanced-modes" class="btn-modern btn-outline-modern w-100 justify-content-between">
+                                <span class="d-flex align-items-center gap-2"><i class="bi bi-shield-check"></i> Secondary Access Modes</span>
+                                <i class="bi bi-chevron-right small"></i>
+                            </a>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Right Column: Control Center -->
+                <!-- Right Column: Schedules & Monitoring -->
                 <div class="content-column">
-                    <div class="glass-panel stagger-3">
+                    <div class="glass-panel stagger-4">
                         <div class="panel-header">
                             <h2>
-                                @if (_activeTab == "units") { <i class="bi bi-door-open"></i> }
-                                else if (_activeTab == "schedules") { <i class="bi bi-calendar-range"></i> }
+                                @if (_activeTab == "schedules") { <i class="bi bi-calendar-range"></i> }
                                 else { <i class="bi bi-shield-lock"></i> }
                                 @GetTabTitle()
                             </h2>
                             <div class="header-actions">
-                                @if (_activeTab == "units") {
-                                    <button class="btn-modern btn-primary-modern btn-sm" @onclick="ShowAddDoorModal">
-                                        <i class="bi bi-plus-lg"></i> Register Unit
-                                    </button>
-                                } else if (_activeTab == "schedules") {
+                                @if (_activeTab == "schedules") {
                                     <button class="btn-modern btn-primary-modern btn-sm" @onclick="ShowAddProfileModal">
-                                        <i class="bi bi-plus-lg"></i> New Profile
+                                        <i class="bi bi-plus-lg"></i> New Schedule
                                     </button>
                                 }
                             </div>
                         </div>
 
                         <div class="modern-tabs">
-                            <button class="tab-btn @(_activeTab == "units" ? "active" : "")" @onclick='() => ChangeTab("units")'>Door Units</button>
-                            <button class="tab-btn @(_activeTab == "schedules" ? "active" : "")" @onclick='() => ChangeTab("schedules")'>Time Profiles</button>
-                            <button class="tab-btn @(_activeTab == "advanced" ? "active" : "")" @onclick='() => ChangeTab("advanced")'>Auto-Unlock</button>
+                            <button class="tab-btn @(_activeTab == "schedules" ? "active" : "")" @onclick='() => ChangeTab("schedules")'>Unlock Schedules</button>
+                            <button class="tab-btn @(_activeTab == "advanced" ? "active" : "")" @onclick='() => ChangeTab("advanced")'>Auto-Unlock Cycles</button>
                         </div>
 
                         <div class="tab-content mt-4">
-                            @if (_activeTab == "units")
+                            @if (_activeTab == "schedules")
                             {
-                                @if (!_selectedController.Doors.Any())
-                                {
-                                    <div class="text-center py-5 glass-panel empty-state-panel">
-                                        <div class="opacity-50">
-                                            <i class="bi bi-door-closed" style="font-size: 4rem;"></i>
-                                            <h3 class="mt-3">No Hardware Units Linked</h3>
-                                            <p class="mb-4">Provision a relay unit to this controller to start managing access.</p>
-                                        </div>
-                                        <button class="btn-modern btn-primary-modern mx-auto" @onclick="ShowAddDoorModal">Add Primary Unit</button>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="door-grid">
-                                        @foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
-                                        {
-                                            <div class="door-card fadeIn">
-                                                <div class="door-header">
-                                                    <span class="door-index">UNIT_@door.DoorIndex</span>
-                                                    <div class="door-actions">
-                                                        <button class="btn-icon" title="Edit Logic" @onclick="() => EditDoor(door)"><i class="bi bi-sliders"></i></button>
-                                                        <button class="btn-icon delete" title="Unlink" @onclick="() => DeleteDoor(door)"><i class="bi bi-trash3"></i></button>
-                                                    </div>
-                                                </div>
-                                                <div class="door-name">@door.Name</div>
-                                                <div class="door-meta mt-3">
-                                                    <div class="meta-row">
-                                                        <div class="status-indicator @(door.IsEnabled ? "status-online" : "opacity-25")" style="width: 6px; height: 6px;"></div>
-                                                        <span class="@(door.IsEnabled ? "text-success" : "text-muted")">@(door.IsEnabled ? "Logic Active" : "Logic Passive")</span>
-                                                    </div>
-                                                    <div class="meta-row">
-                                                        <i class="bi bi-shield-shaded"></i>
-                                                        <span class="small">Standard Access Mode</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            }
-                            else if (_activeTab == "schedules")
-                            {
-                                <div class="door-grid">
+                                <div class="schedule-grid">
                                     @foreach (var profile in _timeProfiles)
                                     {
-                                        <div class="door-card fadeIn">
-                                            <div class="door-header">
-                                                <span class="door-index">PROFILE</span>
-                                                <div class="door-actions">
+                                        <div class="schedule-card fadeIn">
+                                            <div class="schedule-header">
+                                                <span class="schedule-tag">SCHEDULE</span>
+                                                <div class="schedule-actions">
                                                     <button class="btn-icon" @onclick="() => EditProfile(profile)"><i class="bi bi-pencil"></i></button>
                                                     <button class="btn-icon delete" @onclick="() => DeleteProfile(profile)"><i class="bi bi-trash3"></i></button>
                                                 </div>
                                             </div>
-                                            <div class="door-name">@profile.Name</div>
-                                            <div class="door-meta mt-2">
-                                                <div class="meta-row small text-muted">
-                                                    <i class="bi bi-calendar3"></i>
-                                                    <span>@profile.Intervals.Count Intervals defined</span>
-                                                </div>
-                                                <div class="meta-row small text-muted">
-                                                    <i class="bi bi-link-45deg"></i>
-                                                    <span>Used by 4 members</span>
-                                                </div>
+                                            <div class="schedule-name">@profile.Name</div>
+                                            <div class="schedule-meta">
+                                                <span>@profile.Intervals.Count Active Hours</span>
+                                                <span class="dot"></span>
+                                                <span>4 Members Linked</span>
                                             </div>
                                         </div>
                                     }
                                     @if (!_timeProfiles.Any())
                                     {
                                         <div class="text-center py-5 w-100">
-                                            <p class="text-muted">No time profiles found. Create one to manage restricted access.</p>
+                                            <p class="text-muted">No schedules found. Create one to manage restricted access.</p>
                                         </div>
                                     }
                                 </div>
@@ -276,25 +285,26 @@
                                 <div class="alert glass-panel border-info d-flex align-items-start gap-3">
                                     <i class="bi bi-info-circle-fill text-info mt-1"></i>
                                     <div>
-                                        <div class="fw-bold fs-5 mb-1">Coming Soon: Automatic Unlock Cycles</div>
-                                        <p class="text-muted small mb-0">Configure your doors to unlock automatically during business hours or special events without requiring card swipes.</p>
+                                        <div class="fw-bold fs-5 mb-1">Automatic Unlock Cycles</div>
+                                        <p class="text-muted small mb-2">Configure your doors to unlock automatically during business hours or special events.</p>
+                                         <a href="/controllers/auto-open" class="btn btn-sm btn-info text-decoration-none fw-bold" style="color: #fff">Open Scheduler</a>
                                     </div>
                                 </div>
                                 
-                                <div class="d-flex flex-column gap-3 mt-4 opacity-50">
-                                    @foreach (var door in _selectedController.Doors.Take(2))
+                                <div class="door-list-simple mt-4">
+                                    @foreach (var door in _selectedController.Doors.OrderBy(d => d.DoorIndex))
                                     {
-                                        <div class="glass-panel py-3 px-4 d-flex justify-content-between align-items-center">
-                                            <div class="d-flex align-items-center gap-3">
-                                                <div class="bg-primary rounded-circle p-2 text-white">
-                                                    <i class="bi bi-door-open"></i>
-                                                </div>
-                                                <div>
-                                                    <div class="fw-bold">@door.Name</div>
-                                                    <div class="small">No active unlock schedule</div>
-                                                </div>
+                                        <div class="door-item-row fadeIn">
+                                            <div class="door-icon-circle active">
+                                                <i class="bi bi-unlock"></i>
                                             </div>
-                                            <button class="btn-modern btn-outline-modern btn-sm" disabled>Manage Cycle</button>
+                                            <div class="door-details-text">
+                                                <div class="door-title">@door.Name</div>
+                                                <div class="door-subtitle">Auto-Unlock not configured</div>
+                                            </div>
+                                            <div class="door-row-actions">
+                                                <a href="/controllers/auto-open" class="btn-icon" title="Configure"><i class="bi bi-gear"></i></a>
+                                            </div>
                                         </div>
                                     }
                                 </div>
@@ -313,36 +323,46 @@
     <div class="modal-overlay" @onclick="CloseDoorModal">
         <div class="modern-modal" @onclick:stopPropagation="true">
             <div class="panel-header mb-4">
-                <h2><i class="bi bi-door-open"></i> @(_editingDoor == null ? "Register Unit" : "Device Configuration")</h2>
+                <h2><i class="bi bi-door-open"></i> @(_editingDoor == null ? "Add Door" : "Edit Door Settings")</h2>
                 <button type="button" class="btn-close" @onclick="CloseDoorModal"></button>
             </div>
             
             <div class="form-group">
-                <label class="form-label">Relay Controller Port</label>
-                <div class="d-flex gap-2">
+                <label class="form-label">Hardware Port (Relay)</label>
+                <p class="small text-muted mb-2">Each controller has 4 relay outputs. Select which one this door is connected to.</p>
+                <div class="port-selector mb-3">
                     @for (int i = 1; i <= 4; i++)
                     {
                         var index = i;
-                        <button class="tab-btn flex-grow-1 @(_doorForm.DoorIndex == index ? "active" : "")" @onclick="() => _doorForm.DoorIndex = index">
-                            #@index
+                        var isOccupied = _selectedController.Doors.Any(d => d.DoorIndex == index && d.Id != (_editingDoor?.Id ?? 0));
+                        <button class="port-btn @(_doorForm.DoorIndex == index ? "active" : "") @(isOccupied ? "occupied" : "")" 
+                                @onclick="() => { if(!isOccupied) _doorForm.DoorIndex = index; }"
+                                disabled="@isOccupied">
+                            <span class="port-number">@index</span>
+                            <span class="port-status">@(isOccupied ? "Used" : "Open")</span>
                         </button>
                     }
                 </div>
             </div>
 
             <div class="form-group">
-                <label class="form-label">Descriptive Identity</label>
-                <input type="text" class="modern-input" @bind="_doorForm.Name" placeholder="Node Name..." />
+                <label class="form-label">Door Name</label>
+                <input type="text" class="modern-input" @bind="_doorForm.Name" placeholder="e.g. Front Entrance" />
             </div>
 
-            <div class="form-group py-3">
-                <div class="d-flex align-items-center justify-content-between">
+            <div class="form-group">
+                <label class="form-label">Location / Notes</label>
+                <textarea class="modern-input" @bind="_doorForm.Notes" rows="2" placeholder="Describe where this door is located..."></textarea>
+            </div>
+
+            <div class="status-box mt-3 mb-4">
+                 <div class="d-flex align-items-center justify-content-between">
                     <div>
-                         <div class="fw-bold">Status: @(_doorForm.IsEnabled ? "ACTIVE" : "DISABLED")</div>
-                         <div class="small text-muted">Toggle hardware relay execution.</div>
+                         <div class="fw-bold fs-5">Door Active</div>
+                         <div class="form-label-desc">Toggle to enable or disable card access for this door.</div>
                     </div>
                     <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" @bind="_doorForm.IsEnabled" style="width: 2.5rem; height: 1.25rem;" />
+                        <input class="form-check-input" type="checkbox" @bind="_doorForm.IsEnabled" />
                     </div>
                 </div>
             </div>
@@ -355,10 +375,10 @@
             }
 
             <div class="d-flex gap-3">
-                <button class="btn-modern btn-outline-modern flex-grow-1" @onclick="CloseDoorModal">Dismiss</button>
+                <button class="btn-modern btn-outline-modern flex-grow-1" @onclick="CloseDoorModal">Cancel</button>
                 <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveDoor" disabled="@_savingDoor">
                     @if (_savingDoor) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                    Commit Changes
+                    Save Settings
                 </button>
             </div>
         </div>
@@ -371,12 +391,12 @@
     <div class="modal-overlay" @onclick="() => _showControllerModal = false">
         <div class="modern-modal" @onclick:stopPropagation="true">
             <div class="panel-header mb-4">
-                <h2><i class="bi bi-cpu"></i> Register Node</h2>
+                <h2><i class="bi bi-cpu"></i> Add Controller</h2>
                 <button type="button" class="btn-close" @onclick="() => _showControllerModal = false"></button>
             </div>
             
             <div class="form-group">
-                <label class="form-label">Friendly Name</label>
+                <label class="form-label">Controller Name</label>
                 <input type="text" class="modern-input" @bind="_controllerForm.Name" placeholder="Main Entrance, Server Room..." />
             </div>
 
@@ -405,7 +425,7 @@
 
             <div class="d-flex gap-3">
                 <button class="btn-modern btn-outline-modern flex-grow-1" @onclick="() => _showControllerModal = false">Cancel</button>
-                <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveController">Provision Node</button>
+                <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveController">Save Controller</button>
             </div>
         </div>
     </div>
@@ -417,11 +437,11 @@
     <div class="modal-overlay" @onclick="() => _showProfileModal = false">
         <div class="modern-modal" @onclick:stopPropagation="true">
              <div class="panel-header mb-4">
-                <h2><i class="bi bi-calendar-check"></i> Define Time Profile</h2>
+                <h2><i class="bi bi-calendar-check"></i> Define Schedule</h2>
                 <button type="button" class="btn-close" @onclick="() => _showProfileModal = false"></button>
             </div>
             <div class="form-group">
-                <label class="form-label">Profile Name</label>
+                <label class="form-label">Schedule Name</label>
                 <input type="text" class="modern-input" @bind="_newProfileName" placeholder="e.g. Member Access 24/7" />
             </div>
             <div class="alert glass-panel border-warning small">
@@ -429,7 +449,7 @@
             </div>
             <div class="d-flex gap-3 mt-4">
                 <button class="btn-modern btn-outline-modern flex-grow-1" @onclick="() => _showProfileModal = false">Cancel</button>
-                <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveProfile">Initialize Profile</button>
+                <button class="btn-modern btn-primary-modern flex-grow-1" @onclick="SaveProfile">Create Schedule</button>
             </div>
         </div>
     </div>
@@ -446,7 +466,7 @@
     private string? _successMessage;
 
     // UI state
-    private string _activeTab = "units";
+    private string _activeTab = "schedules";
     private bool _isChangingTab = false;
 
     // Door State
@@ -490,10 +510,9 @@
     }
 
     private string GetTabTitle() => _activeTab switch {
-        "units" => "Hardware Units",
         "schedules" => "Access Schedules",
-        "advanced" => "Auto-Unlock Cycles",
-        _ => "Control Center"
+        "advanced" => "Hardware Automation",
+        _ => "Control Console"
     };
 
     private async Task ChangeTab(string tab) {
@@ -638,7 +657,7 @@
                 DbContext.Doors.Update(_editingDoor);
             }
             await DbContext.SaveChangesAsync();
-            ShowSuccess("Logic committed to node.");
+            ShowSuccess("Settings saved successfully.");
             CloseDoorModal();
             await LoadData();
         } catch (Exception ex) {
@@ -656,7 +675,7 @@
         try {
             DbContext.Doors.Remove(door);
             await DbContext.SaveChangesAsync();
-            ShowSuccess("Node unlinked.");
+            ShowSuccess("Door unlinked.");
             _errorMessage = null;
             await LoadData();
         } catch (Exception ex) {
@@ -681,7 +700,7 @@
             var profile = new TimeProfile { Name = _newProfileName };
             DbContext.TimeProfiles.Add(profile);
             await DbContext.SaveChangesAsync();
-            ShowSuccess("Time profile created.");
+            ShowSuccess("Access schedule created.");
             _showProfileModal = false;
             await LoadData();
         } catch (Exception ex) {
@@ -693,7 +712,7 @@
         try {
             DbContext.TimeProfiles.Remove(p);
             await DbContext.SaveChangesAsync();
-            ShowSuccess("Profile scrubbed from database.");
+            ShowSuccess("Schedule deleted.");
             await LoadData();
         } catch (Exception ex) {
             _errorMessage = "Scrub error: " + ex.Message;
@@ -706,8 +725,8 @@
         try {
             var status = await ControllerClient.GetRunStatusAsync(_selectedController.Id, CancellationToken.None);
             _selectedController.IsOnline = status.IsOnline;
-            if (status.IsOnline) ShowSuccess("Node responsive and online.");
-            else _errorMessage = "Target Node Timeout - verify address and port.";
+            if (status.IsOnline) ShowSuccess("Connection successful.");
+            else _errorMessage = "Connection Failed: Device unreachable.";
         } catch (Exception ex) { 
             _errorMessage = "Protocol Error: " + ex.Message; 
         }
@@ -736,7 +755,7 @@
             };
             DbContext.Controllers.Add(newController);
             await DbContext.SaveChangesAsync();
-            ShowSuccess("New node provisioned.");
+            ShowSuccess("Controller added successfully.");
             _showControllerModal = false;
             await LoadData();
         } catch (Exception ex) {
@@ -751,7 +770,7 @@
         _isSyncing = true;
         try { 
             await Task.Delay(2000); 
-            ShowSuccess("Node synchronized: Hardware logic matches database.");
+            ShowSuccess("Settings synchronized to hardware.");
         } 
         catch (Exception ex) {
             _errorMessage = "Sync Error: " + ex.Message;
@@ -759,7 +778,7 @@
         finally { _isSyncing = false; }
     }
 
-    private void RebootController() => ShowSuccess("Node reboot signal sent.");
+    private void RebootController() => ShowSuccess("Restart command sent.");
 
     private void ShowSuccess(string msg) {
         _successMessage = msg;

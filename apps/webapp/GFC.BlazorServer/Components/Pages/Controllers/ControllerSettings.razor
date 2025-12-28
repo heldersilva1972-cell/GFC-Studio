@@ -1,0 +1,153 @@
+@page "/controllers/settings"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@inject ControllerRegistryService RegistryService
+@inject NavigationManager Navigation
+
+<PageTitle>Controller Settings - GFC Studio</PageTitle>
+
+<div class="controller-container">
+    <header class="page-header">
+        <div class="header-title">
+            <h1>Hardware & Network Settings</h1>
+            <p>Advanced configuration for card access controllers and connected hardware.</p>
+        </div>
+    </header>
+
+    @if (_isLoading)
+    {
+        <div class="text-center my-5 py-5">
+            <div class="spinner-grow text-primary" role="status" style="width: 3rem; height: 3rem;">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3 text-muted">Loading controller information...</p>
+        </div>
+    }
+    else
+    {
+        <section class="selection-grid mb-5">
+            @foreach (var controller in _controllers)
+            {
+                <div class="controller-card @(_selectedControllerId == controller.Id ? "active" : "")" 
+                     @onclick="() => SelectController(controller.Id)">
+                    <div class="card-icon">
+                        <i class="bi bi-hdd-network-fill"></i>
+                    </div>
+                    <div class="card-info">
+                        <h3>@controller.Name</h3>
+                        <div class="card-status">
+                            <span class="status-indicator @(controller.IsEnabled ? "status-online" : "status-offline")"></span>
+                            <span>@(controller.IsEnabled ? "Active" : "Disabled")</span>
+                        </div>
+                    </div>
+                    <div class="mt-3 small text-muted">
+                        <div>SN: @controller.SerialNumberDisplay</div>
+                        <div>IP: @controller.IpAddress</div>
+                    </div>
+                </div>
+            }
+        </section>
+
+        @if (_selectedController != null)
+        {
+            <div class="settings-hub-grid fadeIn">
+                <div class="hub-item" @onclick='() => Navigation.NavigateTo($"/controllers/{_selectedController.Id}/network-config")'>
+                    <div class="hub-icon network">
+                        <i class="bi bi-globe"></i>
+                    </div>
+                    <div class="hub-content">
+                        <h3>Network Setup</h3>
+                        <p>Configure IP address, subnet, gateway, and PC communication ports.</p>
+                    </div>
+                    <div class="hub-arrow">
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </div>
+
+                <div class="hub-item" @onclick='() => Navigation.NavigateTo("/controllers/door-configuration")'>
+                    <div class="hub-icon timers">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                    <div class="hub-content">
+                        <h3>Door Timers & Alarms</h3>
+                        <p>Adjust door open times, lock delays, and hardware alarm triggers.</p>
+                    </div>
+                    <div class="hub-arrow">
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </div>
+
+                <div class="hub-item" @onclick='() => Navigation.NavigateTo("/controllers/auto-open")'>
+                    <div class="hub-icon schedules">
+                        <i class="bi bi-calendar-check"></i>
+                    </div>
+                    <div class="hub-content">
+                        <h3>Auto-Unlock Rules</h3>
+                        <p>Set doors to automatically unlock during business hours or events.</p>
+                    </div>
+                    <div class="hub-arrow">
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </div>
+
+                <div class="hub-item" @onclick='() => Navigation.NavigateTo("/controllers/advanced-modes")'>
+                    <div class="hub-icon modes">
+                        <i class="bi bi-cpu"></i>
+                    </div>
+                    <div class="hub-content">
+                        <h3>Secondary Access Modes</h3>
+                        <p>Configure PIN+Card, multi-card authentication, and anti-passback.</p>
+                    </div>
+                    <div class="hub-arrow">
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </div>
+
+                <div class="hub-item danger-zone" @onclick='() => Navigation.NavigateTo("/controllers/access-admin")'>
+                    <div class="hub-icon maintenance">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+                    <div class="hub-content">
+                        <h3>Maintenance & Reset</h3>
+                        <p>Dangerous operations: Clear all privileges or factory reset communications.</p>
+                    </div>
+                    <div class="hub-arrow">
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<ControllerDevice> _controllers = new();
+    private int _selectedControllerId;
+    private ControllerDevice? _selectedController;
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _controllers = (await RegistryService.GetControllersAsync()).ToList();
+            if (_controllers.Any())
+            {
+                _selectedControllerId = _controllers.First().Id;
+                _selectedController = _controllers.First();
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void SelectController(int id)
+    {
+        _selectedControllerId = id;
+        _selectedController = _controllers.FirstOrDefault(c => c.Id == id);
+    }
+}

@@ -6,6 +6,7 @@
 @using GFC.BlazorServer.Services.Controllers
 @using GFC.BlazorServer.Models
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
 @inject ControllerRegistryService RegistryService
 @inject ControllerNetworkConfigService NetworkConfigService
 @inject CommandInfoService CommandInfoService
@@ -13,254 +14,274 @@
 @inject ISystemSettingsService SystemSettingsService
 @inject NavigationManager Navigation
 @inject ILogger<NetworkConfig> Logger
-@inject GfcDbContext DbContext
+@inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Network Configuration - GFC Controllers</PageTitle>
 
-<div class="page-header">
-    <div>
-        <h1>Network Configuration</h1>
-        <p class="text-muted mb-0">@(_controller?.Name ?? "Unknown controller")</p>
-        @if (_useRealControllers)
-        {
-            <span class="badge bg-success ms-2">
-                <i class="bi bi-hdd-network"></i> Real Controller Mode
-            </span>
-        }
-        else
-        {
-            <span class="badge bg-warning text-dark ms-2">
-                <i class="bi bi-cpu"></i> Simulation Mode (dangerous ops blocked)
-            </span>
-        }
-    </div>
-    <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary" @onclick="ReadFromController" disabled="@(_isLoading || _isSyncing)">
-            <i class="bi bi-arrow-down-circle"></i> Read from Controller
-        </button>
-        <button class="btn btn-success" @onclick="SaveToDb" disabled="@(_isLoading || _isSaving)">
-            <i class="bi bi-save"></i> Save to DB
-        </button>
-        <button class="btn btn-outline-secondary" @onclick="NavigateBackToDashboard">
-            <i class="bi bi-arrow-left"></i> Back
-        </button>
-    </div>
-</div>
-
-@if (!_useRealControllers)
-{
-    <div class="alert alert-warning mb-3">
-        <strong>Simulation Mode enabled:</strong> Syncing network or security settings to real controllers is blocked until Real Controller Mode is enabled in System Settings.
-    </div>
-}
-
-@if (_errorMessage != null)
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-
-@if (_successMessage != null)
-{
-    <div class="alert alert-success">@_successMessage</div>
-}
-
-@if (_controller == null)
-{
-    <div class="alert alert-warning">Controller not found.</div>
-}
-else if (_isLoading)
-{
-    <div class="text-center my-5">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
-    </div>
-}
-else
-{
-    <div class="data-card">
-        @if (_networkConfigCommandInfo != null)
-        {
-            <div class="alert alert-@(_networkConfigCommandInfo.RiskLevel >= 2 ? "warning" : "info") mb-3">
-                <strong>@_networkConfigCommandInfo.DisplayName</strong> (Risk Level: @_networkConfigCommandInfo.RiskLevel / 3)
-                <br />
-                <small>@_networkConfigCommandInfo.ShortDescription</small>
-            </div>
-        }
-
-        <EditForm Model="_config">
-            <DataAnnotationsValidator />
-
-            <div class="row">
-                <div class="col-md-6">
-                    <h5>Network Settings</h5>
-                    <div class="mb-3">
-                        <label class="form-label">IP Address</label>
-                        <InputText class="form-control" @bind-Value="_config.IpAddress" placeholder="192.168.1.100" />
-                        <ValidationMessage For="@(() => _config.IpAddress)" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Subnet Mask</label>
-                        <InputText class="form-control" @bind-Value="_config.SubnetMask" placeholder="255.255.255.0" />
-                        <ValidationMessage For="@(() => _config.SubnetMask)" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Gateway</label>
-                        <InputText class="form-control" @bind-Value="_config.Gateway" placeholder="192.168.1.1" />
-                        <ValidationMessage For="@(() => _config.Gateway)" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Port</label>
-                        <InputNumber class="form-control" @bind-Value="_config.Port" min="1" max="65535" />
-                        <ValidationMessage For="@(() => _config.Port)" />
-                        <small class="form-text text-muted">UDP port for controller communication (1-65535)</small>
-                    </div>
-
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <InputCheckbox class="form-check-input" @bind-Value="_config.DhcpEnabled" id="dhcp-enabled" />
-                            <label class="form-check-label" for="dhcp-enabled">
-                                Enable DHCP
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-md-6">
-                    <h5>Security Settings</h5>
-                    <div class="mb-3">
-                        <label class="form-label">Allowed PC IP</label>
-                        <InputText class="form-control" @bind-Value="_config.AllowedPcIp" placeholder="192.168.1.50" />
-                        <ValidationMessage For="@(() => _config.AllowedPcIp)" />
-                        <small class="form-text text-muted">IP address of the PC allowed to communicate with this controller</small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">New Controller Password</label>
-                        <InputText type="password" class="form-control" @bind-Value="_newPassword" placeholder="Leave blank to keep current password" />
-                        <small class="form-text text-muted">Only enter if you want to change the password. Leave blank to keep the current password.</small>
-                    </div>
-
-                    @if (!string.IsNullOrWhiteSpace(_config.CommPasswordMasked))
-                    {
-                        <div class="mb-3">
-                            <small class="text-muted">Current password status: @_config.CommPasswordMasked</small>
-                        </div>
-                    }
-                </div>
-            </div>
-
-            <div class="mt-3">
-                <small class="text-muted">
-                    @if (_config.LastReadUtc.HasValue)
-                    {
-                        <span>Last read from controller: @_config.LastReadUtc.Value.ToLocalTime().ToString("g")</span>
-                    }
-                    @if (_config.LastSyncUtc.HasValue)
-                    {
-                        <span class="ms-3">Last synced to controller: @_config.LastSyncUtc.Value.ToLocalTime().ToString("g")</span>
-                    }
-                </small>
-            </div>
-        </EditForm>
-    </div>
-
-    <div class="danger-zone card mt-4">
-        <div class="card-body">
-            <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+<div class="controller-container">
+    @if (_initError != null)
+    {
+        <div class="alert alert-danger glass-panel py-4 px-5 fadeIn mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <i class="bi bi-bug-fill fs-2"></i>
                 <div>
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-danger text-light">Danger Zone</span>
-                        @if (_networkConfigCommandInfo != null)
-                        {
-                            <span class="text-muted small">Risk Level @_networkConfigCommandInfo.RiskLevel / 3</span>
-                        }
-                    </div>
-                    <p class="mb-2 text-danger fw-semibold">Applying these changes updates live controller network access and may disconnect the device if IP, allowed PC, or passwords are incorrect.</p>
-                    <p class="mb-0 text-muted small">
-                        This action writes the current network settings (including Allowed PC IP and controller password) to the controller.
-                    </p>
+                    <h4 class="mb-1">Initialization Error</h4>
+                    <p class="mb-0 opacity-75">@_initError</p>
+                    @if (_initError.Contains("column name"))
+                    {
+                        <p class="mt-2 small text-warning"><i class="bi bi-info-circle"></i> This confirms the database needs to be updated. Please run the provided SQL script in SSMS.</p>
+                    }
                 </div>
-                <div class="text-end">
-                    <button class="btn btn-danger"
+            </div>
+            <button class="btn-modern btn-outline-modern mt-3" @onclick="() => _initError = null">Dismiss</button>
+        </div>
+    }
+
+    <header class="page-header fadeIn">
+        <div class="header-title">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn-icon-back" @onclick="NavigateBackToDashboard" title="Back to Settings">
+                    <i class="bi bi-arrow-left"></i>
+                </button>
+                <div>
+                    <h1>Network Configuration</h1>
+                    <p class="mb-0">@(_controller?.Name ?? ( _isLoading ? "Loading..." : "Hardware Setup" ))</p>
+                </div>
+            </div>
+        </div>
+        <div class="header-actions">
+            <div class="d-flex gap-2">
+                <button class="btn-modern btn-outline-modern" @onclick="ReadFromController" disabled="@(_isLoading || _isSyncing || _controller == null)">
+                    <i class="bi bi-broadcast-pin"></i> Read from Hardware
+                </button>
+                <button class="btn-modern btn-primary-modern" @onclick="SaveToDb" disabled="@(_isLoading || _isSaving || _controller == null)">
+                    <i class="bi bi-save"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </header>
+
+    @if (_errorMessage != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show glass-panel py-3 px-4 mb-4 fadeIn" role="alert">
+            <i class="bi bi-exclamation-octagon-fill me-2"></i> @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+
+    @if (_successMessage != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show glass-panel py-3 px-4 mb-4 fadeIn" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i> @_successMessage
+            <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+        </div>
+    }
+
+    @if (_controller == null && !_isLoading)
+    {
+        <div class="glass-panel text-center py-5 fadeIn">
+            <i class="bi bi-search text-muted mb-3" style="font-size: 3rem;"></i>
+            <h3 class="text-muted">Controller not found</h3>
+            <button class="btn-modern btn-outline-modern mt-3" @onclick="NavigateBackToDashboard">Return to Settings</button>
+        </div>
+    }
+    else if (_isLoading)
+    {
+        <div class="text-center my-5 py-5 fadeIn">
+            <div class="spinner-grow text-primary" role="status" style="width: 3rem; height: 3rem;">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3 text-muted">Awaiting controller response...</p>
+        </div>
+    }
+    else
+    {
+        <div class="settings-layout fadeIn">
+            <div class="settings-main">
+                <div class="glass-panel mb-4">
+                    <div class="panel-header mb-4">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-hdd-network text-primary fs-4"></i>
+                            <h2 class="mb-0">Hardware IP Assignment</h2>
+                        </div>
+                    </div>
+
+                    <EditForm Model="_config">
+                        <DataAnnotationsValidator />
+                        
+                        <div class="settings-grid">
+                            <div class="modern-field">
+                                <label class="form-label">Static IP Address</label>
+                                <InputText class="modern-input" @bind-Value="_config.IpAddress" placeholder="192.168.1.100" />
+                                <div class="form-label-desc">Unique address of the controller on your local network.</div>
+                            </div>
+
+                            <div class="modern-field">
+                                <label class="form-label">Gateway Address</label>
+                                <InputText class="modern-input" @bind-Value="_config.Gateway" placeholder="192.168.1.1" />
+                                <div class="form-label-desc">The default router address for external communication.</div>
+                            </div>
+
+                            <div class="modern-field">
+                                <label class="form-label">Subnet Mask</label>
+                                <InputText class="modern-input" @bind-Value="_config.SubnetMask" placeholder="255.255.255.0" />
+                                <div class="form-label-desc">Typically 255.255.255.0 for standard networks.</div>
+                            </div>
+
+                            <div class="modern-field">
+                                <label class="form-label">Communication Port</label>
+                                <InputNumber TValue="int?" class="modern-input" @bind-Value="_config.Port" />
+                                <div class="form-label-desc">UDP port used by the GFC Agent (Default: 60000).</div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 pt-3 border-top border-glass">
+                            <div class="status-box d-flex align-items-center justify-content-between">
+                                <div>
+                                    <div class="fw-bold">Dynamic IP (DHCP)</div>
+                                    <div class="form-label-desc">Allow router to assign IP automatically. Static IP is recommended for controllers.</div>
+                                </div>
+                                <div class="form-check form-switch fs-4">
+                                    <InputCheckbox class="form-check-input" @bind-Value="_config.DhcpEnabled" id="dhcp-enabled" />
+                                </div>
+                            </div>
+                        </div>
+                    </EditForm>
+                </div>
+
+                <div class="glass-panel">
+                    <div class="panel-header mb-4">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-shield-lock text-primary fs-4"></i>
+                            <h2 class="mb-0">Access Security & Passwords</h2>
+                        </div>
+                    </div>
+
+                    <div class="settings-grid">
+                        <div class="modern-field">
+                            <label class="form-label">Allowed PC IP</label>
+                            <InputText class="modern-input" @bind-Value="_config.AllowedPcIp" placeholder="192.168.1.50" />
+                            <div class="form-label-desc">Strict mode: Only this PC IP can communicate with the controller.</div>
+                        </div>
+
+                        <div class="modern-field">
+                            <label class="form-label">Hardware Comm Password</label>
+                            <InputText type="password" class="modern-input" @bind-Value="_newPassword" placeholder="••••••••" />
+                            <div class="form-label-desc">Leave blank to keep existing. Masked current: @(_config.CommPasswordMasked ?? "None")</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="settings-sidebar">
+                <div class="glass-panel mb-4 status-panel">
+                    <h3>Configuration Status</h3>
+                    
+                    <div class="status-list mt-3">
+                        <div class="status-item">
+                            <span class="dot @( _config.LastReadUtc.HasValue ? "success" : "warning" )"></span>
+                            <div class="status-text">
+                                <label>Hardware Read</label>
+                                <span>@(_config.LastReadUtc?.ToLocalTime().ToString("g") ?? "Never")</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <span class="dot @( _config.LastSyncUtc.HasValue ? "success" : "warning" )"></span>
+                            <div class="status-text">
+                                <label>Controller Sync</label>
+                                <span>@(_config.LastSyncUtc?.ToLocalTime().ToString("g") ?? "Never")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="info-alert mt-4">
+                        <i class="bi bi-info-circle"></i>
+                        <p>Changes saved to DB do not affect hardware until you click <strong>Apply to Controller</strong> below.</p>
+                    </div>
+                </div>
+
+                <div class="danger-panel fadeIn">
+                    <div class="panel-header d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-exclamation-triangle-fill text-danger fs-4"></i>
+                        <h3 class="text-danger mb-0">Hardware Write</h3>
+                    </div>
+                    <p class="small opacity-75 mb-4">Updating these settings will briefly disconnect the controller. Incorrect IP settings may require a physical factory reset.</p>
+                    
+                    <button class="btn-modern btn-danger w-100 py-3 fw-bold"
                             @onclick="ShowSyncConfirmationModal"
-                            disabled="@(_isLoading || _isSyncing || _controller?.IsEnabled != true || !_useRealControllers)"
-                            title="@(!_useRealControllers ? "Disabled while in Simulation Mode. Enable 'Use real controllers' in Settings to push network changes." : _syncTooltip)">
-                        <i class="bi bi-cloud-upload"></i>
-                        Apply Network Changes
+                            disabled="@(_isLoading || _isSyncing || _controller?.IsEnabled != true || !_useRealControllers)">
+                        @if(_isSyncing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        else { <i class="bi bi-cloud-upload me-2"></i> }
+                        Apply to Controller
                     </button>
+                    
                     @if (!_useRealControllers)
                     {
-                        <div class="text-danger small mt-2">Blocked while Simulation Mode is enabled.</div>
+                        <div class="badge bg-soft-danger text-danger mt-3 w-100 py-2 text-center">Simulation Mode Active</div>
                     }
                 </div>
-            </div>
+            </aside>
         </div>
-    </div>
-}
+    }
+</div>
 
 @* Double Confirmation Modal for Sync *@
 @if (_showSyncConfirmation)
 {
-    <div class="modal-backdrop fade show"></div>
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Apply Network Configuration to Controller</h5>
-                    <button type="button" class="btn-close" @onclick="CloseSyncConfirmation"></button>
-                </div>
-                <div class="modal-body">
-                    @if (_networkConfigCommandInfo != null)
-                    {
-                        <div class="alert alert-danger">
-                            <strong>@_networkConfigCommandInfo.DisplayName</strong> (Risk Level: @_networkConfigCommandInfo.RiskLevel / 3)
-                            <br />
-                            <small>@_networkConfigCommandInfo.ShortDescription</small>
+    <div class="modal-backdrop fade show" @onclick="CloseSyncConfirmation"></div>
+    <div class="modern-modal-container">
+        <div class="modern-modal fadeIn">
+            <div class="modal-header-modern danger">
+                <div class="header-icon"><i class="bi bi-exclamation-triangle"></i></div>
+                <h2>Hardware Update</h2>
+                <button class="btn-close-modern" @onclick="CloseSyncConfirmation"><i class="bi bi-x"></i></button>
+            </div>
+            <div class="modal-body-modern">
+                @if (_confirmStep == 1)
+                {
+                    <div class="warning-banner">
+                        <strong>RISK LEVEL @(_networkConfigCommandInfo?.RiskLevel ?? 2)/3</strong>
+                        <p>This will overwrite the physical network chips on <strong>@_controller?.Name</strong>.</p>
+                    </div>
+                    <p class="mt-4">Are you sure you want to push these settings? Controller connectivity will drop temporarily.</p>
+                }
+                else
+                {
+                    <div class="summary-list">
+                        <div class="summary-item">
+                            <label>Target IP</label>
+                            <strong>@_config.IpAddress</strong>
                         </div>
-                    }
-                    <p>This will write network settings to controller <strong>@(_controller?.Name ?? "Unknown")</strong>.</p>
-                    @if (_confirmStep == 1)
-                    {
-                        <p class="text-danger">
-                            <strong>Warning:</strong> Controller connectivity may drop during apply; ensure the IP, subnet, gateway, and Allowed PC IP are correct.
-                        </p>
-                    }
-                    else
-                    {
-                        <p class="text-danger">
-                            <strong>Final Warning:</strong> Incorrect IP, Allowed PC, or password can lock out controller management or disconnect the device from the network.
-                        </p>
-                        <p class="text-muted small">
-                            IP: @_config.IpAddress<br />
-                            Port: @_config.Port<br />
-                            Allowed PC: @_config.AllowedPcIp<br />
-                            @if (!string.IsNullOrWhiteSpace(_newPassword))
-                            {
-                                <span>Password: <strong>Will be changed</strong></span>
-                            }
-                        </p>
-                    }
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-outline-secondary" @onclick="CloseSyncConfirmation" disabled="@_isSyncing">Cancel</button>
-                    @if (_confirmStep == 1)
-                    {
-                        <button class="btn btn-warning" @onclick="ProceedToFinalConfirmation" disabled="@_isSyncing">
-                            I Understand - Continue
-                        </button>
-                    }
-                    else
-                    {
-                        <button class="btn btn-danger" @onclick="ConfirmSyncToController" disabled="@_isSyncing">
-                            @(_isSyncing ? "Syncing..." : "Confirm Sync")
-                        </button>
-                    }
-                </div>
+                        <div class="summary-item">
+                            <label>Allowed PC</label>
+                            <strong>@_config.AllowedPcIp</strong>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_newPassword))
+                        {
+                            <div class="summary-item">
+                                <label>Password</label>
+                                <span class="badge bg-warning text-dark">Will be updated</span>
+                            </div>
+                        }
+                    </div>
+                    <p class="mt-4 text-danger fw-bold">FINAL WARNING: If the target IP is unreachable from this PC, you will lose access!</p>
+                }
+            </div>
+            <div class="modal-footer-modern">
+                <button class="btn-modern btn-outline-modern" @onclick="CloseSyncConfirmation" disabled="@_isSyncing">Abort</button>
+                @if (_confirmStep == 1)
+                {
+                    <button class="btn-modern btn-warning" @onclick="ProceedToFinalConfirmation" disabled="@_isSyncing">
+                        I Understand - Proceed
+                    </button>
+                }
+                else
+                {
+                    <button class="btn-modern btn-danger" @onclick="ConfirmSyncToController" disabled="@_isSyncing">
+                        @(_isSyncing ? "Writing Configuration..." : "Apply Final Changes")
+                    </button>
+                }
             </div>
         </div>
     </div>
@@ -275,32 +296,33 @@ else
     private bool _isLoading = false;
     private bool _isSaving = false;
     private bool _isSyncing = false;
-    private bool _useRealControllers = false;
+    private bool _useRealControllers = true;
     private string? _errorMessage;
     private string? _successMessage;
-    private string _syncTooltip = "Sync network configuration to controller";
+    private string? _initError;
     private ControllerCommandInfo? _networkConfigCommandInfo;
     private bool _showSyncConfirmation = false;
     private int _confirmStep = 1;
-    private bool _isUnauthorized = false;
 
     protected override async Task OnInitializedAsync()
     {
         _isLoading = true;
         try
         {
-            var isAdmin = await CheckAdminAccess();
-            if (!isAdmin)
-            {
-                _isUnauthorized = true;
-                _isLoading = false;
-                return;
-            }
-
+            // Defensive loading to catch DB errors immediately
             await LoadControllerModeAsync();
             await LoadController();
-            await LoadNetworkConfig();
-            await LoadCommandInfo();
+            
+            if (_controller != null)
+            {
+                await LoadNetworkConfig();
+                await LoadCommandInfo();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Critical error initializing NetworkConfig page for Controller {Id}", ControllerId);
+            _initError = ex.Message;
         }
         finally
         {
@@ -308,55 +330,17 @@ else
         }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender && _isUnauthorized)
-        {
-            Navigation.NavigateTo("/", forceLoad: true);
-            return;
-        }
-        await base.OnAfterRenderAsync(firstRender);
-    }
-
-    private async Task<bool> CheckAdminAccess()
-    {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var isAdmin = authState.User.IsInRole(AppRoles.Admin);
-        if (!isAdmin)
-        {
-            var currentUser = AuthStateProvider.GetCurrentUser();
-            isAdmin = currentUser?.IsAdmin == true;
-        }
-
-        if (!isAdmin)
-        {
-            Logger.LogWarning("Non-admin user attempted to access Network Config page");
-            return false;
-        }
-        return true;
-    }
-
     private async Task LoadController()
     {
-        try
+        _controller = await RegistryService.GetControllerByIdAsync(ControllerId);
+        if (_controller == null)
         {
-            _controller = await RegistryService.GetControllerByIdAsync(ControllerId);
-            if (_controller == null)
-            {
-                _errorMessage = "Controller not found.";
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to load controller");
-            _errorMessage = "Failed to load controller: " + ex.Message;
+            _errorMessage = $"Controller with ID {ControllerId} not found.";
         }
     }
 
     private async Task LoadNetworkConfig()
     {
-        if (_controller == null) return;
-
         try
         {
             var config = await NetworkConfigService.GetFromDbAsync(ControllerId);
@@ -375,8 +359,8 @@ else
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load network config");
-            _errorMessage = "Failed to load network configuration: " + ex.Message;
+            Logger.LogError(ex, "Failed to load network config for Controller {Id}", ControllerId);
+            _initError = "Database error while loading network configuration: " + ex.Message;
         }
     }
 
@@ -385,10 +369,6 @@ else
         try
         {
             _networkConfigCommandInfo = await CommandInfoService.GetByKeyAsync("SyncNetworkConfig");
-            if (_networkConfigCommandInfo != null)
-            {
-                _syncTooltip = $"{_networkConfigCommandInfo.DisplayName} (Risk Level {_networkConfigCommandInfo.RiskLevel}): {_networkConfigCommandInfo.ShortDescription}";
-            }
         }
         catch (Exception ex)
         {
@@ -410,36 +390,13 @@ else
             if (config != null)
             {
                 _config = config;
-                _successMessage = "Network configuration read from controller successfully.";
-                
-                // Audit log
-                var currentUser = AuthStateProvider.GetCurrentUser();
-                var userName = currentUser?.Username ?? Environment.UserName ?? "System";
-                DbContext.ControllerCommandLogs.Add(new ControllerCommandLog
-                {
-                    ControllerId = ControllerId,
-                    Action = "ReadNetworkConfig",
-                    Success = true,
-                    TimestampUtc = DateTime.UtcNow
-                });
-                await DbContext.SaveChangesAsync();
-            }
-            else
-            {
-                _errorMessage = "Failed to read network configuration from controller.";
+                _successMessage = "Network configuration read successfully from hardware.";
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to read network config from controller");
-            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
-            {
-                _errorMessage = "Network configuration read is not implemented in Agent/firmware.";
-            }
-            else
-            {
-                _errorMessage = "Failed to read from controller: " + ex.Message;
-            }
+            _errorMessage = "Hardware communication error: " + ex.Message;
         }
         finally
         {
@@ -459,24 +416,23 @@ else
         {
             _config.ControllerId = ControllerId;
             await NetworkConfigService.SaveToDbAsync(_config);
-            _successMessage = "Network configuration saved to database.";
+            _successMessage = "Settings saved to local database.";
             
             // Audit log
-            var currentUser = AuthStateProvider.GetCurrentUser();
-            var userName = currentUser?.Username ?? Environment.UserName ?? "System";
-            DbContext.ControllerCommandLogs.Add(new ControllerCommandLog
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.ControllerCommandLogs.Add(new ControllerCommandLog
             {
                 ControllerId = ControllerId,
                 Action = "SaveNetworkConfig",
                 Success = true,
                 TimestampUtc = DateTime.UtcNow
             });
-            await DbContext.SaveChangesAsync();
+            await db.SaveChangesAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to save network config");
-            _errorMessage = "Failed to save configuration: " + ex.Message;
+            _errorMessage = "Save error: " + ex.Message;
         }
         finally
         {
@@ -489,11 +445,6 @@ else
         if (_controller == null || !_controller.IsEnabled)
         {
             _errorMessage = "Controller must be enabled before syncing.";
-            return;
-        }
-        if (!_useRealControllers)
-        {
-            _errorMessage = "Sync is disabled while Simulation Mode is enabled.";
             return;
         }
         _confirmStep = 1;
@@ -513,7 +464,7 @@ else
 
     private async Task ConfirmSyncToController()
     {
-        if (_controller == null || !_controller.IsEnabled || !_useRealControllers) return;
+        if (_controller == null || !_controller.IsEnabled) return;
 
         _isSyncing = true;
         _errorMessage = null;
@@ -522,67 +473,28 @@ else
 
         try
         {
-            // Validate IP addresses
-            if (!string.IsNullOrWhiteSpace(_config.IpAddress) && !System.Net.IPAddress.TryParse(_config.IpAddress, out _))
-            {
-                _errorMessage = "Invalid IP address format.";
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(_config.SubnetMask) && !System.Net.IPAddress.TryParse(_config.SubnetMask, out _))
-            {
-                _errorMessage = "Invalid subnet mask format.";
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(_config.Gateway) && !System.Net.IPAddress.TryParse(_config.Gateway, out _))
-            {
-                _errorMessage = "Invalid gateway format.";
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(_config.AllowedPcIp) && !System.Net.IPAddress.TryParse(_config.AllowedPcIp, out _))
-            {
-                _errorMessage = "Invalid Allowed PC IP format.";
-                return;
-            }
-
-            // Sync network config (includes allowed PC and password sync)
             await NetworkConfigService.SyncToControllerAsync(_controller.SerialNumber, _config, _newPassword);
 
-            _successMessage = $"Network configuration synced successfully to controller '{_controller.Name}'.";
-            Logger.LogInformation("Network config synced to controller {ControllerId}", ControllerId);
-            
-            // Clear password field after successful sync
+            _successMessage = $"Network configuration pushed successfully to '{_controller.Name}'.";
             _newPassword = null;
             
             // Audit log
-            var currentUser = AuthStateProvider.GetCurrentUser();
-            var userName = currentUser?.Username ?? Environment.UserName ?? "System";
-            DbContext.ControllerCommandLogs.Add(new ControllerCommandLog
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.ControllerCommandLogs.Add(new ControllerCommandLog
             {
                 ControllerId = ControllerId,
                 Action = "SyncNetworkConfig",
                 Success = true,
                 TimestampUtc = DateTime.UtcNow
             });
-            await DbContext.SaveChangesAsync();
+            await db.SaveChangesAsync();
 
-            // Reload config to get updated timestamps
             await LoadNetworkConfig();
         }
-
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to sync network config to controller");
-            if (ex.Message.Contains("501") || ex.Message.Contains("NotImplemented"))
-            {
-                _errorMessage = "Network configuration sync is not implemented in Agent/firmware.";
-            }
-            else
-            {
-                _errorMessage = $"Failed to sync configuration to '{_controller.Name}': {ex.Message}";
-            }
+            Logger.LogError(ex, "Failed to sync network config");
+            _errorMessage = $"Sync error: {ex.Message}";
         }
         finally
         {
@@ -592,7 +504,7 @@ else
 
     private void NavigateBackToDashboard()
     {
-        Navigation.NavigateTo("/controllers");
+        Navigation.NavigateTo("/controllers/settings");
     }
 
     private async Task LoadControllerModeAsync()
@@ -600,27 +512,11 @@ else
         try
         {
             var settings = await SystemSettingsService.GetAsync();
-            _useRealControllers = true; // Simulation mode removed
+            _useRealControllers = true;
         }
-        catch (Exception ex)
+        catch
         {
-            Logger.LogWarning(ex, "Failed to load controller mode indicator; defaulting to simulation for UI only");
-            _useRealControllers = false;
+             _useRealControllers = true; 
         }
     }
 }
-
-<style>
-    .danger-zone {
-        border: 1px solid #f5c2c7;
-        background-color: #fff7f8;
-    }
-
-    .danger-zone .card-body {
-        padding: 1.25rem;
-    }
-
-    .danger-zone .btn-danger {
-        min-width: 220px;
-    }
-</style>
