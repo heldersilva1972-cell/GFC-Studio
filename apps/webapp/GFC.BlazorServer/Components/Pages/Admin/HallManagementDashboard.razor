@@ -263,7 +263,7 @@
                             </div>
                             <div class="compact-detail">
                                 <span class="label">Time:</span>
-                                <span class="value">@_selectedRequest.StartTime - @_selectedRequest.EndTime</span>
+                                <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Time")</span>
                             </div>
                             <div class="compact-detail">
                                 <span class="label">Type:</span>
@@ -272,6 +272,10 @@
                             <div class="compact-detail">
                                 <span class="label">Guests:</span>
                                 <span class="value">@_selectedRequest.GuestCount</span>
+                            </div>
+                             <div class="compact-detail">
+                                <span class="label">Setup:</span>
+                                <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Setup Needed")</span>
                             </div>
                         </div>
 
@@ -282,8 +286,16 @@
                                 <span class="value">@_selectedRequest.RequesterPhone</span>
                             </div>
                             <div class="compact-detail">
+                                <span class="label">Address:</span>
+                                <span class="value" style="font-size: 0.8rem; text-align: right; max-width: 150px;">@GetValueFromNotes(_selectedRequest.InternalNotes, "Address")</span>
+                            </div>
+                            <div class="compact-detail">
                                 <span class="label">Kitchen:</span>
                                 <span class="value">@(_selectedRequest.KitchenUsage ? "YES" : "NO")</span>
+                            </div>
+                            <div class="compact-detail">
+                                <span class="label">Bar Svc:</span>
+                                <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Bar Service")</span>
                             </div>
                             <div class="compact-detail">
                                 <span class="label">Total:</span>
@@ -301,15 +313,24 @@
                     </div>
                 </div>
                 
-                @if (!string.IsNullOrEmpty(_selectedRequest.InternalNotes))
-                {
-                    <div class="notes-section mt-3">
-                        <h4 style="font-size: 1rem; margin-bottom: 0.5rem; color: var(--gray-600);">Internal Notes</h4>
-                        <div class="p-3 bg-light rounded border">@_selectedRequest.InternalNotes</div>
-                    </div>
-                }
+                <div class="form-group mt-4">
+                    <label class="font-weight-bold text-muted mb-2">Admin Notes (Editable)</label>
+                    <textarea class="form-control" rows="4" @bind="_adminNotes" style="font-size: 0.9rem; border-color: var(--gray-300); background: var(--gray-50); color: var(--gray-800);"></textarea>
+                    <small class="text-muted">Edit notes or add new details here.</small>
+                </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer" style="justify-content: space-between;">
+                <div>
+                     @if (_selectedRequest.Status == RentalStatus.Pending)
+                     {
+                        <button class="btn btn-success me-2" @onclick="ApproveRequest">
+                            <i class="bi bi-check-lg"></i> Approve
+                        </button>
+                        <button class="btn btn-danger" @onclick="DeclineRequest">
+                            <i class="bi bi-x-lg"></i> Decline
+                        </button>
+                     }
+                </div>
                 <button class="btn-modern btn-outline" @onclick="() => CloseRequestModal()">Close</button>
             </div>
         </div>
@@ -408,33 +429,54 @@
                     {
                         @if (item is HallRentalRequest request)
                         {
-                            <div class="filtered-item" @onclick="() => SelectFilteredItem(item)">
-                                <div class="request-header">
-                                    <span class="request-name">@request.ApplicantName</span>
-                                    <span class="request-date">@request.RequestedDate.ToString("MMM dd")</span>
+                            <div class="filtered-item-modern" @onclick="() => SelectFilteredItem(item)">
+                                <div class="item-date-box">
+                                    <span class="item-day">@request.RequestedDate.Day</span>
+                                    <span class="item-month">@request.RequestedDate.ToString("MMM")</span>
                                 </div>
-                                <div class="request-details">
-                                    <span class="request-type">@(request.EventType ?? "General Rental")</span>
-                                    @if (!string.IsNullOrEmpty(request.StartTime))
-                                    {
-                                        <span class="request-time">@request.StartTime - @request.EndTime</span>
-                                    }
+                                <div class="item-content-main">
+                                    <div class="item-title">@request.ApplicantName</div>
+                                    <div class="item-meta">
+                                        <span class="item-type-badge">@(request.EventType ?? "Rental")</span>
+                                    </div>
                                 </div>
+                                <div class="item-time-box">
+                                     @if (!string.IsNullOrEmpty(request.StartTime))
+                                     {
+                                        <span class="time-pill">
+                                            <i class="bi bi-clock"></i> @request.StartTime - @request.EndTime
+                                        </span>
+                                     }
+                                </div>
+                                <i class="bi bi-chevron-right item-arrow"></i>
                             </div>
                         }
                         else if (item is AvailabilityCalendar clubEvent)
                         {
-                            <div class="filtered-item" @onclick="() => SelectFilteredItem(item)">
-                                <div class="request-header">
-                                    <span class="request-name">@clubEvent.Description</span>
-                                    <span class="request-date">@clubEvent.Date.ToString("MMM dd")</span>
+                             <div class="filtered-item-modern" @onclick="() => SelectFilteredItem(item)">
+                                <div class="item-date-box date-box-club">
+                                    <span class="item-day">@clubEvent.Date.Day</span>
+                                    <span class="item-month">@clubEvent.Date.ToString("MMM")</span>
                                 </div>
-                                @if (!string.IsNullOrEmpty(clubEvent.StartTime))
-                                {
-                                    <div class="request-details">
-                                        <span class="request-time">@clubEvent.StartTime - @clubEvent.EndTime</span>
+                                <div class="item-content-main">
+                                    <div class="item-title">@clubEvent.Description</div>
+                                    <div class="item-meta">
+                                        <span class="item-type-badge badge-club">Club Event</span>
                                     </div>
-                                }
+                                </div>
+                                <div class="item-time-box">
+                                     @if (!string.IsNullOrEmpty(clubEvent.StartTime))
+                                     {
+                                        <span class="time-pill">
+                                            <i class="bi bi-clock"></i> @clubEvent.StartTime - @clubEvent.EndTime
+                                        </span>
+                                     }
+                                     else
+                                     {
+                                         <span class="time-pill">All Day</span>
+                                     }
+                                </div>
+                                <i class="bi bi-chevron-right item-arrow"></i>
                             </div>
                         }
                     }
@@ -752,15 +794,76 @@
         }
     }
     
+    private string _adminNotes = "";
+
     private void ViewRequestDetails(HallRentalRequest request)
     {
         _selectedRequest = request;
         _selectedDay = null; // Close day modal if open
+        _adminNotes = request.InternalNotes ?? "";
     }
     
     private void CloseRequestModal()
     {
         _selectedRequest = null;
+    }
+
+    private string GetValueFromNotes(string notes, string key)
+    {
+        if (string.IsNullOrEmpty(notes)) return "N/A";
+        // Try regex for Key: Value (multiline or dash separator)
+        var match = System.Text.RegularExpressions.Regex.Match(notes, $@"{key}:\s*(.*?)(?:\s+---|$)");
+        if (match.Success) return match.Groups[1].Value.Trim();
+        
+        // Fallback to simpler newline match
+        match = System.Text.RegularExpressions.Regex.Match(notes, $@"{key}:\s*(.*?)(?:\r?\n|$)");
+        if (match.Success) return match.Groups[1].Value.Trim();
+        
+        return "N/A";
+    }
+
+    private async Task ApproveRequest()
+    {
+        if (_selectedRequest == null) return;
+        
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to APPROVE this rental request?");
+        if (!confirmed) return;
+        
+        try
+        {
+            await RentalService.ApproveRentalRequestAsync(_selectedRequest.Id, _adminNotes, "Admin");
+            await ToastService.ShowToastAsync("Rental request approved successfully.", ToastLevel.Success);
+            _selectedRequest.Status = RentalStatus.Approved;
+            _selectedRequest.InternalNotes = _adminNotes;
+            await LoadData();
+            CloseRequestModal();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowToastAsync($"Error approving request: {ex.Message}", ToastLevel.Error);
+        }
+    }
+
+    private async Task DeclineRequest()
+    {
+        if (_selectedRequest == null) return;
+        
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to DECLINE this rental request?");
+        if (!confirmed) return;
+        
+        try
+        {
+            await RentalService.DenyRentalRequestAsync(_selectedRequest.Id, _adminNotes, "Admin");
+            await ToastService.ShowToastAsync("Rental request declined.", ToastLevel.Success);
+            _selectedRequest.Status = RentalStatus.Denied;
+            _selectedRequest.InternalNotes = _adminNotes;
+            await LoadData();
+            CloseRequestModal();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowToastAsync($"Error declining request: {ex.Message}", ToastLevel.Error);
+        }
     }
     
     private class CalendarEvent
