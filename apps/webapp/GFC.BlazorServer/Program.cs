@@ -421,6 +421,32 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                     Console.WriteLine($">>> WARNING: Rental schema script not found at {rentalScriptPath}");
                 }
 
+                // [AUTO-FIX 5] Run the Bar Sales Tables script
+                var barSalesScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "CreateBarSalesTables.sql");
+                if (File.Exists(barSalesScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Bar Sales Schema Fixes from: {barSalesScriptPath}");
+                    var barSqlFile = File.ReadAllText(barSalesScriptPath);
+                    var barBatches = System.Text.RegularExpressions.Regex.Split(barSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in barBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing bar sales batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Bar Sales Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Bar Sales schema script not found at {barSalesScriptPath}");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
                 // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }
