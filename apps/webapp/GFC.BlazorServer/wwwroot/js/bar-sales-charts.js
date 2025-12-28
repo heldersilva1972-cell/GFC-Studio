@@ -1,8 +1,12 @@
 window.barSalesCharts = {
     charts: {},
     renderChart: function (canvasId, config) {
+        console.log('renderChart called with:', canvasId, config);
+        console.log('Labels:', config.labels);
+        console.log('Datasets:', config.datasets);
+
         const ctx = document.getElementById(canvasId).getContext('2d');
-        
+
         // Destroy existing chart if it exists
         if (this.charts[canvasId]) {
             this.charts[canvasId].destroy();
@@ -62,13 +66,13 @@ window.barSalesCharts = {
                         padding: 12,
                         displayColors: true,
                         callbacks: {
-                            label: function(context) {
+                            label: function (context) {
                                 let label = context.dataset.label || '';
                                 if (label) label += ': ';
                                 if (context.parsed.y !== null) {
-                                    label += new Intl.NumberFormat('en-US', { 
-                                        style: 'currency', 
-                                        currency: 'USD' 
+                                    label += new Intl.NumberFormat('en-US', {
+                                        style: 'currency',
+                                        currency: 'USD'
                                     }).format(context.parsed.y);
                                 }
                                 return label;
@@ -79,12 +83,13 @@ window.barSalesCharts = {
                 scales: {
                     y: {
                         beginAtZero: true,
+                        grace: '5%',
                         grid: {
                             color: 'rgba(0, 0, 0, 0.05)',
                             drawBorder: false
                         },
                         ticks: {
-                            callback: function(value) {
+                            callback: function (value) {
                                 return '$' + value.toLocaleString();
                             },
                             font: { size: 11 }

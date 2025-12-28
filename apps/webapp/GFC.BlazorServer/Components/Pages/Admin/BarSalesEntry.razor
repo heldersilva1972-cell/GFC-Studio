@@ -113,23 +113,26 @@
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
-    .year-selector {
-        background: white;
+    .chart-controls-panel {
+        background: #f8fafc;
+        padding: 1.5rem;
+        border-radius: 16px;
         border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 0.4rem 0.75rem;
-        font-weight: 700;
-        font-size: 0.85rem;
-        color: #1e293b;
-        margin-left: 0.5rem;
-        outline: none;
-        cursor: pointer;
+    }
+
+    .chart-select {
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        font-weight: 600;
+        font-size: 0.95rem;
         transition: all 0.2s ease;
     }
 
-    .year-selector:focus {
+    .chart-select:focus {
         border-color: #3b82f6;
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        outline: none;
     }
 
     .form-label-premium {
@@ -177,24 +180,82 @@
 
         <!-- CHART SECTION -->
         <div class="analytics-card" style="margin-top: 4rem;">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h3 class="fw-bold mb-1">Financial Performance</h3>
-                    <p class="text-muted small mb-0">Visual breakdown of beverage sales over time</p>
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h3 class="fw-bold mb-1">Financial Performance</h3>
+                        <p class="text-muted small mb-0">Revenue trends and analysis</p>
+                    </div>
                 </div>
-                <div class="view-toggle">
-                    <button class="@(_currentView == ChartView.Week ? "active" : "")" @onclick='() => ChangeView(ChartView.Week)'>Week</button>
-                    <button class="@(_currentView == ChartView.Month ? "active" : "")" @onclick='() => ChangeView(ChartView.Month)'>Month</button>
-                    <button class="@(_currentView == ChartView.Year ? "active" : "")" @onclick='() => ChangeView(ChartView.Year)'>Year</button>
-                    
-                    @if (_currentView == ChartView.Year && _availableYears != null && _availableYears.Any())
+
+                <!-- Advanced Controls -->
+                <div class="chart-controls-panel">
+                    <div class="row g-3">
+                        <!-- Row 1: Main Filters -->
+                        <div class="col-md-3">
+                            <label class="small fw-bold text-muted mb-2">TIME PERIOD</label>
+                            <select class="form-select chart-select" @bind="_selectedPeriod" @bind:after="UpdateChart">
+                                <option value="year">Full Year Comparison</option>
+                                <option value="week">Last 7 Days</option>
+                                <option value="month">Last 30 Days</option>
+                                <option value="thisMonth">This Month</option>
+                                <option value="lastMonth">Last Month</option>
+                                <option value="custom">Custom Range</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label class="small fw-bold text-muted mb-2">GROUP BY</label>
+                            <select class="form-select chart-select" @bind="_groupBy" @bind:after="UpdateChart">
+                                <option value="day">Daily</option>
+                                <option value="week">Weekly</option>
+                                <option value="month">Monthly</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="small fw-bold text-muted mb-2">FILTER DAYS</label>
+                            <select class="form-select chart-select" @bind="_chartDayFilter" @bind:after="UpdateChart">
+                                <option value="">All Days</option>
+                                <option value="Sunday">Sundays</option>
+                                <option value="Monday">Mondays</option>
+                                <option value="Tuesday">Tuesdays</option>
+                                <option value="Wednesday">Wednesdays</option>
+                                <option value="Thursday">Thursdays</option>
+                                <option value="Friday">Fridays</option>
+                                <option value="Saturday">Saturdays</option>
+                            </select>
+                        </div>
+
+                        @if (_selectedPeriod == "custom")
+                        {
+                            <div class="col-md-3">
+                                <label class="small fw-bold text-muted mb-2">START DATE</label>
+                                <input type="date" class="form-control chart-select" @bind="_customStartDate" @bind:after="UpdateChart" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="small fw-bold text-muted mb-2">END DATE</label>
+                                <input type="date" class="form-control chart-select" @bind="_customEndDate" @bind:after="UpdateChart" />
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Row 2: Year Selection (Visible for Full Year View) -->
+                    @if (_selectedPeriod == "year")
                     {
-                        <select class="year-selector" @onchange="OnYearChanged" value="@_selectedYear">
-                            @foreach (var year in _availableYears)
-                            {
-                                <option value="@year">@year</option>
-                            }
-                        </select>
+                        <div class="mt-3 pt-3 border-top">
+                            <label class="small fw-bold text-muted mb-2 d-block">COMPARE YEARS</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                @foreach (var year in _availableYears)
+                                {
+                                    <label class="year-checkbox-label">
+                                        <input type="checkbox" checked="@(_selectedComparisonYears.Contains(year))" 
+                                               @onchange="@(e => ToggleYearComparison(year, (bool)e.Value))" />
+                                        <span>@year</span>
+                                    </label>
+                                }
+                            </div>
+                        </div>
                     }
                 </div>
             </div>
@@ -233,7 +294,7 @@
                             <div class="col-md-2">
                                 <label class="form-label-premium">Day</label>
                                 <select class="form-control input-premium w-100" @bind="_selectedDay">
-                                    @for (int i = 1; i <= DateTime.DaysInMonth(_selectedYear, _selectedMonth); i++)
+                                    @for (int i = 1; i <= DateTime.DaysInMonth(_selectedEntryYear, _selectedMonth); i++)
                                     {
                                         <option value="@i">@i</option>
                                     }
@@ -320,73 +381,121 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- RECENT ACTIVITY -->
-        <div class="history-section">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2 class="fw-bold mb-0">Activity Log</h2>
-                <button class="btn btn-light rounded-pill px-4 shadow-sm" @onclick="LoadData">
-                    <i class="bi bi-arrow-clockwise me-1"></i> Sync
-                </button>
-            </div>
+            <!-- ACTIVITY LOG TABLE -->
+            <div class="col-lg-4">
+                <div class="bg-white rounded-5 border shadow-sm h-100 overflow-hidden d-flex flex-column">
+                    <div class="p-4 border-bottom bg-light bg-opacity-50">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <h4 class="fw-bold mb-1">Activity Log</h4>
+                                <div class="text-muted small">Recent transactions</div>
+                            </div>
+                            <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="LoadData">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Sync
+                            </button>
+                        </div>
+                        
+                        <!-- Day Filter -->
+                        <select class="form-select form-select-sm border-0 bg-white shadow-sm rounded-pill" 
+                                @bind="_selectedDayFilter" @bind:after="LoadData">
+                            <option value="">All Days</option>
+                            <option value="Sunday">Sundays</option>
+                            <option value="Monday">Mondays</option>
+                            <option value="Tuesday">Tuesdays</option>
+                            <option value="Wednesday">Wednesdays</option>
+                            <option value="Thursday">Thursdays</option>
+                            <option value="Friday">Fridays</option>
+                            <option value="Saturday">Saturdays</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex-grow-1 overflow-auto">
+                        @if (_entries == null)
+                        {
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                        }
+                        else if (!_entries.Any())
+                        {
+                            <div class="text-center py-5">
+                                <i class="bi bi-journal-x fs-1 text-muted opacity-50"></i>
+                                <p class="mt-3 text-muted">No sales recordings yet.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="bg-light sticky-top">
+                                        <tr>
+                                            <th class="ps-4 py-3 text-uppercase text-muted small fw-bold border-0">Date</th>
+                                            <th class="py-3 text-uppercase text-muted small fw-bold border-0">Details</th>
+                                            <th class="pe-4 py-3 text-end text-uppercase text-muted small fw-bold border-0">Revenue</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var entry in _entries)
+                                        {
+                                            <tr>
+                                                <td class="ps-4 border-bottom-0">
+                                                    <div class="fw-bold text-dark">@entry.SaleDate.ToString("ddd, MMM dd")</div>
+                                                    <div class="small text-muted">@entry.SaleDate.ToString("hh:mm tt")</div>
+                                                </td>
+                                                <td class="border-bottom-0">
+                                                    <div class="text-dark">@(string.IsNullOrEmpty(entry.Notes) ? "Standard Sale" : entry.Notes)</div>
+                                                    <div class="small text-muted">@entry.TotalItemsSold items</div>
+                                                </td>
+                                                <td class="pe-4 text-end border-bottom-0">
+                                                    <span class="fw-bold text-success bg-success bg-opacity-10 px-2 py-1 rounded">
+                                                        @entry.TotalSales.ToString("C")
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
 
-            @if (_entries == null)
-            {
-                <div class="text-center py-5">
-                    <div class="spinner-border text-primary" role="status"></div>
-                </div>
-            }
-            else if (!_entries.Any())
-            {
-                <div class="text-center py-5 bg-white rounded-5 border shadow-sm">
-                    <i class="bi bi-journal-x fs-1 text-muted"></i>
-                    <p class="mt-3 text-muted">No sales recordings yet.</p>
-                </div>
-            }
-            else
-            {
-                <div class="entries-list">
-                    @foreach (var entry in _entries)
+                    <!-- Pagination -->
+                    @if (_totalPages > 1)
                     {
-                        <div class="entry-row">
-                            <div class="d-flex align-items-center gap-4">
-                                <div class="entry-date-box">
-                                    <div class="entry-date-month">@entry.SaleDate.ToString("MMM")</div>
-                                    <div class="entry-date-day">@entry.SaleDate.ToString("dd")</div>
-                                </div>
-                                <div>
-                                    <div class="fw-bold">@entry.SaleDate.ToString("hh:mm tt")</div>
-                                    <div class="notes-pill mt-1">@(string.IsNullOrEmpty(entry.Notes) ? "Standard Sale" : entry.Notes)</div>
-                                </div>
-                            </div>
-                            <div class="d-flex align-items-center gap-5">
-                                <div class="text-end">
-                                    <div class="text-muted small fw-bold">Items</div>
-                                    <div class="fw-bold text-primary">@entry.TotalItemsSold</div>
-                                </div>
-                                <div class="text-end">
-                                    <div class="text-muted small fw-bold">Revenue</div>
-                                    <div class="entry-amount">@entry.TotalSales.ToString("C")</div>
-                                </div>
-                            </div>
+                        <div class="p-3 border-top bg-light bg-opacity-50 d-flex justify-content-between align-items-center">
+                            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" 
+                                    disabled="@(_currentPage == 1)" 
+                                    @onclick="PrevPage">
+                                Previous
+                            </button>
+                            <span class="text-muted small fw-bold">Page @_currentPage of @_totalPages</span>
+                            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" 
+                                    disabled="@(_currentPage == _totalPages)" 
+                                    @onclick="NextPage">
+                                Next
+                            </button>
                         </div>
                     }
                 </div>
-            }
+            </div>
         </div>
     </div>
 </div>
 
 @code {
-    private enum ChartView { Week, Month, Year }
-    private ChartView _currentView = ChartView.Week;
-
     private BarSaleEntry _model = new();
     private List<BarSaleEntry> _entries;
     private bool _isSaving = false;
     private bool _showSuccess = false;
     private string _successMessage;
+
+    // Pagination & Filters
+    private int _currentPage = 1;
+    private int _pageSize = 10;
+    private int _totalEntries = 0;
+    private string _selectedDayFilter = ""; // Empty = All
+    private int _totalPages => (int)Math.Ceiling((double)_totalEntries / _pageSize);
 
     // Persistent date components
     private int _selectedMonth = DateTime.Now.Month;
@@ -401,7 +510,14 @@
     private int _grandTotalItemsSold = 0;
 
     private List<int> _availableYears = new();
-    private int _selectedYear = DateTime.Now.Year; // For chart year selection
+    private List<int> _selectedComparisonYears = new();
+
+    // Chart controls
+    private string _selectedPeriod = "year";
+    private string _groupBy = "month";
+    private string _chartDayFilter = ""; // Empty = All Days
+    private DateTime _customStartDate = DateTime.Now.AddDays(-30);
+    private DateTime _customEndDate = DateTime.Now;
 
     protected override async Task OnInitializedAsync()
     {
@@ -416,10 +532,51 @@
         }
     }
 
+    private async Task NextPage()
+    {
+        if (_currentPage < _totalPages)
+        {
+            _currentPage++;
+            await LoadData();
+        }
+    }
+
+    private async Task PrevPage()
+    {
+        if (_currentPage > 1)
+        {
+            _currentPage--;
+            await LoadData();
+        }
+    }
+
     private async Task LoadData()
     {
         using var db = await DbFactory.CreateDbContextAsync();
-        _entries = await db.BarSaleEntries.OrderByDescending(e => e.SaleDate).Take(10).ToListAsync();
+        
+        // Base Query
+        var query = db.BarSaleEntries.AsQueryable();
+
+        // Apply Day Filter (Client-Side evaluation for DayOfWeek often safer/easier if small dataset, 
+        // but for pagination we want Server-Side. 
+        // NOTE: EF Core can translate DateTime.DayOfWeek usually. Let's try.)
+        if (!string.IsNullOrEmpty(_selectedDayFilter))
+        {
+            var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _selectedDayFilter);
+            // EF Core SQL translation for DayOfWeek
+            query = query.Where(e => e.SaleDate.DayOfWeek == targetDay);
+        }
+
+        // Load Pagination Stats
+        _totalEntries = await query.CountAsync();
+        
+        // Load Page Data
+        _entries = await query
+            .OrderByDescending(e => e.SaleDate)
+            .Skip((_currentPage - 1) * _pageSize)
+            .Take(_pageSize)
+            .ToListAsync();
+
         _grandTotalRevenue = await db.BarSaleEntries.SumAsync(e => e.TotalSales);
         _grandTotalItemsSold = await db.BarSaleEntries.SumAsync(e => e.TotalItemsSold);
 
@@ -430,96 +587,147 @@
             .OrderByDescending(y => y)
             .ToListAsync();
 
-        if (!_availableYears.Contains(_selectedYear) && _availableYears.Any())
-        {
-            _selectedYear = _availableYears.First();
-        }
-        else if (!_availableYears.Any())
+        if (!_availableYears.Any())
         {
             _availableYears.Add(DateTime.Now.Year);
-            _selectedYear = DateTime.Now.Year;
         }
-    }
-
-    private async Task ChangeView(ChartView view)
-    {
-        _currentView = view;
-        await UpdateChart();
-    }
-
-    private async Task OnYearChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out int year))
+        
+        // Default to selecting all available years for comparison initially, ONLY if list is empty (first load)
+        if (!_selectedComparisonYears.Any())
         {
-            _selectedYear = year;
-            await UpdateChart();
+            _selectedComparisonYears = new List<int>(_availableYears);
         }
+    }
+
+    private async Task ToggleYearComparison(int year, bool isChecked)
+    {
+        if (isChecked && !_selectedComparisonYears.Contains(year))
+        {
+            _selectedComparisonYears.Add(year);
+        }
+        else if (!isChecked && _selectedComparisonYears.Contains(year))
+        {
+            _selectedComparisonYears.Remove(year);
+        }
+        
+        // Prevent empty selection
+        if (!_selectedComparisonYears.Any() && _availableYears.Any())
+        {
+            _selectedComparisonYears.Add(year); // Keep the last one unchecked
+        }
+
+        await UpdateChart();
     }
 
     private async Task UpdateChart()
     {
-        using var db = await DbFactory.CreateDbContextAsync();
-        var now = DateTime.Now;
-        
-        DateTime startDate, endDate;
-        List<BarSaleEntry> filteredData;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var now = DateTime.Now;
+            
+            // 1. Fetch ALL data first (Robustness)
+            var allData = await db.BarSaleEntries.ToListAsync();
 
-        if (_currentView == ChartView.Week)
-        {
-            startDate = now.AddDays(-6).Date;
-            endDate = now.Date.AddDays(1);
-        }
-        else if (_currentView == ChartView.Month)
-        {
-            startDate = now.AddDays(-29).Date;
-            endDate = now.Date.AddDays(1);
-        }
-        else // Year
-        {
-            startDate = new DateTime(_selectedYear, 1, 1);
-            endDate = new DateTime(_selectedYear, 12, 31, 23, 59, 59);
-        }
-
-        filteredData = await db.BarSaleEntries
-            .Where(e => e.SaleDate >= startDate && e.SaleDate <= endDate)
-            .OrderBy(e => e.SaleDate)
-            .ToListAsync();
-        
-        List<string> labels = new();
-        List<decimal> values = new();
-
-        if (_currentView == ChartView.Week)
-        {
-            for (int i = 6; i >= 0; i--)
+            // 2. Apply Day Filter if selected
+            if (!string.IsNullOrEmpty(_chartDayFilter))
             {
-                var targetDate = now.AddDays(-i).Date;
-                labels.Add(targetDate.ToString("ddd d"));
-                values.Add(filteredData.Where(e => e.SaleDate.Date == targetDate).Sum(e => e.TotalSales));
+                var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _chartDayFilter);
+                if (allData.Any()) // Only filter if we have data
+                {
+                    allData = allData.Where(e => e.SaleDate.DayOfWeek == targetDay).ToList();
+                }
             }
-        }
-        else if (_currentView == ChartView.Month)
-        {
-            for (int i = 29; i >= 0; i--)
-            {
-                var targetDate = now.AddDays(-i).Date;
-                if (i % 5 == 0 || i == 0 || i == 29)
-                    labels.Add(targetDate.ToString("MMM d"));
-                else
-                    labels.Add("");
+            
+            List<string> labels = new();
+            var datasets = new List<object>();
 
-                values.Add(filteredData.Where(e => e.SaleDate.Date == targetDate).Sum(e => e.TotalSales));
-            }
-        }
-        else if (_currentView == ChartView.Year)
-        {
-            for (int i = 1; i <= 12; i++)
+            // LOGIC A: Full Year Comparison View
+            if (_selectedPeriod == "year")
             {
-                labels.Add(new DateTime(_selectedYear, i, 1).ToString("MMM"));
-                values.Add(filteredData.Where(e => e.SaleDate.Month == i).Sum(e => e.TotalSales));
-            }
-        }
+                // Setup Month Labels
+                for (int i = 1; i <= 12; i++)
+                {
+                    labels.Add(new DateTime(2000, i, 1).ToString("MMM"));
+                }
 
-        await JS.InvokeVoidAsync("barSalesCharts.renderChart", "barSalesChart", new { labels, data = values });
+                // Create a dataset for EACH selected year
+                foreach (var year in _selectedComparisonYears.OrderByDescending(y => y))
+                {
+                    var yearValues = new List<decimal>();
+                    for (int month = 1; month <= 12; month++)
+                    {
+                        var total = allData
+                            .Where(e => e.SaleDate.Year == year && e.SaleDate.Month == month)
+                            .Sum(e => e.TotalSales);
+                        yearValues.Add(total);
+                    }
+                    datasets.Add(new { label = year.ToString(), data = yearValues });
+                }
+            }
+            // LOGIC B: Standard Time Periods (Single Series usually, unless we add comparison later)
+            else
+            {
+                // Define Date Range
+                DateTime startDate = now, endDate = now;
+                if (_selectedPeriod == "week") { startDate = now.AddDays(-6).Date; endDate = now.Date; }
+                else if (_selectedPeriod == "month") { startDate = now.AddDays(-29).Date; endDate = now.Date; }
+                else if (_selectedPeriod == "thisMonth") { startDate = new DateTime(now.Year, now.Month, 1); endDate = now.Date; }
+                else if (_selectedPeriod == "lastMonth") { 
+                    var last = now.AddMonths(-1); 
+                    startDate = new DateTime(last.Year, last.Month, 1); 
+                    endDate = new DateTime(last.Year, last.Month, DateTime.DaysInMonth(last.Year, last.Month)); 
+                }
+                else if (_selectedPeriod == "custom") { startDate = _customStartDate.Date; endDate = _customEndDate.Date; }
+
+                // Generate Labels and Data based on Grouping
+                var periodData = allData.Where(e => e.SaleDate.Date >= startDate && e.SaleDate.Date <= endDate).ToList();
+                var periodValues = new List<decimal>();
+
+                if (_groupBy == "day")
+                {
+                    var days = (endDate - startDate).Days;
+                    for (int i = 0; i <= days; i++)
+                    {
+                        var d = startDate.AddDays(i);
+                        labels.Add(d.ToString("MMM d"));
+                        periodValues.Add(periodData.Where(e => e.SaleDate.Date == d).Sum(e => e.TotalSales));
+                    }
+                }
+                else if (_groupBy == "week")
+                {
+                    // Simple weekly grouping for range
+                    // Note: This matches the "range" logic, not aligned to calendar weeks for simplicity
+                     var current = startDate;
+                     while(current <= endDate) {
+                         var next = current.AddDays(6);
+                         if(next > endDate) next = endDate;
+                         labels.Add($"{current:MMM d}-{next:dd}");
+                         periodValues.Add(periodData.Where(e => e.SaleDate.Date >= current && e.SaleDate.Date <= next).Sum(e => e.TotalSales));
+                         current = next.AddDays(1);
+                     }
+                }
+                else if (_groupBy == "month")
+                {
+                    var current = new DateTime(startDate.Year, startDate.Month, 1);
+                    var endMonth = new DateTime(endDate.Year, endDate.Month, 1);
+                    while(current <= endMonth)
+                    {
+                         labels.Add(current.ToString("MMM yyyy"));
+                         periodValues.Add(periodData.Where(e => e.SaleDate.Year == current.Year && e.SaleDate.Month == current.Month).Sum(e => e.TotalSales));
+                         current = current.AddMonths(1);
+                    }
+                }
+
+                datasets.Add(new { label = "Revenue", data = periodValues });
+            }
+            
+            await JS.InvokeVoidAsync("barSalesCharts.renderChart", "barSalesChart", new { labels, datasets });
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "UpdateChart Error:", ex.Message);
+        }
     }
 
     private async Task HandleSubmit()
