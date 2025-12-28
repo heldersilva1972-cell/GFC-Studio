@@ -1,9 +1,12 @@
 @page "/admin/hall-management"
 @using GFC.BlazorServer.Services
 @using GFC.Core.Models
+@using GFC.Core.Interfaces
 @inject IRentalService RentalService
 @inject IJSRuntime JSRuntime
 @inject ToastService ToastService
+@inject IMemberRepository MemberRepo
+@inject IDuesRepository DuesRepo
 @attribute [Authorize(Roles = "Admin,Director")]
 @rendermode InteractiveServer
 
@@ -48,7 +51,7 @@
                 <i class="bi bi-check-circle"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-label">Approved Rentals</div>
+                <div class="stat-label">Upcoming Bookings</div>
                 <div class="stat-value">@_approvedCount</div>
             </div>
             <i class="bi bi-chevron-right stat-arrow"></i>
@@ -58,12 +61,12 @@
                 <i class="bi bi-star-fill"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-label">Club Events</div>
+                <div class="stat-label">Upcoming Club Events</div>
                 <div class="stat-value">@_clubEventsCount</div>
             </div>
             <i class="bi bi-chevron-right stat-arrow"></i>
         </div>
-        <div class="stat-card stat-info clickable" @onclick="() => ShowFilteredList(FilterType.All)">
+        <div class="stat-card stat-info">
             <div class="stat-icon">
                 <i class="bi bi-calendar3"></i>
             </div>
@@ -71,7 +74,6 @@
                 <div class="stat-label">Total Bookings</div>
                 <div class="stat-value">@_totalBookings</div>
             </div>
-            <i class="bi bi-chevron-right stat-arrow"></i>
         </div>
     </div>
 
@@ -245,66 +247,79 @@
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
-            <div class="modal-body">
-                <div class="detail-card">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h4 class="mb-0">@_selectedRequest.ApplicantName</h4>
-                        <span class="status-badge @GetStatusBadgeClass(_selectedRequest.Status)" style="font-size: 0.9rem; padding: 0.4rem 0.8rem;">
+            <div class="modal-body" style="padding: 1rem; overflow-y: auto; max-height: calc(90vh - 130px);">
+                <div class="detail-card" style="margin-bottom: 0.5rem; padding: 1rem;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <h4 class="mb-0" style="font-size: 1.25rem;">@_selectedRequest.ApplicantName</h4>
+                            <span class="badge @(_selectedRequest.MemberStatus ? "bg-primary" : "bg-secondary")" style="font-size: 0.7rem;">
+                                @(_selectedRequest.MemberStatus ? "MEMBER" : "NON-MEMBER")
+                            </span>
+                            @if (!string.IsNullOrEmpty(_membershipStanding))
+                            {
+                                <span class="@_membershipStandingClass ms-2" style="font-size: 0.7rem; padding: 2px 6px; border: 1px solid currentColor; border-radius: 4px; text-transform: uppercase; font-weight: 700;">
+                                    @_membershipStanding
+                                </span>
+                            }
+                        </div>
+                        <span class="status-badge @GetStatusBadgeClass(_selectedRequest.Status)" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">
                             @_selectedRequest.Status
                         </span>
                     </div>
 
-                    <div class="details-grid">
-                        <div class="detail-column">
-                            <h6 class="column-header"><i class="bi bi-calendar-event"></i> Event Info</h6>
-                            <div class="compact-detail">
+                    <div class="details-grid" style="gap: 1rem; margin-bottom: 0;">
+                        <div class="detail-column" style="padding: 0.75rem; gap: 0;">
+                            <h6 class="column-header" style="margin-bottom: 0.5rem; font-size: 0.75rem;"><i class="bi bi-calendar-event"></i> Event Info</h6>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Date:</span>
                                 <span class="value">@_selectedRequest.RequestedDate.ToShortDateString()</span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Time:</span>
                                 <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Time")</span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Type:</span>
                                 <span class="value">@(_selectedRequest.EventType ?? "Unknown")</span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Guests:</span>
                                 <span class="value">@_selectedRequest.GuestCount</span>
                             </div>
-                             <div class="compact-detail">
+                             <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Setup:</span>
                                 <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Setup Needed")</span>
                             </div>
                         </div>
 
-                        <div class="detail-column">
-                            <h6 class="column-header"><i class="bi bi-person-lines-fill"></i> Contact & Logistics</h6>
-                            <div class="compact-detail">
+                        <div class="detail-column" style="padding: 0.75rem; gap: 0;">
+                            <h6 class="column-header" style="margin-bottom: 0.5rem; font-size: 0.75rem;"><i class="bi bi-person-lines-fill"></i> Contact & Logistics</h6>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label"><i class="bi bi-telephone"></i> Phone:</span>
                                 <span class="value">@_selectedRequest.RequesterPhone</span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Address:</span>
-                                <span class="value" style="font-size: 0.8rem; text-align: right; max-width: 150px;">@GetValueFromNotes(_selectedRequest.InternalNotes, "Address")</span>
+                                <span class="value text-truncate" style="font-size: 0.8rem; max-width: 140px;" title="@GetValueFromNotes(_selectedRequest.InternalNotes, "Address")">
+                                    @GetValueFromNotes(_selectedRequest.InternalNotes, "Address")
+                                </span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Kitchen:</span>
                                 <span class="value">@(_selectedRequest.KitchenUsage ? "YES" : "NO")</span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Bar Svc:</span>
                                 <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Bar Service")</span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Total:</span>
                                 <span class="value font-weight-bold">@(_selectedRequest.TotalPrice.ToString("C"))</span>
                             </div>
-                            <div class="compact-detail">
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
                                 <span class="label">Paid:</span>
                                 <span class="value">
-                                    <span class="badge @(_selectedRequest.IsPaid ? "bg-success" : "bg-warning text-dark")">
+                                    <span class="badge @(_selectedRequest.IsPaid ? "bg-success" : "bg-warning text-dark")" style="font-size: 0.75rem;">
                                         @(_selectedRequest.IsPaid ? "YES" : "NO")
                                     </span>
                                 </span>
@@ -313,25 +328,24 @@
                     </div>
                 </div>
                 
-                <div class="form-group mt-4">
-                    <label class="font-weight-bold text-muted mb-2">Admin Notes (Editable)</label>
-                    <textarea class="form-control" rows="4" @bind="_adminNotes" style="font-size: 0.9rem; border-color: var(--gray-300); background: var(--gray-50); color: var(--gray-800);"></textarea>
-                    <small class="text-muted">Edit notes or add new details here.</small>
+                <div class="form-group mt-2">
+                    <label class="font-weight-bold text-muted mb-1" style="font-size: 0.8rem;">Notes / Special Requests</label>
+                    <textarea class="form-control" rows="2" @bind="_adminNotes" style="font-size: 0.85rem; border-color: var(--gray-300); background: var(--gray-50); color: var(--gray-800); resize: none;"></textarea>
                 </div>
             </div>
-            <div class="modal-footer" style="justify-content: space-between;">
+            <div class="modal-footer" style="padding: 0.75rem; justify-content: space-between;">
                 <div>
                      @if (_selectedRequest.Status == RentalStatus.Pending)
                      {
-                        <button class="btn btn-success me-2" @onclick="ApproveRequest">
+                        <button class="btn btn-sm btn-success me-2" @onclick="ApproveRequest">
                             <i class="bi bi-check-lg"></i> Approve
                         </button>
-                        <button class="btn btn-danger" @onclick="DeclineRequest">
+                        <button class="btn btn-sm btn-danger" @onclick="DeclineRequest">
                             <i class="bi bi-x-lg"></i> Decline
                         </button>
                      }
                 </div>
-                <button class="btn-modern btn-outline" @onclick="() => CloseRequestModal()">Close</button>
+                <button class="btn-modern btn-sm btn-outline" @onclick="() => CloseRequestModal()">Close</button>
             </div>
         </div>
     </div>
@@ -429,7 +443,7 @@
                     {
                         @if (item is HallRentalRequest request)
                         {
-                            <div class="filtered-item-modern" @onclick="() => SelectFilteredItem(item)">
+                            <div class="filtered-item-modern status-@request.Status.ToLower()" @onclick="() => SelectFilteredItem(item)">
                                 <div class="item-date-box">
                                     <span class="item-day">@request.RequestedDate.Day</span>
                                     <span class="item-month">@request.RequestedDate.ToString("MMM")</span>
@@ -453,7 +467,7 @@
                         }
                         else if (item is AvailabilityCalendar clubEvent)
                         {
-                             <div class="filtered-item-modern" @onclick="() => SelectFilteredItem(item)">
+                             <div class="filtered-item-modern status-club" @onclick="() => SelectFilteredItem(item)">
                                 <div class="item-date-box date-box-club">
                                     <span class="item-day">@clubEvent.Date.Day</span>
                                     <span class="item-month">@clubEvent.Date.ToString("MMM")</span>
@@ -478,6 +492,65 @@
                                 </div>
                                 <i class="bi bi-chevron-right item-arrow"></i>
                             </div>
+                        }
+                        else if (item is CalendarEvent evt)
+                        {
+                            @if (evt.Request != null)
+                            {
+                                <div class="filtered-item-modern status-@evt.Request.Status.ToLower()" @onclick="() => ViewRequestDetails(evt.Request)">
+                                    <div class="item-date-box">
+                                        <span class="item-day">@evt.Date.Day</span>
+                                        <span class="item-month">@evt.Date.ToString("MMM")</span>
+                                    </div>
+                                    <div class="item-content-main">
+                                        <div class="item-title">@evt.Title</div>
+                                        <div class="item-meta">
+                                            <span class="item-type-badge">@evt.TypeLabel</span>
+                                        </div>
+                                    </div>
+                                    <div class="item-time-box">
+                                         @if (!string.IsNullOrEmpty(evt.Time) && evt.Time != "All Day")
+                                         {
+                                            <span class="time-pill">
+                                                <i class="bi bi-clock"></i> @evt.Time
+                                            </span>
+                                         }
+                                         else if (evt.Time == "All Day")
+                                         {
+                                             <span class="time-pill">All Day</span>
+                                         }
+                                    </div>
+                                    <i class="bi bi-chevron-right item-arrow"></i>
+                                </div>
+                            }
+                            else if (evt.ClubEvent != null)
+                            {
+                                 <div class="filtered-item-modern status-club" @onclick="() => SelectFilteredItem(evt.ClubEvent)">
+                                    <div class="item-date-box date-box-club">
+                                        <span class="item-day">@evt.Date.Day</span>
+                                        <span class="item-month">@evt.Date.ToString("MMM")</span>
+                                    </div>
+                                    <div class="item-content-main">
+                                        <div class="item-title">@evt.Title</div>
+                                        <div class="item-meta">
+                                            <span class="item-type-badge badge-club">Club Event</span>
+                                        </div>
+                                    </div>
+                                    <div class="item-time-box">
+                                         @if (!string.IsNullOrEmpty(evt.Time) && evt.Time != "All Day")
+                                         {
+                                            <span class="time-pill">
+                                                <i class="bi bi-clock"></i> @evt.Time
+                                            </span>
+                                         }
+                                         else
+                                         {
+                                             <span class="time-pill">All Day</span>
+                                         }
+                                    </div>
+                                    <i class="bi bi-chevron-right item-arrow"></i>
+                                </div>
+                            }
                         }
                     }
                 </div>
@@ -532,11 +605,13 @@
             
             _pendingRequests = _allRequests.Where(r => r.Status == RentalStatus.Pending).OrderBy(r => r.RequestedDate).ToList();
             
-            // Calculate stats
-            _pendingCount = _pendingRequests.Count;
-            _approvedCount = _allRequests.Count(r => r.Status == RentalStatus.Approved);
+            // Calculate stats (Future Only for active cards, All for Total)
+            _pendingCount = _pendingRequests.Count(r => r.RequestedDate >= DateTime.Today);
+            _approvedCount = _allRequests.Count(r => r.Status == RentalStatus.Approved && r.RequestedDate >= DateTime.Today);
             _clubEventsCount = _clubEvents.Count(e => e.Date >= DateTime.Today);
-            _totalBookings = _allRequests.Count(r => r.RequestedDate >= DateTime.Today);
+            
+            // Total Bookings = All Approved + All Club Events (Past & Present)
+            _totalBookings = _allRequests.Count(r => r.Status == RentalStatus.Approved) + _clubEvents.Count;
             
             UpdateUpcomingEvents();
             RenderCalendar(); // Re-render to show events
@@ -795,12 +870,33 @@
     }
     
     private string _adminNotes = "";
+    private string _membershipStanding = "";
+    private string _membershipStandingClass = "";
 
     private void ViewRequestDetails(HallRentalRequest request)
     {
         _selectedRequest = request;
         _selectedDay = null; // Close day modal if open
-        _adminNotes = request.InternalNotes ?? "";
+        
+        // precise filtering: Get text after "--- NOTES ---" or hide if it's just the system dump
+        var notes = request.InternalNotes ?? "";
+        var match = System.Text.RegularExpressions.Regex.Match(notes, @"---\s*NOTES\s*---\s*(.*)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+        
+        if (match.Success)
+        {
+             _adminNotes = match.Groups[1].Value.Trim();
+        }
+        else
+        {
+             // If pattern not found, check if it's the specific system dump format
+             if (notes.Trim().StartsWith("--- ONLINE APPLICATION") || notes.Contains("--- APPLICANT INFO ---")) {
+                 _adminNotes = ""; 
+             } else {
+                 _adminNotes = notes;
+             }
+        }
+
+        CheckMemberStanding();
     }
     
     private void CloseRequestModal()
@@ -865,6 +961,56 @@
             await ToastService.ShowToastAsync($"Error declining request: {ex.Message}", ToastLevel.Error);
         }
     }
+
+    private void CheckMemberStanding()
+    {
+        _membershipStanding = "";
+        _membershipStandingClass = "";
+
+        if (_selectedRequest == null || !_selectedRequest.MemberStatus) return;
+
+        try
+        {
+            var parts = _selectedRequest.ApplicantName.Trim().Split(' ');
+            if (parts.Length < 2) 
+            {
+                 _membershipStanding = "Name Check Failed";
+                 _membershipStandingClass = "text-warning";
+                 return;
+            }
+
+            var lastName = parts.Last();
+            var firstName = parts.First(); 
+
+            var candidates = MemberRepo.SearchByLastName(lastName);
+            var member = candidates.FirstOrDefault(m => m.FirstName.Equals(firstName, StringComparison.OrdinalIgnoreCase));
+
+            if (member != null)
+            {
+                 bool isPaid = DuesRepo.MemberHasPaidOrWaivedDuesForYear(member.MemberID, DateTime.Today.Year);
+                 if (isPaid)
+                 {
+                     _membershipStanding = "Good Standing";
+                     _membershipStandingClass = "text-success font-weight-bold";
+                 }
+                 else
+                 {
+                     _membershipStanding = "Dues Owed";
+                     _membershipStandingClass = "text-danger font-weight-bold";
+                 }
+            }
+            else
+            {
+                _membershipStanding = "Member Not Found";
+                _membershipStandingClass = "text-warning";
+            }
+        }
+        catch
+        {
+            // _membershipStanding = "Error Verifying";
+            // _membershipStandingClass = "text-muted";
+        }
+    }
     
     private class CalendarEvent
     {
@@ -905,9 +1051,9 @@
         return _activeFilter switch
         {
             FilterType.Pending => "Pending Requests",
-            FilterType.Approved => "Approved Rentals",
-            FilterType.ClubEvents => "Club Events",
-            FilterType.All => "All Bookings",
+            FilterType.Approved => "Upcoming Bookings",
+            FilterType.ClubEvents => "Upcoming Club Events",
+            FilterType.All => "All Future Bookings",
             _ => "Events"
         };
     }
@@ -916,9 +1062,9 @@
     {
         return _activeFilter switch
         {
-            FilterType.Pending => _pendingRequests.Cast<object>().ToList(),
-            FilterType.Approved => _allRequests.Where(r => r.Status == RentalStatus.Approved).Cast<object>().ToList(),
-            FilterType.ClubEvents => _clubEvents.Cast<object>().ToList(),
+            FilterType.Pending => _pendingRequests.Where(r => r.RequestedDate >= DateTime.Today).Cast<object>().ToList(),
+            FilterType.Approved => _allRequests.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate >= DateTime.Today).Cast<object>().ToList(),
+            FilterType.ClubEvents => _clubEvents.Where(e => e.Date >= DateTime.Today).Cast<object>().ToList(),
             FilterType.All => _upcomingEvents.Cast<object>().ToList(),
             _ => new List<object>()
         };
@@ -935,6 +1081,19 @@
         {
             _selectedDay = clubEvent.Date;
             _showFilteredModal = false;
+        }
+        else if (item is CalendarEvent evt)
+        {
+             if (evt.Request != null)
+             {
+                 ViewRequestDetails(evt.Request);
+                 _showFilteredModal = false;
+             }
+             else if (evt.ClubEvent != null)
+             {
+                 _selectedDay = evt.Date;
+                 _showFilteredModal = false;
+             }
         }
     }
 }
