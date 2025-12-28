@@ -5,12 +5,19 @@ import { useEffect, useState } from 'react';
 
 export default function HallRentalPolicyPage() {
     const [fromApplication, setFromApplication] = useState(false);
+    const [pricing, setPricing] = useState<any>(null);
 
     useEffect(() => {
         // Check if user came from the rental application
         const referrer = document.referrer;
         const isFromApp = referrer.includes('/hall-rentals') || window.opener !== null;
         setFromApplication(isFromApp);
+
+        // Fetch pricing from API
+        fetch('/api/hall-rental/pricing')
+            .then(res => res.json())
+            .then(data => setPricing(data))
+            .catch(err => console.error('Error fetching pricing:', err));
     }, []);
 
     return (
@@ -66,15 +73,15 @@ export default function HallRentalPolicyPage() {
                                     <ul className="space-y-2 text-pure-white/90">
                                         <li className="flex items-start gap-2">
                                             <span className="text-burnished-gold mt-1">•</span>
-                                            <span><strong className="text-burnished-gold">Standard rental includes up to 5 hours of function time</strong></span>
+                                            <span><strong className="text-burnished-gold">Standard rental includes up to {pricing?.baseFunctionHours || 5} hours of function time</strong></span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-burnished-gold mt-1">•</span>
-                                            <span>Additional hours available at <strong className="text-burnished-gold">$50 per hour</strong></span>
+                                            <span>Additional hours available at <strong className="text-burnished-gold">${pricing?.additionalHourRate || 50} per hour</strong></span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-red-400 mt-1">⚠</span>
-                                            <span className="text-red-400"><strong>Important:</strong> Setup and cleanup time are <strong>NOT included</strong> in your 5 hours of event time</span>
+                                            <span className="text-red-400"><strong>Important:</strong> Setup and cleanup time are <strong>NOT included</strong> in your {pricing?.baseFunctionHours || 5} hours of event time</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -89,23 +96,23 @@ export default function HallRentalPolicyPage() {
                                                 <tbody className="space-y-2">
                                                     <tr className="border-b border-green-500/20">
                                                         <td className="py-2 text-pure-white/80">Members</td>
-                                                        <td className="py-2 text-right font-bold text-green-400">$300</td>
+                                                        <td className="py-2 text-right font-bold text-green-400">${pricing?.functionHallMemberRate || 300}</td>
                                                     </tr>
                                                     <tr className="border-b border-green-500/20">
                                                         <td className="py-2 text-pure-white/80">Non-Members</td>
-                                                        <td className="py-2 text-right font-bold text-green-400">$400</td>
+                                                        <td className="py-2 text-right font-bold text-green-400">${pricing?.functionHallNonMemberRate || 400}</td>
                                                     </tr>
                                                     <tr className="border-b border-green-500/20">
                                                         <td className="py-2 text-pure-white/80">Coalition (Non-Member)</td>
-                                                        <td className="py-2 text-right font-bold text-green-400">$200</td>
+                                                        <td className="py-2 text-right font-bold text-green-400">${pricing?.coalitionNonMemberRate || 200}</td>
                                                     </tr>
                                                     <tr className="border-b border-green-500/20">
                                                         <td className="py-2 text-pure-white/80">Coalition (Member)</td>
-                                                        <td className="py-2 text-right font-bold text-green-400">$100</td>
+                                                        <td className="py-2 text-right font-bold text-green-400">${pricing?.coalitionMemberRate || 100}</td>
                                                     </tr>
                                                     <tr>
                                                         <td className="py-2 text-pure-white/80">Youth Organizations</td>
-                                                        <td className="py-2 text-right font-bold text-green-400">$100</td>
+                                                        <td className="py-2 text-right font-bold text-green-400">${pricing?.youthOrganizationNonMemberRate || 100}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -118,19 +125,23 @@ export default function HallRentalPolicyPage() {
                                                 <tbody className="space-y-2">
                                                     <tr className="border-b border-burnished-gold/20">
                                                         <td className="py-2 text-pure-white/80">Bar Service</td>
-                                                        <td className="py-2 text-right font-bold text-burnished-gold">$100</td>
+                                                        <td className="py-2 text-right font-bold text-burnished-gold">${pricing?.bartenderServiceFee || 100}</td>
                                                     </tr>
                                                     <tr className="border-b border-burnished-gold/20">
                                                         <td className="py-2 text-pure-white/80">Kitchen Use</td>
-                                                        <td className="py-2 text-right font-bold text-burnished-gold">$100</td>
+                                                        <td className="py-2 text-right font-bold text-burnished-gold">${pricing?.kitchenFee || 100}</td>
                                                     </tr>
                                                     <tr className="border-b border-burnished-gold/20">
                                                         <td className="py-2 text-pure-white/80">A/V Equipment</td>
-                                                        <td className="py-2 text-right font-bold text-burnished-gold">Contact</td>
+                                                        <td className="py-2 text-right font-bold text-burnished-gold">
+                                                            {pricing?.avEquipmentFee ? `$${pricing.avEquipmentFee}` : 'Contact'}
+                                                        </td>
                                                     </tr>
                                                     <tr>
                                                         <td className="py-2 text-pure-white/80">Security Deposit</td>
-                                                        <td className="py-2 text-right font-bold text-burnished-gold">Required</td>
+                                                        <td className="py-2 text-right font-bold text-burnished-gold">
+                                                            {pricing?.securityDepositAmount ? `$${pricing.securityDepositAmount}` : 'Required'}
+                                                        </td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -228,7 +239,7 @@ export default function HallRentalPolicyPage() {
                                                 </ul>
                                             </div>
                                             <div>
-                                                <h4 className="font-bold text-burnished-gold mb-1">Full Use ($100 Fee)</h4>
+                                                <h4 className="font-bold text-burnished-gold mb-1">Full Use (${pricing?.kitchenFee || 100} Fee)</h4>
                                                 <p className="text-pure-white/80">
                                                     Full kitchen use permitted <strong>only with committee approval</strong> for preparing full meals on premises or commercial caterer cooking on-site.
                                                 </p>
