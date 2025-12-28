@@ -30,5 +30,6 @@ namespace GFC.BlazorServer.Services
         Task<List<UnavailableDateDto>> GetUnavailableDatesAsync();
         Task<HallRentalInquiry> SaveInquiryAsync(string formData);
         Task<HallRentalInquiry> GetInquiryAsync(string resumeToken);
+        Task<string> CleanupDuplicateEventsAsync();
     }
 }

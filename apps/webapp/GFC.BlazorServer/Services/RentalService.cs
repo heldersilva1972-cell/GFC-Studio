@@ -53,8 +53,14 @@ namespace GFC.BlazorServer.Services
         public async Task<bool> IsDateAlreadyBookedAsync(DateTime date)
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.HallRentalRequests
+            
+            var rentalExists = await context.HallRentalRequests
                 .AnyAsync(r => r.RequestedDate.Date == date.Date && r.Status == RentalStatus.Approved);
+                
+            var calendarExists = await context.AvailabilityCalendars
+                .AnyAsync(c => c.Date.Date == date.Date && (c.Status == "Club Event" || c.Status == "Blackout" || c.Status == "Booked"));
+                
+            return rentalExists || calendarExists;
         }
 
         public async Task CreateRentalRequestAsync(HallRentalRequest request)
@@ -361,6 +367,47 @@ namespace GFC.BlazorServer.Services
             await using var context = await _contextFactory.CreateDbContextAsync();
             return await context.HallRentalInquiries
                 .FirstOrDefaultAsync(i => i.ResumeToken == resumeToken && i.ExpiresAt > DateTime.UtcNow);
+        }
+
+        public async Task<string> CleanupDuplicateEventsAsync()
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            int deniedCount = 0;
+            
+            // 1. Get all booked dates (Approved Rentals + Club Events/Blackouts)
+            var approvedDates = await context.HallRentalRequests
+                .Where(r => r.Status == RentalStatus.Approved)
+                .Select(r => r.RequestedDate.Date)
+                .ToListAsync();
+                
+            var calendarDates = await context.AvailabilityCalendars
+                .Where(c => c.Status == "Club Event" || c.Status == "Blackout")
+                .Select(c => c.Date.Date)
+                .ToListAsync();
+                
+            var busyDates = new HashSet<DateTime>(approvedDates);
+            foreach(var d in calendarDates) busyDates.Add(d);
+            
+            // 2. Find Pending requests on these dates
+            var conflictingPending = await context.HallRentalRequests
+                .Where(r => r.Status == RentalStatus.Pending)
+                .ToListAsync();
+                
+            foreach (var req in conflictingPending)
+            {
+                if (busyDates.Contains(req.RequestedDate.Date))
+                {
+                    req.Status = RentalStatus.Denied;
+                    req.InternalNotes = (req.InternalNotes ?? "") + " [System: Auto-Denied during cleanup due to date conflict]";
+                    req.DenialDate = DateTime.UtcNow;
+                    req.DeniedBy = "System Cleanup";
+                    context.Entry(req).State = EntityState.Modified;
+                    deniedCount++;
+                }
+            }
+            
+            await context.SaveChangesAsync();
+            return $"Cleanup Complete: Auto-denied {deniedCount} pending requests due to conflicts.";
         }
     }
 }

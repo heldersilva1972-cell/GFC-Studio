@@ -36,7 +36,7 @@
 
     <!-- Stats Overview -->
     <div class="stats-grid">
-        <div class="stat-card stat-primary clickable" @onclick="() => ShowFilteredList(FilterType.Pending)">
+        <div class="stat-card @(_pendingCount > 0 ? "stat-pending-alert" : "stat-primary") clickable" @onclick="() => ShowFilteredList(FilterType.Pending)">
             <div class="stat-icon">
                 <i class="bi bi-calendar-check"></i>
             </div>
@@ -119,7 +119,13 @@
                                 @foreach (var evt in dayEvents.Take(3))
                                 {
                                     <div class="event-badge @GetEventTypeClass(evt.Type)" title="@($"{evt.Title} - {evt.Description} - {evt.Time}")">
-                                        <span class="event-title">@evt.Title</span>
+                                        <span class="event-title">
+                                            @evt.Title
+                                            @if (evt.Type == EventType.RentalPending)
+                                            {
+                                                <span class="fw-bold ms-1" style="font-size: 0.8em; opacity: 0.9;">(PENDING)</span>
+                                            }
+                                        </span>
                                         @if (!string.IsNullOrEmpty(evt.Description))
                                         {
                                             <span class="event-description">@evt.Description</span>
@@ -152,13 +158,23 @@
                     {
                         @foreach (var evt in _upcomingEvents.Take(10))
                         {
-                            <div class="event-item">
+                            <div class="event-item @(evt.Type == EventType.RentalPending ? "border-warning" : "")" @onclick="() => ViewEventDetails(evt)" style="cursor: pointer; transition: all 0.2s;">
                                 <div class="event-date-badge">
                                     <span class="event-day">@evt.Date.Day</span>
                                     <span class="event-month">@evt.Date.ToString("MMM")</span>
                                 </div>
                                 <div class="event-details">
-                                    <div class="event-title">@evt.Title</div>
+                                    <div class="event-title">
+                                        @evt.Title
+                                        @if(evt.Type == EventType.RentalPending) 
+                                        { 
+                                            <span class="badge bg-primary text-white ms-1" style="font-size: 0.65em; vertical-align: text-top;">PENDING</span> 
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(evt.Description))
+                                    {
+                                        <div class="event-desc text-muted mb-1" style="font-size: 0.85rem;">@evt.Description</div>
+                                    }
                                     <div class="event-time">
                                         <i class="bi bi-clock"></i> @evt.Time
                                     </div>
@@ -592,10 +608,13 @@
     
     protected override async Task OnInitializedAsync()
     {
+        // Auto-heal duplicate data on load
+        await RentalService.CleanupDuplicateEventsAsync();
+
         RenderCalendar();
         await LoadData();
     }
-    
+
     private async Task LoadData()
     {
         try
@@ -626,8 +645,8 @@
     {
         _upcomingEvents.Clear();
         
-        // Add upcoming rentals
-        foreach (var rental in _allRequests.Where(r => r.RequestedDate >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(20))
+        // Add upcoming rentals (Approved & Pending Only)
+        foreach (var rental in _allRequests.Where(r => r.RequestedDate >= DateTime.Today && (r.Status == RentalStatus.Approved || r.Status == RentalStatus.Pending)).OrderBy(r => r.RequestedDate).Take(20))
         {
             _upcomingEvents.Add(new CalendarEvent
             {
@@ -674,7 +693,11 @@
             }
         }
         
-        _upcomingEvents = _upcomingEvents.OrderBy(e => e.Date).ThenBy(e => e.Time).ToList();
+        // Explicit Sort: Pending first, then Date
+        var pending = _upcomingEvents.Where(e => e.Type == EventType.RentalPending).OrderBy(e => e.Date).ToList();
+        var others = _upcomingEvents.Where(e => e.Type != EventType.RentalPending).OrderBy(e => e.Date).ThenBy(e => e.Time).ToList();
+        
+        _upcomingEvents = pending.Concat(others).ToList();
     }
     
     private void RenderCalendar()
@@ -695,48 +718,36 @@
         var events = new List<CalendarEvent>();
         
         // Club events
-        foreach (var evt in _clubEvents.Where(e => e.Date.Date == date.Date))
+        events.AddRange(_clubEvents.Where(e => e.Date.Date == date.Date).Select(evt => new CalendarEvent
         {
-            events.Add(new CalendarEvent
-            {
-                Date = evt.Date,
-                Title = evt.Description ?? "Club Event",
-                Description = "Club Event", // [FIX] Added Description
-                Time = !string.IsNullOrEmpty(evt.StartTime) ? $"{evt.StartTime} - {evt.EndTime}" : "",
-                Type = EventType.ClubEvent,
-                TypeLabel = "Club Event",
-                ClubEvent = evt
-            });
-        }
+            Date = evt.Date,
+            Title = evt.Description ?? "Club Event",
+            Description = "Club Event",
+            Time = !string.IsNullOrEmpty(evt.StartTime) ? $"{evt.StartTime} - {evt.EndTime}" : "",
+            Type = EventType.ClubEvent,
+            TypeLabel = "Club Event",
+            ClubEvent = evt
+        }));
         
         if (_showAllEvents)
         {
-            // Approved rentals
-            foreach (var rental in _allRequests.Where(r => r.RequestedDate.Date == date.Date && r.Status == RentalStatus.Approved))
-            {
-                events.Add(new CalendarEvent
-                {
-                    Date = rental.RequestedDate,
-                    Title = rental.ApplicantName,
-                    Description = rental.EventType, // [FIX] Added Description
-                    Time = !string.IsNullOrEmpty(rental.StartTime) ? $"{rental.StartTime} - {rental.EndTime}" : "",
-                    Type = EventType.RentalApproved,
-                    TypeLabel = "Approved",
-                    Request = rental
-                });
-            }
+            // All Rentals (Approved & Pending)
+            var dayRentals = _allRequests.Where(r => r.RequestedDate.Date == date.Date).ToList();
             
-            // Pending rentals
-            foreach (var rental in _allRequests.Where(r => r.RequestedDate.Date == date.Date && r.Status == RentalStatus.Pending))
+            foreach (var rental in dayRentals)
             {
+                if (rental.Status != RentalStatus.Approved && rental.Status != RentalStatus.Pending) continue;
+
+                var type = rental.Status == RentalStatus.Approved ? EventType.RentalApproved : EventType.RentalPending;
+                
                 events.Add(new CalendarEvent
                 {
                     Date = rental.RequestedDate,
                     Title = rental.ApplicantName,
-                    Description = rental.EventType, // [FIX] Added Description
+                    Description = rental.EventType,
                     Time = !string.IsNullOrEmpty(rental.StartTime) ? $"{rental.StartTime} - {rental.EndTime}" : "",
-                    Type = EventType.RentalPending,
-                    TypeLabel = "Pending",
+                    Type = type,
+                    TypeLabel = type == EventType.RentalApproved ? "Approved" : "Pending",
                     Request = rental
                 });
             }
