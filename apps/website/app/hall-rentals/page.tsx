@@ -563,18 +563,18 @@ const HallRentalPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left mb-8">
                 <div className="bg-black/20 p-6 rounded-lg border border-white/5">
                   <h3 className="text-burnished-gold font-bold mb-2">Member Rate</h3>
-                  <p className="text-3xl font-display text-white">${pricing?.memberRate || 250}</p>
+                  <p className="text-3xl font-display text-white">${pricing?.functionHallMemberRate || 300}</p>
                   <p className="text-xs text-white/50 mt-1">For active club members</p>
                 </div>
                 <div className="bg-black/20 p-6 rounded-lg border border-burnished-gold/20">
                   <h3 className="text-burnished-gold font-bold mb-2">Non-Member Rate</h3>
-                  <p className="text-3xl font-display text-white">${pricing?.nonMemberRate || 500}</p>
+                  <p className="text-3xl font-display text-white">${pricing?.functionHallNonMemberRate || 400}</p>
                   <p className="text-xs text-white/50 mt-1">For guests and public events</p>
                 </div>
                 <div className="bg-black/20 p-6 rounded-lg border border-white/5">
-                  <h3 className="text-burnished-gold font-bold mb-2">Non-Profit Rate</h3>
-                  <p className="text-3xl font-display text-white">${pricing?.nonProfitRate || 350}</p>
-                  <p className="text-xs text-white/50 mt-1">For certified 501(c)(3) orgs</p>
+                  <h3 className="text-burnished-gold font-bold mb-2">Youth Organization</h3>
+                  <p className="text-3xl font-display text-white">${pricing?.youthOrganizationNonMemberRate || 100}</p>
+                  <p className="text-xs text-white/50 mt-1">For youth events</p>
                 </div>
               </div>
 

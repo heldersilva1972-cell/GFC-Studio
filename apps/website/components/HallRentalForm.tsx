@@ -14,16 +14,32 @@ interface HallRentalFormProps {
 const EVENT_TYPES = [
   "Wedding", "Birthday Party", "Baby Shower", "Fundraiser",
   "Bereavement / Collation", "Meeting / Seminar", "Holiday Party",
-  "Anniversary", "Show / Performance", "Other"
+  "Anniversary", "Graduation Party", "Show / Performance", "Youth Organization Function", "Other"
+];
+
+const YOUTH_FUNCTIONS = [
+  "Sports Team Celebration",
+  "Cheerleading Event",
+  "Dance Event",
+  "Youth Group Meeting",
+  "Scouts Event",
+  "Academic Achievement Celebration",
+  "Other Youth Function"
 ];
 
 interface PricingSettings {
-  memberRate: number;
-  nonMemberRate: number;
-  nonProfitRate: number;
+  functionHallMemberRate: number;
+  functionHallNonMemberRate: number;
+  coalitionMemberRate: number;
+  coalitionNonMemberRate: number;
+  youthOrganizationMemberRate: number;
+  youthOrganizationNonMemberRate: number;
+  bartenderServiceFee: number;
   kitchenFee: number;
   avEquipmentFee: number;
   securityDepositAmount: number;
+  baseFunctionHours: number;
+  additionalHourRate: number;
 }
 
 export default function HallRentalForm({ selectedDate, onSuccess, initialData, onChange }: HallRentalFormProps) {
@@ -40,6 +56,7 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
     sponsoringMember: '',
     eventType: '',
     otherEventType: '',
+    youthFunctionType: '',
     guestCount: '',
     startTime: '',
     endTime: '',
@@ -106,31 +123,38 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
     if (!pricing) return 0;
 
     let total = 0;
-    const p = {
-      memberRate: pricing.memberRate || 250,
-      nonMemberRate: pricing.nonMemberRate || 500,
-      nonProfitRate: pricing.nonProfitRate || 350,
-      kitchenFee: pricing.kitchenFee || 50,
-      avEquipmentFee: pricing.avEquipmentFee || 25,
-      securityDepositAmount: pricing.securityDepositAmount || 100
-    };
 
-    // Base Rate
-    if (formData.memberStatus === 'Member') total += p.memberRate;
-    else if (formData.memberStatus === 'Non-Profit') total += p.nonProfitRate;
-    else total += p.nonMemberRate;
+    // Determine hall type based on event type
+    let baseRate = 0;
+    const isMember = formData.memberStatus === 'Member';
 
-    // Additional Hours ($50/hr after 5 hrs)
+    if (formData.eventType === 'Youth Organization Function') {
+      // Youth Organization rates
+      baseRate = isMember ? pricing.youthOrganizationMemberRate : pricing.youthOrganizationNonMemberRate;
+    } else if (formData.eventType === 'Bereavement / Collation') {
+      // Coalition rates
+      baseRate = isMember ? pricing.coalitionMemberRate : pricing.coalitionNonMemberRate;
+    } else {
+      // Function Hall rates (default for all other events)
+      baseRate = isMember ? pricing.functionHallMemberRate : pricing.functionHallNonMemberRate;
+    }
+
+    total += baseRate;
+
+    // Additional Hours (using settings)
+    const baseFunctionHours = pricing.baseFunctionHours || 5;
+    const additionalHourRate = pricing.additionalHourRate || 50;
     const duration = getDurationHours(formData.startTime, formData.endTime);
-    if (duration > 5) {
-      // Round up to nearest hour for pricing
-      const extraHours = Math.ceil(duration - 5);
-      total += extraHours * 50;
+
+    if (duration > baseFunctionHours) {
+      const extraHours = Math.ceil(duration - baseFunctionHours);
+      total += extraHours * additionalHourRate;
     }
 
     // Add-ons
-    if (formData.kitchenUse === 'Yes') total += p.kitchenFee;
-    if (formData.avEquipment === 'Yes') total += p.avEquipmentFee;
+    if (formData.kitchenUse === 'Yes') total += (pricing.kitchenFee || 50);
+    if (formData.avEquipment === 'Yes') total += (pricing.avEquipmentFee || 25);
+    if (formData.barService === 'Yes') total += (pricing.bartenderServiceFee || 100);
 
     return total;
   };
@@ -169,6 +193,10 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
       if (new Date(ageDifMs).getUTCFullYear() - 1970 < 21) {
         errors.dob = "Must be at least 21 years old";
       }
+    }
+
+    if (formData.eventType === 'Youth Organization Function' && !formData.youthFunctionType) {
+      errors.youthFunctionType = "Youth function type required";
     }
 
     if (formData.eventType === 'Other' && !formData.otherEventType.trim()) {
@@ -275,7 +303,12 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
 
     try {
       // Determine final event type string
-      const finalEventType = formData.eventType === 'Other' ? `Other: ${formData.otherEventType}` : formData.eventType;
+      let finalEventType = formData.eventType;
+      if (formData.eventType === 'Youth Organization Function') {
+        finalEventType = `Youth Organization Function: ${formData.youthFunctionType}`;
+      } else if (formData.eventType === 'Other') {
+        finalEventType = `Other: ${formData.otherEventType}`;
+      }
 
       const compiledDetails = `
         --- APPLICANT INFO ---
@@ -529,6 +562,18 @@ export default function HallRentalForm({ selectedDate, onSuccess, initialData, o
               ))}
             </select>
             <ValidationError message={validationErrors.eventType} />
+            {formData.eventType === 'Youth Organization Function' && (
+              <div className="mt-3 animate-fade-in relative">
+                <label htmlFor="youthFunctionType" className="block text-sm font-medium mb-1 text-burnished-gold">Select Youth Function Type *</label>
+                <select id="youthFunctionType" value={formData.youthFunctionType} onChange={handleChange} onWheel={handleSelectWheel} required className={`w-full bg-midnight-blue border rounded-md px-3 py-2 text-white outline-none ${validationErrors.youthFunctionType ? 'border-red-500' : 'border-burnished-gold'}`}>
+                  <option value="" disabled>Select Youth Function...</option>
+                  {YOUTH_FUNCTIONS.map(func => (
+                    <option key={func} value={func}>{func}</option>
+                  ))}
+                </select>
+                <ValidationError message={validationErrors.youthFunctionType} />
+              </div>
+            )}
             {formData.eventType === 'Other' && (
               <div className="mt-3 animate-fade-in relative">
                 <label htmlFor="otherEventType" className="block text-sm font-medium mb-1 text-burnished-gold">Please describe the function *</label>

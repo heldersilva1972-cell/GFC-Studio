@@ -27,9 +27,18 @@ namespace GFC.BlazorServer.Services
                     MemberRate = 250,
                     NonMemberRate = 500,
                     NonProfitRate = 350,
+                    FunctionHallNonMemberRate = 400,
+                    FunctionHallMemberRate = 300,
+                    CoalitionNonMemberRate = 200,
+                    CoalitionMemberRate = 100,
+                    YouthOrganizationNonMemberRate = 100,
+                    YouthOrganizationMemberRate = 100,
+                    BartenderServiceFee = 100,
                     KitchenFee = 50,
                     AvEquipmentFee = 25,
                     SecurityDepositAmount = 100,
+                    BaseFunctionHours = 5,
+                    AdditionalHourRate = 50,
                     MaxHallRentalDurationHours = 8,
                     IsClubOpen = true,
                     MasterEmailKillSwitch = false,
@@ -38,6 +47,22 @@ namespace GFC.BlazorServer.Services
                 };
                 _context.WebsiteSettings.Add(settings);
                 await _context.SaveChangesAsync();
+            }
+            else
+            {
+                // Apply defaults for any NULL pricing fields
+                settings.FunctionHallNonMemberRate ??= 400;
+                settings.FunctionHallMemberRate ??= 300;
+                settings.CoalitionNonMemberRate ??= 200;
+                settings.CoalitionMemberRate ??= 100;
+                settings.YouthOrganizationNonMemberRate ??= 100;
+                settings.YouthOrganizationMemberRate ??= 100;
+                settings.BartenderServiceFee ??= 100;
+                settings.BaseFunctionHours ??= 5;
+                settings.AdditionalHourRate ??= 50;
+                settings.KitchenFee ??= 50;
+                settings.AvEquipmentFee ??= 25;
+                settings.SecurityDepositAmount ??= 100;
             }
             return settings;
         }
@@ -48,11 +73,47 @@ namespace GFC.BlazorServer.Services
             var existingSettings = await _context.WebsiteSettings.FirstOrDefaultAsync();
             if (existingSettings == null)
             {
+                // Ensure Id is set to 1 for new settings
+                settings.Id = 1;
                 _context.WebsiteSettings.Add(settings);
             }
             else
             {
-                _context.Entry(existingSettings).CurrentValues.SetValues(settings);
+                // Preserve the Id from existing settings
+                settings.Id = existingSettings.Id;
+                
+                // Update all properties
+                existingSettings.FunctionHallNonMemberRate = settings.FunctionHallNonMemberRate;
+                existingSettings.FunctionHallMemberRate = settings.FunctionHallMemberRate;
+                existingSettings.CoalitionNonMemberRate = settings.CoalitionNonMemberRate;
+                existingSettings.CoalitionMemberRate = settings.CoalitionMemberRate;
+                existingSettings.YouthOrganizationNonMemberRate = settings.YouthOrganizationNonMemberRate;
+                existingSettings.YouthOrganizationMemberRate = settings.YouthOrganizationMemberRate;
+                existingSettings.BartenderServiceFee = settings.BartenderServiceFee;
+                existingSettings.KitchenFee = settings.KitchenFee;
+                existingSettings.AvEquipmentFee = settings.AvEquipmentFee;
+                existingSettings.SecurityDepositAmount = settings.SecurityDepositAmount;
+                existingSettings.BaseFunctionHours = settings.BaseFunctionHours;
+                existingSettings.AdditionalHourRate = settings.AdditionalHourRate;
+                existingSettings.MemberRate = settings.MemberRate;
+                existingSettings.NonMemberRate = settings.NonMemberRate;
+                existingSettings.NonProfitRate = settings.NonProfitRate;
+                existingSettings.MaxHallRentalDurationHours = settings.MaxHallRentalDurationHours;
+                existingSettings.EnableOnlineRentalsPayment = settings.EnableOnlineRentalsPayment;
+                existingSettings.PaymentGatewayUrl = settings.PaymentGatewayUrl;
+                existingSettings.PaymentGatewayApiKey = settings.PaymentGatewayApiKey;
+                existingSettings.ClubPhone = settings.ClubPhone;
+                existingSettings.ClubAddress = settings.ClubAddress;
+                existingSettings.MasterEmailKillSwitch = settings.MasterEmailKillSwitch;
+                existingSettings.PrimaryColor = settings.PrimaryColor;
+                existingSettings.SecondaryColor = settings.SecondaryColor;
+                existingSettings.HeadingFont = settings.HeadingFont;
+                existingSettings.BodyFont = settings.BodyFont;
+                existingSettings.HighAccessibilityMode = settings.HighAccessibilityMode;
+                existingSettings.IsClubOpen = settings.IsClubOpen;
+                existingSettings.SeoTitle = settings.SeoTitle;
+                existingSettings.SeoDescription = settings.SeoDescription;
+                existingSettings.SeoKeywords = settings.SeoKeywords;
             }
             await _context.SaveChangesAsync();
         }
