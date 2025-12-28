@@ -14,9 +14,21 @@ namespace GFC.Core.Models
 
         public bool? MasterEmailKillSwitch { get; set; }
 
+        // Legacy rates (kept for backward compatibility)
         public decimal? MemberRate { get; set; }
         public decimal? NonMemberRate { get; set; }
         public decimal? NonProfitRate { get; set; }
+        
+        // Detailed Hall Rental Pricing Matrix
+        public decimal? FunctionHallNonMemberRate { get; set; } = 400;
+        public decimal? FunctionHallMemberRate { get; set; } = 300;
+        public decimal? CoalitionNonMemberRate { get; set; } = 200;
+        public decimal? CoalitionMemberRate { get; set; } = 100;
+        public decimal? YouthOrganizationNonMemberRate { get; set; } = 100;
+        public decimal? YouthOrganizationMemberRate { get; set; } = 100;
+        
+        // Add-on Services
+        public decimal? BartenderServiceFee { get; set; } = 100;
         public decimal? KitchenFee { get; set; }
         public decimal? AvEquipmentFee { get; set; }
         public decimal? SecurityDepositAmount { get; set; }

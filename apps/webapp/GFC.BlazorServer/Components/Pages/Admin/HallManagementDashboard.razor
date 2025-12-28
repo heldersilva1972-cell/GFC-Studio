@@ -71,6 +71,15 @@
                 <div class="stat-value">@_totalBookings</div>
             </div>
         </div>
+        <div class="stat-card stat-success">
+            <div class="stat-icon">
+                <i class="bi bi-cash-coin"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">@DateTime.Now.ToString("MMMM") Revenue</div>
+                <div class="stat-value">@_monthlyRevenue.ToString("C0")</div>
+            </div>
+        </div>
     </div>
 
     <div class="content-grid">
@@ -110,7 +119,7 @@
                         var dayEvents = GetEventsForDay(date);
                         var isClickable = date.Date >= DateTime.Today || dayEvents.Any();
                         
-                        <div class="calendar-day @(isToday ? "today" : "")" 
+                        <div class="calendar-day @(isToday ? "today" : "") @(date.Date < DateTime.Today ? "past-day" : "")" 
                              @onclick="() => { if (isClickable) SelectDay(date); }"
                              style="@(!isClickable ? "cursor: default; opacity: 0.6; background-color: #fafafa;" : "")">
                             <div class="day-number">@day</div>
@@ -132,6 +141,10 @@
                                         @if (!string.IsNullOrEmpty(evt.Time))
                                         {
                                             <span class="event-time">@evt.Time</span>
+                                        }
+                                        @if (evt.Request != null && evt.Request.TotalPrice > 0)
+                                        {
+                                            <span class="event-price">@evt.Request.TotalPrice.ToString("C0")</span>
                                         }
                                     </div>
                                 }
@@ -641,6 +654,7 @@
     private int _approvedCount;
     private int _clubEventsCount;
     private int _totalBookings;
+    private decimal _monthlyRevenue;
     
     // Modals
     private bool _showEventModal;
@@ -678,6 +692,16 @@
             
             // Total Bookings = All Approved + All Club Events (Past & Present)
             _totalBookings = _allRequests.Count(r => r.Status == RentalStatus.Approved) + _clubEvents.Count;
+            
+            // Monthly Revenue = Sum of paid rentals in current month
+            var currentMonth = DateTime.Now.Month;
+            var currentYear = DateTime.Now.Year;
+            _monthlyRevenue = _allRequests
+                .Where(r => r.Status == RentalStatus.Approved && 
+                           r.IsPaid && 
+                           r.RequestedDate.Month == currentMonth && 
+                           r.RequestedDate.Year == currentYear)
+                .Sum(r => r.TotalPrice);
             
             UpdateUpcomingEvents();
             RenderCalendar(); // Re-render to show events
