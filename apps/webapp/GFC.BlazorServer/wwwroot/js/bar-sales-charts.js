@@ -2,55 +2,74 @@ window.barSalesCharts = {
     charts: {},
     renderChart: function (canvasId, config) {
         const ctx = document.getElementById(canvasId).getContext('2d');
-
+        
         // Destroy existing chart if it exists
         if (this.charts[canvasId]) {
             this.charts[canvasId].destroy();
         }
 
-        // Create gradient
-        const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-        gradient.addColorStop(0, 'rgba(46, 204, 113, 0.4)');
-        gradient.addColorStop(1, 'rgba(46, 204, 113, 0)');
+        // Define color palette for multiple years
+        const colorPalette = [
+            { border: '#2ecc71', bg: 'rgba(46, 204, 113, 0.7)' },
+            { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.7)' },
+            { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.7)' },
+            { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.7)' },
+            { border: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.7)' }
+        ];
+
+        // Build datasets
+        const datasets = config.datasets.map((dataset, index) => {
+            const colors = colorPalette[index % colorPalette.length];
+            return {
+                label: dataset.label,
+                data: dataset.data,
+                backgroundColor: colors.bg,
+                borderColor: colors.border,
+                borderWidth: 2,
+                borderRadius: 8,
+                borderSkipped: false,
+            };
+        });
 
         const chartConfig = {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: config.labels,
-                datasets: [{
-                    label: 'Revenue',
-                    data: config.data,
-                    borderColor: '#2ecc71',
-                    borderWidth: 3,
-                    backgroundColor: gradient,
-                    fill: true,
-                    tension: 0.4,
-                    pointBackgroundColor: '#fff',
-                    pointBorderColor: '#2ecc71',
-                    pointBorderWidth: 2,
-                    pointRadius: 4,
-                    pointHoverRadius: 6
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
                 plugins: {
                     legend: {
-                        display: false
+                        display: config.datasets.length > 1,
+                        position: 'top',
+                        labels: {
+                            font: { size: 12, weight: 'bold' },
+                            padding: 15,
+                            usePointStyle: true,
+                            pointStyle: 'circle'
+                        }
                     },
                     tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
                         titleFont: { size: 14, weight: 'bold' },
-                        bodyFont: { size: 14 },
+                        bodyFont: { size: 13 },
                         padding: 12,
-                        displayColors: false,
+                        displayColors: true,
                         callbacks: {
-                            label: function (context) {
+                            label: function(context) {
                                 let label = context.dataset.label || '';
                                 if (label) label += ': ';
                                 if (context.parsed.y !== null) {
-                                    label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
+                                    label += new Intl.NumberFormat('en-US', { 
+                                        style: 'currency', 
+                                        currency: 'USD' 
+                                    }).format(context.parsed.y);
                                 }
                                 return label;
                             }
@@ -65,14 +84,18 @@ window.barSalesCharts = {
                             drawBorder: false
                         },
                         ticks: {
-                            callback: function (value) {
-                                return '$' + value;
-                            }
+                            callback: function(value) {
+                                return '$' + value.toLocaleString();
+                            },
+                            font: { size: 11 }
                         }
                     },
                     x: {
                         grid: {
                             display: false
+                        },
+                        ticks: {
+                            font: { size: 11 }
                         }
                     }
                 }

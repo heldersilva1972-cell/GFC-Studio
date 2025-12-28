@@ -222,12 +222,49 @@
                         
                         <div class="row g-4">
                             <div class="col-md-3">
-                                <label class="form-label-premium">Date</label>
-                                <InputDate class="form-control input-premium w-100" @bind-Value="_selectedDate" />
+                                <label class="form-label-premium">Month</label>
+                                <select class="form-control input-premium w-100" @bind="_selectedMonth">
+                                    @for (int i = 1; i <= 12; i++)
+                                    {
+                                        <option value="@i">@(new DateTime(2000, i, 1).ToString("MMMM"))</option>
+                                    }
+                                </select>
                             </div>
-                            <div class="col-md-3">
-                                <label class="form-label-premium">Time</label>
-                                <InputDate Type="InputDateType.Time" class="form-control input-premium w-100" @bind-Value="_selectedTime" />
+                            <div class="col-md-2">
+                                <label class="form-label-premium">Day</label>
+                                <select class="form-control input-premium w-100" @bind="_selectedDay">
+                                    @for (int i = 1; i <= DateTime.DaysInMonth(_selectedYear, _selectedMonth); i++)
+                                    {
+                                        <option value="@i">@i</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label-premium">Year</label>
+                                <select class="form-control input-premium w-100" @bind="_selectedEntryYear">
+                                    @for (int i = DateTime.Now.Year; i >= DateTime.Now.Year - 5; i--)
+                                    {
+                                        <option value="@i">@i</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label-premium">Hour</label>
+                                <select class="form-control input-premium w-100" @bind="_selectedHour">
+                                    @for (int i = 0; i <= 23; i++)
+                                    {
+                                        <option value="@i">@i.ToString("D2")</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label-premium">Minute</label>
+                                <select class="form-control input-premium w-100" @bind="_selectedMinute">
+                                    @for (int i = 0; i <= 59; i++)
+                                    {
+                                        <option value="@i">@i.ToString("D2")</option>
+                                    }
+                                </select>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label-premium text-success">Gross Revenue</label>
@@ -351,14 +388,20 @@
     private bool _showSuccess = false;
     private string _successMessage;
 
-    private DateTime _selectedDate = DateTime.Today;
-    private DateTime _selectedTime = DateTime.Now;
+    // Persistent date components
+    private int _selectedMonth = DateTime.Now.Month;
+    private int _selectedDay = DateTime.Now.Day;
+    private int _selectedEntryYear = DateTime.Now.Year;
+    
+    // Time components (24-hour format for entry)
+    private int _selectedHour = DateTime.Now.Hour;
+    private int _selectedMinute = DateTime.Now.Minute;
 
     private decimal _grandTotalRevenue = 0;
     private int _grandTotalItemsSold = 0;
 
     private List<int> _availableYears = new();
-    private int _selectedYear = DateTime.Now.Year;
+    private int _selectedYear = DateTime.Now.Year; // For chart year selection
 
     protected override async Task OnInitializedAsync()
     {
@@ -487,7 +530,22 @@
 
         try
         {
-            _model.SaleDate = new DateTime(_selectedDate.Year, _selectedDate.Month, _selectedDate.Day, _selectedTime.Hour, _selectedTime.Minute, 0);
+            // Validate and adjust day if needed (e.g., if month changed to one with fewer days)
+            int maxDays = DateTime.DaysInMonth(_selectedEntryYear, _selectedMonth);
+            if (_selectedDay > maxDays)
+            {
+                _selectedDay = maxDays;
+            }
+
+            // Construct date from persistent components (hour is in 24hr format)
+            _model.SaleDate = new DateTime(
+                _selectedEntryYear, 
+                _selectedMonth, 
+                _selectedDay, 
+                _selectedHour,
+                _selectedMinute, 
+                0);
+
             await Task.Delay(1000);
 
             using var db = await DbFactory.CreateDbContextAsync();
@@ -497,8 +555,14 @@
 
             _isSaving = false;
             _showSuccess = true;
-            _successMessage = $"Recorded: {_model.TotalSales:C}";
+            _successMessage = $"Recorded: {_model.TotalSales:C} at {_model.SaleDate:hh:mm tt}";
+            
+            // Reset form but keep month and year selections
             _model = new BarSaleEntry();
+            _selectedDay = DateTime.Now.Day;
+            _selectedHour = DateTime.Now.Hour;
+            _selectedMinute = DateTime.Now.Minute;
+            // Note: _selectedMonth and _selectedEntryYear persist
             
             await LoadData();
             await UpdateChart();
