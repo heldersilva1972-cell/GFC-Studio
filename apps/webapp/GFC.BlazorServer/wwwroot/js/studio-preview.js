@@ -31,3 +31,19 @@ window.waitForPreviewReady = function (iframeElement, callback) {
 
     window.addEventListener('message', messageHandler);
 };
+
+// Studio Preview Namespace
+window.studioPreview = {
+    updateElementStyle: function (sectionId, property, value) {
+        // Find the specific iframe - assuming class .studio-preview-iframe
+        const iframe = document.querySelector('.studio-preview-iframe');
+        if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({
+                type: 'STYLE_UPDATE',
+                sectionId: sectionId,
+                property: property,
+                value: value
+            }, '*'); // Allowing * for dev, ideally lock to specific origin in prod
+        }
+    }
+};

@@ -27,6 +27,9 @@ namespace GFC.Core.Models
         public string Data { get; set; } = "{}";
 
         public string? AnimationSettingsJson { get; set; }
+        
+        [Column("Styles")]
+        public string? StylesJson { get; set; } = "{}";
 
         // --- Metadata ---
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -96,6 +99,9 @@ namespace GFC.Core.Models
         [NotMapped]
         public Dictionary<string, object> properties { get; set; } = new Dictionary<string, object>();
 
+        [NotMapped]
+        public Dictionary<string, string> Styles { get; set; } = new Dictionary<string, string>();
+
         // Helpers to sync properties <-> Data/Content JSON
         public void SyncPropertiesToData()
         {
@@ -106,6 +112,8 @@ namespace GFC.Core.Models
             }
             // Serialize properties to Data
             Data = JsonSerializer.Serialize(properties);
+            // Serialize Styles to StylesJson
+            StylesJson = JsonSerializer.Serialize(Styles);
         }
 
         public void SyncDataToProperties()
@@ -127,6 +135,16 @@ namespace GFC.Core.Models
                 }
                 catch { /* ignore serialization errors */ }
             }
+            
+            if (!string.IsNullOrEmpty(StylesJson))
+            {
+                try
+                {
+                    Styles = JsonSerializer.Deserialize<Dictionary<string, string>>(StylesJson) ?? new Dictionary<string, string>();
+                }
+                catch { /* ignore styles serialization errors */ }
+            }
+
             if (string.IsNullOrEmpty(Title)) Title = ComponentType;
         }
     }
