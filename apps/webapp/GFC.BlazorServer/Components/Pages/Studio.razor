@@ -20,6 +20,7 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IAuthorizationService AuthorizationService
 @inject IConfiguration Configuration
+@inject IDbContextFactory<GfcDbContext> DbContextFactory
 
 <script src="~/js/studio-preview.js"></script>
 
@@ -231,7 +232,7 @@
             </div>
         </div>
         <div class="right-inspector">
-            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" />
+            <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnAssetChanged="HandleAssetChange" OnPropertyChanged="HandlePropertyChange" />
             @if (!string.IsNullOrEmpty(lastWizardAction))
             {
                 <div class="inspector-header">
@@ -544,6 +545,27 @@
         }
     }
 
+    private async Task HandleAssetChange(MediaAsset asset)
+    {
+        if (selectedSection != null)
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+
+            var existingLinks = context.StudioSectionAssets.Where(ssa => ssa.StudioSectionId == selectedSection.Id);
+            context.StudioSectionAssets.RemoveRange(existingLinks);
+
+            var newLink = new StudioSectionAsset
+            {
+                StudioSectionId = selectedSection.Id,
+                MediaAssetId = asset.Id
+            };
+            context.StudioSectionAssets.Add(newLink);
+
+            await context.SaveChangesAsync();
+            MarkAsDirty();
+        }
+    }
+
     private void UndoLastAction()
     {
         if (selectedSection != null && lastUndoState != null)
@@ -687,6 +709,7 @@
             MarkAsDirty();
         }
     }
+
 
     private void OpenSaveAsTemplateModal(StudioSection section)
     {
