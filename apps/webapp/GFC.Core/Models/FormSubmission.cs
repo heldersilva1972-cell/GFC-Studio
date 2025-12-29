@@ -20,5 +20,8 @@ namespace GFC.Core.Models
         public string SubmissionData { get; set; } // JSON string of submitted data
 
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
+
+        [StringLength(50)]
+        public string Status { get; set; } = "Pending";
     }
 }
