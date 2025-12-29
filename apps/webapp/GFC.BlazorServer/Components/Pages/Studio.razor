@@ -570,6 +570,11 @@
                         title="Interactions">
                     <i class="bi bi-lightning-charge"></i>
                 </button>
+                <button class="inspector-tab @(activeInspectorTab == "binding" ? "active" : "")" 
+                        @onclick='() => activeInspectorTab = "binding"' 
+                        title="Data Binding">
+                    <i class="bi bi-diagram-3"></i>
+                </button>
             </div>
 
             <!-- Inspector Content Area -->
@@ -902,6 +907,90 @@
                     {
                          <div class="p-3 text-muted small text-center">
                              Select an element to add interactions.
+                         </div>
+                    }
+                }
+
+                @if (activeInspectorTab == "binding")
+                {
+                    <div class="panel-section-header">Data Bindings</div>
+                    @if (selectedSection != null)
+                    {
+                        <div class="p-3">
+                             <div class="alert alert-info py-2 small mb-3">
+                                <i class="bi bi-info-circle me-1"></i> Connect this element to CMS content.
+                            </div>
+
+                            <!-- 1. Select Data Source (Context) -->
+                            <div class="mb-3">
+                                <label class="pro-label">Collection</label>
+                                <select class="pro-select" @onchange="BindCollectionChange">
+                                    <option value="">-- None --</option>
+                                    @foreach(var col in cmsCollections)
+                                    {
+                                        <option value="@col.Id" selected="@(selectedSection.DataBindings.ContainsKey("CollectionId") && selectedSection.DataBindings["CollectionId"] == col.Id.ToString())">@col.Name</option>
+                                    }
+                                </select>
+                            </div>
+
+                            @if (selectedSection.DataBindings.ContainsKey("CollectionId") && int.TryParse(selectedSection.DataBindings["CollectionId"], out int colId))
+                            {
+                                var col = cmsCollections.FirstOrDefault(c => c.Id == colId);
+                                if (col != null)
+                                {
+                                     <div class="mb-3">
+                                        <label class="pro-label">Item</label>
+                                        <select class="pro-select" @onchange="BindItemChange">
+                                            <option value="">-- Select Item --</option>
+                                            @foreach(var item in col.Items)
+                                            {
+                                                var name = GetItemDisplayName(item);
+                                                <option value="@item.Id" selected="@(selectedSection.DataBindings.ContainsKey("ItemId") && selectedSection.DataBindings["ItemId"] == item.Id.ToString())">@name</option>
+                                            }
+                                        </select>
+                                    </div>
+
+                                    @if(selectedSection.DataBindings.ContainsKey("ItemId"))
+                                    {
+                                        <hr class="border-secondary opacity-25" />
+                                        <div class="mb-2 fw-bold small">Map Fields</div>
+                                        
+                                        <!-- Dynamic Mappings based on Component Type -->
+                                        @if (selectedSection.ComponentType == "TextBlock" || selectedSection.ComponentType == "Heading")
+                                        {
+                                             <div class="mb-2">
+                                                <label class="pro-label">Text Content</label>
+                                                <select class="pro-select" @onchange="@(e => UpdateBinding("content", e.Value?.ToString()))">
+                                                    <option value="">-- Static --</option>
+                                                    @foreach(var field in col.Fields)
+                                                    {
+                                                        <option value="@field.Key" selected="@(selectedSection.DataBindings.ContainsKey("content") && selectedSection.DataBindings["content"] == field.Key)">@field.Name</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        }
+                                        else if (selectedSection.ComponentType == "Image")
+                                        {
+                                             <div class="mb-2">
+                                                <label class="pro-label">Image Source</label>
+                                                <select class="pro-select" @onchange="@(e => UpdateBinding("src", e.Value?.ToString()))">
+                                                    <option value="">-- Static --</option>
+                                                    @foreach(var field in col.Fields)
+                                                    {
+                                                        <option value="@field.Key" selected="@(selectedSection.DataBindings.ContainsKey("src") && selectedSection.DataBindings["src"] == field.Key)">@field.Name</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        }
+                                    }
+                                }
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                         <div class="p-3 text-muted small text-center">
+                             Select an element to configure data binding.
                          </div>
                     }
                 }
@@ -1465,6 +1554,8 @@
         if (!string.IsNullOrEmpty(draft.ContentJson))
         {
             sections = JsonSerializer.Deserialize<List<StudioSection>>(draft.ContentJson);
+            // Re-hydrate helpers
+            foreach(var s in sections) s.SyncAll();
         }
         showHistory = false;
         StateHasChanged();
@@ -1569,6 +1660,109 @@
             item.Data = JsonSerializer.Deserialize<Dictionary<string, object>>(item.DataJson) ?? new Dictionary<string, object>();
         } catch {}
         isEditingCmsItem = true;
+    }
+
+    // Feature 6: Data Binding Logic
+    private async Task BindCollectionChange(ChangeEventArgs e)
+    {
+        if (selectedSection == null) return;
+        var val = e.Value?.ToString();
+        
+        if (string.IsNullOrEmpty(val)) {
+            selectedSection.DataBindings.Clear();
+        } else {
+            selectedSection.DataBindings["CollectionId"] = val;
+        }
+        selectedSection.SyncBindingsToData();
+        MarkAsDirty();
+        await ApplyDataBindings(); // Clear bindings if removed
+    }
+
+    private async Task BindItemChange(ChangeEventArgs e)
+    {
+        if (selectedSection == null) return;
+        var val = e.Value?.ToString();
+        
+        if (string.IsNullOrEmpty(val)) {
+             selectedSection.DataBindings.Remove("ItemId");
+        } else {
+             selectedSection.DataBindings["ItemId"] = val;
+        }
+        selectedSection.SyncBindingsToData();
+        MarkAsDirty();
+        await ApplyDataBindings();
+    }
+
+    private async Task UpdateBinding(string key, string? fieldKey)
+    {
+        if (selectedSection == null) return;
+        
+        if (string.IsNullOrEmpty(fieldKey)) {
+            selectedSection.DataBindings.Remove(key);
+        } else {
+            selectedSection.DataBindings[key] = fieldKey;
+        }
+        selectedSection.SyncBindingsToData();
+        MarkAsDirty();
+        await ApplyDataBindings();
+    }
+
+    private string GetItemDisplayName(StudioCollectionItem item)
+    {
+        try {
+             var data = JsonSerializer.Deserialize<Dictionary<string, object>>(item.DataJson);
+             if (data.ContainsKey("title")) return data["title"].ToString();
+             if (data.ContainsKey("name")) return data["name"].ToString();
+        } catch {}
+        return $"Item #{item.Id}";
+    }
+
+    private async Task ApplyDataBindings()
+    {
+        if (_previewIframe.Id == null) return;
+
+        // Map: { "clientId": { "propName": "finalValue" } }
+        var updates = new Dictionary<string, Dictionary<string, string>>();
+
+        foreach(var sec in sections)
+        {
+            if (sec.DataBindings.ContainsKey("CollectionId") && sec.DataBindings.ContainsKey("ItemId"))
+            {
+                if (int.TryParse(sec.DataBindings["CollectionId"], out int colId) && 
+                    int.TryParse(sec.DataBindings["ItemId"], out int itemId))
+                {
+                    // Find actual data
+                    var col = cmsCollections.FirstOrDefault(c => c.Id == colId);
+                    var item = col?.Items.FirstOrDefault(i => i.Id == itemId);
+                    
+                    if (item != null)
+                    {
+                        var data = JsonSerializer.Deserialize<Dictionary<string, object>>(item.DataJson) ?? new Dictionary<string, object>();
+                        var propUpdates = new Dictionary<string, string>();
+
+                        foreach(var binding in sec.DataBindings)
+                        {
+                            // binding.Key is the target prop (e.g. "content"), binding.Value is the source field key (e.g. "blog_title")
+                            if (binding.Key == "CollectionId" || binding.Key == "ItemId") continue;
+                            
+                            if (data.ContainsKey(binding.Value)) {
+                                propUpdates[binding.Key] = data[binding.Value]?.ToString() ?? "";
+                            }
+                        }
+
+                        if (propUpdates.Any())
+                        {
+                            updates[sec.ClientId.ToString()] = propUpdates;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (updates.Any())
+        {
+             await JSRuntime.InvokeVoidAsync("studioPreview.applyDataBindings", _previewIframe, updates);
+        }
     }
 
     private async void AddInteraction()
@@ -1781,6 +1975,9 @@
 
                     // Feature 4: Apply Interactions (once loaded)
                      await ApplyInteractions();
+
+                    // Feature 6: Apply Data Bindings
+                    await ApplyDataBindings();
                 }
                 catch (Exception ex)
                 {

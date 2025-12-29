@@ -166,5 +166,25 @@ namespace GFC.Core.Models
         {
              InteractionJson = JsonSerializer.Serialize(Interactions);
         }
+
+        public string? DataBindingJson { get; set; } = "{}";
+
+        [NotMapped]
+        public Dictionary<string, string> DataBindings { get; set; } = new Dictionary<string, string>();
+
+        public void SyncBindingsToData()
+        {
+            DataBindingJson = JsonSerializer.Serialize(DataBindings);
+        }
+
+        // Updated SyncDataToProperties to include bindings
+        public void SyncAll() {
+            SyncDataToProperties();
+            if (!string.IsNullOrEmpty(DataBindingJson)) {
+                try {
+                    DataBindings = JsonSerializer.Deserialize<Dictionary<string, string>>(DataBindingJson) ?? new Dictionary<string, string>();
+                } catch {}
+            }
+        }
     }
 }

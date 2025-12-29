@@ -286,3 +286,30 @@ window.studioPreview.attachInteractions = function (iframe, interactionsMap) {
         }
     }
 };
+
+// Feature 6: Data Binding Runtime
+window.studioPreview.applyDataBindings = function (iframe, updatesMap) {
+    if (!iframe || !iframe.contentWindow) return;
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+    // updatesMap: { "clientId": { "propName": "value" } }
+    for (const [sectionId, props] of Object.entries(updatesMap)) {
+        const el = doc.querySelector(`[data-studio-id="${sectionId}"]`);
+        if (el) {
+            for (const [prop, value] of Object.entries(props)) {
+                if (prop === 'content') {
+                    // For TextBlock/Heading, usually innerText is fine if no complex HTML
+                    // If RichText, use innerHTML
+                    el.innerHTML = value;
+                }
+                else if (prop === 'src' && el.tagName === 'IMG') {
+                    el.src = value;
+                }
+                else {
+                    // Generic attribute fallback
+                    el.setAttribute(prop, value);
+                }
+            }
+        }
+    }
+};
