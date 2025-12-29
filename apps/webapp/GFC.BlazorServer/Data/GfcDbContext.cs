@@ -99,6 +99,7 @@ public class GfcDbContext : DbContext
     public DbSet<ProtectedDocument> ProtectedDocuments => Set<ProtectedDocument>();
     public DbSet<BarSaleEntry> BarSaleEntries => Set<BarSaleEntry>();
     public DbSet<DynamicForm> DynamicForms => Set<DynamicForm>();
+    public DbSet<UrlRedirect> UrlRedirects => Set<UrlRedirect>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

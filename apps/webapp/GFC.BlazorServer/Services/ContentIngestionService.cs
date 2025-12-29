@@ -2,14 +2,17 @@
 // NOTE: This service uses Playwright for browser automation.
 // The target deployment environment must have Playwright's browser binaries installed.
 // Run `pwsh bin/Debug/netX/playwright.ps1 install` in the project directory.
+using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using HtmlAgilityPack;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Playwright;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
@@ -18,11 +21,39 @@ namespace GFC.BlazorServer.Services
     {
         private readonly ILogger<ContentIngestionService> _logger;
         private readonly IMediaStorageService _mediaStorageService;
+        private readonly IDbContextFactory<GfcDbContext> _dbContextFactory;
 
-        public ContentIngestionService(ILogger<ContentIngestionService> logger, IMediaStorageService mediaStorageService)
+        public ContentIngestionService(
+            ILogger<ContentIngestionService> logger,
+            IMediaStorageService mediaStorageService,
+            IDbContextFactory<GfcDbContext> dbContextFactory)
         {
             _logger = logger;
             _mediaStorageService = mediaStorageService;
+            _dbContextFactory = dbContextFactory;
+        }
+
+        public async Task CreateRedirectAsync(string oldUrl, string newUrlSlug)
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            var existingRedirect = await dbContext.UrlRedirects.FirstOrDefaultAsync(r => r.OldUrl == oldUrl);
+            if (existingRedirect != null)
+            {
+                _logger.LogInformation("Redirect for {OldUrl} already exists. Updating to point to {NewUrlSlug}", oldUrl, newUrlSlug);
+                existingRedirect.NewUrl = newUrlSlug;
+            }
+            else
+            {
+                _logger.LogInformation("Creating new 301 redirect from {OldUrl} to {NewUrlSlug}", oldUrl, newUrlSlug);
+                var newRedirect = new UrlRedirect
+                {
+                    OldUrl = oldUrl,
+                    NewUrl = newUrlSlug,
+                    RedirectType = 301
+                };
+                await dbContext.UrlRedirects.AddAsync(newRedirect);
+            }
+            await dbContext.SaveChangesAsync();
         }
 
         private async Task<bool> IsUrlPubliclyRoutable(Uri uri)
@@ -87,84 +118,143 @@ namespace GFC.BlazorServer.Services
 
             try
             {
-                _logger.LogInformation("Attempting to scrape URL with Playwright: {Url}", url);
+                _logger.LogInformation("Starting intelligent scrape of URL: {Url}", url);
 
                 using var playwright = await Playwright.CreateAsync();
                 await using var browser = await playwright.Chromium.LaunchAsync();
                 var page = await browser.NewPageAsync();
-                await page.GotoAsync(url);
+                await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
 
                 var html = await page.ContentAsync();
                 var doc = new HtmlDocument();
                 doc.LoadHtml(html);
 
-                var nodes = doc.DocumentNode.SelectNodes("//h1|//h2|//h3|//p|//img");
-
-                if (nodes != null)
+                // --- Text Normalization: Remove inline styles and unwanted tags ---
+                var nodesWithStyle = doc.DocumentNode.SelectNodes("//*[@style]");
+                if (nodesWithStyle != null)
                 {
-                    foreach (var node in nodes)
+                    foreach (var node in nodesWithStyle)
                     {
-                        StudioSection newSection = null;
-                        if (node.Name == "img")
+                        node.Attributes.Remove("style");
+                    }
+                }
+                // Optionally remove other tags like <font>, <b>, <i> if desired
+                // This example focuses on inline styles as requested.
+
+                var contentNodes = doc.DocumentNode.SelectNodes("//body//*[self::h1 or self::h2 or self::h3 or self::p or self::img or self::div[count(img) > 2]]");
+
+                if (contentNodes == null)
+                {
+                    _logger.LogWarning("No mappable content (headings, p, img, image divs) found at URL: {Url}", url);
+                    return sections;
+                }
+
+                foreach (var node in contentNodes)
+                {
+                    StudioSection newSection = null;
+
+                    // --- Intelligent Block Mapping ---
+                    if (node.Name == "div" && node.SelectNodes(".//img")?.Count > 2)
+                    {
+                        // Map to ImageGallery
+                        var imageUrls = new List<string>();
+                        foreach (var imgNode in node.SelectNodes(".//img"))
                         {
-                            var src = node.GetAttributeValue("src", "");
+                            var src = imgNode.GetAttributeValue("src", "");
                             if (!string.IsNullOrEmpty(src))
                             {
                                 var absoluteSrc = new Uri(uri, src).ToString();
-                                var localImagePath = await _mediaStorageService.SaveImageFromUrlAsync(absoluteSrc);
-
-                                if (!string.IsNullOrEmpty(localImagePath))
-                                {
-                                    var altText = node.GetAttributeValue("alt", "");
-                                    var title = !string.IsNullOrWhiteSpace(altText)
-                                        ? altText
-                                        : Path.GetFileNameWithoutExtension(new Uri(absoluteSrc).AbsolutePath);
-
-                                    newSection = new StudioSection
-                                    {
-                                        Title = title,
-                                        Content = localImagePath,
-                                        ComponentType = StudioComponentType.Image,
-                                        PageIndex = sections.Count
-                                    };
-                                }
-                                else
-                                {
-                                    _logger.LogWarning("Failed to download and save image from {ImageUrl}", absoluteSrc);
-                                }
+                                // In a real scenario, you'd download these. For now, we'll just store the URLs.
+                                imageUrls.Add(absoluteSrc);
                             }
                         }
-                        else // Text-based nodes
+                        if (imageUrls.Any())
                         {
-                            var innerText = node.InnerText.Trim();
-                            var title = node.Name.StartsWith("h")
-                                ? innerText
-                                : string.Join(" ", innerText.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Take(5)) + "...";
+                            newSection = new StudioSection
+                            {
+                                Title = "Image Gallery",
+                                ComponentType = StudioComponentType.ImageGallery,
+                                PageIndex = sections.Count,
+                                properties = new Dictionary<string, object> { { "images", imageUrls } }
+                            };
+                            newSection.SyncPropertiesToData();
+                        }
+                    }
+                    else if (node.Name == "img")
+                    {
+                        var src = node.GetAttributeValue("src", "");
+                        if (!string.IsNullOrEmpty(src))
+                        {
+                            var absoluteSrc = new Uri(uri, src).ToString();
+                            string localImagePath = "";
+                            bool isBroken = false;
+
+                            // --- Media Recovery ---
+                            try
+                            {
+                                localImagePath = await _mediaStorageService.SaveImageFromUrlAsync(absoluteSrc);
+                                if (string.IsNullOrEmpty(localImagePath))
+                                {
+                                    isBroken = true;
+                                    _logger.LogWarning("Failed to save image from {ImageUrl}, flagging as broken.", absoluteSrc);
+                                }
+                            }
+                            catch (Exception imgEx)
+                            {
+                                isBroken = true;
+                                _logger.LogError(imgEx, "Exception while saving image from {ImageUrl}, flagging as broken.", absoluteSrc);
+                            }
+
+                            var altText = node.GetAttributeValue("alt", "");
+                            var title = !string.IsNullOrWhiteSpace(altText) ? altText : "Scraped Image";
 
                             newSection = new StudioSection
                             {
                                 Title = title,
-                                Content = node.OuterHtml,
-                                ComponentType = node.Name.StartsWith("h") ? StudioComponentType.Heading : StudioComponentType.TextBlock,
-                                PageIndex = sections.Count
+                                ComponentType = StudioComponentType.Image,
+                                PageIndex = sections.Count,
+                                properties = new Dictionary<string, object>
+                                {
+                                    { "src", localImagePath },
+                                    { "alt", altText },
+                                    { "isBroken", isBroken } // Flag for the UI
+                                }
                             };
-                        }
-
-                        if (newSection != null)
-                        {
-                            sections.Add(newSection);
+                            newSection.SyncPropertiesToData();
                         }
                     }
-                    _logger.LogInformation("Successfully scraped {Count} sections from {Url}", sections.Count, url);
+                    else if (node.Name.StartsWith("h"))
+                    {
+                        newSection = new StudioSection
+                        {
+                            Title = node.InnerText.Trim(),
+                            Content = node.OuterHtml,
+                            ComponentType = StudioComponentType.Heading,
+                            PageIndex = sections.Count
+                        };
+                    }
+                    else if (node.Name == "p")
+                    {
+                        // Map to RichTextBlock for normalized content
+                        newSection = new StudioSection
+                        {
+                            Title = "Text Block",
+                            Content = node.InnerHtml, // Use InnerHtml to preserve links etc., but OuterHtml for headings
+                            ComponentType = StudioComponentType.RichTextBlock,
+                            PageIndex = sections.Count
+                        };
+                    }
+
+                    if (newSection != null)
+                    {
+                        sections.Add(newSection);
+                    }
                 }
-                else
-                {
-                    _logger.LogWarning("No h1, h2, h3, p, or img tags found at URL: {Url}", url);
-                }
+                _logger.LogInformation("Successfully performed intelligent scrape of {Url}, found {Count} sections.", url, sections.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred while scraping {Url} with Playwright", url);
+                _logger.LogError(ex, "An unexpected error occurred during intelligent scrape of {Url}", url);
                 throw;
             }
 
