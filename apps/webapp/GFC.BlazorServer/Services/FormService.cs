@@ -73,5 +73,29 @@ namespace GFC.BlazorServer.Services
                 await _context.SaveChangesAsync();
             }
         }
+
+        public async Task<FormSubmission> CreateSubmissionAsync(FormSubmission submission)
+        {
+            _context.FormSubmissions.Add(submission);
+            await _context.SaveChangesAsync();
+            return submission;
+        }
+
+        public async Task<HallRentalInquiry> SaveRentalInquiryForLaterAsync(string formData, string email)
+        {
+            var inquiry = new HallRentalInquiry
+            {
+                ResumeToken = System.Guid.NewGuid().ToString("N"),
+                FormData = formData,
+                CreatedAt = System.DateTime.UtcNow,
+                ExpiresAt = System.DateTime.UtcNow.AddDays(30)
+            };
+            _context.HallRentalInquiries.Add(inquiry);
+            await _context.SaveChangesAsync();
+            
+            // Note: In a real implementation, you would send the 'resumeToken' to the user's email here.
+            
+            return inquiry;
+        }
     }
 }

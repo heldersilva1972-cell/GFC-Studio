@@ -15,5 +15,7 @@ namespace GFC.BlazorServer.Services
         Task<List<FormSubmission>> GetSubmissionsByFormIdAsync(int formId);
         Task<List<Form>> GetAllFormsAsync();
         Task UpdateSubmissionStatusAsync(int submissionId, string status);
+        Task<FormSubmission> CreateSubmissionAsync(FormSubmission submission);
+        Task<HallRentalInquiry> SaveRentalInquiryForLaterAsync(string formData, string email);
     }
 }

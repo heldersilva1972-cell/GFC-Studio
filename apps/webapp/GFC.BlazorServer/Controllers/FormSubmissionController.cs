@@ -1,6 +1,5 @@
 // [NEW]
 using GFC.Core.Models;
-using GFC.Core.Models;
 using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
