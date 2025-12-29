@@ -1,0 +1,383 @@
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using Microsoft.EntityFrameworkCore
+@inject IControllerClient ControllerClient
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject ILogger<OverviewTab> Logger
+
+<div class="settings-tab-content fadeIn h-100">
+    @if (Controller == null)
+    {
+        <div class="alert alert-info">Please select a controller.</div>
+    }
+    else
+    {
+        <div class="row g-4 h-100">
+            <!-- Left Column: Status & Control -->
+            <div class="col-lg-7 d-flex flex-column gap-4 h-100 overflow-y-auto custom-scrollbar pb-5 pe-2">
+                <!-- Status Card -->
+                <div class="glass-panel p-4">
+                    <div class="d-flex align-items-center justify-content-between mb-4">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="status-indicator-large">
+                                <span class="pulse-dot @(_isOnline ? "online" : "offline")"></span>
+                            </div>
+                            <div>
+                                <h2 class="mb-0 fw-bold">@Controller.Name</h2>
+                                <div class="text-muted small">@Controller.SerialNumberDisplay • @Controller.IpAddress</div>
+                            </div>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="SyncTime" disabled="@_isSyncingTime">
+                            @if (_isSyncingTime) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            else { <i class="bi bi-clock-history me-1"></i> }
+                            Sync Time
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => TestConnection(false)" disabled="@_isTesting">
+                            @if (_isTesting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            else { <i class="bi bi-broadcast me-1"></i> }
+                            Ping
+                        </button>
+                    </div>
+
+                    @* Status Feedback Area *@
+                    @if (!string.IsNullOrEmpty(_operationStatus))
+                    {
+                        <div class="alert alert-subtle-border px-3 py-2 mb-4 d-flex align-items-center @_operationStatusClass fadeIn">
+                             <div class="flex-grow-1 fw-medium">@_operationStatus</div>
+                        </div>
+                    }
+
+                     <!-- Doors Status Grid -->
+                    <div class="door-status-grid">
+                        @if (!Controller.Doors.Any())
+                        {
+                            <div class="text-center text-muted col-12 py-3">No doors configured.</div>
+                        }
+                        @foreach (var door in Controller.Doors.OrderBy(d => d.DoorIndex))
+                        {
+                            var isUnlocked = _unlockedDoors.Contains(door.Id);
+                            <div class="door-status-card @(isUnlocked ? "unlocked" : "")">
+                                <div class="d-flex align-items-center justify-content-between mb-3 flex-grow-1">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="door-icon-circle @(isUnlocked ? "bg-success text-white" : "bg-surface-subtle")">
+                                            <i class="bi bi-door-@(isUnlocked ? "open" : "closed")-fill"></i>
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold">@door.Name</div>
+                                            <div class="small text-muted">Port @door.DoorIndex</div>
+                                        </div>
+                                    </div>
+                                    <span class="badge @(door.IsEnabled ? "bg-primary-subtle text-primary" : "bg-secondary-subtle text-secondary") ms-2">
+                                        @(door.IsEnabled ? "Active" : "Disabled")
+                                    </span>
+                                </div>
+                                <button class="btn btn-sm w-100 @(isUnlocked ? "btn-success" : "btn-outline-primary") mt-auto" 
+                                        @onclick="() => UnlockDoor(door)" 
+                                        disabled="@(!door.IsEnabled || _isUnlocking)">
+                                    @if (_isUnlocking && _unlockingDoorId == door.Id)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-@(isUnlocked ? "unlock-fill" : "lock-fill") me-1"></i> 
+                                        @(isUnlocked ? "Unlocked" : "Momentary Unlock")
+                                    }
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                </div>
+
+
+
+                <!-- Notifications / Alerts Area (Placeholder for System Health) -->
+                 <div class="glass-panel p-4 flex-grow-1">
+                    <h5 class="mb-3"><i class="bi bi-heart-pulse me-2"></i>System Health</h5>
+                    <div class="d-flex gap-4">
+                        <div class="health-metric">
+                            <div class="label">Connection</div>
+                            <div class="value @(_isOnline ? "text-success" : "text-danger")">
+                                @(_isOnline ? "Stable" : "Offline")
+                            </div>
+                        </div>
+                        <div class="health-metric">
+                            <div class="label">Events (24h)</div>
+                            <div class="value">@_recentEvents.Count</div>
+                        </div>
+                         <div class="health-metric">
+                            <div class="label">Last Event</div>
+                            <div class="value text-muted small">
+                                @(_recentEvents.FirstOrDefault()?.TimestampUtc.ToLocalTime().ToString("g") ?? "-")
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Events Feed -->
+            <div class="col-lg-5">
+                <div class="glass-panel h-100 d-flex flex-column p-0 overflow-hidden">
+                    <div class="p-3 border-bottom border-glass bg-surface-subtle d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Recent Events</h5>
+                         <button class="btn btn-link btn-sm p-0" @onclick="LoadEvents">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                    <div class="event-feed flex-grow-1 overflow-auto custom-scrollbar p-0">
+                         @if (_isLoadingEvents)
+                        {
+                            <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+                        }
+                        else if (!_recentEvents.Any())
+                        {
+                            <div class="text-center p-5 text-muted">
+                                <i class="bi bi-inbox fs-1 opacity-50 mb-2"></i>
+                                <p>No events found.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var evt in _recentEvents)
+                            {
+                                <div class="event-item">
+                                    <div class="event-icon @GetEventTypeClass(evt.EventType)">
+                                        <i class="bi @GetEventIcon(evt.EventType)"></i>
+                                    </div>
+                                    <div class="event-content">
+                                        <div class="event-desc">@GetEventDescription(evt)</div>
+                                        <div class="event-time">@evt.TimestampUtc.ToLocalTime().ToString("t")</div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    /* Scoped Styles */
+    .glass-panel { background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: 16px; }
+    .status-indicator-large { width: 48px; height: 48px; border-radius: 50%; background: rgba(var(--bg-surface-rgb), 0.5); border: 2px solid var(--glass-border); display: flex; align-items: center; justify-content: center; position: relative; }
+    .pulse-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; box-shadow: 0 0 0 0 rgba(204, 204, 204, 0.7); }
+    .pulse-dot.online { background: #10b981; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); animation: pulse-green 2s infinite; }
+    .pulse-dot.offline { background: #ef4444; }
+    
+    @@keyframes pulse-green { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+
+    .door-status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+    .door-status-card { background: var(--bg-surface-hover); border: 1px solid var(--glass-border); border-radius: 12px; padding: 1rem; transition: all 0.3s; display: flex; flex-direction: column; height: 100%; }
+    .door-status-card.unlocked { border-color: #10b981; background: rgba(16, 185, 129, 0.05); }
+    .door-icon-circle { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+    
+    .event-item { padding: 0.75rem 1rem; border-bottom: 1px solid var(--glass-border); display: flex; align-items: start; gap: 0.75rem; }
+    .event-item:last-child { border-bottom: none; }
+    .event-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .event-icon.success { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+    .event-icon.error { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+    .event-icon.warning { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+    .event-icon.info { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+    .event-desc { font-weight: 500; font-size: 0.9rem; line-height: 1.2; margin-bottom: 2px; }
+    .event-time { font-size: 0.75rem; color: var(--text-muted); }
+
+    .health-metric .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .health-metric .value { font-size: 1.25rem; font-weight: 700; }
+</style>
+
+@code {
+    [Parameter] public ControllerDevice? Controller { get; set; }
+
+    private bool _isOnline = false;
+    private bool _isTesting = false;
+    private bool _isSyncingTime = false;
+    private bool _isUnlocking = false;
+    private int? _unlockingDoorId;
+    private bool _isLoadingEvents = false;
+    
+    // Operation feedback
+    private string? _operationStatus;
+    private string? _operationStatusClass; // e.g., text-info, text-success, text-danger
+
+    private List<ControllerEvent> _recentEvents = new();
+    private HashSet<int> _unlockedDoors = new();
+    
+
+
+
+
+
+    
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Controller != null)
+        {
+            await TestConnection(silent: true);
+            await LoadEvents();
+        }
+    }
+
+    private async Task SyncTime()
+    {
+        if (Controller == null) return;
+        _isSyncingTime = true;
+        SetStatus("⏳ Sending time sync command...", "text-info");
+        
+        try
+        {
+             // Simulate network delay for readability if local
+             await Task.Delay(300); 
+             
+             await ControllerClient.SyncTimeAsync(Controller.Id, CancellationToken.None);
+             
+             SetStatus("✓ Time sync command received by controller.", "text-success");
+             await Task.Delay(2000);
+             ClearStatus();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to sync time");
+            SetStatus($"✗ Failed to sync time: {ex.Message}", "text-danger");
+        }
+        finally { _isSyncingTime = false; }
+    }
+
+    private async Task TestConnection(bool silent = false)
+    {
+        if (Controller == null) return;
+        _isTesting = true;
+        if (!silent) SetStatus("⚡ Pinging controller...", "text-info");
+        
+        try
+        {
+            var start = DateTime.Now;
+            var status = await ControllerClient.GetRunStatusAsync(Controller.SerialNumber.ToString());
+            var duration = (DateTime.Now - start).TotalMilliseconds;
+            
+            _isOnline = status != null;
+            
+            if (!silent)
+            {
+                if (_isOnline)
+                {
+                    SetStatus($"✓ Response received in {duration:F0}ms. Controller is Online.", "text-success");
+                    await Task.Delay(3000);
+                    ClearStatus();
+                }
+                else
+                {
+                    SetStatus("✗ No response from controller. Device may be Offline.", "text-danger");
+                }
+            }
+        }
+        catch 
+        { 
+            _isOnline = false; 
+            if (!silent) SetStatus("✗ Connection failed. Host unreachable.", "text-danger");
+        }
+        finally { _isTesting = false; }
+    }
+
+    private async Task LoadEvents()
+    {
+        if (Controller == null) return;
+        _isLoadingEvents = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var since = DateTime.UtcNow.AddHours(-24);
+            _recentEvents = await db.ControllerEvents
+                .Where(e => e.ControllerId == Controller.Id && e.TimestampUtc >= since)
+                .OrderByDescending(e => e.TimestampUtc)
+                .Take(20)
+                .Include(e => e.Door)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed events load");
+        }
+        finally { _isLoadingEvents = false; }
+    }
+
+    private async Task UnlockDoor(Door door)
+    {
+        if (Controller == null) return;
+        _isUnlocking = true;
+        _unlockingDoorId = door.Id;
+        
+        SetStatus($"🔓 Sending unlock command for '{door.Name}'...", "text-info");
+
+        try
+        {
+            await ControllerClient.OpenDoorAsync(Controller.SerialNumber.ToString(), door.DoorIndex);
+            
+            SetStatus($"✓ Command received. '{door.Name}' is now unlocked.", "text-success");
+
+            // Optimistic UI update
+            _unlockedDoors.Add(door.Id);
+            
+            _ = Task.Run(async () => {
+                await Task.Delay(3000);
+                _unlockedDoors.Remove(door.Id);
+                await InvokeAsync(StateHasChanged);
+            });
+            
+             // Refresh events soon to show the unlock
+             _ = Task.Run(async () => {
+                 await Task.Delay(1000);
+                 await InvokeAsync(LoadEvents);
+             });
+             
+             await Task.Delay(3000);
+             ClearStatus();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Unlock failed");
+            SetStatus($"✗ Failed to unlock: {ex.Message}", "text-danger");
+        }
+        finally { _isUnlocking = false; _unlockingDoorId = null; }
+    }
+    
+    private void SetStatus(string msg, string cssClass)
+    {
+        _operationStatus = msg;
+        _operationStatusClass = cssClass;
+        StateHasChanged();
+    }
+    
+    private void ClearStatus()
+    {
+        _operationStatus = null;
+        StateHasChanged();
+    }
+
+    private string GetEventTypeClass(int eventType) => eventType switch
+    {
+        1 => "success", 2 => "error", 3 => "warning", _ => "info"
+    };
+
+    private string GetEventIcon(int eventType) => eventType switch
+    {
+        1 => "check-circle-fill", 2 => "x-circle-fill", 3 => "exclamation-triangle-fill", _ => "info-circle-fill"
+    };
+
+    private string GetEventDescription(ControllerEvent evt)
+    {
+        var desc = evt.EventType switch
+        {
+            1 => "Access Granted", 2 => "Access Denied", 3 => "Door Forced", 4 => "Door Opened", _ => "Event"
+        };
+        if (evt.CardNumber.HasValue) desc += $" (Card {evt.CardNumber})";
+        if (evt.Door != null) desc += $" - {evt.Door.Name}";
+        return desc;
+    }
+}

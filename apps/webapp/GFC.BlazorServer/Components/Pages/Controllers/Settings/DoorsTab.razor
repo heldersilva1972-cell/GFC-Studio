@@ -1,0 +1,376 @@
+@using GFC.BlazorServer.Data.Entities
+@using DoorConfigEntity = GFC.BlazorServer.Data.Entities.DoorConfig
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject ControllerRegistryService RegistryService
+@inject IDoorConfigService DoorConfigService
+@inject DoorConfigSyncService SyncService
+@inject IJSRuntime JSRuntime
+@inject ILogger<DoorsTab> Logger
+
+<div class="doors-tab-container fadeIn">
+    <div class="row g-4 h-100">
+        <!-- Door List (Left Sidebar) -->
+        <div class="col-md-4 col-lg-3 d-flex flex-column">
+            <div class="glass-panel h-100 d-flex flex-column p-0 overflow-hidden">
+                <div class="p-3 border-bottom border-glass bg-surface-subtle">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="mb-0 fw-bold">Doors</h5>
+                        <button class="btn btn-sm btn-primary-modern" @onclick="CreateNewDoor" disabled="@(_isLoading)">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                    <div class="text-xs text-muted">
+                        @_doors.Count / 4 slots used
+                    </div>
+                </div>
+                
+                <div class="door-list flex-grow-1 overflow-auto custom-scrollbar">
+                    @if (_isLoading)
+                    {
+                        <div class="text-center p-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                        </div>
+                    }
+                    else if (!_doors.Any())
+                    {
+                        <div class="text-center p-4 text-muted">
+                            <i class="bi bi-door-closed fs-1 mb-2 opacity-50"></i>
+                            <p class="small mb-0">No doors found.</p>
+                            <button class="btn btn-sm btn-link" @onclick="CreateNewDoor">Add one</button>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var door in _doors.OrderBy(d => d.DoorIndex))
+                        {
+                            <div class="door-list-item @(_selectedDoor?.Id == door.Id ? "active" : "")" 
+                                 @onclick="() => SelectDoor(door)">
+                                <div class="door-icon-small">
+                                    <span class="door-idx">#@door.DoorIndex</span>
+                                </div>
+                                <div class="door-info text-truncate">
+                                    <div class="fw-bold text-truncate">@door.Name</div>
+                                    <small class="text-muted text-truncate">Port @door.DoorIndex • @(door.IsEnabled ? "Active" : "Disabled")</small>
+                                </div>
+                                <i class="bi bi-chevron-right text-muted ms-auto fs-7"></i>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Door Details (Right Content) -->
+        <div class="col-md-8 col-lg-9">
+            @if (_selectedDoor != null)
+            {
+                <div class="glass-panel h-100 d-flex flex-column fadeIn">
+                    <!-- Header -->
+                    <div class="panel-header border-bottom border-glass pb-3 mb-4 d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="d-flex align-items-center gap-2">
+                                <h2 class="mb-0">@(_selectedDoor.Id == 0 ? "New Door" : _selectedDoor.Name)</h2>
+                                @if(_selectedDoor.Id != 0) 
+                                {
+                                    <span class="badge @(_selectedDoor.IsEnabled ? "bg-success" : "bg-secondary")">
+                                        @(_selectedDoor.IsEnabled ? "Active" : "Disabled")
+                                    </span>
+                                }
+                            </div>
+                            <p class="text-muted small mb-0 mt-1">Configure implementation and hardware timers.</p>
+                        </div>
+                        
+                        @if(_selectedDoor.Id != 0)
+                        {
+                            <button class="btn btn-outline-danger btn-sm" @onclick="DeleteDoor">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        }
+                    </div>
+
+                    <!-- Configuration Form -->
+                    <EditForm Model="_selectedDoor" class="flex-grow-1 overflow-auto custom-scrollbar px-1">
+                        
+                        <div class="row g-4">
+                            <!-- Column 1: General Settings -->
+                            <div class="col-xl-6">
+                                <h5 class="section-title mb-3"><i class="bi bi-gear me-2"></i>General Information</h5>
+                                
+                                <div class="modern-field mb-3">
+                                    <label class="form-label">Door Name</label>
+                                    <input type="text" class="modern-input" @bind="_selectedDoor.Name" placeholder="Main Entrance" />
+                                </div>
+
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <div class="modern-field mb-3">
+                                            <label class="form-label">Relay Port</label>
+                                            <select class="form-select modern-input" @bind="_selectedDoor.DoorIndex">
+                                                @for (int i = 1; i <= 4; i++)
+                                                {
+                                                    var isTaken = _doors.Any(d => d.DoorIndex == i && d.Id != _selectedDoor.Id);
+                                                    <option value="@i" disabled="@isTaken">Port @i @(isTaken ? "(In Use)" : "")</option>
+                                                }
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="modern-field mb-3 pt-4">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" @bind="_selectedDoor.IsEnabled" id="doorEnabled" />
+                                                <label class="form-check-label fw-bold" for="doorEnabled">Enable Door</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="modern-field mb-3">
+                                    <label class="form-label">Notes / Location</label>
+                                    <textarea class="modern-input" @bind="_selectedDoor.Notes" rows="3" placeholder="Building location notes..."></textarea>
+                                </div>
+                            </div>
+
+                            <!-- Column 2: Advanced Timers -->
+                            <div class="col-xl-6">
+                                <div class="bg-surface-subtle rounded-3 p-3 border border-glass h-100">
+                                    <h5 class="section-title mb-3 text-primary"><i class="bi bi-stopwatch me-2"></i>Hardware Timers</h5>
+                                    
+                                    @if (_doorConfig != null)
+                                    {
+                                        <div class="modern-field mb-3">
+                                            <label class="form-label d-flex justify-content-between">
+                                                <span>Unlock Duration</span>
+                                                <span class="badge bg-primary">@_doorConfig.OpenTimeSeconds sec</span>
+                                            </label>
+                                            <input type="range" class="form-range" min="1" max="60" @bind="_doorConfig.OpenTimeSeconds" />
+                                            <div class="form-label-desc">How long the door stays unlocked after access.</div>
+                                        </div>
+
+                                        <div class="modern-field mb-3">
+                                            <label class="form-label d-flex justify-content-between">
+                                                <span>Lock Delay</span>
+                                                <span class="badge bg-secondary">@_doorConfig.LockDelaySeconds sec</span>
+                                            </label>
+                                            <input type="range" class="form-range" min="0" max="60" @bind="_doorConfig.LockDelaySeconds" />
+                                            <div class="form-label-desc">Delay before firing the relay (usually 0).</div>
+                                        </div>
+
+                                        <div class="form-check form-switch mt-4">
+                                            <input class="form-check-input" type="checkbox" @bind="_doorConfig.AlarmEnabled" id="alarmEnabled" />
+                                            <label class="form-check-label" for="alarmEnabled">
+                                                <strong>Hardware Alarm Trigger</strong>
+                                                <div class="text-xs text-muted">Fire alarm output if forced open?</div>
+                                            </label>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-center text-muted py-5">
+                                            <small>Save door first to configure timers</small>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="action-footer mt-4 pt-3 border-top border-glass d-flex justify-content-end gap-2">
+                            <button class="btn btn-modern btn-outline-secondary" @onclick="() => _selectedDoor = null">Cancel</button>
+                            <button class="btn btn-modern btn-primary-modern px-4" @onclick="SaveCurrentDoor" disabled="@(_isSaving)">
+                                @if (_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                <i class="bi bi-check-lg me-1"></i> Save Changes
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            }
+            else
+            {
+                <div class="glass-panel h-100 d-flex flex-column align-items-center justify-content-center text-center p-5 text-muted fadeIn">
+                    <div class="bg-surface-subtle p-4 rounded-circle mb-3">
+                        <i class="bi bi-door-open fs-1 text-primary opacity-50"></i>
+                    </div>
+                    <h3>Select a Door</h3>
+                    <p class="mb-4">Select a door from the list to edit, or add a new one.</p>
+                    <button class="btn btn-primary-modern" @onclick="CreateNewDoor">
+                        <i class="bi bi-plus-lg me-2"></i> Add New Door
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .door-list-item {
+        padding: 1rem;
+        border-bottom: 1px solid var(--glass-border);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        transition: all 0.2s;
+    }
+    .door-list-item:hover { background: rgba(var(--accent-primary-rgb), 0.05); }
+    .door-list-item.active { 
+        background: rgba(var(--accent-primary-rgb), 0.1); 
+        border-left: 3px solid var(--accent-primary);
+    }
+    .door-icon-small {
+        width: 32px; height: 32px;
+        background: var(--bg-surface);
+        border: 1px solid var(--glass-border);
+        border-radius: 8px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: bold; font-size: 0.8rem;
+        color: var(--accent-primary);
+    }
+    .text-xs { font-size: 0.75rem; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 3px; }
+</style>
+
+@code {
+    [Parameter] public ControllerDevice? Controller { get; set; }
+    [Parameter] public EventCallback OnDoorsUpdated { get; set; }
+
+    private List<Door> _doors = new();
+    private Door? _selectedDoor;
+    private DoorConfigEntity? _doorConfig;
+    private bool _isLoading = false;
+    private bool _isSaving = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Controller != null)
+        {
+            await LoadDoors();
+        }
+    }
+
+    private async Task LoadDoors()
+    {
+        if (Controller == null) return;
+        _isLoading = true;
+        try
+        {
+            _doors = (await RegistryService.GetDoorsAsync(Controller.Id)).ToList();
+            if (_selectedDoor != null)
+            {
+                // Refresh selected door instance
+                _selectedDoor = _doors.FirstOrDefault(d => d.Id == _selectedDoor.Id);
+                // If it was deleted, clear selection
+                if (_selectedDoor == null) _doorConfig = null;
+            }
+        }
+        finally { _isLoading = false; }
+    }
+
+    private void CreateNewDoor()
+    {
+        _selectedDoor = new Door 
+        { 
+            ControllerId = Controller?.Id ?? 0,
+            Name = "New Door",
+            IsEnabled = true,
+            DoorIndex = GetNextAvailablePort()
+        };
+        // Use default config for UI binding
+        _doorConfig = new DoorConfigEntity { OpenTimeSeconds = 5, LockDelaySeconds = 0 };
+    }
+
+    private async Task SelectDoor(Door door)
+    {
+        _selectedDoor = door; // Make a copy ideally if supporting cancel, but simplistic binding for now
+        // Load config
+        var configs = await DoorConfigService.GetConfigsForControllerAsync(Controller!.Id);
+        var existing = configs.FirstOrDefault(c => c.DoorId == door.Id);
+        
+        if (existing != null) 
+            _doorConfig = (DoorConfigEntity)existing;
+        else 
+            _doorConfig = (DoorConfigEntity)DoorConfigService.CreateDefaultForDoor(door);
+    }
+
+    private async Task SaveCurrentDoor()
+    {
+        if (_selectedDoor == null || Controller == null) return;
+        _isSaving = true;
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            
+            // 1. Save Door Entity
+            if (_selectedDoor.Id == 0)
+            {
+                db.Doors.Add(_selectedDoor);
+            }
+            else
+            {
+                db.Doors.Update(_selectedDoor);
+            }
+            await db.SaveChangesAsync();
+
+            // 2. Save Config Entity (now that we definitely have a DoorId)
+            if (_doorConfig != null)
+            {
+                _doorConfig.DoorId = _selectedDoor.Id;
+                
+                // We use the service to save config + sync potential support
+                // For now, simpler direct save or check existing service method
+                 await DoorConfigService.SaveConfigsAsync(Controller.Id, new[] { _doorConfig });
+            }
+
+            await LoadDoors();
+            // Re-select to refresh state
+            var savedDoor = _doors.FirstOrDefault(d => d.Id == _selectedDoor.Id);
+            if(savedDoor != null) await SelectDoor(savedDoor);
+            
+            // Notify parent to refresh
+            await OnDoorsUpdated.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save door");
+            // Show toast or alert
+        }
+        finally { _isSaving = false; }
+    }
+
+    private async Task DeleteDoor()
+    {
+        if (_selectedDoor == null) return;
+        
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{_selectedDoor.Name}'?");
+        if (!confirmed) return;
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.Doors.Remove(_selectedDoor);
+            await db.SaveChangesAsync();
+            
+            _selectedDoor = null;
+            _doorConfig = null;
+            await LoadDoors();
+            
+            // Notify parent to refresh
+            await OnDoorsUpdated.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete door");
+        }
+    }
+
+    private int GetNextAvailablePort()
+    {
+        for (int i = 1; i <= 4; i++)
+            if (!_doors.Any(d => d.DoorIndex == i)) return i;
+        return 1;
+    }
+}

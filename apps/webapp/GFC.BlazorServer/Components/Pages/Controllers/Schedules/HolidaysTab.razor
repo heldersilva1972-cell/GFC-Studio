@@ -3,114 +3,169 @@
 @using Microsoft.AspNetCore.Authorization
 @inject IScheduleService ScheduleService
 @inject ILogger<HolidaysTab> Logger
+@inject IJSRuntime JSRuntime
 
-<div class="data-card">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3>Holidays</h3>
+<div class="glass-panel p-4 fadeIn">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-glass">
+        <div>
+             <h3 class="mb-1"><i class="bi bi-calendar-event me-2 text-danger"></i>Holiday Exceptions</h3>
+             <p class="text-muted small mb-0">Define specific dates (e.g., "New Year's Day") when normal unlock schedules should be overridden.</p>
+        </div>
         <button class="btn btn-primary" @onclick="ShowAddModal" disabled="@_loading">
-            <i class="bi bi-plus-circle"></i> Add Holiday
+            <i class="bi bi-plus-lg me-2"></i>Add Holiday
         </button>
     </div>
 
     @if (_errorMessage != null)
     {
-        <div class="alert alert-danger">@_errorMessage</div>
+        <div class="alert alert-danger mb-4">
+             <i class="bi bi-exclamation-triangle-fill me-2"></i> @_errorMessage
+        </div>
     }
 
     @if (_loading)
     {
-        <div class="text-center my-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
+        <div class="d-flex justify-content-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (_holidays.Count == 0)
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-calendar2-x display-4 text-muted opacity-25 mb-3"></i>
+            <h5 class="text-muted">No holidays configured</h5>
+            <p class="text-muted small">Add holidays to prevent doors from automatically unlocking on specific days.</p>
+            <button class="btn btn-outline-primary mt-3" @onclick="ShowAddModal">Add First Holiday</button>
         </div>
     }
     else
     {
-        <table class="data-table table-compact">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Date</th>
-                    <th>Recurring</th>
-                    <th style="width:150px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (_holidays.Count == 0)
-                {
+        <div class="table-responsive rounded-3 border border-glass">
+            <table class="table table-hover align-middle mb-0 bg-surface">
+                <thead class="bg-surface-subtle text-muted text-uppercase small">
                     <tr>
-                        <td colspan="4" class="text-center text-muted py-4">No holidays configured.</td>
+                        <th class="ps-4">Holiday Name</th>
+                        <th>Date</th>
+                        <th>Recurs Yearly</th>
+                        <th class="text-end pe-4">Actions</th>
                     </tr>
-                }
-                else
-                {
-                    @foreach (var holiday in _holidays)
+                </thead>
+                <tbody>
+                    @foreach (var holiday in _holidays.OrderBy(h => h.Date))
                     {
                         <tr>
-                            <td>@holiday.Name</td>
-                            <td>@holiday.Date.ToString("MMM d, yyyy")</td>
+                            <td class="ps-4 fw-medium">@holiday.Name</td>
                             <td>
-                                <span class="badge @(holiday.IsRecurring ? "bg-success" : "bg-secondary")">
-                                    @(holiday.IsRecurring ? "Yes" : "No")
-                                </span>
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-calendar3 me-2 text-muted"></i>
+                                    @holiday.Date.ToString("MMMM d")
+                                </div>
                             </td>
                             <td>
-                                <button class="btn btn-outline-primary btn-sm" @onclick="() => EditHoliday(holiday)">
+                                @if (holiday.IsRecurring)
+                                {
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Recurring
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill">
+                                        One-time
+                                    </span>
+                                }
+                            </td>
+                            <td class="text-end pe-4">
+                                <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => EditHoliday(holiday)">
                                     Edit
                                 </button>
-                                <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteHoliday(holiday)">
-                                    Delete
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteHoliday(holiday)">
+                                    <i class="bi bi-trash"></i>
                                 </button>
                             </td>
                         </tr>
                     }
-                }
-            </tbody>
-        </table>
+                </tbody>
+            </table>
+        </div>
     }
 </div>
 
 @if (_showModal)
 {
-    <div class="modal-backdrop fade show"></div>
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@(_editingHoliday?.Id > 0 ? "Edit" : "Add") Holiday</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+    <div class="modal-backdrop fade show" style="z-index: 1050;"></div>
+    <div class="modern-modal-container" style="z-index: 1060;">
+        <div class="modern-modal fadeIn w-100" style="max-width: 500px;">
+             <div class="modal-header-modern">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="header-icon bg-danger-subtle text-danger"><i class="bi bi-gift"></i></div>
+                    <h3 class="mb-0">@(_editingHoliday?.Id > 0 ? "Edit" : "Add") Holiday</h3>
                 </div>
-                <div class="modal-body">
-                    @if (!string.IsNullOrWhiteSpace(_modalError))
-                    {
-                        <div class="alert alert-danger">@_modalError</div>
-                    }
-                    <div class="mb-3">
-                        <label class="form-label">Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" @bind="_editingHoliday!.Name" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Date <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" @bind="_editingHoliday!.Date" />
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" @bind="_editingHoliday!.IsRecurring" />
-                            <label class="form-check-label">Recurring (applies every year)</label>
-                        </div>
+                <button class="btn-close-modern" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            
+            <div class="modal-body-modern">
+                @if (!string.IsNullOrWhiteSpace(_modalError))
+                {
+                    <div class="alert alert-danger mb-4">@_modalError</div>
+                }
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold small text-uppercase text-muted">Holiday Name</label>
+                    <input type="text" class="modern-input w-100" placeholder="e.g. Christmas Day" @bind="_editingHoliday!.Name" />
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label fw-bold small text-uppercase text-muted">Date</label>
+                    <input type="date" class="modern-input w-100" @bind="_editingHoliday!.Date" />
+                </div>
+
+                <div class="form-check form-switch p-3 bg-surface-subtle rounded-3 border border-glass">
+                    <input class="form-check-input" type="checkbox" id="recurringSwitch" @bind="_editingHoliday!.IsRecurring" style="margin-left: 0; margin-right: 10px;">
+                    <div class="d-flex flex-column">
+                         <label class="form-check-label fw-bold cursor-pointer" for="recurringSwitch">Recurring Holiday</label>
+                         <small class="text-muted">If checked, this holiday applies every year on this date.</small>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button class="btn btn-outline-secondary" @onclick="CloseModal" disabled="@_saving">Cancel</button>
-                    <button class="btn btn-primary" @onclick="SaveHoliday" disabled="@_saving">
-                        @(_saving ? "Saving..." : "Save")
-                    </button>
-                </div>
+            </div>
+            
+            <div class="modal-footer-modern">
+                <button class="btn-modern btn-outline-modern" @onclick="CloseModal" disabled="@_saving">Cancel</button>
+                <button class="btn-modern btn-primary-modern" @onclick="SaveHoliday" disabled="@_saving">
+                   @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                   Save Holiday
+                </button>
             </div>
         </div>
     </div>
 }
+
+<style>
+    /* Scoped Styles (Shared with TimeProfilesTab ideally, but duplicated for isolation) */
+    .glass-panel { background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: 16px; }
+    .bg-surface-subtle { background-color: rgba(var(--bg-surface-rgb), 0.5); }
+    
+    .modern-input { 
+        background-color: var(--bg-surface); 
+        border: 1px solid var(--glass-border); 
+        border-radius: 8px; 
+        padding: 0.6rem 1rem;
+        transition: all 0.2s;
+    }
+    .modern-input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1); outline: none; }
+
+    /* Modal Styles */
+    .modern-modal-container { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .modern-modal { background: var(--bg-surface); border-radius: 20px; border: 1px solid var(--glass-border); box-shadow: 0 20px 50px rgba(0,0,0,0.2); pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-header-modern { padding: 1.5rem; border-bottom: 1px solid var(--glass-border); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface); }
+    .modal-body-modern { padding: 2rem; background: var(--bg-surface); }
+    .modal-footer-modern { padding: 1.5rem; border-top: 1px solid var(--glass-border); display: flex; justify-content: flex-end; gap: 1rem; background: var(--bg-surface-subtle); }
+    .header-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
+    .btn-close-modern { background: none; border: none; font-size: 1.25rem; color: var(--text-muted); cursor: pointer; transition: color 0.2s; }
+    .btn-close-modern:hover { color: var(--text-primary); }
+    
+    .cursor-pointer { cursor: pointer; }
+</style>
 
 @code {
     private List<Holiday> _holidays = new();
@@ -130,37 +185,21 @@
     {
         _loading = true;
         _errorMessage = null;
-        try
-        {
-            _holidays = await ScheduleService.GetHolidaysAsync();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to load holidays");
-            _errorMessage = "Failed to load holidays. See logs for details.";
-        }
-        finally
-        {
-            _loading = false;
-        }
+        try { _holidays = await ScheduleService.GetHolidaysAsync(); }
+        catch (Exception ex) { _errorMessage = "Failed to load data."; Logger.LogError(ex, "Failed to load holidays"); }
+        finally { _loading = false; }
     }
 
     private void ShowAddModal()
     {
-        _editingHoliday = new Holiday { Date = DateOnly.FromDateTime(DateTime.Today) };
+        _editingHoliday = new Holiday { Date = DateOnly.FromDateTime(DateTime.Today), IsRecurring = true };
         _showModal = true;
         _modalError = null;
     }
 
     private void EditHoliday(Holiday holiday)
     {
-        _editingHoliday = new Holiday
-        {
-            Id = holiday.Id,
-            Name = holiday.Name,
-            Date = holiday.Date,
-            IsRecurring = holiday.IsRecurring
-        };
+        _editingHoliday = new Holiday { Id = holiday.Id, Name = holiday.Name, Date = holiday.Date, IsRecurring = holiday.IsRecurring };
         _showModal = true;
         _modalError = null;
     }
@@ -169,63 +208,32 @@
     {
         _showModal = false;
         _editingHoliday = null;
-        _modalError = null;
     }
 
     private async Task SaveHoliday()
     {
-        if (_editingHoliday == null || string.IsNullOrWhiteSpace(_editingHoliday.Name))
-        {
-            _modalError = "Name is required.";
-            return;
-        }
+        if (_editingHoliday == null) return;
+        if (string.IsNullOrWhiteSpace(_editingHoliday.Name)) { _modalError = "Name is required."; return; }
 
         _saving = true;
         _modalError = null;
 
         try
         {
-            if (_editingHoliday.Id > 0)
-            {
-                await ScheduleService.UpdateHolidayAsync(_editingHoliday);
-            }
-            else
-            {
-                await ScheduleService.AddHolidayAsync(_editingHoliday);
-            }
+            if (_editingHoliday.Id > 0) await ScheduleService.UpdateHolidayAsync(_editingHoliday);
+            else await ScheduleService.AddHolidayAsync(_editingHoliday);
 
             CloseModal();
             await LoadHolidays();
         }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to save holiday");
-            _modalError = "Failed to save holiday: " + ex.Message;
-        }
-        finally
-        {
-            _saving = false;
-        }
+        catch (Exception ex) { _modalError = "Save failed: " + ex.Message; }
+        finally { _saving = false; }
     }
 
     private async Task DeleteHoliday(Holiday holiday)
     {
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete holiday '{holiday.Name}'?"))
-        {
-            return;
-        }
-
-        try
-        {
-            await ScheduleService.DeleteHolidayAsync(holiday.Id);
-            await LoadHolidays();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to delete holiday");
-            _errorMessage = "Failed to delete holiday: " + ex.Message;
-        }
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete holiday '{holiday.Name}'?")) return;
+        try { await ScheduleService.DeleteHolidayAsync(holiday.Id); await LoadHolidays(); }
+        catch (Exception ex) { _errorMessage = "Delete failed."; }
     }
-
-    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
 }
