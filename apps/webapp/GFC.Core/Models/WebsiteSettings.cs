@@ -8,15 +8,27 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
-        public string? ClubPhone { get; set; }
+        public string ClubPhone { get; set; }
 
-        public string? ClubAddress { get; set; }
+        public string ClubAddress { get; set; }
 
         public bool? MasterEmailKillSwitch { get; set; }
 
+        // Legacy rates (kept for backward compatibility)
         public decimal? MemberRate { get; set; }
         public decimal? NonMemberRate { get; set; }
         public decimal? NonProfitRate { get; set; }
+        
+        // Detailed Hall Rental Pricing Matrix
+        public decimal? FunctionHallNonMemberRate { get; set; } = 400;
+        public decimal? FunctionHallMemberRate { get; set; } = 300;
+        public decimal? CoalitionNonMemberRate { get; set; } = 200;
+        public decimal? CoalitionMemberRate { get; set; } = 100;
+        public decimal? YouthOrganizationNonMemberRate { get; set; } = 100;
+        public decimal? YouthOrganizationMemberRate { get; set; } = 100;
+        
+        // Add-on Services
+        public decimal? BartenderServiceFee { get; set; } = 100;
         public decimal? KitchenFee { get; set; }
         public decimal? AvEquipmentFee { get; set; }
         public decimal? SecurityDepositAmount { get; set; }
@@ -31,18 +43,17 @@ namespace GFC.Core.Models
         public string? PaymentGatewayApiKey { get; set; }
         
         // System Settings
-        public string? PrimaryColor { get; set; } = "#0D1B2A"; // Midnight Blue
-        public string? SecondaryColor { get; set; } = "#FFD700"; // Gold
-        public string? HeadingFont { get; set; } = "Outfit";
-        public string? BodyFont { get; set; } = "Inter";
+        public string PrimaryColor { get; set; } = "#0D1B2A"; // Midnight Blue
+        public string SecondaryColor { get; set; } = "#FFD700"; // Gold
+        public string HeadingFont { get; set; } = "Outfit";
+        public string BodyFont { get; set; } = "Inter";
         public bool? HighAccessibilityMode { get; set; } = false;
-        public bool? LargeTextMode { get; set; } = false;
 
         public bool? IsClubOpen { get; set; } = true;
 
         // SEO Settings
-        public string? SeoTitle { get; set; }
-        public string? SeoDescription { get; set; }
-        public string? SeoKeywords { get; set; }
+        public string SeoTitle { get; set; }
+        public string SeoDescription { get; set; }
+        public string SeoKeywords { get; set; }
     }
 }

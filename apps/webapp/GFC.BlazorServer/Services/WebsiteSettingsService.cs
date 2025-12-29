@@ -18,8 +18,8 @@ namespace GFC.BlazorServer.Services
 
         public async Task<WebsiteSettings> GetWebsiteSettingsAsync()
         {
-            using var context = await _contextFactory.CreateDbContextAsync();
-            var settings = await context.WebsiteSettings.FirstOrDefaultAsync();
+            await using var _context = await _contextFactory.CreateDbContextAsync();
+            var settings = await _context.WebsiteSettings.FirstOrDefaultAsync();
             if (settings == null)
             {
                 settings = new WebsiteSettings
@@ -27,39 +27,129 @@ namespace GFC.BlazorServer.Services
                     MemberRate = 250,
                     NonMemberRate = 500,
                     NonProfitRate = 350,
+                    FunctionHallNonMemberRate = 400,
+                    FunctionHallMemberRate = 300,
+                    CoalitionNonMemberRate = 200,
+                    CoalitionMemberRate = 100,
+                    YouthOrganizationNonMemberRate = 100,
+                    YouthOrganizationMemberRate = 100,
+                    BartenderServiceFee = 100,
                     KitchenFee = 50,
                     AvEquipmentFee = 25,
                     SecurityDepositAmount = 100,
+                    BaseFunctionHours = 5,
+                    AdditionalHourRate = 50,
                     MaxHallRentalDurationHours = 8,
                     IsClubOpen = true,
                     MasterEmailKillSwitch = false,
                     HighAccessibilityMode = false,
                     EnableOnlineRentalsPayment = false
                 };
-                context.WebsiteSettings.Add(settings);
-                await context.SaveChangesAsync();
+                _context.WebsiteSettings.Add(settings);
+                await _context.SaveChangesAsync();
+            }
+            else
+            {
+                // Apply defaults for any NULL pricing fields
+                settings.FunctionHallNonMemberRate ??= 400;
+                settings.FunctionHallMemberRate ??= 300;
+                settings.CoalitionNonMemberRate ??= 200;
+                settings.CoalitionMemberRate ??= 100;
+                settings.YouthOrganizationNonMemberRate ??= 100;
+                settings.YouthOrganizationMemberRate ??= 100;
+                settings.BartenderServiceFee ??= 100;
+                settings.BaseFunctionHours ??= 5;
+                settings.AdditionalHourRate ??= 50;
+                settings.KitchenFee ??= 50;
+                settings.AvEquipmentFee ??= 25;
+                settings.SecurityDepositAmount ??= 100;
             }
             return settings;
         }
 
         public async Task UpdateWebsiteSettingsAsync(WebsiteSettings settings)
         {
-            using var context = await _contextFactory.CreateDbContextAsync();
-            var existingSettings = await context.WebsiteSettings.FirstOrDefaultAsync();
-            if (existingSettings == null)
+            await using var _context = await _contextFactory.CreateDbContextAsync();
+            
+            try
             {
-                context.WebsiteSettings.Add(settings);
+                // FORCE all pricing fields to have values - NO NULLS ALLOWED
+                settings.FunctionHallNonMemberRate ??= 400;
+                settings.FunctionHallMemberRate ??= 300;
+                settings.CoalitionNonMemberRate ??= 200;
+                settings.CoalitionMemberRate ??= 100;
+                settings.YouthOrganizationNonMemberRate ??= 100;
+                settings.YouthOrganizationMemberRate ??= 100;
+                settings.BartenderServiceFee ??= 100;
+                settings.BaseFunctionHours ??= 5;
+                settings.AdditionalHourRate ??= 50;
+                settings.KitchenFee ??= 50;
+                settings.AvEquipmentFee ??= 25;
+                settings.SecurityDepositAmount ??= 100;
+                
+                var existingSettings = await _context.WebsiteSettings.FirstOrDefaultAsync();
+                
+                if (existingSettings == null)
+                {
+                    settings.Id = 1;
+                    _context.WebsiteSettings.Add(settings);
+                }
+                else
+                {
+                    // Update using direct assignment - simpler approach
+                    existingSettings.FunctionHallNonMemberRate = settings.FunctionHallNonMemberRate;
+                    existingSettings.FunctionHallMemberRate = settings.FunctionHallMemberRate;
+                    existingSettings.CoalitionNonMemberRate = settings.CoalitionNonMemberRate;
+                    existingSettings.CoalitionMemberRate = settings.CoalitionMemberRate;
+                    existingSettings.YouthOrganizationNonMemberRate = settings.YouthOrganizationNonMemberRate;
+                    existingSettings.YouthOrganizationMemberRate = settings.YouthOrganizationMemberRate;
+                    existingSettings.BartenderServiceFee = settings.BartenderServiceFee;
+                    existingSettings.KitchenFee = settings.KitchenFee;
+                    existingSettings.AvEquipmentFee = settings.AvEquipmentFee;
+                    existingSettings.SecurityDepositAmount = settings.SecurityDepositAmount;
+                    existingSettings.BaseFunctionHours = settings.BaseFunctionHours;
+                    existingSettings.AdditionalHourRate = settings.AdditionalHourRate;
+                    
+                    // Only update non-null values for other fields
+                    if (settings.MemberRate.HasValue) existingSettings.MemberRate = settings.MemberRate;
+                    if (settings.NonMemberRate.HasValue) existingSettings.NonMemberRate = settings.NonMemberRate;
+                    if (settings.NonProfitRate.HasValue) existingSettings.NonProfitRate = settings.NonProfitRate;
+                    if (settings.MaxHallRentalDurationHours.HasValue) existingSettings.MaxHallRentalDurationHours = settings.MaxHallRentalDurationHours;
+                    if (settings.EnableOnlineRentalsPayment.HasValue) existingSettings.EnableOnlineRentalsPayment = settings.EnableOnlineRentalsPayment;
+                    if (!string.IsNullOrEmpty(settings.PaymentGatewayUrl)) existingSettings.PaymentGatewayUrl = settings.PaymentGatewayUrl;
+                    if (!string.IsNullOrEmpty(settings.PaymentGatewayApiKey)) existingSettings.PaymentGatewayApiKey = settings.PaymentGatewayApiKey;
+                    if (!string.IsNullOrEmpty(settings.ClubPhone)) existingSettings.ClubPhone = settings.ClubPhone;
+                    if (!string.IsNullOrEmpty(settings.ClubAddress)) existingSettings.ClubAddress = settings.ClubAddress;
+                    if (settings.MasterEmailKillSwitch.HasValue) existingSettings.MasterEmailKillSwitch = settings.MasterEmailKillSwitch;
+                    if (!string.IsNullOrEmpty(settings.PrimaryColor)) existingSettings.PrimaryColor = settings.PrimaryColor;
+                    if (!string.IsNullOrEmpty(settings.SecondaryColor)) existingSettings.SecondaryColor = settings.SecondaryColor;
+                    if (!string.IsNullOrEmpty(settings.HeadingFont)) existingSettings.HeadingFont = settings.HeadingFont;
+                    if (!string.IsNullOrEmpty(settings.BodyFont)) existingSettings.BodyFont = settings.BodyFont;
+                    if (settings.HighAccessibilityMode.HasValue) existingSettings.HighAccessibilityMode = settings.HighAccessibilityMode;
+                    if (settings.IsClubOpen.HasValue) existingSettings.IsClubOpen = settings.IsClubOpen;
+                    if (!string.IsNullOrEmpty(settings.SeoTitle)) existingSettings.SeoTitle = settings.SeoTitle;
+                    if (!string.IsNullOrEmpty(settings.SeoDescription)) existingSettings.SeoDescription = settings.SeoDescription;
+                    if (!string.IsNullOrEmpty(settings.SeoKeywords)) existingSettings.SeoKeywords = settings.SeoKeywords;
+                }
+                
+                await _context.SaveChangesAsync();
             }
-            else
+            catch (Exception ex)
             {
-                context.Entry(existingSettings).CurrentValues.SetValues(settings);
+                // Log the full exception details
+                Console.WriteLine($"ERROR in UpdateWebsiteSettingsAsync: {ex.Message}");
+                Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+                }
+                throw;
             }
-            await context.SaveChangesAsync();
         }
 
         private async Task HealDatabaseAsync()
         {
-             using var context = await _contextFactory.CreateDbContextAsync();
+            await using var _context = await _contextFactory.CreateDbContextAsync();
              var fixNullsSql = @"
                 UPDATE [dbo].[WebsiteSettings] SET [MemberRate] = 0 WHERE [MemberRate] IS NULL;
                 UPDATE [dbo].[WebsiteSettings] SET [NonMemberRate] = 0 WHERE [NonMemberRate] IS NULL;
@@ -67,7 +157,7 @@ namespace GFC.BlazorServer.Services
                 UPDATE [dbo].[WebsiteSettings] SET [MasterEmailKillSwitch] = 0 WHERE [MasterEmailKillSwitch] IS NULL;
                 UPDATE [dbo].[WebsiteSettings] SET [HighAccessibilityMode] = 0 WHERE [HighAccessibilityMode] IS NULL;
             ";
-            await context.Database.ExecuteSqlRawAsync(fixNullsSql);
+            await _context.Database.ExecuteSqlRawAsync(fixNullsSql);
         }
     }
 }

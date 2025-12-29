@@ -41,6 +41,7 @@ const HallRentalClientPage = () => {
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [draftData, setDraftData] = useState<any>(null);
   const [formData, setFormData] = useState<any>(null); // To pass into form if resuming
+  const [submittedData, setSubmittedData] = useState<any>(null); // To show in success modal
   const [pendingNavigation, setPendingNavigation] = useState<number | null>(null);
   const [pricing, setPricing] = useState<any>(null);
 
@@ -122,6 +123,9 @@ const HallRentalClientPage = () => {
   };
 
   const handleSuccess = (data: any) => {
+    // Capture data for success modal
+    setSubmittedData(data);
+
     // Clear draft on success
     localStorage.removeItem(DRAFT_KEY);
     setDraftData(null);
@@ -134,6 +138,7 @@ const HallRentalClientPage = () => {
 
   const handleCloseSuccess = () => {
     setShowSuccessModal(false);
+    setSubmittedData(null);
     forceNavigate(2); // Go to calendar directly, bypassing "Save Draft" prompt
   };
 
@@ -404,16 +409,23 @@ const HallRentalClientPage = () => {
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 1.2 }}
-                  className="bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-burnished-gold/30 mb-6"
+                  className="bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-burnished-gold/30 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-center md:text-left"
                 >
-                  <p className="text-pure-white/60 text-sm mb-1">RESERVED DATE</p>
-                  <motion.p
-                    className="text-2xl font-bold text-pure-white"
-                    animate={{ scale: [1, 1.05, 1] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  >
-                    {selectedDate?.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                  </motion.p>
+                  <div className="md:border-r md:border-white/10 pr-4">
+                    <p className="text-pure-white/60 text-xs mb-1 uppercase tracking-tighter">RESERVED DATE</p>
+                    <p className="text-xl font-bold text-pure-white leading-tight">
+                      {selectedDate?.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </p>
+                  </div>
+                  <div className="pl-0 md:pl-2">
+                    <p className="text-pure-white/60 text-xs mb-1 uppercase tracking-tighter">FUNCTION TYPE & TIME</p>
+                    <p className="text-lg font-bold text-burnished-gold leading-tight">
+                      {submittedData?.eventType === 'Other' ? submittedData.otherEventType : submittedData?.eventType}
+                    </p>
+                    <p className="text-sm text-pure-white/80">
+                      {submittedData?.startTime} - {submittedData?.endTime}
+                    </p>
+                  </div>
                 </motion.div>
               </motion.div>
 
@@ -577,18 +589,18 @@ const HallRentalClientPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left mb-8">
                 <div className="bg-black/20 p-6 rounded-lg border border-white/5">
                   <h3 className="text-burnished-gold font-bold mb-2">Member Rate</h3>
-                  <p className="text-3xl font-display text-white">${pricing?.memberRate || 250}</p>
+                  <p className="text-3xl font-display text-white">${pricing?.functionHallMemberRate || 300}</p>
                   <p className="text-xs text-white/50 mt-1">For active club members</p>
                 </div>
                 <div className="bg-black/20 p-6 rounded-lg border border-burnished-gold/20">
                   <h3 className="text-burnished-gold font-bold mb-2">Non-Member Rate</h3>
-                  <p className="text-3xl font-display text-white">${pricing?.nonMemberRate || 500}</p>
+                  <p className="text-3xl font-display text-white">${pricing?.functionHallNonMemberRate || 400}</p>
                   <p className="text-xs text-white/50 mt-1">For guests and public events</p>
                 </div>
                 <div className="bg-black/20 p-6 rounded-lg border border-white/5">
-                  <h3 className="text-burnished-gold font-bold mb-2">Non-Profit Rate</h3>
-                  <p className="text-3xl font-display text-white">${pricing?.nonProfitRate || 350}</p>
-                  <p className="text-xs text-white/50 mt-1">For certified 501(c)(3) orgs</p>
+                  <h3 className="text-burnished-gold font-bold mb-2">Youth Organization</h3>
+                  <p className="text-3xl font-display text-white">${pricing?.youthOrganizationNonMemberRate || 100}</p>
+                  <p className="text-xs text-white/50 mt-1">For youth events</p>
                 </div>
               </div>
 

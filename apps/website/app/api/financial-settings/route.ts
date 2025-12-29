@@ -7,7 +7,7 @@ const getFinancialSettings = async () => {
   // Mock data - replace with actual fetch to http://localhost:5000/api/v1/settings/financial
   return {
     showDonateButton: true,
-    showMemberDuesButton: true,
+    showMemberDuesButton: false, // Feature is not ready yet
   };
 };
 

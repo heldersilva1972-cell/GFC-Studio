@@ -12,15 +12,16 @@ namespace GFC.BlazorServer.Services
 {
     public class AnnouncementService : IAnnouncementService
     {
-        private readonly GfcDbContext _context;
+        private readonly IDbContextFactory<GfcDbContext> _contextFactory;
 
-        public AnnouncementService(GfcDbContext context)
+        public AnnouncementService(IDbContextFactory<GfcDbContext> contextFactory)
         {
-            _context = context;
+            _contextFactory = contextFactory;
         }
 
         public async Task<List<SystemNotification>> GetActiveAnnouncementsAsync()
         {
+            await using var _context = await _contextFactory.CreateDbContextAsync();
             var now = DateTime.UtcNow;
             return await _context.SystemNotifications
                 .Where(n => n.IsActive && n.StartDate <= now && (n.EndDate == null || n.EndDate >= now))

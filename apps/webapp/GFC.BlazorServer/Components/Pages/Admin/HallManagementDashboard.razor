@@ -1,0 +1,1183 @@
+@page "/admin/hall-management"
+@using GFC.BlazorServer.Services
+@using GFC.Core.Models
+@using GFC.Core.Interfaces
+@inject IRentalService RentalService
+@inject IJSRuntime JSRuntime
+@inject ToastService ToastService
+@inject IMemberRepository MemberRepo
+@inject IDuesRepository DuesRepo
+@attribute [Authorize(Roles = "Admin,Director")]
+@rendermode InteractiveServer
+
+<div class="hall-management-dashboard">
+    <!-- Header -->
+    <div class="dashboard-header">
+        <div class="header-content">
+            <div>
+                <h1 class="dashboard-title">
+                    <i class="bi bi-calendar-event"></i>
+                    Hall Management
+                </h1>
+                <p class="dashboard-subtitle">Unified control center for hall rentals and club events</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn-modern btn-gold" @onclick="() => ShowAddEventModal()">
+                    <i class="bi bi-plus-lg"></i>
+                    Add Club Event
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Overview -->
+    <div class="stats-grid">
+        <div class="stat-card @(_pendingCount > 0 ? "stat-pending-alert" : "stat-primary") clickable" @onclick="() => ShowFilteredList(FilterType.Pending)">
+            <div class="stat-icon">
+                <i class="bi bi-calendar-check"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Pending Requests</div>
+                <div class="stat-value">@_pendingCount</div>
+            </div>
+            <i class="bi bi-chevron-right stat-arrow"></i>
+        </div>
+        <div class="stat-card stat-success clickable" @onclick="() => ShowFilteredList(FilterType.Approved)">
+            <div class="stat-icon">
+                <i class="bi bi-check-circle"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Upcoming Bookings</div>
+                <div class="stat-value">@_approvedCount</div>
+            </div>
+            <i class="bi bi-chevron-right stat-arrow"></i>
+        </div>
+        <div class="stat-card stat-warning clickable" @onclick="() => ShowFilteredList(FilterType.ClubEvents)">
+            <div class="stat-icon">
+                <i class="bi bi-star-fill"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Upcoming Club Events</div>
+                <div class="stat-value">@_clubEventsCount</div>
+            </div>
+            <i class="bi bi-chevron-right stat-arrow"></i>
+        </div>
+        <div class="stat-card stat-info">
+            <div class="stat-icon">
+                <i class="bi bi-calendar3"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Total Bookings</div>
+                <div class="stat-value">@_totalBookings</div>
+            </div>
+        </div>
+        <div class="stat-card stat-success">
+            <div class="stat-icon">
+                <i class="bi bi-cash-coin"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">@DateTime.Now.ToString("MMMM") Revenue</div>
+                <div class="stat-value">@_monthlyRevenue.ToString("C0")</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="content-grid">
+        <!-- Calendar Section -->
+        <div class="section-card calendar-section">
+            <div class="calendar-container">
+                <div class="calendar-header">
+                    <button class="calendar-nav-btn" @onclick="() => ChangeMonth(-1)">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <div class="current-month">@_currentMonth.ToString("MMMM yyyy")</div>
+                    <button class="calendar-nav-btn" @onclick="() => ChangeMonth(1)">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+                
+                <div class="calendar-grid">
+                    <!-- Day Headers -->
+                    <div class="day-header">Sun</div>
+                    <div class="day-header">Mon</div>
+                    <div class="day-header">Tue</div>
+                    <div class="day-header">Wed</div>
+                    <div class="day-header">Thu</div>
+                    <div class="day-header">Fri</div>
+                    <div class="day-header">Sat</div>
+                    
+                    <!-- Calendar Days -->
+                    @for (int i = 0; i < _firstDayOffset; i++)
+                    {
+                        <div class="calendar-day empty-day"></div>
+                    }
+                    
+                    @for (int day = 1; day <= _daysInMonth; day++)
+                    {
+                        var date = new DateTime(_currentMonth.Year, _currentMonth.Month, day);
+                        var isToday = date.Date == DateTime.Today;
+                        var dayEvents = GetEventsForDay(date);
+                        var isClickable = date.Date >= DateTime.Today || dayEvents.Any();
+                        
+                        <div class="calendar-day @(isToday ? "today" : "") @(date.Date < DateTime.Today ? "past-day" : "")" 
+                             @onclick="() => { if (isClickable) SelectDay(date); }"
+                             style="@(!isClickable ? "cursor: default; opacity: 0.6; background-color: #fafafa;" : "")">
+                            <div class="day-number">@day</div>
+                            <div class="day-events">
+                                @foreach (var evt in dayEvents.Take(3))
+                                {
+                                    <div class="event-badge @GetEventTypeClass(evt.Type)" title="@($"{evt.Title} - {evt.Description} - {evt.Time}")">
+                                        <span class="event-title">
+                                            @evt.Title
+                                            @if (evt.Type == EventType.RentalPending)
+                                            {
+                                                <span class="fw-bold ms-1" style="font-size: 0.8em; opacity: 0.9;">(PENDING)</span>
+                                            }
+                                        </span>
+                                        @if (!string.IsNullOrEmpty(evt.Description))
+                                        {
+                                            <span class="event-description">@evt.Description</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(evt.Time))
+                                        {
+                                            <span class="event-time">@evt.Time</span>
+                                        }
+                                        @if (evt.Request != null && evt.Request.TotalPrice > 0)
+                                        {
+                                            <span class="event-price">@evt.Request.TotalPrice.ToString("C0")</span>
+                                        }
+                                    </div>
+                                }
+                                @if (dayEvents.Count > 3)
+                                {
+                                    <div class="more-events">+@(dayEvents.Count - 3) more</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar Section -->
+        <div class="sidebar-section">
+            <div class="section-card">
+                <div class="section-header">
+                    <h2><i class="bi bi-clock-history"></i> Upcoming Events</h2>
+                </div>
+                <div class="events-list">
+                    @if (_upcomingEvents.Any())
+                    {
+                        @foreach (var evt in _upcomingEvents.Take(10))
+                        {
+                            <div class="event-item @(evt.Type == EventType.RentalPending ? "border-warning" : "")" @onclick="() => ViewEventDetails(evt)" style="cursor: pointer; transition: all 0.2s;">
+                                <div class="event-date-badge">
+                                    <span class="event-day">@evt.Date.Day</span>
+                                    <span class="event-month">@evt.Date.ToString("MMM")</span>
+                                </div>
+                                <div class="event-details">
+                                    <div class="event-title">
+                                        @evt.Title
+                                        @if(evt.Type == EventType.RentalPending) 
+                                        { 
+                                            <span class="badge bg-primary text-white ms-1" style="font-size: 0.65em; vertical-align: text-top;">PENDING</span> 
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(evt.Description))
+                                    {
+                                        <div class="event-desc text-muted mb-1" style="font-size: 0.85rem;">@evt.Description</div>
+                                    }
+                                    <div class="event-time">
+                                        <i class="bi bi-clock"></i> @evt.Time
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="empty-state">No upcoming events scheduled</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modern Add Club Event Modal -->
+@if (_showEventModal)
+{
+    <div class="modal-overlay" @onclick="() => CloseEventModal()">
+        <div class="modal-container modal-medium modal-modern" @onclick:stopPropagation="true">
+            <div class="modal-header modal-header-gold">
+                <div class="modal-title-section">
+                    <i class="bi bi-calendar-star-fill modal-icon text-white"></i>
+                    <h3 class="text-white">@(_editingEvent != null ? "Edit Club Event" : "Add Club Event")</h3>
+                </div>
+                <button class="btn-close-pill btn-close-white" @onclick="() => CloseEventModal()">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="form-group-modern mb-4">
+                     <label class="text-uppercase text-secondary fw-bold mb-2" style="font-size: 0.75rem; letter-spacing: 0.5px;">Quick Select Event</label>
+                     <div class="input-wrapper">
+                        <i class="bi bi-list-check input-icon text-gold"></i>
+                        <select class="form-select-modern ps-5" @onchange="OnStandardEventChange" style="font-weight: 500; color: #1e293b; border-color: #cbd5e1;">
+                            <option value="">-- Choose Standard Event --</option>
+                            @foreach (var evtName in _standardClubEvents.OrderBy(x => x))
+                            {
+                                <option value="@evtName">@evtName</option>
+                            }
+                        </select>
+                     </div>
+                </div>
+
+                <div class="form-group-modern mb-4">
+                    <label class="text-uppercase text-secondary fw-bold mb-2" style="font-size: 0.75rem; letter-spacing: 0.5px;">Event Name</label>
+                    <div class="input-wrapper">
+                        <i class="bi bi-tag-fill input-icon text-gold"></i>
+                        <input type="text" class="form-input-modern ps-5" @bind="_eventForm.Description" placeholder="e.g., Christmas Party" />
+                    </div>
+                </div>
+                
+                <div class="row g-3">
+                    <div class="col-12">
+                        <div class="form-group-modern">
+                            <label class="text-uppercase text-secondary fw-bold mb-2" style="font-size: 0.75rem; letter-spacing: 0.5px;">Date</label>
+                            <div class="input-wrapper">
+                                <i class="bi bi-calendar3 input-icon text-gold"></i>
+                                <input type="date" class="form-input-modern ps-5" @bind="_eventForm.Date" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-group-modern">
+                            <label class="text-uppercase text-muted fw-bold" style="font-size: 0.75rem;">Start Time</label>
+                            <div class="input-wrapper">
+                                <i class="bi bi-clock input-icon"></i>
+                                <input type="text" class="form-input-modern ps-5" @bind="_eventForm.StartTime" placeholder="e.g., 3:00 PM" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-group-modern">
+                            <label class="text-uppercase text-muted fw-bold" style="font-size: 0.75rem;">End Time</label>
+                            <div class="input-wrapper">
+                                <i class="bi bi-clock-fill input-icon"></i>
+                                <input type="text" class="form-input-modern ps-5" @bind="_eventForm.EndTime" placeholder="e.g., 11:00 PM" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button class="btn-modern btn-outline" @onclick="() => CloseEventModal()">Cancel</button>
+                <button class="btn-modern btn-gold px-4" @onclick="async () => await SaveClubEvent()">
+                    <i class="bi bi-check-circle"></i>
+                    @(_editingEvent != null ? "Update Event" : "Save Event")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Request Details Modal -->
+@if (_selectedRequest != null)
+{
+    <div class="modal-overlay" @onclick="() => CloseRequestModal()">
+        <div class="modal-container modal-large modal-modern" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div class="modal-title-section">
+                    <i class="bi bi-file-text-fill modal-icon"></i>
+                    <h3>Rental Request Details</h3>
+                </div>
+                <button class="btn-close-pill" @onclick="() => CloseRequestModal()">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body" style="padding: 1rem; overflow-y: auto; max-height: calc(90vh - 130px);">
+                <div class="detail-card" style="margin-bottom: 0.5rem; padding: 1rem;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <h4 class="mb-0" style="font-size: 1.25rem;">@_selectedRequest.ApplicantName</h4>
+                            <span class="badge @(_selectedRequest.MemberStatus ? "bg-primary" : "bg-secondary")" style="font-size: 0.7rem;">
+                                @(_selectedRequest.MemberStatus ? "MEMBER" : "NON-MEMBER")
+                            </span>
+                            @if (!string.IsNullOrEmpty(_membershipStanding))
+                            {
+                                <span class="@_membershipStandingClass ms-2" style="font-size: 0.7rem; padding: 2px 6px; border: 1px solid currentColor; border-radius: 4px; text-transform: uppercase; font-weight: 700;">
+                                    @_membershipStanding
+                                </span>
+                            }
+                        </div>
+                        <span class="status-badge @GetStatusBadgeClass(_selectedRequest.Status)" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;">
+                            @_selectedRequest.Status
+                        </span>
+                    </div>
+
+                    <div class="details-grid" style="gap: 1rem; margin-bottom: 0;">
+                        <div class="detail-column" style="padding: 0.75rem; gap: 0;">
+                            <h6 class="column-header" style="margin-bottom: 0.5rem; font-size: 0.75rem;"><i class="bi bi-calendar-event"></i> Event Info</h6>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Date:</span>
+                                <span class="value">@_selectedRequest.RequestedDate.ToShortDateString()</span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Time:</span>
+                                <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Time")</span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Type:</span>
+                                <span class="value">@(_selectedRequest.EventType ?? "Unknown")</span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Guests:</span>
+                                <span class="value">@_selectedRequest.GuestCount</span>
+                            </div>
+                             <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Setup:</span>
+                                <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Setup Needed")</span>
+                            </div>
+                        </div>
+
+                        <div class="detail-column" style="padding: 0.75rem; gap: 0;">
+                            <h6 class="column-header" style="margin-bottom: 0.5rem; font-size: 0.75rem;"><i class="bi bi-person-lines-fill"></i> Contact & Logistics</h6>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label"><i class="bi bi-telephone"></i> Phone:</span>
+                                <span class="value">@_selectedRequest.RequesterPhone</span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Address:</span>
+                                <span class="value text-truncate" style="font-size: 0.8rem; max-width: 140px;" title="@GetValueFromNotes(_selectedRequest.InternalNotes, "Address")">
+                                    @GetValueFromNotes(_selectedRequest.InternalNotes, "Address")
+                                </span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Kitchen:</span>
+                                <span class="value">@(_selectedRequest.KitchenUsage ? "YES" : "NO")</span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Bar Svc:</span>
+                                <span class="value">@GetValueFromNotes(_selectedRequest.InternalNotes, "Bar Service")</span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Total:</span>
+                                <span class="value font-weight-bold">@(_selectedRequest.TotalPrice.ToString("C"))</span>
+                            </div>
+                            <div class="compact-detail" style="padding: 0.25rem 0;">
+                                <span class="label">Paid:</span>
+                                <span class="value">
+                                    <span class="badge @(_selectedRequest.IsPaid ? "bg-success" : "bg-warning text-dark")" style="font-size: 0.75rem;">
+                                        @(_selectedRequest.IsPaid ? "YES" : "NO")
+                                    </span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group mt-2">
+                    <label class="font-weight-bold text-muted mb-1" style="font-size: 0.8rem;">Notes / Special Requests</label>
+                    <textarea class="form-control" rows="2" @bind="_adminNotes" style="font-size: 0.85rem; border-color: var(--gray-300); background: var(--gray-50); color: var(--gray-800); resize: none;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 0.75rem; justify-content: space-between;">
+                <div>
+                     @if (_selectedRequest.Status == RentalStatus.Pending)
+                     {
+                        <button class="btn btn-sm btn-success me-2" @onclick="ApproveRequest">
+                            <i class="bi bi-check-lg"></i> Approve
+                        </button>
+                        <button class="btn btn-sm btn-danger" @onclick="DeclineRequest">
+                            <i class="bi bi-x-lg"></i> Decline
+                        </button>
+                     }
+                </div>
+                <button class="btn-modern btn-sm btn-outline" @onclick="() => CloseRequestModal()">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Day Details Modal -->
+@if (_selectedDay.HasValue && _selectedRequest == null)
+{
+    <div class="modal-overlay" @onclick="() => CloseDayModal()">
+        <div class="modal-container modal-medium modal-modern" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div class="modal-title-section">
+                    <i class="bi bi-calendar-event modal-icon"></i>
+                    <h3>Events for @_selectedDay.Value.ToString("MMM d, yyyy")</h3>
+                </div>
+                <button class="btn-close-pill" @onclick="() => CloseDayModal()">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                @{
+                    var events = GetEventsForDay(_selectedDay.Value);
+                }
+                
+                @if (events.Any())
+                {
+                    <div class="day-events-list">
+                        @foreach (var evt in events)
+                        {
+                            <div class="day-event-card">
+                                <div class="day-event-header">
+                                    <div class="day-event-title">
+                                        <h4>@evt.Title</h4>
+                                        <div class="day-event-time">@evt.Time</div>
+                                    </div>
+                                    <div class="day-event-actions">
+                                        @if (evt.Type == EventType.ClubEvent)
+                                        {
+                                            <button class="btn-sm btn-outline" @onclick="() => EditClubEvent(evt)">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn-sm btn-outline text-danger" @onclick="() => DeleteClubEvent(evt)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn-sm btn-outline" @onclick="() => ViewEventDetails(evt)">
+                                                <i class="bi bi-eye"></i> Details
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                                <span class="status-badge @GetEventTypeClass(evt.Type)">
+                                    @evt.TypeLabel
+                                </span>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <p>No events scheduled for this day.</p>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-modern btn-primary" @onclick="() => ShowAddEventModal(_selectedDay.Value)">
+                    <i class="bi bi-plus-lg"></i> Add Club Event
+                </button>
+                <button class="btn-modern btn-outline" @onclick="() => CloseDayModal()">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Filtered List Modal -->
+@if (_showFilteredModal)
+{
+    <div class="modal-overlay" @onclick="() => _showFilteredModal = false">
+        <div class="modal-container modal-medium modal-modern" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div class="modal-title-section">
+                    <i class="bi bi-funnel-fill modal-icon"></i>
+                    <h3>@GetFilterTitle()</h3>
+                </div>
+                <button class="btn-close-pill" @onclick="() => _showFilteredModal = false">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="filtered-list">
+                    @foreach (var item in GetFilteredItems())
+                    {
+                        @if (item is HallRentalRequest request)
+                        {
+                            <div class="filtered-item-modern status-@request.Status.ToLower()" @onclick="() => SelectFilteredItem(item)">
+                                <div class="item-date-box">
+                                    <span class="item-day">@request.RequestedDate.Day</span>
+                                    <span class="item-month">@request.RequestedDate.ToString("MMM")</span>
+                                </div>
+                                <div class="item-content-main">
+                                    <div class="item-title">@request.ApplicantName</div>
+                                    <div class="item-meta">
+                                        <span class="item-type-badge">@(request.EventType ?? "Rental")</span>
+                                    </div>
+                                </div>
+                                <div class="item-time-box">
+                                     @if (!string.IsNullOrEmpty(request.StartTime))
+                                     {
+                                        <span class="time-pill">
+                                            <i class="bi bi-clock"></i> @request.StartTime - @request.EndTime
+                                        </span>
+                                     }
+                                </div>
+                                <i class="bi bi-chevron-right item-arrow"></i>
+                            </div>
+                        }
+                        else if (item is AvailabilityCalendar clubEvent)
+                        {
+                             <div class="filtered-item-modern status-club" @onclick="() => SelectFilteredItem(item)">
+                                <div class="item-date-box date-box-club">
+                                    <span class="item-day">@clubEvent.Date.Day</span>
+                                    <span class="item-month">@clubEvent.Date.ToString("MMM")</span>
+                                </div>
+                                <div class="item-content-main">
+                                    <div class="item-title">@clubEvent.Description</div>
+                                    <div class="item-meta">
+                                        <span class="item-type-badge badge-club">Club Event</span>
+                                    </div>
+                                </div>
+                                <div class="item-time-box">
+                                     @if (!string.IsNullOrEmpty(clubEvent.StartTime))
+                                     {
+                                        <span class="time-pill">
+                                            <i class="bi bi-clock"></i> @clubEvent.StartTime - @clubEvent.EndTime
+                                        </span>
+                                     }
+                                     else
+                                     {
+                                         <span class="time-pill">All Day</span>
+                                     }
+                                </div>
+                                <i class="bi bi-chevron-right item-arrow"></i>
+                            </div>
+                        }
+                        else if (item is CalendarEvent evt)
+                        {
+                            @if (evt.Request != null)
+                            {
+                                <div class="filtered-item-modern status-@evt.Request.Status.ToLower()" @onclick="() => ViewRequestDetails(evt.Request)">
+                                    <div class="item-date-box">
+                                        <span class="item-day">@evt.Date.Day</span>
+                                        <span class="item-month">@evt.Date.ToString("MMM")</span>
+                                    </div>
+                                    <div class="item-content-main">
+                                        <div class="item-title">@evt.Title</div>
+                                        <div class="item-meta">
+                                            <span class="item-type-badge">@evt.TypeLabel</span>
+                                        </div>
+                                    </div>
+                                    <div class="item-time-box">
+                                         @if (!string.IsNullOrEmpty(evt.Time) && evt.Time != "All Day")
+                                         {
+                                            <span class="time-pill">
+                                                <i class="bi bi-clock"></i> @evt.Time
+                                            </span>
+                                         }
+                                         else if (evt.Time == "All Day")
+                                         {
+                                             <span class="time-pill">All Day</span>
+                                         }
+                                    </div>
+                                    <i class="bi bi-chevron-right item-arrow"></i>
+                                </div>
+                            }
+                            else if (evt.ClubEvent != null)
+                            {
+                                 <div class="filtered-item-modern status-club" @onclick="() => SelectFilteredItem(evt.ClubEvent)">
+                                    <div class="item-date-box date-box-club">
+                                        <span class="item-day">@evt.Date.Day</span>
+                                        <span class="item-month">@evt.Date.ToString("MMM")</span>
+                                    </div>
+                                    <div class="item-content-main">
+                                        <div class="item-title">@evt.Title</div>
+                                        <div class="item-meta">
+                                            <span class="item-type-badge badge-club">Club Event</span>
+                                        </div>
+                                    </div>
+                                    <div class="item-time-box">
+                                         @if (!string.IsNullOrEmpty(evt.Time) && evt.Time != "All Day")
+                                         {
+                                            <span class="time-pill">
+                                                <i class="bi bi-clock"></i> @evt.Time
+                                            </span>
+                                         }
+                                         else
+                                         {
+                                             <span class="time-pill">All Day</span>
+                                         }
+                                    </div>
+                                    <i class="bi bi-chevron-right item-arrow"></i>
+                                </div>
+                            }
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // Data
+    private List<HallRentalRequest> _allRequests = new();
+    private List<HallRentalRequest> _pendingRequests = new();
+    private List<AvailabilityCalendar> _clubEvents = new();
+    private List<CalendarEvent> _upcomingEvents = new();
+    
+    private readonly List<string> _standardClubEvents = new()
+    {
+        "Adult Foster Care",
+        "Breakfast with Easter Bunny",
+        "Breakfast with Santa",
+        "Club Picnic Cleanup",
+        "Fantasy Football Banquet",
+        "GFC Club Cribbage",
+        "GFC Club Picnic",
+        "GFC Horse Shoe Banquet",
+        "Mens Christmas Party",
+        "Night Prowlers Special Needs Fundraiser",
+        "Sal-a-Bration",
+        "Special Needs Dance",
+        "Sweet Bread",
+        "Womens Auxiliary"
+    };
+
+    private void OnStandardEventChange(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(value) && value != "Custom")
+        {
+            _eventForm.Description = value;
+        }
+    }
+    
+    // Calendar state
+    private DateTime _currentMonth = DateTime.Today;
+    private int _firstDayOffset;
+    private int _daysInMonth;
+    private bool _showAllEvents = true;
+    private DateTime? _selectedDay;
+    
+    // Stats
+    private int _pendingCount;
+    private int _approvedCount;
+    private int _clubEventsCount;
+    private int _totalBookings;
+    private decimal _monthlyRevenue;
+    
+    // Modals
+    private bool _showEventModal;
+    private AvailabilityCalendar? _editingEvent;
+    private EventFormModel _eventForm = new();
+    private HallRentalRequest? _selectedRequest;
+    
+    // Filtered list modal
+    private enum FilterType { Pending, Approved, ClubEvents, All }
+    private FilterType? _activeFilter = null;
+    private bool _showFilteredModal = false;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        // Auto-heal duplicate data on load
+        await RentalService.CleanupDuplicateEventsAsync();
+
+        RenderCalendar();
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            _allRequests = (await RentalService.GetRentalRequestsAsync()).ToList();
+            _clubEvents = await RentalService.GetBlackoutEventsAsync() ?? new();
+            
+            _pendingRequests = _allRequests.Where(r => r.Status == RentalStatus.Pending).OrderBy(r => r.RequestedDate).ToList();
+            
+            // Calculate stats (Future Only for active cards, All for Total)
+            _pendingCount = _pendingRequests.Count(r => r.RequestedDate >= DateTime.Today);
+            _approvedCount = _allRequests.Count(r => r.Status == RentalStatus.Approved && r.RequestedDate >= DateTime.Today);
+            _clubEventsCount = _clubEvents.Count(e => e.Date >= DateTime.Today);
+            
+            // Total Bookings = All Approved + All Club Events (Past & Present)
+            _totalBookings = _allRequests.Count(r => r.Status == RentalStatus.Approved) + _clubEvents.Count;
+            
+            // Monthly Revenue = Sum of paid rentals in current month
+            var currentMonth = DateTime.Now.Month;
+            var currentYear = DateTime.Now.Year;
+            _monthlyRevenue = _allRequests
+                .Where(r => r.Status == RentalStatus.Approved && 
+                           r.IsPaid && 
+                           r.RequestedDate.Month == currentMonth && 
+                           r.RequestedDate.Year == currentYear)
+                .Sum(r => r.TotalPrice);
+            
+            UpdateUpcomingEvents();
+            RenderCalendar(); // Re-render to show events
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowToastAsync($"Error loading data: {ex.Message}", ToastLevel.Error);
+        }
+    }
+    
+    private void UpdateUpcomingEvents()
+    {
+        _upcomingEvents.Clear();
+        
+        // Add upcoming rentals (Approved & Pending Only)
+        foreach (var rental in _allRequests.Where(r => r.RequestedDate >= DateTime.Today && (r.Status == RentalStatus.Approved || r.Status == RentalStatus.Pending)).OrderBy(r => r.RequestedDate).Take(20))
+        {
+            _upcomingEvents.Add(new CalendarEvent
+            {
+                Date = rental.RequestedDate,
+                Title = rental.ApplicantName,
+                Time = !string.IsNullOrEmpty(rental.StartTime) ? $"{rental.StartTime} - {rental.EndTime}" : "All Day",
+                Description = rental.EventType,
+                Type = rental.Status == RentalStatus.Approved ? EventType.RentalApproved : EventType.RentalPending,
+                TypeLabel = rental.Status == RentalStatus.Approved ? "Approved Rental" : "Pending Rental",
+                Request = rental
+            });
+        }
+        
+        // Add upcoming club events
+        foreach (var evt in _clubEvents.Where(e => e.Date >= DateTime.Today).OrderBy(e => e.Date).Take(20))
+        {
+            _upcomingEvents.Add(new CalendarEvent
+            {
+                Date = evt.Date,
+                Title = evt.Description ?? "Club Event",
+                Time = !string.IsNullOrEmpty(evt.StartTime) ? $"{evt.StartTime} - {evt.EndTime}" : "All Day",
+                Description = "Club Event",
+                Type = EventType.ClubEvent,
+                TypeLabel = "Club Event",
+                ClubEvent = evt
+            });
+        }
+        
+        // Add pending requests specifically
+        foreach (var rental in _pendingRequests.Where(r => r.RequestedDate >= DateTime.Today))
+        {
+            if (!_upcomingEvents.Any(e => e.Request?.Id == rental.Id))
+            {
+                _upcomingEvents.Add(new CalendarEvent
+                {
+                    Date = rental.RequestedDate,
+                    Title = rental.ApplicantName,
+                    Time = !string.IsNullOrEmpty(rental.StartTime) ? $"{rental.StartTime} - {rental.EndTime}" : "All Day",
+                    Description = rental.EventType,
+                    Type = EventType.RentalPending,
+                    TypeLabel = "Pending Rental",
+                    Request = rental
+                });
+            }
+        }
+        
+        // Explicit Sort: Pending first, then Date
+        var pending = _upcomingEvents.Where(e => e.Type == EventType.RentalPending).OrderBy(e => e.Date).ToList();
+        var others = _upcomingEvents.Where(e => e.Type != EventType.RentalPending).OrderBy(e => e.Date).ThenBy(e => e.Time).ToList();
+        
+        _upcomingEvents = pending.Concat(others).ToList();
+    }
+    
+    private void RenderCalendar()
+    {
+        _daysInMonth = DateTime.DaysInMonth(_currentMonth.Year, _currentMonth.Month);
+        var firstDay = new DateTime(_currentMonth.Year, _currentMonth.Month, 1);
+        _firstDayOffset = (int)firstDay.DayOfWeek;
+    }
+    
+    private void ChangeMonth(int direction)
+    {
+        _currentMonth = _currentMonth.AddMonths(direction);
+        RenderCalendar();
+    }
+    
+    private List<CalendarEvent> GetEventsForDay(DateTime date)
+    {
+        var events = new List<CalendarEvent>();
+        
+        // Club events
+        events.AddRange(_clubEvents.Where(e => e.Date.Date == date.Date).Select(evt => new CalendarEvent
+        {
+            Date = evt.Date,
+            Title = evt.Description ?? "Club Event",
+            Description = "Club Event",
+            Time = !string.IsNullOrEmpty(evt.StartTime) ? $"{evt.StartTime} - {evt.EndTime}" : "",
+            Type = EventType.ClubEvent,
+            TypeLabel = "Club Event",
+            ClubEvent = evt
+        }));
+        
+        if (_showAllEvents)
+        {
+            // All Rentals (Approved & Pending)
+            var dayRentals = _allRequests.Where(r => r.RequestedDate.Date == date.Date).ToList();
+            
+            foreach (var rental in dayRentals)
+            {
+                if (rental.Status != RentalStatus.Approved && rental.Status != RentalStatus.Pending) continue;
+
+                var type = rental.Status == RentalStatus.Approved ? EventType.RentalApproved : EventType.RentalPending;
+                
+                events.Add(new CalendarEvent
+                {
+                    Date = rental.RequestedDate,
+                    Title = rental.ApplicantName,
+                    Description = rental.EventType,
+                    Time = !string.IsNullOrEmpty(rental.StartTime) ? $"{rental.StartTime} - {rental.EndTime}" : "",
+                    Type = type,
+                    TypeLabel = type == EventType.RentalApproved ? "Approved" : "Pending",
+                    Request = rental
+                });
+            }
+        }
+        
+        return events.OrderBy(e => e.Time).ToList();
+    }
+    
+    private string GetEventTypeClass(EventType type) => type switch
+    {
+        EventType.ClubEvent => "event-club",
+        EventType.RentalApproved => "event-rental-approved",
+        EventType.RentalPending => "event-rental-pending",
+        _ => ""
+    };
+    
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        RentalStatus.Approved => "badge-success",
+        RentalStatus.Pending => "badge-warning",
+        RentalStatus.Denied => "badge-danger",
+        _ => "badge-secondary"
+    };
+    
+    // Modal actions
+    private void SelectDay(DateTime date)
+    {
+        var dayEvents = GetEventsForDay(date);
+        
+        if (dayEvents.Count == 0 && date.Date >= DateTime.Today)
+        {
+            // Empty future day -> Direct Add Event
+            ShowAddEventModal(date);
+        }
+        else if (dayEvents.Count == 1 && (dayEvents[0].Type == EventType.RentalApproved || dayEvents[0].Type == EventType.RentalPending))
+        {
+            // If single rental request, show details directly
+            ViewRequestDetails(dayEvents[0].Request!);
+        }
+        else if (dayEvents.Count > 0 || date.Date < DateTime.Today)
+        {
+            // Show day modal with all events (or past events if clickable)
+            _selectedDay = date;
+        }
+        // If empty past day, do nothing (click already disabled in HTML, but safe check here)
+    }
+    
+    private void CloseDayModal()
+    {
+        _selectedDay = null;
+    }
+    
+    private void ShowAddEventModal(DateTime? date = null)
+    {
+        _editingEvent = null;
+        _eventForm = new EventFormModel { Date = date ?? DateTime.Today };
+        _showEventModal = true;
+    }
+    
+    private void EditClubEvent(CalendarEvent evt)
+    {
+        _editingEvent = evt.ClubEvent;
+        _eventForm = new EventFormModel
+        {
+            Date = evt.Date,
+            Description = evt.Title,
+            StartTime = evt.ClubEvent?.StartTime,
+            EndTime = evt.ClubEvent?.EndTime
+        };
+        _showEventModal = true;
+    }
+    
+    private void CloseEventModal()
+    {
+        _showEventModal = false;
+        _editingEvent = null;
+    }
+    
+    private async Task SaveClubEvent()
+    {
+        try
+        {
+            // Validate event name
+            if (string.IsNullOrWhiteSpace(_eventForm.Description))
+            {
+                await ToastService.ShowToastAsync("Please enter an event name", ToastLevel.Warning);
+                return;
+            }
+            
+            // Check for existing event on same date
+            var existingEvent = _clubEvents.FirstOrDefault(e => e.Date.Date == _eventForm.Date.Date);
+            
+            if (existingEvent != null && (_editingEvent == null || existingEvent.Date != _editingEvent.Date))
+            {
+                await ToastService.ShowToastAsync(
+                    $"A club event '{existingEvent.Description}' already exists on {_eventForm.Date.ToString("MMMM d, yyyy")}. Please choose a different date or edit the existing event.",
+                    ToastLevel.Warning
+                );
+                return;
+            }
+            
+            await RentalService.AddBlackoutDateAsync(_eventForm.Date, _eventForm.Description, _eventForm.StartTime, _eventForm.EndTime);
+            await ToastService.ShowToastAsync("Club event saved successfully", ToastLevel.Success);
+            CloseEventModal();
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowToastAsync($"Error saving event: {ex.Message}", ToastLevel.Error);
+        }
+    }
+    
+    private async Task DeleteClubEvent(CalendarEvent evt)
+    {
+        if (evt.ClubEvent == null) return;
+        
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{evt.Title}'?");
+        if (confirmed)
+        {
+            await RentalService.RemoveBlackoutDateAsync(evt.ClubEvent.Date);
+            await ToastService.ShowToastAsync("Event deleted successfully", ToastLevel.Success);
+            _selectedDay = null; // Close day modal if open
+            await LoadData();
+        }
+    }
+    
+    private void ViewEventDetails(CalendarEvent evt)
+    {
+        if (evt.Request != null)
+        {
+            ViewRequestDetails(evt.Request);
+        }
+    }
+    
+    private string _adminNotes = "";
+    private string _membershipStanding = "";
+    private string _membershipStandingClass = "";
+
+    private void ViewRequestDetails(HallRentalRequest request)
+    {
+        _selectedRequest = request;
+        _selectedDay = null; // Close day modal if open
+        
+        // precise filtering: Get text after "--- NOTES ---" or hide if it's just the system dump
+        var notes = request.InternalNotes ?? "";
+        var match = System.Text.RegularExpressions.Regex.Match(notes, @"---\s*NOTES\s*---\s*(.*)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+        
+        if (match.Success)
+        {
+             _adminNotes = match.Groups[1].Value.Trim();
+        }
+        else
+        {
+             // If pattern not found, check if it's the specific system dump format
+             if (notes.Trim().StartsWith("--- ONLINE APPLICATION") || notes.Contains("--- APPLICANT INFO ---")) {
+                 _adminNotes = ""; 
+             } else {
+                 _adminNotes = notes;
+             }
+        }
+
+        CheckMemberStanding();
+    }
+    
+    private void CloseRequestModal()
+    {
+        _selectedRequest = null;
+    }
+
+    private string GetValueFromNotes(string notes, string key)
+    {
+        if (string.IsNullOrEmpty(notes)) return "N/A";
+        // Try regex for Key: Value (multiline or dash separator)
+        var match = System.Text.RegularExpressions.Regex.Match(notes, $@"{key}:\s*(.*?)(?:\s+---|$)");
+        if (match.Success) return match.Groups[1].Value.Trim();
+        
+        // Fallback to simpler newline match
+        match = System.Text.RegularExpressions.Regex.Match(notes, $@"{key}:\s*(.*?)(?:\r?\n|$)");
+        if (match.Success) return match.Groups[1].Value.Trim();
+        
+        return "N/A";
+    }
+
+    private async Task ApproveRequest()
+    {
+        if (_selectedRequest == null) return;
+        
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to APPROVE this rental request?");
+        if (!confirmed) return;
+        
+        try
+        {
+            await RentalService.ApproveRentalRequestAsync(_selectedRequest.Id, _adminNotes, "Admin");
+            await ToastService.ShowToastAsync("Rental request approved successfully.", ToastLevel.Success);
+            _selectedRequest.Status = RentalStatus.Approved;
+            _selectedRequest.InternalNotes = _adminNotes;
+            await LoadData();
+            CloseRequestModal();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowToastAsync($"Error approving request: {ex.Message}", ToastLevel.Error);
+        }
+    }
+
+    private async Task DeclineRequest()
+    {
+        if (_selectedRequest == null) return;
+        
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to DECLINE this rental request?");
+        if (!confirmed) return;
+        
+        try
+        {
+            await RentalService.DenyRentalRequestAsync(_selectedRequest.Id, _adminNotes, "Admin");
+            await ToastService.ShowToastAsync("Rental request declined.", ToastLevel.Success);
+            _selectedRequest.Status = RentalStatus.Denied;
+            _selectedRequest.InternalNotes = _adminNotes;
+            await LoadData();
+            CloseRequestModal();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowToastAsync($"Error declining request: {ex.Message}", ToastLevel.Error);
+        }
+    }
+
+    private void CheckMemberStanding()
+    {
+        _membershipStanding = "";
+        _membershipStandingClass = "";
+
+        if (_selectedRequest == null || !_selectedRequest.MemberStatus) return;
+
+        try
+        {
+            var parts = _selectedRequest.ApplicantName.Trim().Split(' ');
+            if (parts.Length < 2) 
+            {
+                 _membershipStanding = "Name Check Failed";
+                 _membershipStandingClass = "text-warning";
+                 return;
+            }
+
+            var lastName = parts.Last();
+            var firstName = parts.First(); 
+
+            var candidates = MemberRepo.SearchByLastName(lastName);
+            var member = candidates.FirstOrDefault(m => m.FirstName.Equals(firstName, StringComparison.OrdinalIgnoreCase));
+
+            if (member != null)
+            {
+                 bool isPaid = DuesRepo.MemberHasPaidOrWaivedDuesForYear(member.MemberID, DateTime.Today.Year);
+                 if (isPaid)
+                 {
+                     _membershipStanding = "Good Standing";
+                     _membershipStandingClass = "text-success font-weight-bold";
+                 }
+                 else
+                 {
+                     _membershipStanding = "Dues Owed";
+                     _membershipStandingClass = "text-danger font-weight-bold";
+                 }
+            }
+            else
+            {
+                _membershipStanding = "Member Not Found";
+                _membershipStandingClass = "text-warning";
+            }
+        }
+        catch
+        {
+            // _membershipStanding = "Error Verifying";
+            // _membershipStandingClass = "text-muted";
+        }
+    }
+    
+    private class CalendarEvent
+    {
+        public DateTime Date { get; set; }
+        public string Title { get; set; } = "";
+        public string Time { get; set; } = "";
+        public string? Description { get; set; }
+        public EventType Type { get; set; }
+        public string TypeLabel { get; set; } = "";
+        public AvailabilityCalendar? ClubEvent { get; set; }
+        public HallRentalRequest? Request { get; set; }
+    }
+    
+    private enum EventType
+    {
+        ClubEvent,
+        RentalApproved,
+        RentalPending
+    }
+    
+    private class EventFormModel
+    {
+        public DateTime Date { get; set; } = DateTime.Today;
+        public string? Description { get; set; }
+        public string? StartTime { get; set; }
+        public string? EndTime { get; set; }
+    }
+    
+    // Filtered list methods
+    private void ShowFilteredList(FilterType filter)
+    {
+        _activeFilter = filter;
+        _showFilteredModal = true;
+    }
+    
+    private string GetFilterTitle()
+    {
+        return _activeFilter switch
+        {
+            FilterType.Pending => "Pending Requests",
+            FilterType.Approved => "Upcoming Bookings",
+            FilterType.ClubEvents => "Upcoming Club Events",
+            FilterType.All => "All Future Bookings",
+            _ => "Events"
+        };
+    }
+    
+    private List<object> GetFilteredItems()
+    {
+        return _activeFilter switch
+        {
+            FilterType.Pending => _pendingRequests.Where(r => r.RequestedDate >= DateTime.Today).OrderBy(r => r.RequestedDate).Cast<object>().ToList(),
+            FilterType.Approved => _allRequests.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate >= DateTime.Today).OrderBy(r => r.RequestedDate).Cast<object>().ToList(),
+            FilterType.ClubEvents => _clubEvents.Where(e => e.Date >= DateTime.Today).OrderBy(e => e.Date).Cast<object>().ToList(),
+            FilterType.All => _upcomingEvents.Cast<object>().ToList(),
+            _ => new List<object>()
+        };
+    }
+    
+    private void SelectFilteredItem(object item)
+    {
+        if (item is HallRentalRequest request)
+        {
+            ViewRequestDetails(request);
+            _showFilteredModal = false;
+        }
+        else if (item is AvailabilityCalendar clubEvent)
+        {
+            _selectedDay = clubEvent.Date;
+            _showFilteredModal = false;
+        }
+        else if (item is CalendarEvent evt)
+        {
+             if (evt.Request != null)
+             {
+                 ViewRequestDetails(evt.Request);
+                 _showFilteredModal = false;
+             }
+             else if (evt.ClubEvent != null)
+             {
+                 _selectedDay = evt.Date;
+                 _showFilteredModal = false;
+             }
+        }
+    }
+}

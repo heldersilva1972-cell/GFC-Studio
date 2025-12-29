@@ -1,0 +1,376 @@
+@page "/controllers"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Components.Pages.Controllers.Settings
+@inject IControllerClient ControllerClient
+@inject ControllerRegistryService RegistryService
+@inject NavigationManager Navigation
+
+<PageTitle>Controller Configuration - GFC Studio</PageTitle>
+
+<div class="controller-settings-layout">
+    <!-- Header Area -->
+    <header class="settings-header">
+        <div class="d-flex justify-content-between align-items-center w-100">
+            <div>
+                <div class="d-flex align-items-center gap-3 mb-1">
+                    <h1 class="page-title mb-0">Controller Configuration</h1>
+                    @if (_selectedController != null)
+                    {
+                        <div class="status-pill @(_isOnline ? "online" : "offline")">
+                            <span class="pulse-dot"></span>
+                            <span class="status-text">@(_isOnline ? "Connected" : "Disconnected")</span>
+                        </div>
+                    }
+                </div>
+                <p class="text-muted small mb-0">Manage hardware, doors, and network parameters.</p>
+            </div>
+            
+            <div class="d-flex align-items-center gap-3">
+                 <div class="controller-select-wrapper">
+                    <select class="form-select form-select-lg fw-bold border-glass" 
+                            value="@_selectedControllerId" 
+                            @onchange="OnControllerChange">
+                        @foreach (var c in _controllers)
+                        {
+                            <option value="@c.Id">@c.Name (@c.IpAddress)</option>
+                        }
+                    </select>
+                 </div>
+            </div>
+        </div>
+    </header>
+
+    @if (_isLoading)
+    {
+        <div class="d-flex justify-content-center align-items-center flex-grow-1">
+            <div class="spinner-grow text-primary" style="width: 3rem; height: 3rem;"></div>
+        </div>
+    }
+    else if (_selectedController != null)
+    {
+        <div class="settings-body row g-0">
+            <!-- Navigation Sidebar -->
+            <div class="settings-sidebar col-md-3 col-xl-2">
+                <div class="nav flex-column nav-pills custom-pills">
+                    <button class="nav-link @(_activeTab == "overview" ? "active" : "")" @onclick='() => _activeTab = "overview"'>
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-speedometer2 fs-5"></i>
+                            <div class="text-start">
+                                <div class="fw-bold">Overview</div>
+                                <small class="opacity-75 d-block">Status & Control</small>
+                            </div>
+                        </div>
+                    </button>
+
+                    <button class="nav-link @(_activeTab == "card-reader" ? "active" : "")" @onclick='() => _activeTab = "card-reader"'>
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-credit-card-2-front fs-5"></i>
+                            <div class="text-start">
+                                <div class="fw-bold">Card Reader</div>
+                                <small class="opacity-75 d-block">Test & Assign</small>
+                            </div>
+                        </div>
+                    </button>
+
+                    <button class="nav-link @(_activeTab == "doors" ? "active" : "")" @onclick='() => _activeTab = "doors"'>
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-door-open-fill fs-5"></i>
+                            <div class="text-start">
+                                <div class="fw-bold">Doors</div>
+                                <small class="opacity-75 d-block">Config & Timers</small>
+                            </div>
+                        </div>
+                    </button>
+                    
+                    <button class="nav-link @(_activeTab == "network" ? "active" : "")" @onclick='() => _activeTab = "network"'>
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-hdd-network-fill fs-5"></i>
+                            <div class="text-start">
+                                <div class="fw-bold">Network</div>
+                                <small class="opacity-75 d-block">IP & Security</small>
+                            </div>
+                        </div>
+                    </button>
+
+                    <button class="nav-link @(_activeTab == "auto" ? "active" : "")" @onclick='() => _activeTab = "auto"'>
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-calendar-range-fill fs-5"></i>
+                            <div class="text-start">
+                                <div class="fw-bold">Auto-Unlock</div>
+                                <small class="opacity-75 d-block">Schedules</small>
+                            </div>
+                        </div>
+                    </button>
+
+                    <button class="nav-link @(_activeTab == "advanced" ? "active" : "")" @onclick='() => _activeTab = "advanced"'>
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-cpu-fill fs-5"></i>
+                            <div class="text-start">
+                                <div class="fw-bold">Advanced</div>
+                                <small class="opacity-75 d-block">Modes & APB</small>
+                            </div>
+                        </div>
+                    </button>
+                    
+                    <div class="mt-auto pt-4">
+                        <button class="nav-link text-danger @(_activeTab == "maintenance" ? "active" : "")" @onclick='() => _activeTab = "maintenance"'>
+                            <div class="d-flex align-items-center gap-3">
+                                <i class="bi bi-tools fs-5"></i>
+                                <div class="text-start">
+                                    <div class="fw-bold">Maintenance</div>
+                                    <small class="opacity-75 d-block">Reset & Logs</small>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="settings-content col-md-9 col-xl-10 bg-surface-subtle">
+                <div class="h-100 p-4 overflow-auto custom-scrollbar">
+                    @switch (_activeTab)
+                    {
+                        case "overview":
+                            <OverviewTab Controller="_selectedController" />
+                            break;
+                        case "card-reader":
+                            <CardReaderTab Controller="_selectedController" />
+                            break;
+                        case "doors":
+                            <DoorsTab Controller="_selectedController" OnDoorsUpdated="RefreshControllerData" />
+                            break;
+                        case "network":
+                            <NetworkTab Controller="_selectedController" />
+                            break;
+                        case "auto":
+                            <AutoUnlockTab Controller="_selectedController" />
+                            break;
+                        case "advanced":
+                            <AdvancedTab Controller="_selectedController" />
+                            break;
+                        case "maintenance":
+                            <MaintenanceTab Controller="_selectedController" />
+                            break;
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    /* Scoped Styles for Layout */
+    .controller-settings-layout {
+        display: flex; flex-direction: column;
+        height: calc(100vh - 80px); /* Adjust based on navbar */
+        margin: -1.5rem; /* Break out of default padding if needed, or adjust container */
+        overflow: hidden;
+    }
+    
+    .settings-header {
+        padding: 1.5rem 2rem;
+        background: var(--bg-surface);
+        border-bottom: 1px solid var(--glass-border);
+        flex-shrink: 0;
+    }
+
+    .settings-body {
+        flex-grow: 1;
+        overflow: hidden;
+    }
+
+    .settings-sidebar {
+        background: var(--bg-surface);
+        border-right: 1px solid var(--glass-border);
+        padding: 1.5rem;
+        display: flex; flex-direction: column;
+    }
+
+    .custom-pills .nav-link {
+        color: var(--text-secondary);
+        border-radius: 12px;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+        transition: all 0.2s;
+        border: 1px solid transparent;
+    }
+
+    .custom-pills .nav-link:hover {
+        background: var(--bg-surface-hover);
+        color: var(--text-primary);
+    }
+
+    .custom-pills .nav-link.active {
+        background: rgba(var(--accent-primary-rgb), 0.1);
+        color: var(--accent-primary);
+        border-color: rgba(var(--accent-primary-rgb), 0.2);
+    }
+
+    .custom-pills .nav-link.active .opacity-75 { opacity: 1 !important; }
+
+    /* Status Pill Styles */
+    .status-pill {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border: 1px solid var(--glass-border);
+        background: rgba(var(--bg-surface-rgb), 0.5);
+    }
+
+    .status-pill.online {
+        color: #10b981;
+        border-color: rgba(16, 185, 129, 0.2);
+        background: rgba(16, 185, 129, 0.05);
+    }
+
+    .status-pill.offline {
+        color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.2);
+        background: rgba(239, 68, 68, 0.05);
+    }
+
+    .status-pill .pulse-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .status-pill.online .pulse-dot {
+        background: #10b981;
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+        animation: pill-pulse-green 2s infinite;
+    }
+
+    .status-pill.offline .pulse-dot {
+        background: #ef4444;
+    }
+
+    @@keyframes pill-pulse-green {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    .controller-select-wrapper { min-width: 300px; }
+    
+    /* Global Utility overrides for this page context */
+    .glass-panel {
+        background: var(--bg-surface);
+        border: 1px solid var(--glass-border);
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+    }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "controller")]
+    public int? QueryControllerId { get; set; }
+    [SupplyParameterFromQuery(Name = "activeTab")]
+    public string? QueryActiveTab { get; set; }
+
+    private List<ControllerDevice> _controllers = new();
+    private ControllerDevice? _selectedController;
+    private int _selectedControllerId;
+    private bool _isLoading = true;
+    private string _activeTab = "overview"; 
+    private bool _isOnline = false;
+    private bool _isCheckingStatus = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try 
+        {
+            if (!string.IsNullOrEmpty(QueryActiveTab))
+            {
+                _activeTab = QueryActiveTab;
+            }
+
+            // Include doors so OverviewTab has data immediately if possible, 
+            // though OverviewTab loads events itself. Doors are needed for door status.
+            _controllers = (await RegistryService.GetControllersAsync(includeDoors: true)).ToList();
+            
+            if (_controllers.Any())
+            {
+                if (QueryControllerId.HasValue && _controllers.Any(c => c.Id == QueryControllerId.Value))
+                {
+                    _selectedControllerId = QueryControllerId.Value;
+                }
+                else
+                {
+                    _selectedControllerId = _controllers.First().Id;
+                }
+                
+                _selectedController = _controllers.First(c => c.Id == _selectedControllerId);
+                _ = CheckStatusAsync(); // Fire and forget status check
+            }
+        }
+        finally 
+        { 
+            _isLoading = false; 
+        }
+    }
+
+    private async Task CheckStatusAsync()
+    {
+        if (_selectedController == null) return;
+        
+        _isCheckingStatus = true;
+        try
+        {
+            var status = await ControllerClient.GetRunStatusAsync(_selectedController.SerialNumber.ToString());
+            _isOnline = status != null;
+        }
+        catch
+        {
+            _isOnline = false;
+        }
+        finally
+        {
+            _isCheckingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnControllerChange(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int newId))
+        {
+            _selectedControllerId = newId;
+            _selectedController = _controllers.FirstOrDefault(c => c.Id == newId);
+            _isOnline = false; // Reset status while checking
+            _ = CheckStatusAsync();
+        }
+    }
+
+    private async Task RefreshControllerData()
+    {
+        if (_selectedControllerId == 0) return;
+        
+        try
+        {
+             // Force fresh load including all includes
+            var controllers = await RegistryService.GetControllersAsync(includeDoors: true);
+            var fresh = controllers.FirstOrDefault(c => c.Id == _selectedControllerId);
+            
+            if (fresh != null)
+            {
+                // Update list reference and selected controller
+                _controllers = controllers.ToList();
+                _selectedController = fresh;
+                StateHasChanged();
+            }
+        }
+        catch { /* ignore refresh errors */ }
+    }
+}

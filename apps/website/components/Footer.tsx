@@ -1,6 +1,4 @@
-
-'use client';
-import { useState, useEffect } from 'react';
+// [MODIFIED]
 import Link from 'next/link';
 import { Facebook, Instagram, Twitter, Mail, Phone, MapPin } from 'lucide-react';
 
@@ -11,52 +9,20 @@ const socialLinks = [
 ];
 
 const quickLinks = [
-  { name: 'Hall Rentals', href: '/hall-rentals' },
-  { name: 'Events', href: '/events' },
-  { name: 'Membership', href: '/membership' },
-  { name: 'Contact Us', href: '/contact' },
+    { name: 'Hall Rentals', href: '/hall-rentals' },
+    { name: 'Events', href: '/events' },
+    { name: 'Membership', href: '/membership' },
+    { name: 'Contact Us', href: '/contact' },
 ];
 
 const moreLinks = [
-  { name: 'Photo Gallery', href: '/gallery' },
-  { name: 'About Us', href: '/about' },
-  { name: 'Member Login', href: 'http://localhost:5000' }, // Link to Web App
-  { name: 'Privacy Policy', href: '/privacy-policy' },
-  { name: 'Terms of Service', href: '/terms-of-service' },
-  { name: 'Hall Rental Rules', href: '/hall-rental-rules' },
+    { name: 'Photo Gallery', href: '/gallery' },
+    { name: 'About Us', href: '/about' },
+    { name: 'Member Login', href: 'http://localhost:5000' }, // Link to Web App
 ]
 
-interface FooterProps {
-  highAccessibilityMode?: boolean;
-  largeTextMode?: boolean;
-}
-
-export default function Footer({ highAccessibilityMode, largeTextMode }: FooterProps) {
+export default function Footer() {
   const currentYear = new Date().getFullYear();
-
-  const toggleA11yMode = async () => {
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
-    try {
-      await fetch(`${API_URL}/api/WebsiteSettings/toggle-accessibility`, {
-        method: 'POST',
-      });
-      window.location.reload();
-    } catch (error) {
-      console.error('Failed to toggle accessibility mode:', error);
-    }
-  };
-
-  const toggleLargeTextMode = async () => {
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5207';
-    try {
-      await fetch(`${API_URL}/api/WebsiteSettings/toggle-large-text`, {
-        method: 'POST',
-      });
-      window.location.reload();
-    } catch (error) {
-      console.error('Failed to toggle large text mode:', error);
-    }
-  };
 
   return (
     <footer className="bg-midnight-blue border-t border-burnished-gold/20 text-pure-white/60">
@@ -146,14 +112,6 @@ export default function Footer({ highAccessibilityMode, largeTextMode }: FooterP
           <p className="text-sm text-center sm:text-left">
             © {currentYear} Gloucester Fraternity Club. All rights reserved.
           </p>
-          <div className="flex flex-col sm:flex-row sm:space-x-4 mt-4 sm:mt-0">
-            <button onClick={toggleA11yMode} className="text-sm underline hover:text-burnished-gold transition-colors duration-300">
-              {highAccessibilityMode ? 'Disable High Accessibility Mode' : 'Enable High Accessibility Mode'}
-            </button>
-            <button onClick={toggleLargeTextMode} className="text-sm underline hover:text-burnished-gold transition-colors duration-300 mt-2 sm:mt-0">
-              {largeTextMode ? 'Disable Senior-Friendly Mode' : 'Enable Senior-Friendly Mode'}
-            </button>
-          </div>
           <p className="text-sm mt-4 sm:mt-0">
             Website designed with modern legacy.
           </p>

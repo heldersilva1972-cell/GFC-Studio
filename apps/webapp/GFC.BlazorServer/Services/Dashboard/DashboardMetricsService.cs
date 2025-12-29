@@ -12,7 +12,7 @@ namespace GFC.BlazorServer.Services.Dashboard;
 
 public class DashboardMetricsService : IDashboardMetricsService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly IMemberRepository _memberRepository;
     private readonly IDuesRepository _duesRepository;
     private readonly IDuesYearSettingsRepository _duesYearSettingsRepository;
@@ -20,14 +20,14 @@ public class DashboardMetricsService : IDashboardMetricsService
     private readonly ILogger<DashboardMetricsService> _logger;
 
     public DashboardMetricsService(
-        GfcDbContext dbContext,
+        IDbContextFactory<GfcDbContext> contextFactory,
         IMemberRepository memberRepository,
         IDuesRepository duesRepository,
         IDuesYearSettingsRepository duesYearSettingsRepository,
         IDashboardService dashboardService,
         ILogger<DashboardMetricsService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
         _duesYearSettingsRepository = duesYearSettingsRepository ?? throw new ArgumentNullException(nameof(duesYearSettingsRepository));
@@ -168,39 +168,36 @@ public class DashboardMetricsService : IDashboardMetricsService
 
     private async Task<(int enabled, int disabled)> GetCardCountsAsync(CancellationToken ct)
     {
-        // TODO: Wire door access metrics to real MemberDoorAccess table once the table and migrations are created.
-
-        // var enabled = await _dbContext.MemberDoorAccesses
-        //     .AsNoTracking()
-        //     .Where(k => k.IsEnabled)
-        //     .CountAsync(ct);
-
-        // var disabled = await _dbContext.MemberDoorAccesses
-        //     .AsNoTracking()
-        //     .Where(k => !k.IsEnabled)
-        //     .CountAsync(ct);
-
-        var enabled = 0;
-        var disabled = 0;
-
-        return (enabled, disabled);
+        try
+        {
+            await using var dbContext = await _contextFactory.CreateDbContextAsync(ct);
+            // TODO: Wire door access metrics to real MemberDoorAccess table once the table and migrations are created.
+            // var enabled = await dbContext.MemberDoorAccesses.CountAsync(da => da.IsEnabled, ct);
+            // var disabled = await dbContext.MemberDoorAccesses.CountAsync(da => !da.IsEnabled, ct);
+            var enabled = 0; // Placeholder until migration
+            var disabled = 0; // Placeholder until migration
+            return (enabled, disabled);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch card counts");
+            return (0, 0);
+        }
     }
 
     private async Task<int> GetRecentMemberChangeCountAsync(CancellationToken ct)
     {
-        var since = DateTime.UtcNow.AddHours(-24);
-
-        _logger.LogDebug("Counting member changes since {Since}", since);
-
-        // TODO: Wire recent member change metric to real KeyHistory table once it exists and migrations are applied.
-        // var count = await _dbContext.KeyHistories
-        //     .AsNoTracking()
-        //     .Where(x => x.Date >= since)
-        //     .CountAsync(ct);
-
-        var count = 0;
-
-        return count;
+        try
+        {
+            await using var dbContext = await _contextFactory.CreateDbContextAsync(ct);
+            // Placeholder: Wire to real tables later
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch recent member counts");
+            return 0;
+        }
     }
 }
 

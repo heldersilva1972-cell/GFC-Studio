@@ -10,18 +10,19 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class SystemSettingsService : ISystemSettingsService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<SystemSettingsService> _logger;
 
-    public SystemSettingsService(GfcDbContext dbContext, ILogger<SystemSettingsService> logger)
+    public SystemSettingsService(IDbContextFactory<GfcDbContext> contextFactory, ILogger<SystemSettingsService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task<SystemSettings> GetAsync()
     {
-        var settings = await _dbContext.SystemSettings.FindAsync(1);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        var settings = await dbContext.SystemSettings.FindAsync(1);
         
         if (settings == null)
         {
@@ -33,8 +34,8 @@ public class SystemSettingsService : ISystemSettingsService
                 LastUpdatedUtc = null
             };
             
-            _dbContext.SystemSettings.Add(settings);
-            await _dbContext.SaveChangesAsync();
+            dbContext.SystemSettings.Add(settings);
+            await dbContext.SaveChangesAsync();
             _logger.LogInformation("Created default SystemSettings");
         }
         
@@ -43,7 +44,8 @@ public class SystemSettingsService : ISystemSettingsService
 
     public SystemSettings GetSettings()
     {
-        var settings = _dbContext.SystemSettings.Find(1);
+        using var dbContext = _contextFactory.CreateDbContext();
+        var settings = dbContext.SystemSettings.Find(1);
         
         if (settings == null)
         {
@@ -54,8 +56,8 @@ public class SystemSettingsService : ISystemSettingsService
                 LastUpdatedUtc = null
             };
             
-            _dbContext.SystemSettings.Add(settings);
-            _dbContext.SaveChanges();
+            dbContext.SystemSettings.Add(settings);
+            dbContext.SaveChanges();
             _logger.LogInformation("Created default SystemSettings");
         }
         
@@ -64,7 +66,9 @@ public class SystemSettingsService : ISystemSettingsService
 
     public async Task UpdateNvrCredentialsAsync(string nvrIpAddress, int nvrPort, string username, string password)
     {
-        var settings = await GetAsync();
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        var settings = await dbContext.SystemSettings.FindAsync(1);
+        if (settings == null) return;
         
         settings.NvrIpAddress = nvrIpAddress;
         settings.NvrPort = nvrPort;
@@ -72,13 +76,15 @@ public class SystemSettingsService : ISystemSettingsService
         settings.NvrPassword = password; // Note: In production, encrypt this!
         settings.LastUpdatedUtc = DateTime.UtcNow;
         
-        await _dbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
         _logger.LogInformation("Updated NVR credentials");
     }
 
     public async Task UpdateSecuritySettingsAsync(SystemSettings settings)
     {
-        var existingSettings = await GetAsync();
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        var existingSettings = await dbContext.SystemSettings.FindAsync(1);
+        if (existingSettings == null) return;
 
         // Remote Access Configuration
         existingSettings.CloudflareTunnelToken = settings.CloudflareTunnelToken;
@@ -114,7 +120,7 @@ public class SystemSettingsService : ISystemSettingsService
 
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
-        await _dbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
         _logger.LogInformation("Updated security settings");
     }
 }

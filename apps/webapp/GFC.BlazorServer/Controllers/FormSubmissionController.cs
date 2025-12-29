@@ -1,65 +1,79 @@
 // [NEW]
-using GFC.Core.Interfaces;
 using GFC.Core.Models;
+using GFC.Core.Models;
+using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Mvc;
-using System;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json;
+using System.Web;
+using System.Linq;
 
 namespace GFC.BlazorServer.Controllers
 {
     [ApiController]
-    [Route("api/form-submissions")]
+    [Route("api/[controller]")]
     public class FormSubmissionController : ControllerBase
     {
         private readonly IFormService _formService;
-        private readonly INotificationService _notificationService;
 
-        public FormSubmissionController(IFormService formService, INotificationService notificationService)
+        public FormSubmissionController(IFormService formService)
         {
             _formService = formService;
-            _notificationService = notificationService;
         }
 
-        [HttpPost("save")]
-        public async Task<IActionResult> SavePartialSubmission([FromBody] FormSubmission submission)
+        [HttpPost]
+        public async Task<IActionResult> Submit([FromBody] FormSubmission submission)
         {
-            if (!ModelState.IsValid)
+            if (submission == null || !ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            submission.Status = "Incomplete";
-            submission.ResumeToken = GenerateSecureToken();
-            submission.SubmittedAt = DateTime.UtcNow;
-
-            await _formService.SaveSubmissionAsync(submission);
-
-            // Send email with resume link
-            var resumeUrl = Url.Action("Resume", "HallRentals", new { token = submission.ResumeToken }, Request.Scheme);
-            await _notificationService.SendFormResumeEmailAsync(submission.SubmitterEmail, resumeUrl);
-
-            return Ok(new { message = "Your progress has been saved. A link to resume has been sent to your email." });
-        }
-
-        [HttpGet("resume/{token}")]
-        public async Task<IActionResult> GetSubmissionByToken(string token)
-        {
-            var submission = await _formService.GetSubmissionByTokenAsync(token);
-            if (submission == null)
+            // Sanitize all string inputs in the submission data to prevent XSS.
+            try
             {
-                return NotFound();
+                var submissionData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(submission.SubmissionData);
+                var sanitizedData = new Dictionary<string, object>();
+
+                foreach (var key in submissionData.Keys)
+                {
+                    var value = submissionData[key];
+                    if (value.ValueKind == JsonValueKind.String)
+                    {
+                        sanitizedData[key] = HttpUtility.HtmlEncode(value.GetString());
+                    }
+                    else
+                    {
+                        sanitizedData[key] = value;
+                    }
+                }
+                submission.SubmissionData = JsonSerializer.Serialize(sanitizedData);
             }
-            return Ok(submission);
+            catch (JsonException)
+            {
+                return BadRequest("Invalid submission data format.");
+            }
+
+            var createdSubmission = await _formService.CreateSubmissionAsync(submission);
+            return Ok(createdSubmission);
         }
 
-        private string GenerateSecureToken()
+        [HttpPost("save-for-later")]
+        public async Task<IActionResult> SaveForLater([FromBody] SaveForLaterRequest request)
         {
-            using var randomNumberGenerator = new RNGCryptoServiceProvider();
-            var randomNumber = new byte[32];
-            randomNumberGenerator.GetBytes(randomNumber);
-            return Convert.ToBase64String(randomNumber).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            if (request == null || string.IsNullOrWhiteSpace(request.FormData) || string.IsNullOrWhiteSpace(request.Email))
+            {
+                return BadRequest("Invalid request data.");
+            }
+
+            var inquiry = await _formService.SaveRentalInquiryForLaterAsync(request.FormData, request.Email);
+            return Ok(new { message = "Save link sent successfully." });
         }
+    }
+
+    public class SaveForLaterRequest
+    {
+        public string FormData { get; set; }
+        public string Email { get; set; }
     }
 }

@@ -1,0 +1,258 @@
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@inject ControllerNetworkConfigService NetworkConfigService
+@inject CommandInfoService CommandInfoService
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject ILogger<NetworkTab> Logger
+
+<div class="settings-tab-content fadeIn">
+    @if (_initError != null)
+    {
+        <div class="alert alert-danger mb-4">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> @_initError
+        </div>
+    }
+
+    <div class="row g-4 d-flex align-items-stretch">
+        <!-- Main Configuration -->
+        <div class="col-lg-8 d-flex flex-column">
+            <div class="glass-panel h-100 d-flex flex-column">
+                <div class="panel-header mb-4">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-hdd-network text-primary fs-4"></i>
+                            <h3 class="mb-0">IP Configuration</h3>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                             <button class="btn btn-sm btn-outline-secondary" @onclick="ReadFromController" disabled="@(_isLoading || _isSyncing)">
+                                <i class="bi bi-broadcast-pin me-1"></i> Read
+                            </button>
+                            <button class="btn btn-sm btn-primary" @onclick="SaveToDb" disabled="@(_isLoading || _isSaving)">
+                                <i class="bi bi-save me-1"></i> Save
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-muted small mb-0 mt-1">Configure how this controller connects to the network.</p>
+                </div>
+
+                <EditForm Model="_config" class="flex-grow-1">
+                    <DataAnnotationsValidator />
+                    
+                    <div class="settings-grid">
+                        <div class="modern-field">
+                            <label class="form-label">Static IP Address</label>
+                            <InputText class="modern-input" @bind-Value="_config.IpAddress" placeholder="192.168.1.100" />
+                            <div class="form-label-desc">Unique address regarding your local subnet scheme.</div>
+                        </div>
+
+                        <div class="modern-field">
+                            <label class="form-label">Gateway</label>
+                            <InputText class="modern-input" @bind-Value="_config.Gateway" placeholder="192.168.1.1" />
+                            <div class="form-label-desc">Router IP address.</div>
+                        </div>
+
+                        <div class="modern-field">
+                            <label class="form-label">Subnet Mask</label>
+                            <InputText class="modern-input" @bind-Value="_config.SubnetMask" placeholder="255.255.255.0" />
+                            <div class="form-label-desc">Usually 255.255.255.0.</div>
+                        </div>
+
+                        <div class="modern-field">
+                            <label class="form-label">UDP Port</label>
+                            <InputNumber TValue="int?" class="modern-input" @bind-Value="_config.Port" />
+                            <div class="form-label-desc">Default port is 60000.</div>
+                        </div>
+                        
+                        <div class="modern-field full-width">
+                            <label class="form-label">Allowed PC IP (Security)</label>
+                            <InputText class="modern-input" @bind-Value="_config.AllowedPcIp" placeholder="192.168.1.50" />
+                            <div class="form-label-desc">If set, controller will ONLY accept commands from this IP. Leave empty to allow any.</div>
+                        </div>
+                        
+                        <div class="modern-field full-width">
+                            <div class="d-flex align-items-center justify-content-between p-2 border rounded border-glass">
+                                <div>
+                                    <div class="fw-bold">Dynamic IP (DHCP)</div>
+                                    <small class="text-muted">Not recommended for controllers.</small>
+                                </div>
+                                <div class="form-check form-switch fs-4 m-0">
+                                    <InputCheckbox class="form-check-input" @bind-Value="_config.DhcpEnabled" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+
+        <!-- Sidebar Info / Actions -->
+        <div class="col-lg-4 d-flex flex-column gap-3">
+             <!-- Status Card -->
+            <div class="glass-panel">
+                <h4 class="mb-3">Sync Status</h4>
+                <div class="status-list">
+                    <div class="status-item d-flex justify-content-between align-items-center mb-2">
+                         <span><i class="bi bi-arrow-down-circle me-2"></i>Last Read</span>
+                         <span class="badge @(_config.LastReadUtc.HasValue ? "bg-success" : "bg-secondary")">
+                             @(_config.LastReadUtc?.ToLocalTime().ToString("g") ?? "Never")
+                         </span>
+                    </div>
+                    <div class="status-item d-flex justify-content-between align-items-center">
+                         <span><i class="bi bi-arrow-up-circle me-2"></i>Last Sync</span>
+                         <span class="badge @(_config.LastSyncUtc.HasValue ? "bg-success" : "bg-secondary")">
+                             @(_config.LastSyncUtc?.ToLocalTime().ToString("g") ?? "Never")
+                         </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Danger Zone -->
+            <div class="glass-panel danger-panel mt-auto">
+                <div class="d-flex align-items-center gap-2 mb-2 text-danger">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <h4 class="mb-0">Push to Hardware</h4>
+                </div>
+                <p class="small text-muted mb-3">
+                    Writes these IP settings to the controller's chip. Connectivity will be lost briefly.
+                </p>
+                <button class="btn btn-danger w-100" @onclick="ShowSyncConfirmationModal" disabled="@(_isSyncing || Controller?.IsEnabled != true)">
+                    @if(_isSyncing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    Apply Network Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* Modal Logic Reuse *@
+@if (_showSyncConfirmation)
+{
+    <div class="modal-backdrop fade show" @onclick="CloseSyncConfirmation"></div>
+    <div class="modern-modal-container">
+        <div class="modern-modal fadeIn">
+            <div class="modal-header-modern danger">
+                <div class="header-icon"><i class="bi bi-exclamation-triangle"></i></div>
+                <h2>Confirm Network Update</h2>
+                <button class="btn-close-modern" @onclick="CloseSyncConfirmation"><i class="bi bi-x"></i></button>
+            </div>
+            <div class="modal-body-modern">
+                <div class="alert alert-warning">
+                    <strong>Warning:</strong> Changing network settings can make the controller unreachable if configured incorrectly.
+                </div>
+                <div class="summary-list my-3">
+                    <div class="d-flex justify-content-between border-bottom py-2">
+                        <span>Target IP</span>
+                        <strong>@_config.IpAddress</strong>
+                    </div>
+                </div>
+                <p>Are you sure you want to write these settings to the physical hardware?</p>
+            </div>
+            <div class="modal-footer-modern">
+                <button class="btn-modern btn-outline-modern" @onclick="CloseSyncConfirmation">Cancel</button>
+                <button class="btn-modern btn-danger" @onclick="ConfirmSyncToController">
+                    @(_isSyncing ? "Writing..." : "Yes, Apply Changes")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public ControllerDevice? Controller { get; set; }
+
+    private ControllerNetworkConfig _config = new();
+    private bool _isLoading = false;
+    private bool _isSaving = false;
+    private bool _isSyncing = false;
+    private string? _initError;
+    private bool _showSyncConfirmation = false;
+    private string? _newPassword; // Kept for logic compatibility
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Controller != null)
+        {
+            await LoadNetworkConfig();
+        }
+    }
+
+    private async Task LoadNetworkConfig()
+    {
+        if (Controller == null) return;
+        _isLoading = true;
+        try
+        {
+            var config = await NetworkConfigService.GetFromDbAsync(Controller.Id);
+            _config = config ?? new ControllerNetworkConfig { ControllerId = Controller.Id, Port = 60000 };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load network config");
+            _initError = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SaveToDb()
+    {
+        if (Controller == null) return;
+        _isSaving = true;
+        try
+        {
+            _config.ControllerId = Controller.Id;
+            await NetworkConfigService.SaveToDbAsync(_config);
+            // Ideally notify parent to show toast
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save network config");
+            _initError = ex.Message;
+        }
+        finally { _isSaving = false; }
+    }
+
+    private async Task ReadFromController()
+    {
+        if (Controller == null) return;
+        _isLoading = true;
+        try
+        {
+            var config = await NetworkConfigService.ReadFromControllerAsync(Controller.SerialNumber);
+            if (config != null) _config = config;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Read failed");
+            _initError = "Read failed: " + ex.Message;
+        }
+        finally { _isLoading = false; }
+    }
+
+    private void ShowSyncConfirmationModal() => _showSyncConfirmation = true;
+    private void CloseSyncConfirmation() => _showSyncConfirmation = false;
+
+    private async Task ConfirmSyncToController()
+    {
+        if (Controller == null) return;
+        _isSyncing = true; 
+        CloseSyncConfirmation();
+        try
+        {
+            await NetworkConfigService.SyncToControllerAsync(Controller.SerialNumber, _config, null);
+            await LoadNetworkConfig();
+        }
+        catch (Exception ex)
+        {
+            _initError = "Sync failed: " + ex.Message;
+        }
+        finally { _isSyncing = false; }
+    }
+}

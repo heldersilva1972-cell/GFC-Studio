@@ -3,182 +3,235 @@
 @using Microsoft.AspNetCore.Authorization
 @inject IScheduleService ScheduleService
 @inject ILogger<TimeProfilesTab> Logger
+@inject IJSRuntime JSRuntime
 
-<div class="data-card">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3>Time Profiles</h3>
+<div class="glass-panel p-4 fadeIn">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-glass">
+        <div>
+            <h3 class="mb-1"><i class="bi bi-calendar-range me-2 text-primary"></i>Unlock Schedules</h3>
+            <p class="text-muted small mb-0">Create reusable weekly time profiles (e.g., "Business Hours") to apply to doors.</p>
+        </div>
         <button class="btn btn-primary" @onclick="ShowAddModal" disabled="@_loading">
-            <i class="bi bi-plus-circle"></i> New Profile
+            <i class="bi bi-plus-lg me-2"></i>New Profile
         </button>
     </div>
 
     @if (_errorMessage != null)
     {
-        <div class="alert alert-danger">@_errorMessage</div>
+        <div class="alert alert-danger mb-4">
+             <i class="bi bi-exclamation-triangle-fill me-2"></i> @_errorMessage
+        </div>
     }
 
     @if (_loading)
     {
-        <div class="text-center my-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
+        <div class="d-flex justify-content-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (_profiles.Count == 0)
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-calendar-x display-4 text-muted opacity-25 mb-3"></i>
+            <h5 class="text-muted">No schedules found</h5>
+            <p class="text-muted small">Create a schedule to define when doors should automatically unlock.</p>
+            <button class="btn btn-outline-primary mt-3" @onclick="ShowAddModal">Create First Schedule</button>
         </div>
     }
     else
     {
-        <table class="data-table table-compact">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Description</th>
-                    <th>Active</th>
-                    <th>Intervals</th>
-                    <th style="width:150px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (_profiles.Count == 0)
-                {
-                    <tr>
-                        <td colspan="5" class="text-center text-muted py-4">No time profiles configured.</td>
-                    </tr>
-                }
-                else
-                {
-                    @foreach (var profile in _profiles)
-                    {
-                        <tr>
-                            <td>@profile.Name</td>
-                            <td>@(profile.Description ?? "-")</td>
-                            <td>
-                                <span class="badge @(profile.IsActive ? "bg-success" : "bg-secondary")">
+        <div class="row g-4">
+            @foreach (var profile in _profiles)
+            {
+                <div class="col-md-6 col-xl-4">
+                    <div class="card h-100 border-glass bg-surface-subtle shadow-sm hover-elevate transition-all">
+                        <div class="card-body p-4">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <h5 class="card-title fw-bold mb-0 text-truncate" title="@profile.Name">@profile.Name</h5>
+                                <span class="badge @(profile.IsActive ? "bg-success-subtle text-success" : "bg-secondary-subtle text-secondary") border border-current">
                                     @(profile.IsActive ? "Active" : "Inactive")
                                 </span>
-                            </td>
-                            <td>@profile.Intervals.Count</td>
-                            <td>
-                                <button class="btn btn-outline-primary btn-sm" @onclick="() => EditProfile(profile)">
-                                    Edit
+                            </div>
+                            
+                            <p class="card-text text-muted small mb-3 text-truncate-2" style="min-height: 2.5em;">
+                                @(string.IsNullOrEmpty(profile.Description) ? "No description provided." : profile.Description)
+                            </p>
+
+                            <div class="bg-surface rounded-3 p-2 mb-4 border border-glass">
+                                <small class="d-block text-uppercase fw-bold text-muted mb-2" style="font-size: 0.7rem;">Schedule Preview</small>
+                                <div class="d-flex flex-wrap gap-1">
+                                    @foreach (var dayGroup in GroupIntervals(profile.Intervals))
+                                    {
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-normal">
+                                            @dayGroup
+                                        </span>
+                                    }
+                                    @if(profile.Intervals.Count == 0) { <span class="text-muted small">No time intervals set</span> }
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-end gap-2 mt-auto">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditProfile(profile)">
+                                    <i class="bi bi-pencil me-1"></i> Edit
                                 </button>
-                                <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteProfile(profile)">
-                                    Delete
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteProfile(profile)">
+                                    <i class="bi bi-trash"></i>
                                 </button>
-                            </td>
-                        </tr>
-                    }
-                }
-            </tbody>
-        </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
     }
 </div>
 
 @if (_showModal)
 {
-    <div class="modal-backdrop fade show"></div>
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@(_editingProfile?.Id > 0 ? "Edit" : "New") Time Profile</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+    <div class="modal-backdrop fade show" style="z-index: 1050;"></div>
+    <div class="modern-modal-container" style="z-index: 1060;">
+        <div class="modern-modal fadeIn w-100" style="max-width: 800px;">
+            <div class="modal-header-modern">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="header-icon bg-primary-subtle text-primary"><i class="bi bi-clock-history"></i></div>
+                    <h3 class="mb-0">@(_editingProfile?.Id > 0 ? "Edit" : "New") Schedule</h3>
                 </div>
-                <div class="modal-body">
-                    @if (!string.IsNullOrWhiteSpace(_modalError))
+                <button class="btn-close-modern" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            
+            <div class="modal-body-modern custom-scrollbar" style="max-height: 70vh; overflow-y: auto;">
+                @if (!string.IsNullOrWhiteSpace(_modalError))
+                {
+                    <div class="alert alert-danger mb-4">
+                        <i class="bi bi-exclamation-circle-fill me-2"></i> @_modalError
+                    </div>
+                }
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold small text-uppercase text-muted">Profile Name</label>
+                        <input type="text" class="modern-input w-100" placeholder="e.g., Standard Business Hours" @bind="_editingProfile!.Name" />
+                    </div>
+                     <div class="col-md-4">
+                        <label class="form-label fw-bold small text-uppercase text-muted">Status</label>
+                        <div class="form-check form-switch mt-2">
+                             <input class="form-check-input" type="checkbox" id="activeSwitch" @bind="_editingProfile!.IsActive">
+                             <label class="form-check-label" for="activeSwitch">Active Profile</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold small text-uppercase text-muted">Description</label>
+                        <textarea class="modern-input w-100" rows="2" placeholder="Optional notes about this schedule..." @bind="_editingProfile!.Description"></textarea>
+                    </div>
+                </div>
+
+                <div class="bg-surface-subtle rounded-3 p-4 border border-glass">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0 fw-bold">Time Intervals</h5>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="AddInterval">
+                            <i class="bi bi-plus-lg me-1"></i> Add Interval
+                        </button>
+                    </div>
+
+                    @if (_editingProfile!.Intervals.Count == 0)
                     {
-                        <div class="alert alert-danger">@_modalError</div>
+                        <div class="text-center py-4 border border-dashed rounded-3">
+                            <p class="text-muted mb-0">No time intervals defined.</p>
+                            <small class="text-muted">Click "Add Interval" to set when doors should be unlocked.</small>
+                        </div>
                     }
-                    <div class="mb-3">
-                        <label class="form-label">Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" @bind="_editingProfile!.Name" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Description</label>
-                        <textarea class="form-control" rows="2" @bind="_editingProfile!.Description"></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" @bind="_editingProfile!.IsActive" />
-                            <label class="form-check-label">Active (inactive profiles cannot be linked to controllers)</label>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label mb-0">Intervals</label>
-                            <button class="btn btn-sm btn-outline-primary" @onclick="AddInterval">
-                                <i class="bi bi-plus"></i> Add Interval
-                            </button>
-                        </div>
-                        @if (_editingProfile!.Intervals.Count == 0)
-                        {
-                            <p class="text-muted small">No intervals defined. Add at least one interval.</p>
-                        }
-                        else
-                        {
-                            <div class="table-responsive">
-                                <table class="table table-sm">
-                                    <thead>
-                                        <tr>
-                                            <th>Day</th>
-                                            <th>Start</th>
-                                            <th>End</th>
-                                            <th>Order</th>
-                                            <th></th>
+                    else
+                    {
+                         <div class="table-responsive">
+                            <table class="table table-borderless align-middle mb-0">
+                                <thead class="text-muted small text-uppercase border-bottom">
+                                    <tr>
+                                        <th>Day of Week</th>
+                                        <th style="width: 150px;">Start Time</th>
+                                        <th style="width: 150px;">End Time</th>
+                                        <th style="width: 50px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var interval in _editingProfile!.Intervals.OrderBy(i => i.DayOfWeek).ThenBy(i => i.Order))
+                                    {
+                                        <tr class="border-bottom border-light">
+                                            <td class="ps-0">
+                                                <select class="form-select form-select-sm modern-input border-0 bg-transparent fw-bold" @bind="interval.DayOfWeek">
+                                                    <option value="0">Sunday</option>
+                                                    <option value="1">Monday</option>
+                                                    <option value="2">Tuesday</option>
+                                                    <option value="3">Wednesday</option>
+                                                    <option value="4">Thursday</option>
+                                                    <option value="5">Friday</option>
+                                                    <option value="6">Saturday</option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <input type="time" class="form-control form-control-sm modern-input" 
+                                                       value="@interval.StartTime.ToString(@"HH\:mm")" 
+                                                       @onchange="@((ChangeEventArgs e) => UpdateStartTime(interval, e.Value?.ToString() ?? ""))" />
+                                            </td>
+                                            <td>
+                                                <input type="time" class="form-control form-control-sm modern-input" 
+                                                       value="@interval.EndTime.ToString(@"HH\:mm")" 
+                                                       @onchange="@((ChangeEventArgs e) => UpdateEndTime(interval, e.Value?.ToString() ?? ""))" />
+                                            </td>
+                                            <td class="pe-0 text-end">
+                                                <button class="btn btn-icon btn-sm text-danger hover-bg-danger-subtle rounded-circle" 
+                                                        title="Remove Interval"
+                                                        @onclick="() => RemoveInterval(interval)">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var interval in _editingProfile!.Intervals.OrderBy(i => i.DayOfWeek).ThenBy(i => i.Order))
-                                        {
-                                            <tr>
-                                                <td>
-                                                    <select class="form-select form-select-sm" @bind="interval.DayOfWeek">
-                                                        <option value="0">Sunday</option>
-                                                        <option value="1">Monday</option>
-                                                        <option value="2">Tuesday</option>
-                                                        <option value="3">Wednesday</option>
-                                                        <option value="4">Thursday</option>
-                                                        <option value="5">Friday</option>
-                                                        <option value="6">Saturday</option>
-                                                    </select>
-                                                </td>
-                                                <td>
-                                                    <input type="time" class="form-control form-control-sm" 
-                                                           value="@interval.StartTime.ToString(@"HH\:mm")" 
-                                                           @onchange="@((ChangeEventArgs e) => UpdateStartTime(interval, e.Value?.ToString() ?? ""))" />
-                                                </td>
-                                                <td>
-                                                    <input type="time" class="form-control form-control-sm" 
-                                                           value="@interval.EndTime.ToString(@"HH\:mm")" 
-                                                           @onchange="@((ChangeEventArgs e) => UpdateEndTime(interval, e.Value?.ToString() ?? ""))" />
-                                                </td>
-                                                <td>
-                                                    <input type="number" class="form-control form-control-sm" 
-                                                           style="width:80px;" 
-                                                           @bind="interval.Order" />
-                                                </td>
-                                                <td>
-                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveInterval(interval)">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        }
-                    </div>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
                 </div>
-                <div class="modal-footer">
-                    <button class="btn btn-outline-secondary" @onclick="CloseModal" disabled="@_saving">Cancel</button>
-                    <button class="btn btn-primary" @onclick="SaveProfile" disabled="@_saving">
-                        @(_saving ? "Saving..." : "Save")
-                    </button>
-                </div>
+            </div>
+            
+            <div class="modal-footer-modern">
+                <button class="btn-modern btn-outline-modern" @onclick="CloseModal" disabled="@_saving">Cancel</button>
+                <button class="btn-modern btn-primary-modern" @onclick="SaveProfile" disabled="@_saving">
+                    @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    <i class="bi bi-check-lg me-2"></i> Save Profile
+                </button>
             </div>
         </div>
     </div>
 }
+
+<style>
+    /* Scoped Styles reusing variables */
+    .glass-panel { background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: 16px; }
+    .bg-surface-subtle { background-color: rgba(var(--bg-surface-rgb), 0.5); }
+    .text-truncate-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    
+    .modern-input { 
+        background-color: var(--bg-surface); 
+        border: 1px solid var(--glass-border); 
+        border-radius: 8px; 
+        padding: 0.6rem 1rem;
+        transition: all 0.2s;
+    }
+    .modern-input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.1); outline: none; }
+
+    /* Modal Styles */
+    .modern-modal-container { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .modern-modal { background: var(--bg-surface); border-radius: 20px; border: 1px solid var(--glass-border); box-shadow: 0 20px 50px rgba(0,0,0,0.2); pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-header-modern { padding: 1.5rem; border-bottom: 1px solid var(--glass-border); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface); }
+    .modal-body-modern { padding: 2rem; background: var(--bg-surface); }
+    .modal-footer-modern { padding: 1.5rem; border-top: 1px solid var(--glass-border); display: flex; justify-content: flex-end; gap: 1rem; background: var(--bg-surface-subtle); }
+    .header-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
+    .btn-close-modern { background: none; border: none; font-size: 1.25rem; color: var(--text-muted); cursor: pointer; transition: color 0.2s; }
+    .btn-close-modern:hover { color: var(--text-primary); }
+    
+    .hover-elevate:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.05) !important; }
+    .transition-all { transition: all 0.3s ease; }
+</style>
 
 @code {
     private List<TimeProfile> _profiles = new();
@@ -205,17 +258,16 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load time profiles");
-            _errorMessage = "Failed to load time profiles. See logs for details.";
+            _errorMessage = "Failed to load data.";
         }
-        finally
-        {
-            _loading = false;
-        }
+        finally { _loading = false; }
     }
 
     private void ShowAddModal()
     {
-        _editingProfile = new TimeProfile { Intervals = new List<TimeProfileInterval>() };
+        _editingProfile = new TimeProfile { IsActive = true, Intervals = new List<TimeProfileInterval>() };
+        // Add a default M-F 9-5 entry for convenience
+        _editingProfile.Intervals.Add(new TimeProfileInterval { DayOfWeek = 1, StartTime = new TimeOnly(9,0), EndTime = new TimeOnly(17,0) });
         _showModal = true;
         _modalError = null;
     }
@@ -225,6 +277,7 @@
         var fullProfile = await ScheduleService.GetProfileAsync(profile.Id);
         if (fullProfile != null)
         {
+             // Clone for editing
             _editingProfile = new TimeProfile
             {
                 Id = fullProfile.Id,
@@ -249,7 +302,6 @@
     {
         _showModal = false;
         _editingProfile = null;
-        _modalError = null;
     }
 
     private void AddInterval()
@@ -257,7 +309,7 @@
         if (_editingProfile == null) return;
         _editingProfile.Intervals.Add(new TimeProfileInterval
         {
-            DayOfWeek = 1, // Monday
+            DayOfWeek = 1, // Default Monday
             StartTime = new TimeOnly(9, 0),
             EndTime = new TimeOnly(17, 0),
             Order = _editingProfile.Intervals.Count
@@ -272,33 +324,19 @@
 
     private void UpdateStartTime(TimeProfileInterval interval, string timeValue)
     {
-        if (TimeOnly.TryParse(timeValue, out var time))
-        {
-            interval.StartTime = time;
-        }
+        if (TimeOnly.TryParse(timeValue, out var time)) interval.StartTime = time;
     }
 
     private void UpdateEndTime(TimeProfileInterval interval, string timeValue)
     {
-        if (TimeOnly.TryParse(timeValue, out var time))
-        {
-            interval.EndTime = time;
-        }
+        if (TimeOnly.TryParse(timeValue, out var time)) interval.EndTime = time;
     }
 
     private async Task SaveProfile()
     {
-        if (_editingProfile == null || string.IsNullOrWhiteSpace(_editingProfile.Name))
-        {
-            _modalError = "Name is required.";
-            return;
-        }
-
-        if (_editingProfile.Intervals.Count == 0)
-        {
-            _modalError = "At least one interval is required.";
-            return;
-        }
+        if (_editingProfile == null) return;
+        if (string.IsNullOrWhiteSpace(_editingProfile.Name)) { _modalError = "Profile Name is required."; return; }
+        if (_editingProfile.Intervals.Count == 0) { _modalError = "At least one time interval is required."; return; }
 
         _saving = true;
         _modalError = null;
@@ -311,21 +349,14 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to save time profile");
-            _modalError = "Failed to save time profile: " + ex.Message;
+            _modalError = "Save failed: " + ex.Message;
         }
-        finally
-        {
-            _saving = false;
-        }
+        finally { _saving = false; }
     }
 
     private async Task DeleteProfile(TimeProfile profile)
     {
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete time profile '{profile.Name}'?"))
-        {
-            return;
-        }
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{profile.Name}'? This may affect linked doors.")) return;
 
         try
         {
@@ -334,10 +365,18 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to delete time profile");
-            _errorMessage = "Failed to delete time profile: " + ex.Message;
+            _errorMessage = "Delete failed: " + ex.Message;
         }
     }
 
-    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+    // Helper to format intervals specifically for the card preview
+    private IEnumerable<string> GroupIntervals(ICollection<TimeProfileInterval> intervals)
+    {
+        if (intervals == null || !intervals.Any()) return Enumerable.Empty<string>();
+        
+        // Simple grouping logic: e.g. "Mon: 09:00-17:00"
+        return intervals.OrderBy(i => i.DayOfWeek).Select(i => 
+            $"{(DayOfWeek)i.DayOfWeek}: {i.StartTime:HH:mm}-{i.EndTime:HH:mm}"
+        ).Distinct();
+    }
 }

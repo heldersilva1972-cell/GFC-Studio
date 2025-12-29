@@ -77,7 +77,7 @@ namespace GFC.BlazorServer.Services
 
                 // Also clone the latest draft if one exists
                 var latestDraft = await context.StudioDrafts
-                    .Where(d => d.PageId == cloneFromPageId.Value)
+                    .Where(d => d.StudioPageId == cloneFromPageId.Value)
                     .OrderByDescending(d => d.CreatedAt)
                     .FirstOrDefaultAsync();
 

@@ -388,12 +388,23 @@ public sealed class AgentApiClient
     private HttpRequestMessage CreateRequest(HttpMethod method, string relativePath)
     {
         var options = _options.Value;
-        if (!string.IsNullOrWhiteSpace(options.BaseUrl) && _httpClient.BaseAddress?.AbsoluteUri != options.BaseUrl)
+        Uri requestUri;
+
+        // If we have a specific BaseUrl in options, treat it as the authority.
+        // We construct an absolute URI to avoid mutating _httpClient.BaseAddress 
+        // which throws if the client has already started requests.
+        if (!string.IsNullOrWhiteSpace(options.BaseUrl))
         {
-            _httpClient.BaseAddress = new Uri(options.BaseUrl);
+            var baseUri = new Uri(options.BaseUrl);
+            requestUri = new Uri(baseUri, relativePath);
+        }
+        else
+        {
+            // Fallback: rely on the client having a BaseAddress or relative path being sufficient
+            requestUri = new Uri(relativePath, UriKind.RelativeOrAbsolute);
         }
 
-        var request = new HttpRequestMessage(method, relativePath);
+        var request = new HttpRequestMessage(method, requestUri);
         if (!string.IsNullOrWhiteSpace(options.ApiKey))
         {
             request.Headers.TryAddWithoutValidation("X-Agent-Key", options.ApiKey);

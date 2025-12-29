@@ -202,12 +202,12 @@ public class Program
         builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
         builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
-        builder.Services.AddScoped<IMediaAssetService, MediaAssetService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.IMediaAssetService, GFC.BlazorServer.Services.MediaAssetService>();
+        builder.Services.AddScoped<GFC.Core.Interfaces.IMediaAssetService, GFC.BlazorServer.Services.MediaAssetService>();
         builder.Services.AddScoped<IFormService, FormService>();
         builder.Services.AddScoped<IFormBuilderService, FormBuilderService>();
         builder.Services.AddScoped<ISeoService, SeoService>();
         builder.Services.AddScoped<IDocumentService, DocumentService>();
-builder.Services.AddScoped<IAnimationService, AnimationService>();
         builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
@@ -226,8 +226,6 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IPageService, PageService>();
         builder.Services.AddScoped<IReviewService, ReviewService>();
         builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
-        builder.Services.AddScoped<IMigrationService, MigrationService>();
-        builder.Services.AddScoped(typeof(UndoRedoService<>));
         
         // Controller Client Wiring
         
@@ -421,6 +419,32 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                 else
                 {
                     Console.WriteLine($">>> WARNING: Rental schema script not found at {rentalScriptPath}");
+                }
+
+                // [AUTO-FIX 5] Run the Bar Sales Tables script
+                var barSalesScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "CreateBarSalesTables.sql");
+                if (File.Exists(barSalesScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Bar Sales Schema Fixes from: {barSalesScriptPath}");
+                    var barSqlFile = File.ReadAllText(barSalesScriptPath);
+                    var barBatches = System.Text.RegularExpressions.Regex.Split(barSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in barBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing bar sales batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Bar Sales Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Bar Sales schema script not found at {barSalesScriptPath}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
