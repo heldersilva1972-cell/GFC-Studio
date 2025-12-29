@@ -25,6 +25,7 @@
 @inject IAuthorizationService AuthorizationService
 @inject IConfiguration Configuration
 @inject IDbContextFactory<GfcDbContext> DbContextFactory
+@inject GFC.BlazorServer.Services.IMediaAssetService AssetService
 
 <script src="/js/studio-preview.js"></script>
 
@@ -54,10 +55,27 @@
     }
 
     /* FIX: Sidebar Selection */
+    .pro-list-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        transition: all 0.2s;
+        border-radius: 6px;
+        margin-bottom: 2px;
+        border: 1px solid transparent;
+    }
+
+    .pro-list-item:hover {
+        background-color: #f8fafc;
+        border-color: #e2e8f0;
+    }
+
     .pro-list-item.selected {
-        background-color: #dbeafe !important; /* Light blue match */
-        color: #1e40af !important; /* Dark blue text */
-        border-right: 3px solid #3b82f6 !important; /* Blue active indicator */
+        background-color: #eff6ff !important;
+        color: #1e40af !important;
+        border-color: #bfdbfe !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
 
     /* FIX: Right Inspector Header & Tabs */
@@ -333,14 +351,38 @@
                 
                 @if (activeToolboxTab == "outline")
                 {
-                    <!-- Placeholder: Tree View -->
-                    <div class="p-3 text-muted">
-                        <div class="mb-2"><i class="bi bi-caret-down-fill"></i> Body</div>
-                        <div class="ms-3 mb-2"><i class="bi bi-caret-down-fill"></i> Navbar</div>
-                        <div class="ms-3 mb-2"><i class="bi bi-caret-down-fill"></i> Hero Section</div>
-                         <div class="ms-4 mb-2 ps-2 border-start border-3 text-dark fw-bold"><i class="bi bi-fonts"></i> Heading</div>
-                         <div class="ms-4 mb-2 ps-2 border-start border-3"><i class="bi bi-card-image"></i> Hero Image</div>
-                        <div class="ms-3 mb-2"><i class="bi bi-caret-right"></i> Footer</div>
+                    <div class="p-2 outline-tree">
+                        <div class="pro-list-item mb-2" style="background: transparent;">
+                            <i class="bi bi-caret-down-fill me-1 small"></i>
+                            <i class="bi bi-window me-2"></i> <strong>Page Body</strong>
+                        </div>
+                        
+                        <div class="ms-3">
+                            @if (sections == null || !sections.Any())
+                            {
+                                <div class="text-muted small ps-3 py-2 border-start">No elements on page</div>
+                            }
+                            else
+                            {
+                                @foreach (var section in sections)
+                                {
+                                    <div class="pro-list-item @(selectedSection?.ClientId == section.ClientId ? "selected" : "")" 
+                                         @onclick="() => SelectSection(section)">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="bi @(section.ComponentType switch {
+                                                "HeroSection" => "bi-layout-sidebar-reverse",
+                                                "Heading" => "bi-type-h1",
+                                                "TextBlock" => "bi-fonts",
+                                                "Image" => "bi-image",
+                                                "Button" => "bi-hand-index-thumb",
+                                                _ => "bi-box"
+                                            }) text-muted small"></i>
+                                            <span class="text-truncate">@(section.Title ?? section.ComponentType)</span>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
                     </div>
                 }
                 
@@ -434,17 +476,44 @@
 
                 @if (activeToolboxTab == "assets")
                 {
-                     <!-- Placeholder: Assets -->
-                     <div class="p-2">
-                        <div class="input-group input-group-sm mb-2">
-                             <input type="text" class="form-control form-control-sm pro-input" placeholder="Search assets...">
-                             <span class="input-group-text bg-white border"><i class="bi bi-search"></i></span>
+                    <div class="p-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                            <span class="text-muted small fw-bold">MEDIA ASSETS</span>
+                            <button class="icon-btn btn-sm" title="Upload Media"><i class="bi bi-upload"></i></button>
                         </div>
-                        <div class="row g-2 px-2">
-                            <div class="col-6"><div class="ratio ratio-1x1 bg-light rounded border"></div></div>
-                            <div class="col-6"><div class="ratio ratio-1x1 bg-light rounded border"></div></div>
-                            <div class="col-6"><div class="ratio ratio-1x1 bg-light rounded border"></div></div>
-                            <div class="col-6"><div class="ratio ratio-1x1 bg-light rounded border"></div></div>
+                        <div class="input-group input-group-sm mb-3">
+                             <input type="text" class="form-control pro-input" placeholder="Search assets...">
+                             <span class="input-group-text bg-white border-start-0"><i class="bi bi-search small"></i></span>
+                        </div>
+                        
+                        <div class="row g-2 px-1">
+                            @if (mediaAssets == null || !mediaAssets.Any())
+                            {
+                                <div class="col-12 py-4 text-center text-muted small">No assets found</div>
+                            }
+                            else
+                            {
+                                @foreach (var asset in mediaAssets)
+                                {
+                                    <div class="col-6">
+                                        <div class="asset-thumb-card border rounded overflow-hidden bg-light" 
+                                             draggable="true" @ondragstart="@(e => HandleAssetDragStart(asset))"
+                                             title="@asset.FileName">
+                                            <div class="ratio ratio-1x1 d-flex align-items-center justify-content-center">
+                                                @if (asset.ContentType.StartsWith("image/"))
+                                                {
+                                                    <img src="@asset.FilePath" class="object-fit-cover w-100 h-100" />
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-file-earmark-code fs-3 text-muted"></i>
+                                                }
+                                            </div>
+                                            <div class="p-1 x-small text-truncate border-top bg-white">@asset.FileName</div>
+                                        </div>
+                                    </div>
+                                }
+                            }
                         </div>
                     </div>
                 }
@@ -675,6 +744,15 @@
                     <div class="panel-section-header">Content Properties</div>
                     <div class="property-grid">
                         <StudioWizard @ref="studioWizard" TargetSection="selectedSection" OnAssetChanged="HandleAssetChange" OnPropertyChanged="HandlePropertyChange" />
+                        
+                        <div class="p-3 border-top mt-3 bg-light">
+                             <button class="btn btn-sm btn-outline-secondary w-100 mb-2" @onclick="() => OpenSaveAsTemplateModal(selectedSection)">
+                                  <i class="bi bi-plus-circle me-2"></i> Save as Template
+                             </button>
+                             <button class="btn btn-sm btn-outline-danger w-100" @onclick="() => DeleteSection(selectedSection)">
+                                  <i class="bi bi-trash me-2"></i> Delete Element
+                             </button>
+                        </div>
                     </div>
                 }
                 
@@ -1174,6 +1252,39 @@
 }
 
 
+@if (showNewPageModal)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-plus me-2"></i>Create New Page</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showNewPageModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Page Title</label>
+                        <input type="text" class="form-control pro-input" @bind="newPageTitle" placeholder="e.g. About Us" />
+                        <div class="form-text">This will also generate a SEO-friendly URL slug.</div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(_newPageErrorMessage))
+                    {
+                        <div class="alert alert-danger py-2">
+                             <i class="bi bi-exclamation-circle me-2"></i> @_newPageErrorMessage
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-link text-muted text-decoration-none" @onclick="() => showNewPageModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary px-4" @onclick="HandleCreatePage">
+                        Create Page <i class="bi bi-arrow-right ms-2"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (showSaveVersionModal)
 {
     <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
@@ -1426,12 +1537,57 @@
         }
     }
 
+
     private bool showNewPageModal = false;
+    private string newPageTitle = "";
     private List<StudioPage> allPages = new();
     private StudioPage currentPage;
     private StudioDraft draft;
-    // allPages removed (duplicate)
     private List<StudioSection> sections = new();
+    private List<MediaAsset> mediaAssets = new();
+
+    private async Task LoadAssets()
+    {
+        try {
+            mediaAssets = (await AssetService.GetAllAssetsAsync()).ToList();
+        } catch {}
+    }
+
+    private void HandleAssetDragStart(MediaAsset asset)
+    {
+         // Logic for dragging image into canvas
+    }
+
+    private async Task DeleteSection(StudioSection section)
+    {
+        if (section != null)
+        {
+            RecordState();
+            sections.Remove(section);
+            selectedSection = null;
+            MarkAsDirty();
+            StateHasChanged();
+            await SendSectionsToPreview();
+        }
+    }
+
+    private async Task HandleCreatePage()
+    {
+        if (string.IsNullOrWhiteSpace(newPageTitle))
+        {
+            _newPageErrorMessage = "Page title is required.";
+            return;
+        }
+
+        var stub = new StudioPage { Title = newPageTitle };
+        await CreateNewPage(stub);
+        
+        if (string.IsNullOrEmpty(_newPageErrorMessage))
+        {
+            newPageTitle = "";
+            showNewPageModal = false;
+        }
+    }
     
     // Undo/Redo History Stacks
     private Stack<string> undoStack = new Stack<string>();
@@ -2108,6 +2264,8 @@
 
             // Feature 5: Load CMS Data
             await LoadCmsCollections();
+            await LoadAssets();
+            await LoadTemplates();
 
             // Initialize global dotNetHelper if not already done
             if (dotNetHelper == null) dotNetHelper = DotNetObjectReference.Create(this);
@@ -2275,6 +2433,15 @@
         }
     }
 
+    protected override async Task OnParametersSetAsync()
+    {
+        // Handle external navigation or initial load
+        if (PageId > 0 && PageId != currentPage?.Id)
+        {
+            await LoadPageAsync(PageId);
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         dotNetHelper = DotNetObjectReference.Create(this);
@@ -2282,30 +2449,23 @@
         {
             allPages = await PageService.GetAllPagesAsync();
 
-            var effectivePageId = PageId;
-            if (effectivePageId == 0)
+            if (PageId == 0)
             {
-                var firstPage = allPages.FirstOrDefault();
+                var firstPage = allPages.OrderBy(p => p.Title).FirstOrDefault();
                 if (firstPage != null)
                 {
-                    effectivePageId = firstPage.Id;
-                    // Update URL without forcing a reload, just to be clean
-                    NavigationManager.NavigateTo($"/studio/{effectivePageId}", replace: true);
+                    NavigationManager.NavigateTo($"/studio/{firstPage.Id}", replace: true);
                 }
                 else
                 {
                     errorMessage = "No pages found. Create a new page to begin.";
-                    return;
                 }
             }
-
-            await LoadPageAsync(effectivePageId);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to initialize Studio");
             errorMessage = $"Studio initialization failed: {ex.Message}";
-            errorDetails = ex.StackTrace;
         }
     }
 
