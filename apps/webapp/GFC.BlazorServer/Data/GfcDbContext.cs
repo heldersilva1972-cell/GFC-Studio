@@ -88,6 +88,7 @@ public class GfcDbContext : DbContext
     // Phase 14: Integrated Utility Suite
     public DbSet<PublicReview> PublicReviews => Set<PublicReview>();
     public DbSet<NotificationRouting> NotificationRoutings => Set<NotificationRouting>();
+    public DbSet<StudioSectionAsset> StudioSectionAssets => Set<StudioSectionAsset>();
     public DbSet<AssetFolder> AssetFolders => Set<AssetFolder>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<MediaRendition> MediaRenditions => Set<MediaRendition>();
@@ -632,6 +633,20 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("BarSaleEntries");
             entity.HasIndex(e => e.SaleDate);
+        });
+
+        modelBuilder.Entity<StudioSectionAsset>(entity =>
+        {
+            entity.ToTable("StudioSectionAssets");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.StudioSection)
+                .WithMany()
+                .HasForeignKey(e => e.StudioSectionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.MediaAsset)
+                .WithMany()
+                .HasForeignKey(e => e.MediaAssetId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

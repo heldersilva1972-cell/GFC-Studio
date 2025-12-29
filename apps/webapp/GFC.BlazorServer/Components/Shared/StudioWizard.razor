@@ -1,5 +1,6 @@
 @using GFC.Core.Models
 @using System.Text.Json
+@using GFC.BlazorServer.Components.Shared.Media
 
 <div class="property-inspector">
     <h5>Properties Inspector</h5>
@@ -18,10 +19,8 @@
                                @onchange="@((e) => HandlePropertyChanged("headline", e.Value.ToString()))" />
                     </div>
                     <div class="form-group">
-                        <label>Background Image URL</label>
-                        <input type="text" class="form-control"
-                               value="@(TargetSection.properties.ContainsKey("backgroundImage") ? TargetSection.properties["backgroundImage"].ToString() : "")"
-                               @onchange="@((e) => HandlePropertyChanged("backgroundImage", e.Value.ToString()))" />
+                        <label>Background Image</label>
+                        <button class="btn btn-secondary" @onclick="() => _showMediaLibrary = true">Choose Image</button>
                     </div>
                     break;
 
@@ -65,6 +64,11 @@
     }
 </div>
 
+@if (_showMediaLibrary)
+{
+    <MediaLibrary OnAssetSelected="HandleAssetSelected" OnClose="CloseMediaLibrary" />
+}
+
 @code {
     [Parameter]
     public StudioSection TargetSection { get; set; }
@@ -72,11 +76,15 @@
     [Parameter]
     public EventCallback<(string sectionId, string propertyName, object propertyValue)> OnPropertyChanged { get; set; }
 
+    [Parameter]
+    public EventCallback<MediaAsset> OnAssetChanged { get; set; }
+
+    private bool _showMediaLibrary = false;
+
     private async Task HandlePropertyChanged(string propertyName, object value)
     {
         if (TargetSection != null)
         {
-            // Update local state optimistically
             if (TargetSection.properties.ContainsKey(propertyName))
             {
                 TargetSection.properties[propertyName] = value;
@@ -89,6 +97,19 @@
             await OnPropertyChanged.InvokeAsync((TargetSection.ClientId.ToString(), propertyName, value));
             StateHasChanged();
         }
+    }
+
+    private async Task HandleAssetSelected(MediaAsset asset)
+    {
+        await OnAssetChanged.InvokeAsync(asset);
+        await HandlePropertyChanged("backgroundImage", asset.Renditions.FirstOrDefault()?.Url);
+        CloseMediaLibrary();
+    }
+
+    private void CloseMediaLibrary()
+    {
+        _showMediaLibrary = false;
+        StateHasChanged();
     }
 
     public class WizardWarning

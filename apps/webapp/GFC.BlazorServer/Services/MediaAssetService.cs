@@ -38,28 +38,49 @@ namespace GFC.BlazorServer.Services
                 Directory.CreateDirectory(uploadsFolderPath);
             }
 
-            var uniqueFileName = $"{Guid.NewGuid()}_{file.Name}";
-            var filePath = Path.Combine(uploadsFolderPath, uniqueFileName);
+            var originalFileName = $"{Guid.NewGuid()}_{file.Name}";
+            var originalFilePath = Path.Combine(uploadsFolderPath, originalFileName);
 
             await using (var stream = file.OpenReadStream(long.MaxValue))
-            await using (var fs = new FileStream(filePath, FileMode.Create))
+            await using (var fs = new FileStream(originalFilePath, FileMode.Create))
             {
                 await stream.CopyToAsync(fs);
+            }
+
+            string finalFilePath = originalFilePath;
+            string finalFileName = originalFileName;
+            string finalContentType = file.ContentType;
+            long finalFileSize = file.Size;
+
+            if (file.ContentType.StartsWith("image/") && file.ContentType != "image/webp")
+            {
+                using var image = await Image.LoadAsync(originalFilePath);
+                var webpFileName = $"{Path.GetFileNameWithoutExtension(originalFileName)}.webp";
+                var webpFilePath = Path.Combine(uploadsFolderPath, webpFileName);
+
+                await image.SaveAsync(webpFilePath, new WebpEncoder());
+
+                finalFilePath = webpFilePath;
+                finalFileName = webpFileName;
+                finalContentType = "image/webp";
+                finalFileSize = new FileInfo(webpFilePath).Length;
+
+                File.Delete(originalFilePath);
             }
 
             var asset = new MediaAsset
             {
                 FileName = file.Name,
-                StoredFileName = uniqueFileName,
-                ContentType = file.ContentType,
-                FileSize = file.Size,
+                StoredFileName = finalFileName,
+                ContentType = finalContentType,
+                FileSize = finalFileSize,
                 Usage = usage,
                 UploadedAt = DateTime.UtcNow
             };
 
             if (file.ContentType.StartsWith("image/"))
             {
-                await GenerateRenditionsAsync(asset, filePath);
+                await GenerateRenditionsAsync(asset, finalFilePath);
             }
 
             using var context = await _contextFactory.CreateDbContextAsync();
@@ -200,6 +221,13 @@ namespace GFC.BlazorServer.Services
         public async Task DeleteMediaAssetAsync(int id)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
+
+            var isAssetInUse = await context.StudioSectionAssets.AnyAsync(ssa => ssa.MediaAssetId == id);
+            if (isAssetInUse)
+            {
+                throw new InvalidOperationException("This media asset is currently in use by a Studio Section and cannot be deleted.");
+            }
+
             var asset = await context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
             if (asset != null)
             {

@@ -1,0 +1,88 @@
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IMediaAssetService MediaAssetService
+@inject IJSRuntime JSRuntime
+
+<div class="media-library-modal">
+    <div class="media-library-header">
+        <h5>Media Library</h5>
+        <button type="button" class="close" @onclick="CloseModal">
+            <span aria-hidden="true">&times;</span>
+        </button>
+    </div>
+    <div class="media-library-body">
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger">@_errorMessage</div>
+        }
+        <div class="media-grid">
+            @foreach (var asset in assets)
+            {
+                <div class="media-item">
+                    <img src="@asset.Renditions.FirstOrDefault()?.Url" @onclick="() => SelectAsset(asset)" />
+                    <button class="btn btn-sm btn-danger delete-asset-btn" @onclick="() => DeleteAsset(asset.Id)">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            }
+        </div>
+        <div class="media-library-upload">
+            <InputFile OnChange="HandleFileUpload" />
+        </div>
+    </div>
+    <div class="media-library-footer">
+        <button class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback<MediaAsset> OnAssetSelected { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private List<MediaAsset> assets = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAssets();
+    }
+
+    private async Task LoadAssets()
+    {
+        assets = await MediaAssetService.GetAllAssetsAsync();
+        StateHasChanged();
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        await MediaAssetService.CreateAssetAsync(file, "Studio");
+        await LoadAssets();
+    }
+
+    private async Task SelectAsset(MediaAsset asset)
+    {
+        await OnAssetSelected.InvokeAsync(asset);
+    }
+
+    private string _errorMessage = "";
+    private async Task DeleteAsset(int assetId)
+    {
+        try
+        {
+            await MediaAssetService.DeleteAssetAsync(assetId);
+            await LoadAssets();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private async Task CloseModal()
+    {
+        await OnClose.InvokeAsync();
+    }
+}
