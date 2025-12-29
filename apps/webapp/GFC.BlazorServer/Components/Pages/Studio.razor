@@ -13,6 +13,7 @@
 @implements IDisposable
 @inject IJSRuntime JSRuntime
 @inject GFC.BlazorServer.Services.IStudioService StudioService
+@inject Services.IStudioCmsService CmsService
 @inject IStudioAutoSaveService AutoSaveService
 @inject IPageService PageService
 @inject ITemplateService TemplateService
@@ -328,13 +329,89 @@
                 
                 @if (activeToolboxTab == "cms")
                 {
-                    <!-- Placeholder: CMS Data -->
-                     <div class="p-2">
-                        <span class="text-muted small fw-bold px-2 d-block mb-2">COLLECTIONS</span>
-                        <div class="pro-list-item"><i class="bi bi-journal-text me-2"></i> Blog Posts</div>
-                        <div class="pro-list-item"><i class="bi bi-calendar-event me-2"></i> Events</div>
-                        <div class="pro-list-item"><i class="bi bi-people me-2"></i> Authors</div>
-                        <div class="pro-list-item"><i class="bi bi-tags me-2"></i> Categories</div>
+                    <div class="p-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2 px-2">
+                            <span class="text-muted small fw-bold">COLLECTIONS</span>
+                            <button class="btn btn-sm btn-link p-0" @onclick="() => showNewCollectionModal = true"><i class="bi bi-plus-circle"></i></button>
+                        </div>
+                        
+                        @if (showNewCollectionModal)
+                        {
+                            <div class="p-2 bg-light border rounded mb-2">
+                                <input class="form-control form-control-sm mb-2" placeholder="Collection Name (e.g. Blogs)" @bind="newCollectionName" />
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-primary w-100" @onclick="CreateCollection">Create</button>
+                                    <button class="btn btn-sm btn-outline-secondary w-100" @onclick="() => showNewCollectionModal = false">Cancel</button>
+                                </div>
+                            </div>
+                        }
+
+                        @if (cmsCollections != null)
+                        {
+                            @foreach (var col in cmsCollections)
+                            {
+                                <div class="pro-list-item @(selectedCollection?.Id == col.Id ? "active" : "")" @onclick="() => SelectCollection(col)">
+                                    <i class="bi bi-database me-2"></i> @col.Name
+                                </div>
+                            }
+                        }
+
+                        @if (selectedCollection != null)
+                        {
+                             <div class="mt-3 border-top pt-2">
+                                <div class="d-flex justify-content-between align-items-center px-2 mb-2">
+                                    <span class="text-muted small fw-bold">@selectedCollection.Name Items</span>
+                                    <button class="btn btn-sm btn-primary py-0" style="font-size: 0.7rem;" @onclick="AddNewCmsItem">New Item</button>
+                                </div>
+                                
+                                @if (isEditingCmsItem && selectedCmsItem != null)
+                                {
+                                    <div class="bg-light p-2 border border-start-0 border-end-0 mb-2">
+                                         @foreach(var field in selectedCollection.Fields)
+                                         {
+                                             <div class="mb-2">
+                                                 <label class="x-small text-muted">@field.Name</label>
+                                                 @if(field.Type == "Image") {
+                                                     <div class="input-group input-group-sm">
+                                                        <input class="form-control" type="text" value="@(selectedCmsItem.Data.ContainsKey(field.Key) ? selectedCmsItem.Data[field.Key] : "")"
+                                                               @onchange="@(e => selectedCmsItem.Data[field.Key] = e.Value?.ToString() ?? "")" placeholder="Image URL" />
+                                                        <button class="btn btn-outline-secondary"><i class="bi bi-upload"></i></button>
+                                                     </div>
+                                                 } else {
+                                                    <input class="form-control form-control-sm" type="text" 
+                                                           value="@(selectedCmsItem.Data.ContainsKey(field.Key) ? selectedCmsItem.Data[field.Key] : "")"
+                                                           @onchange="@(e => selectedCmsItem.Data[field.Key] = e.Value?.ToString() ?? "")" />
+                                                 }
+                                             </div>
+                                         }
+                                         <div class="d-flex gap-2">
+                                             <button class="btn btn-sm btn-success w-100" @onclick="SaveCmsItem">Save</button>
+                                             <button class="btn btn-sm btn-outline-secondary w-100" @onclick="() => isEditingCmsItem = false">Cancel</button>
+                                         </div>
+                                    </div>
+                                }
+
+                                @if (selectedCollection.Items != null)
+                                {
+                                     @foreach(var item in selectedCollection.Items)
+                                     {
+                                         var displayTitle = "";
+                                         // Try to find a 'title' or 'name' field
+                                         try {
+                                             var data = JsonSerializer.Deserialize<Dictionary<string, object>>(item.DataJson);
+                                             if (data.ContainsKey("title")) displayTitle = data["title"].ToString();
+                                             else if (data.ContainsKey("name")) displayTitle = data["name"].ToString();
+                                             else displayTitle = $"Item #{item.Id}";
+                                         } catch { displayTitle = $"Item #{item.Id}"; }
+                                         
+                                         <div class="cms-item-row d-flex justify-content-between align-items-center px-2 py-1 border-bottom" style="font-size:0.8rem;">
+                                             <span class="text-truncate" style="max-width: 150px;">@displayTitle</span>
+                                             <button class="btn btn-sm btn-link text-muted p-0" @onclick="() => EditCmsItem(item)"><i class="bi bi-pencil"></i></button>
+                                         </div>
+                                     }
+                                }
+                            </div>
+                        }
                     </div>
                 }
 
@@ -478,6 +555,11 @@
                         title="Animations">
                     <i class="bi bi-film"></i>
                 </button>
+                <button class="inspector-tab @(activeInspectorTab == "theme" ? "active" : "")" 
+                        @onclick='() => activeInspectorTab = "theme"' 
+                        title="Global Theme">
+                    <i class="bi bi-droplet-fill"></i>
+                </button>
                 <button class="inspector-tab @(activeInspectorTab == "settings" ? "active" : "")" 
                         @onclick='() => activeInspectorTab = "settings"' 
                         title="Settings">
@@ -617,6 +699,77 @@
                     </details>
                 }
                 
+                @if (activeInspectorTab == "theme")
+                {
+                    <div class="panel-section-header">Global Design System</div>
+                    
+                    <div class="p-3">
+                        <div class="mb-3">
+                            <label class="pro-label text-muted fw-bold mb-1">Brand Colors</label>
+                            <div class="mb-2">
+                                <small>Primary Color</small>
+                                <div class="d-flex gap-2">
+                                    <input type="color" class="pro-input p-0" style="width: 30px; height: 30px;" 
+                                           value="@GetThemeValue("primary-color", "#3b82f6")" 
+                                           @onchange="@(e => UpdateThemeValue("primary-color", e.Value?.ToString()))" />
+                                    <input type="text" class="pro-input flex-grow-1" 
+                                           value="@GetThemeValue("primary-color", "#3b82f6")" 
+                                           @onchange="@(e => UpdateThemeValue("primary-color", e.Value?.ToString()))" />
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <small>Secondary Color</small>
+                                <div class="d-flex gap-2">
+                                    <input type="color" class="pro-input p-0" style="width: 30px; height: 30px;" 
+                                           value="@GetThemeValue("secondary-color", "#64748b")" 
+                                           @onchange="@(e => UpdateThemeValue("secondary-color", e.Value?.ToString()))" />
+                                    <input type="text" class="pro-input flex-grow-1" 
+                                           value="@GetThemeValue("secondary-color", "#64748b")" 
+                                           @onchange="@(e => UpdateThemeValue("secondary-color", e.Value?.ToString()))" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="pro-label text-muted fw-bold mb-1">Typography</label>
+                            <div class="mb-2">
+                                <small>Headings Font</small>
+                                <select class="pro-select" value="@GetThemeValue("font-heading", "Inter")" @onchange="@(e => UpdateThemeValue("font-heading", e.Value?.ToString()))">
+                                    <option value="Inter">Inter</option>
+                                    <option value="Roboto">Roboto</option>
+                                    <option value="Merriweather">Merriweather</option>
+                                    <option value="Playfair Display">Playfair Display</option>
+                                    <option value="Orbitron">Orbitron</option>
+                                </select>
+                            </div>
+                             <div class="mb-2">
+                                <small>Body Font</small>
+                                <select class="pro-select" value="@GetThemeValue("font-body", "Inter")" @onchange="@(e => UpdateThemeValue("font-body", e.Value?.ToString()))">
+                                    <option value="Inter">Inter</option>
+                                    <option value="Open Sans">Open Sans</option>
+                                    <option value="Lato">Lato</option>
+                                </select>
+                            </div>
+                        </div>
+
+                         <div class="mb-3">
+                            <label class="pro-label text-muted fw-bold mb-1">Global Scale</label>
+                             <div class="mb-2">
+                                <small>Border Radius (Base)</small>
+                                <div class="d-flex gap-2">
+                                     <input type="text" class="pro-input" 
+                                           value="@GetThemeValue("border-radius", "0.375rem")" 
+                                           @onchange="@(e => UpdateThemeValue("border-radius", e.Value?.ToString()))" />
+                                </div>
+                            </div>
+                         </div>
+
+                        <button class="btn btn-primary btn-sm w-100" @onclick="ApplyGlobalTheme">
+                            <i class="bi bi-check2-circle"></i> Save & Apply Theme
+                        </button>
+                    </div>
+                }
+
                 @if (activeInspectorTab == "animation")
                 {
                     <div class="panel-section-header">Animation Timeline</div>
@@ -673,28 +826,84 @@
                 
                 @if (activeInspectorTab == "interactions")
                 {
-                    <div class="panel-section-header">Element Triggers</div>
-                    <div class="p-3">
-                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="pro-label">Mouse Click</span>
-                            <button class="btn btn-sm btn-light border"><i class="bi bi-plus"></i></button>
+                    <div class="panel-section-header">Interactions <span class="badge bg-info text-dark ms-2">NEW</span></div>
+                    
+                    @if (selectedSection != null)
+                    {
+                        <div class="p-3">
+                            <div class="mb-3">
+                                <label class="pro-label text-muted fw-bold mb-2">Active Interactions</label>
+                                @if (selectedSection.Interactions == null || !selectedSection.Interactions.Any())
+                                {
+                                    <div class="text-muted small fst-italic mb-3">No interactions defined.</div>
+                                }
+                                else
+                                {
+                                    @foreach (var interaction in selectedSection.Interactions)
+                                    {
+                                        <div class="card mb-2 border-0 bg-light">
+                                            <div class="card-body p-2 d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <div class="fw-bold small">@interaction.Trigger</div>
+                                                    <div class="text-muted x-small">@interaction.Action</div>
+                                                </div>
+                                                <button class="btn btn-sm text-danger" @onclick="() => RemoveInteraction(interaction)"><i class="bi bi-trash"></i></button>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+
+                            <button class="btn btn-outline-secondary btn-sm w-100 mb-3" @onclick="() => showAddInteractionForm = !showAddInteractionForm">
+                                <i class="bi bi-plus-lg"></i> Add Interaction
+                            </button>
+
+                            @if (showAddInteractionForm)
+                            {
+                                <div class="card bg-white border p-3 mb-3">
+                                    <h6 class="card-title small fw-bold">New Interaction</h6>
+                                    
+                                    <div class="mb-2">
+                                        <label class="pro-label">Trigger</label>
+                                        <select class="pro-select" @bind="newInteractionTrigger">
+                                            <option value="click">Mouse Click</option>
+                                            <option value="hover">Mouse Hover</option>
+                                            <option value="scrollIntoView">Scroll Into View</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-2">
+                                        <label class="pro-label">Action</label>
+                                        <select class="pro-select" @bind="newInteractionAction">
+                                            <option value="navigate">Navigate to URL</option>
+                                            <option value="scrollTo">Scroll to Section</option>
+                                            <option value="toggleVisibility">Toggle Visibility</option>
+                                            <option value="alert">Show Alert</option>
+                                        </select>
+                                    </div>
+
+                                    @if (newInteractionAction == "navigate")
+                                    {
+                                        <div class="mb-2">
+                                            <label class="pro-label">Target URL</label>
+                                            <input type="text" class="pro-input" placeholder="/contact" @bind="newInteractionParam" />
+                                        </div>
+                                    }
+
+                                    <div class="d-flex gap-2 mt-3">
+                                        <button class="btn btn-secondary btn-sm flex-grow-1" @onclick="() => showAddInteractionForm = false">Cancel</button>
+                                        <button class="btn btn-primary btn-sm flex-grow-1" @onclick="AddInteraction">Add</button>
+                                    </div>
+                                </div>
+                            }
                         </div>
-                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="pro-label">Mouse Hover</span>
-                             <button class="btn btn-sm btn-light border"><i class="bi bi-plus"></i></button>
-                        </div>
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="pro-label">Scroll into View</span>
-                             <button class="btn btn-sm btn-light border"><i class="bi bi-plus"></i></button>
-                        </div>
-                    </div>
-                     <div class="panel-section-header">Page Triggers</div>
-                     <div class="p-3">
-                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="pro-label">Page Load</span>
-                             <button class="btn btn-sm btn-light border"><i class="bi bi-plus"></i></button>
-                        </div>
-                    </div>
+                    }
+                    else
+                    {
+                         <div class="p-3 text-muted small text-center">
+                             Select an element to add interactions.
+                         </div>
+                    }
                 }
             </div>
         </div>
@@ -921,6 +1130,91 @@
 
     private bool isLeftPanelCollapsed = false;
     private bool isRightPanelCollapsed = false;
+
+    // Feature 2: Global Theme State
+    private Dictionary<string, string> globalThemeSettings = new Dictionary<string, string>();
+    private bool isThemeDirty = false;
+
+    private string GetThemeValue(string key, string defaultValue)
+    {
+        return globalThemeSettings.ContainsKey(key) ? globalThemeSettings[key] : defaultValue;
+    }
+
+    private void UpdateThemeValue(string key, string value)
+    {
+        if (globalThemeSettings.ContainsKey(key))
+            globalThemeSettings[key] = value;
+        else
+            globalThemeSettings.Add(key, value);
+        
+        isThemeDirty = true;
+    }
+
+    private async Task ApplyGlobalTheme()
+    {
+        // 1. Send to Preview
+        if (_previewIframe.Id != null)
+        {
+            await JSRuntime.InvokeVoidAsync("studioInterop.updateGlobalTheme", _previewIframe, globalThemeSettings);
+        }
+
+        // 2. Persist to Database (StudioSettings)
+        try
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // We store the entire theme blob as one setting or multiple. 
+            // For simplicity, let's store individual keys prefixed with "theme."
+            // Or better: store one JSON blob "GlobalTheme"
+            
+            var themeJson = JsonSerializer.Serialize(globalThemeSettings);
+            var setting = await context.StudioSettings.FirstOrDefaultAsync(s => s.SettingKey == "GlobalTheme");
+            
+            if (setting == null)
+            {
+                setting = new StudioSetting 
+                { 
+                    SettingKey = "GlobalTheme", 
+                    SettingValue = themeJson, 
+                    SettingType = "Theme",
+                    UpdatedBy = currentUserName ?? "System",
+                    UpdatedAt = DateTime.UtcNow
+                };
+                context.StudioSettings.Add(setting);
+            }
+            else
+            {
+                setting.SettingValue = themeJson;
+                 setting.UpdatedBy = currentUserName ?? "System";
+                setting.UpdatedAt = DateTime.UtcNow;
+            }
+            
+            await context.SaveChangesAsync();
+            isThemeDirty = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save global theme");
+            errorMessage = "Failed to save theme settings.";
+        }
+    }
+
+    private async Task LoadGlobalTheme()
+    {
+        try
+        {
+             using var context = await DbContextFactory.CreateDbContextAsync();
+             var setting = await context.StudioSettings.FirstOrDefaultAsync(s => s.SettingKey == "GlobalTheme");
+             if (setting != null && !string.IsNullOrEmpty(setting.SettingValue))
+             {
+                 globalThemeSettings = JsonSerializer.Deserialize<Dictionary<string, string>>(setting.SettingValue) ?? new Dictionary<string, string>();
+             }
+        }
+        catch (Exception ex)
+        {
+             Logger.LogWarning("Could not load global theme: " + ex.Message);
+        }
+    }
 
     private bool showNewPageModal = false;
     private List<StudioPage> allPages = new();
@@ -1190,7 +1484,151 @@
 
     private async Task HandleDrop()
     {
-        // This is now handled by the JS interop
+        // This is now fully handled by JS interop (HandleComponentDrop)
+        await Task.CompletedTask;
+    }
+
+    // Feature 4: Interaction Builder Logic
+    private bool showAddInteractionForm = false;
+    private string newInteractionTrigger = "click";
+    private string newInteractionAction = "navigate";
+    private string newInteractionParam = "";
+
+    // Feature 5: CMS Integration
+    private List<StudioCollection> cmsCollections = new();
+    private StudioCollection? selectedCollection;
+    private StudioCollectionItem? selectedCmsItem;
+    private bool isEditingCmsItem = false;
+    private bool showNewCollectionModal = false;
+    private string newCollectionName = "";
+
+    private async Task LoadCmsCollections()
+    {
+        try {
+            cmsCollections = await CmsService.GetCollectionsAsync();
+        } catch (Exception ex) {
+            Logger.LogError(ex, "Failed to load CMS collections");
+        }
+    }
+
+    private async Task CreateCollection()
+    {
+        if (string.IsNullOrWhiteSpace(newCollectionName)) return;
+        
+        var slug = newCollectionName.ToLower().Replace(" ", "-"); // simplified slugify
+        var collection = new StudioCollection { Name = newCollectionName, Slug = slug };
+        
+        // Add default fields for demo
+        collection.Fields.Add(new StudioCollectionField { Name = "Title", Key = "title", Type = "Text", IsRequired = true });
+        collection.Fields.Add(new StudioCollectionField { Name = "Cover Image", Key = "cover", Type = "Image" });
+        collection.Fields.Add(new StudioCollectionField { Name = "Content", Key = "content", Type = "RichText" });
+
+        await CmsService.CreateCollectionAsync(collection);
+        await LoadCmsCollections();
+        showNewCollectionModal = false;
+        newCollectionName = "";
+    }
+
+    private async Task SelectCollection(StudioCollection collection)
+    {
+        selectedCollection = await CmsService.GetCollectionWithFieldsAsync(collection.Id);
+        selectedCmsItem = null;
+        isEditingCmsItem = false;
+    }
+
+    private void AddNewCmsItem()
+    {
+        if (selectedCollection == null) return;
+        selectedCmsItem = new StudioCollectionItem { CollectionId = selectedCollection.Id };
+        // Pre-fill keys
+        foreach(var field in selectedCollection.Fields)
+        {
+            selectedCmsItem.Data[field.Key] = "";
+        }
+        isEditingCmsItem = true;
+    }
+
+    private async Task SaveCmsItem()
+    {
+        if (selectedCmsItem == null) return;
+        
+        // Serialize dictionary back to JSON
+        selectedCmsItem.DataJson = JsonSerializer.Serialize(selectedCmsItem.Data);
+        
+        await CmsService.SaveItemAsync(selectedCmsItem);
+        // Refresh
+        await SelectCollection(selectedCollection!);
+        isEditingCmsItem = false;
+    }
+
+    private void EditCmsItem(StudioCollectionItem item)
+    {
+        selectedCmsItem = item;
+        // Deserialize JSON to Dictionary
+        try {
+            item.Data = JsonSerializer.Deserialize<Dictionary<string, object>>(item.DataJson) ?? new Dictionary<string, object>();
+        } catch {}
+        isEditingCmsItem = true;
+    }
+
+    private async void AddInteraction()
+    {
+        if (selectedSection == null) return;
+        
+        if (selectedSection.Interactions == null) 
+            selectedSection.Interactions = new List<StudioInteraction>();
+
+        var interaction = new StudioInteraction
+        {
+            Trigger = newInteractionTrigger,
+            Action = newInteractionAction
+        };
+
+        if (newInteractionAction == "navigate" && !string.IsNullOrEmpty(newInteractionParam))
+        {
+            interaction.Parameters.Add("url", newInteractionParam);
+        }
+
+        selectedSection.Interactions.Add(interaction);
+        selectedSection.SyncInteractionsToData();
+        
+        MarkAsDirty();
+        showAddInteractionForm = false;
+        newInteractionParam = "";
+
+        await ApplyInteractions();
+    }
+
+    private async void RemoveInteraction(StudioInteraction interaction)
+    {
+        if (selectedSection != null && selectedSection.Interactions != null)
+        {
+            selectedSection.Interactions.Remove(interaction);
+            selectedSection.SyncInteractionsToData();
+            MarkAsDirty();
+            await ApplyInteractions();
+        }
+    }
+
+    private async Task ApplyInteractions()
+    {
+         if (_previewIframe.Id == null) return;
+         
+         // 1. Build Map: { "clientId": [interactions] }
+         var map = new Dictionary<string, List<StudioInteraction>>();
+         foreach(var section in sections)
+         {
+             if (section.Interactions != null && section.Interactions.Any())
+             {
+                 map[section.ClientId.ToString()] = section.Interactions;
+             }
+         }
+
+         // 2. Send to JS
+         if (map.Any())
+         {
+             await JSRuntime.InvokeVoidAsync("studioPreview.attachInteractions", _previewIframe, map);
+         }
     }
 
     [JSInvokable]
@@ -1295,6 +1733,9 @@
                 Logger.LogError(ex, "Failed to load pages list");
             }
 
+            // Feature 5: Load CMS Data
+            await LoadCmsCollections();
+
             // Initialize global dotNetHelper if not already done
             if (dotNetHelper == null) dotNetHelper = DotNetObjectReference.Create(this);
 
@@ -1313,6 +1754,8 @@
             {
                 try
                 {
+                    await LoadGlobalTheme(); // Feature 2: Load Theme
+
                     var lockResult = await StudioService.AcquireLockAsync(PageId, "System"); // TODO: Use real user
                     if (!lockResult)
                     {
@@ -1329,6 +1772,15 @@
 
                     draft = await StudioService.GetLatestDraftAsync(PageId);
                     latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
+
+                    // Feature 2: Apply Theme to Preview (once loaded)
+                    if (globalThemeSettings.Any())
+                    {
+                         await ApplyGlobalTheme();
+                    }
+
+                    // Feature 4: Apply Interactions (once loaded)
+                     await ApplyInteractions();
                 }
                 catch (Exception ex)
                 {

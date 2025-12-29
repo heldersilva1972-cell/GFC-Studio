@@ -31,6 +31,11 @@ namespace GFC.Core.Models
         [Column("Styles")]
         public string? StylesJson { get; set; } = "{}";
 
+        public string? InteractionJson { get; set; } = "[]";
+        
+        [NotMapped]
+        public List<StudioInteraction> Interactions { get; set; } = new List<StudioInteraction>();
+
         // --- Metadata ---
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -145,7 +150,21 @@ namespace GFC.Core.Models
                 catch { /* ignore styles serialization errors */ }
             }
 
+            if (!string.IsNullOrEmpty(InteractionJson))
+            {
+                try
+                {
+                    Interactions = JsonSerializer.Deserialize<List<StudioInteraction>>(InteractionJson) ?? new List<StudioInteraction>();
+                }
+                catch { /* ignore interaction serialization errors */ }
+            }
+
             if (string.IsNullOrEmpty(Title)) Title = ComponentType;
+        }
+
+        public void SyncInteractionsToData()
+        {
+             InteractionJson = JsonSerializer.Serialize(Interactions);
         }
     }
 }

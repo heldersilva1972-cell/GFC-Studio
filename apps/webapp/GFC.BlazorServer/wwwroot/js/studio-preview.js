@@ -138,6 +138,50 @@ window.studioPreview = {
     }
 };
 
+// Animation Orchestrator Interop
+window.initializeAnimationOrchestrator = function (container, playhead, dotNetHelper) {
+    let isDragging = false;
+
+    container.addEventListener('mousedown', (e) => {
+        const rect = container.getBoundingClientRect();
+        // Check if clicking on the ruler area (top 30px)
+        if (e.clientY - rect.top < 30) {
+            isDragging = true;
+            updatePlayhead(e);
+        }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            updatePlayhead(e);
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+
+    function updatePlayhead(e) {
+        const rect = container.getBoundingClientRect();
+        const timelineWidth = rect.width;
+        let x = e.clientX - rect.left;
+
+        // Clamp
+        if (x < 0) x = 0;
+        if (x > timelineWidth) x = timelineWidth;
+
+        const percentage = (x / timelineWidth) * 100;
+        const time = (percentage / 100) * 10.0; // Assuming 10s timeline
+
+        playhead.style.left = percentage + '%';
+        dotNetHelper.invokeMethodAsync('SetCurrentTime', time);
+    }
+};
+
+window.destroyAnimationOrchestrator = function () {
+    // Cleanup if necessary
+};
+
 // Auto-init drag and drop when iframe loads
 window.addEventListener('load', () => {
     // Poll for iframe
@@ -162,4 +206,83 @@ window.studioPreview.initDropListener = function (dotNetHelper) {
             );
         }
     });
+};
+
+window.studioPreview.updateGlobalTheme = function (iframe, themeTokens) {
+    if (!iframe || !iframe.contentWindow) return;
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+    // Find or create the theme style tag
+    let styleTag = doc.getElementById('studio-global-theme');
+    if (!styleTag) {
+        styleTag = doc.createElement('style');
+        styleTag.id = 'studio-global-theme';
+        doc.head.appendChild(styleTag);
+    }
+
+    // Build CSS Variables
+    let cssVars = ':root {\n';
+    for (const [key, value] of Object.entries(themeTokens)) {
+        if (key && value) {
+            cssVars += `  --${key}: ${value};\n`;
+        }
+    }
+    cssVars += '}';
+
+    // Append generic utility classes that use these tokens
+    cssVars += `
+        .btn-primary { background-color: var(--primary-color, #3b82f6) !important; color: white !important; }
+        .text-primary { color: var(--primary-color, #3b82f6) !important; }
+        h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading, inherit) !important; }
+        body { font-family: var(--font-body, inherit); }
+    `;
+
+    styleTag.textContent = cssVars;
+};
+
+// Feature 4: Interaction Builder Runtime
+window.studioPreview.attachInteractions = function (iframe, interactionsMap) {
+    if (!iframe || !iframe.contentWindow) return;
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+    // interactionsMap is expected to be { "sectionId": [ { trigger, action, params } ] }
+    for (const [sectionId, interactions] of Object.entries(interactionsMap)) {
+        // Find element by data-studio-id (which maps to our ClientId or Id)
+        // We need to ensure the Blazor renderer puts this attribute on elements.
+        const el = doc.querySelector(`[data-studio-id="${sectionId}"]`);
+
+        if (el) {
+            // Clear existing listeners (crudely, by cloning) - in prod, use a better event manager
+            // For prototype, we just append current ones.
+
+            interactions.forEach(i => {
+                if (i.Trigger === 'click') {
+                    el.style.cursor = 'pointer';
+                    el.addEventListener('click', (e) => {
+                        e.preventDefault(); // Stop default link behavior in designer
+                        e.stopPropagation();
+
+                        // Execute Action
+                        if (i.Action === 'navigate') {
+                            alert(`[Designer Mode] Navigation to: ${i.Parameters['url']}`);
+                        }
+                        else if (i.Action === 'alert') {
+                            alert('Interaction Alert!');
+                        }
+                        else if (i.Action === 'toggleVisibility') {
+                            el.style.opacity = el.style.opacity === '0.5' ? '1' : '0.5';
+                        }
+                    });
+                }
+                else if (i.Trigger === 'hover') {
+                    el.addEventListener('mouseenter', () => {
+                        if (i.Action === 'toggleVisibility') el.style.opacity = '0.5';
+                    });
+                    el.addEventListener('mouseleave', () => {
+                        if (i.Action === 'toggleVisibility') el.style.opacity = '1';
+                    });
+                }
+            });
+        }
+    }
 };

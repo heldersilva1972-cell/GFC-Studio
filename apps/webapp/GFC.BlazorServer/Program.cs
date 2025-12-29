@@ -201,6 +201,7 @@ public class Program
         builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
         builder.Services.AddScoped<IStaticExportService, StaticExportService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
+        builder.Services.AddScoped<IStudioCmsService, StudioCmsService>();
         builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.IMediaAssetService, GFC.BlazorServer.Services.MediaAssetService>();
