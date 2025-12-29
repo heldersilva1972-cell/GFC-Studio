@@ -14,6 +14,7 @@
 @inject IPageService PageService
 @inject ITemplateService TemplateService
 @inject IContentIngestionService ContentIngestionService
+@inject IStaticExportService StaticExportService
 @inject ILogger<Studio> Logger
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -107,6 +108,7 @@
                 <div class="toolbox-tabs">
                     <button class="tab-button @(activeToolboxTab == "templates" ? "active" : "")" @onclick='() => activeToolboxTab = "templates"'>Templates</button>
                     <button class="tab-button @(activeToolboxTab == "elements" ? "active" : "")" @onclick='() => activeToolboxTab = "elements"'>Elements</button>
+                    <button class="tab-button @(activeToolboxTab == "migration" ? "active" : "")" @onclick='() => activeToolboxTab = "migration"'>Migration & Export</button>
                 </div>
                 <div class="collapse-handle" @onclick="() => isLeftPanelCollapsed = !isLeftPanelCollapsed">
                     @(isLeftPanelCollapsed ? "▶" : "◀")
@@ -160,6 +162,36 @@
                 @if (activeToolboxTab == "theme")
                 {
                     <GlobalThemePanel />
+                }
+                @if (activeToolboxTab == "migration")
+                {
+                    <div class="p-3">
+                        <h5>Content Migration</h5>
+                        <button class="btn btn-secondary w-100 mb-3" @onclick="() => showUrlImportModal = true">
+                            <i class="bi bi-cloud-download"></i> Import from URL
+                        </button>
+
+                        <hr />
+
+                        <h5>Data Portability</h5>
+                        @if (isExporting)
+                        {
+                            <div class="progress">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                            <p class="text-center mt-2">Exporting site...</p>
+                        }
+                        else
+                        {
+                            <button class="btn btn-info w-100" @onclick="ExportSite">
+                                <i class="bi bi-archive"></i> Export Site
+                            </button>
+                        }
+                        @if (!string.IsNullOrEmpty(exportErrorMessage))
+                        {
+                            <div class="alert alert-danger mt-2">@exportErrorMessage</div>
+                        }
+                    </div>
                 }
             </div>
         </div>
@@ -412,6 +444,9 @@
     private string urlToImport = "";
     private bool isImporting = false;
     private string importErrorMessage = "";
+
+    private bool isExporting = false;
+    private string exportErrorMessage = "";
 
     private bool isLeftPanelCollapsed = false;
     private bool isRightPanelCollapsed = false;
@@ -1043,18 +1078,30 @@
 
         try
         {
-            var newSections = await ContentIngestionService.ScrapeUrlAsync(urlToImport);
-            if (newSections.Any())
+            var scrapedSections = await ContentIngestionService.ScrapeUrlAsync(urlToImport);
+            if (scrapedSections.Any())
             {
-                // Set page index correctly
-                int startingIndex = sections.Count;
-                foreach (var section in newSections)
+                // 1. Create a new page
+                var pageTitle = scrapedSections.FirstOrDefault(s => s.ComponentType == StudioComponentType.Heading)?.Title ?? "Imported Page";
+                var newPage = await PageService.CreatePageAsync(pageTitle);
+
+                // 2. Create the redirect
+                await ContentIngestionService.CreateRedirectAsync(urlToImport, newPage.Slug);
+
+                // 3. Associate sections with the new page and save
+                int index = 0;
+                foreach (var section in scrapedSections)
                 {
-                    section.PageIndex = startingIndex++;
-                    section.StudioPageId = PageId;
+                    section.StudioPageId = newPage.Id;
+                    section.PageIndex = index++;
                 }
-                sections.AddRange(newSections);
+
+                var json = JsonSerializer.Serialize(scrapedSections);
+                await StudioService.SaveDraftAsync(newPage.Id, json, currentUserName, "Initial import from URL");
+
+                // 4. Navigate to the new page
                 CloseImportModal();
+                NavigationManager.NavigateTo($"/studio/{newPage.Id}");
             }
             else
             {
@@ -1069,6 +1116,34 @@
         finally
         {
             isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportSite()
+    {
+        isExporting = true;
+        exportErrorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var zipBytes = await StaticExportService.ExportSiteAsZipAsync();
+            var fileName = $"GFC-Studio-Export-{DateTime.Now:yyyyMMddHHmmss}.zip";
+
+            // Trigger download using JavaScript interop
+            var fileStream = new MemoryStream(zipBytes);
+            using var streamRef = new DotNetStreamReference(stream: fileStream);
+            await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export site");
+            exportErrorMessage = $"Failed to export site. Error: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
             StateHasChanged();
         }
     }
