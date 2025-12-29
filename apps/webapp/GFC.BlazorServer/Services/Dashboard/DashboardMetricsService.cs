@@ -38,6 +38,10 @@ public class DashboardMetricsService : IDashboardMetricsService
     public async Task<DashboardMetricsDto> GetMetricsAsync(CancellationToken ct = default)
     {
         var currentYear = DateTime.Today.Year;
+        var now = DateTime.UtcNow;
+        var today = DateTime.Today;
+        var weekStart = today.AddDays(-7);
+        var prevWeekStart = today.AddDays(-14);
 
         var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), ct);
         var currentYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
@@ -46,6 +50,9 @@ public class DashboardMetricsService : IDashboardMetricsService
         var alertSummaryTask = _dashboardService.GetAlertSummaryAsync(ct);
         var cardCountsTask = GetCardCountsAsync(ct);
         var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
+        var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
+        var staffTask = GetTonightStaffAsync(today, ct);
+        var activityFeedTask = GetRecentActivitiesAsync(ct);
 
         await Task.WhenAll(
             membersTask,
@@ -54,7 +61,10 @@ public class DashboardMetricsService : IDashboardMetricsService
             settingsTask,
             alertSummaryTask,
             cardCountsTask,
-            membershipChangesTask);
+            membershipChangesTask,
+            barSalesTask,
+            staffTask,
+            activityFeedTask);
 
         var members = membersTask.Result;
         var currentYearDues = currentYearDuesTask.Result;
@@ -67,6 +77,7 @@ public class DashboardMetricsService : IDashboardMetricsService
         var openAlerts = alertSummary is null ? 0 : CalculateOpenAlerts(alertSummary);
 
         var (enabledCards, disabledCards) = cardCountsTask.Result;
+        var (weeklySales, weeklyTransactions, trend) = barSalesTask.Result;
 
         return new DashboardMetricsDto
         {
@@ -77,8 +88,138 @@ public class DashboardMetricsService : IDashboardMetricsService
             EnabledCards = enabledCards,
             DisabledCards = disabledCards,
             OpenAlerts = openAlerts,
-            MembershipChangesLast24h = membershipChangesTask.Result
+            MembershipChangesLast24h = membershipChangesTask.Result,
+            
+            // Bar & Staff Real Data
+            WeeklyBarSales = weeklySales,
+            WeeklyBarTransactionCount = weeklyTransactions,
+            WeeklyBarSalesTrend = trend,
+            TonightBartenders = staffTask.Result,
+            RecentActivities = activityFeedTask.Result
         };
+    }
+
+    private async Task<List<ActivityFeedItem>> GetRecentActivitiesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await _contextFactory.CreateDbContextAsync(ct);
+            
+            var recentEvents = await db.ControllerEvents
+                .Include(e => e.Door)
+                .OrderByDescending(e => e.TimestampUtc)
+                .Take(5)
+                .ToListAsync(ct);
+
+            var recentSales = await db.BarSaleEntries
+                .OrderByDescending(e => e.SaleDate)
+                .Take(5)
+                .ToListAsync(ct);
+
+            var activities = new List<ActivityFeedItem>();
+
+            foreach (var e in recentEvents)
+            {
+                activities.Add(new ActivityFeedItem
+                {
+                    Title = e.Door?.Name ?? "Security Event",
+                    Detail = e.EventType switch {
+                        1 => "Access Granted",
+                        2 => "Access Denied",
+                        3 => "Door Opened",
+                        4 => "Door Closed",
+                        _ => "System Event"
+                    } + (e.CardNumber.HasValue ? $" (Card: {e.CardNumber})" : ""),
+                    TimestampUtc = e.TimestampUtc
+                });
+            }
+
+            foreach (var s in recentSales)
+            {
+                activities.Add(new ActivityFeedItem
+                {
+                    Title = "Bar Revenue Recorded",
+                    Detail = $"{s.TotalSales:C} - {s.Notes ?? "General Sales"}",
+                    TimestampUtc = s.SaleDate
+                });
+            }
+
+            return activities
+                .OrderByDescending(a => a.TimestampUtc)
+                .Take(5)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching recent activities");
+            return new List<ActivityFeedItem>();
+        }
+    }
+
+    private async Task<(decimal sales, int transactions, double trend)> GetBarSalesMetricsAsync(DateTime weekStart, DateTime prevWeekStart, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await _contextFactory.CreateDbContextAsync(ct);
+            var currentWeekSales = await db.BarSaleEntries
+                .Where(e => e.SaleDate >= weekStart)
+                .ToListAsync(ct);
+
+            var prevWeekSales = await db.BarSaleEntries
+                .Where(e => e.SaleDate >= prevWeekStart && e.SaleDate < weekStart)
+                .ToListAsync(ct);
+
+            var currentTotal = currentWeekSales.Sum(e => e.TotalSales);
+            var prevTotal = prevWeekSales.Sum(e => e.TotalSales);
+            var transactions = currentWeekSales.Count;
+
+            double trend = 0;
+            if (prevTotal > 0)
+            {
+                trend = (double)((currentTotal - prevTotal) / prevTotal * 100);
+            }
+
+            return (currentTotal, transactions, trend);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching bar sales metrics");
+            return (0, 0, 0);
+        }
+    }
+
+    private async Task<List<BartenderInfo>> GetTonightStaffAsync(DateTime today, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await _contextFactory.CreateDbContextAsync(ct);
+            
+            // Look for any shifts scheduled for today (Day=1 or Night=2)
+            // Or shifts that are currently active (ClockOutTime is null)
+            var activeShifts = await db.StaffShifts
+                .Include(s => s.StaffMember)
+                .Where(s => s.Date.Date == today.Date || (s.ClockInTime != null && s.ClockOutTime == null))
+                .ToListAsync(ct);
+
+            return activeShifts
+                .Select(s => new BartenderInfo 
+                { 
+                    Name = s.StaffMember?.Name ?? "Unknown Staff",
+                    Assignment = s.ShiftType switch {
+                        1 => "Standard Shift (Day)",
+                        2 => "Standard Shift (Night)",
+                        _ => s.Status ?? "Assigned"
+                    }
+                    + (s.ClockOutTime == null && s.ClockInTime != null ? " [LIVE]" : "")
+                })
+                .DistinctBy(s => s.Name) // Avoid duplicates if someone has multiple entries
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching tonight's staff");
+            return new List<BartenderInfo>();
+        }
     }
 
     private static (int active, int pastDue) CalculateMembership(

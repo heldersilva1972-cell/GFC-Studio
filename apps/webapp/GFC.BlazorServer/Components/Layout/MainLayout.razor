@@ -18,7 +18,7 @@
             <span class="app-title">GFC Membership System</span>
         </div>
         <div class="app-topbar-right">
-            <div class="connection-status @GetConnectionStatusClass()">
+            <div class="connection-status @GetConnectionStatusClass()" title="IP Address: @(UserConnectionService.IpAddress ?? "Detecting...")">
                 <i class="bi @GetConnectionStatusIcon()"></i>
                 <span>@_connectionStatus</span>
             </div>
@@ -47,9 +47,7 @@
                     <i class="bi bi-moon-stars-fill"></i>
                 }
             </button>
-            <button class="app-status" @onclick="ShowModeInfoModal" type="button">
-                @ModeLabel
-            </button>
+
         </div>
     </header>
 
@@ -86,86 +84,13 @@
     </div>
 </div>
 
-@* Mode Info Modal *@
-@if (_showModeInfoModal && (_isAdmin || IsAdminUser()))
-{
-    <div class="modal-backdrop fade show"></div>
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.4);">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Controller Mode Information</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModeInfoModal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <strong>Current Mode:</strong>
-                        @if (!_modeLoaded)
-                        {
-                            <span class="badge bg-secondary ms-2">
-                                <i class="bi bi-arrow-repeat"></i> Checking controller mode...
-                            </span>
-                        }
-                        else if (_useRealControllers)
-                        {
-                            <span class="badge bg-success ms-2">@ModeLabel</span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-warning text-dark ms-2">@ModeLabel</span>
-                        }
-                    </div>
-                    <div class="mb-3">
-                        <strong>Active Implementation:</strong>
-                        <div class="text-muted small mt-1">
-                            @if (!_modeLoaded)
-                            {
-                                <text>Loading...</text>
-                            }
-                            else if (_useRealControllers)
-                            {
-                                <text>RealControllerClient (delegates to AgentApiClient)</text>
-                            }
-                            else
-                            {
-                                <text>SimulationControllerClient (in-memory state, no network traffic)</text>
-                            }
-                        </div>
-                    </div>
-                    @if (_modeLoaded && !_useRealControllers)
-                    {
-                        <div class="alert alert-info mb-0">
-                            <i class="bi bi-info-circle"></i> Simulation mode is active. No real controller hardware will be accessed.
-                        </div>
-                    }
-                </div>
-                <div class="modal-footer">
-                    @if (_modeLoaded && !_useRealControllers)
-                    {
-                        <a href="/controllers/simulation" class="btn btn-primary">
-                            <i class="bi bi-sliders"></i> Open Simulation Control Panel
-                        </a>
-                    }
-                    <a href="/settings" class="btn btn-outline-secondary">
-                        <i class="bi bi-gear"></i> Settings
-                    </a>
-                    <button type="button" class="btn btn-secondary" @onclick="CloseModeInfoModal">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
+
 
 @* Scripts have been moved to _Host.cshtml for proper resolution *@
 
 @code {
     private string _currentUsername = string.Empty;
     private bool _isAdmin = false;
-    private bool _useRealControllers = false;
-    private bool _modeLoaded = false;
-    private bool _showModeInfoModal = false;
-    private DateTime _lastModeRefreshUtc = DateTime.MinValue;
-    private static readonly TimeSpan ModeRefreshInterval = TimeSpan.FromSeconds(5);
     private string _connectionStatus = "Checking...";
     private GFC.Core.Interfaces.LocationType _locationType = GFC.Core.Interfaces.LocationType.Unknown;
 
@@ -174,7 +99,6 @@
         try
         {
             await UpdateUserInfo();
-            await RefreshControllerModeIndicatorAsync(force: true);
             UpdateConnectionStatus();
             
             // Subscribe to authentication state changes to update menu visibility
@@ -192,14 +116,10 @@
             // Ignore errors during initialization
             _currentUsername = "Unknown";
             _isAdmin = false;
-            await RefreshControllerModeIndicatorAsync(force: true);
         }
     }
 
-    protected override async Task OnParametersSetAsync()
-    {
-        await RefreshControllerModeIndicatorAsync();
-    }
+
 
     private async Task UpdateUserInfo()
     {
@@ -280,45 +200,9 @@
         }
     }
 
-    private void ShowModeInfoModal()
-    {
-        _showModeInfoModal = true;
-    }
 
-    private void CloseModeInfoModal()
-    {
-        _showModeInfoModal = false;
-    }
 
-    private async Task RefreshControllerModeIndicatorAsync(bool force = false)
-    {
-        if (!force && _modeLoaded && DateTime.UtcNow - _lastModeRefreshUtc < ModeRefreshInterval)
-        {
-            return;
-        }
 
-        try
-        {
-            _useRealControllers = true; // Simulation mode removed - always use real controllers
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to load controller mode; defaulting indicator to Real Mode");
-            _useRealControllers = true;
-        }
-        finally
-        {
-            _modeLoaded = true;
-            _lastModeRefreshUtc = DateTime.UtcNow;
-        }
-    }
-
-    private string ModeLabel =>
-        !_modeLoaded
-            ? "Checking controller mode..."
-            : _useRealControllers
-                ? "Real Controller Mode"
-                : "Simulation Mode (NO real hardware writes)";
 
     private string GetConnectionStatusClass()
     {
@@ -347,10 +231,10 @@
         _locationType = UserConnectionService.LocationType;
         _connectionStatus = _locationType switch
         {
-            GFC.Core.Interfaces.LocationType.LAN => "Connected via: Club WiFi",
-            GFC.Core.Interfaces.LocationType.VPN => "Connected via: Secure VPN",
-            GFC.Core.Interfaces.LocationType.Public => "Public Network",
-            _ => "Unknown Connection"
+            GFC.Core.Interfaces.LocationType.LAN => "Secure: Club Network",
+            GFC.Core.Interfaces.LocationType.VPN => "Secure: Home VPN",
+            GFC.Core.Interfaces.LocationType.Public => "Insecure: Public Net",
+            _ => "Detecting Connection..."
         };
         StateHasChanged();
     }
