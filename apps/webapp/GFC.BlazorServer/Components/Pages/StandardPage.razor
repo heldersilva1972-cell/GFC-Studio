@@ -1,0 +1,121 @@
+@page "/p/{Slug}"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GfcDbContext> DbContextFactory
+@inject NavigationManager NavigationManager
+
+<PageTitle>@(page?.Title ?? "Page Not Found")</PageTitle>
+
+@if (page == null)
+{
+    @if (isLoading)
+    {
+        <div class="d-flex justify-content-center align-items-center vh-100">
+            <div class="spinner-border text-primary"></div>
+        </div>
+    }
+    else
+    {
+        <div class="container py-5 text-center">
+            <h1>404</h1>
+            <p>Page not found or not published.</p>
+            <a href="/" class="btn btn-primary">Go Home</a>
+        </div>
+    }
+}
+else
+{
+    @* Dynamic Styles from Global Theme would go here *@
+    
+    <div class="generated-page">
+        @foreach (var section in page.Sections.OrderBy(s => s.OrderIndex))
+        {
+            <div id="@($"section-{section.Id}")" class="page-section" @attributes="@(GetAttributes(section))">
+                @RenderSection(section)
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Slug { get; set; }
+
+    private StudioPage? page;
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        try 
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            page = await context.StudioPages
+                .Include(p => p.Sections)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Slug == Slug && p.Status == "Published");
+                
+            if (page != null)
+            {
+                // Hydrate properties
+                foreach (var s in page.Sections)
+                {
+                    s.SyncDataToProperties();
+                }
+            }
+        }
+        catch(Exception ex) 
+        {
+            Console.WriteLine($"Error loading page {Slug}: {ex.Message}");
+        }
+        finally 
+        {
+            isLoading = false;
+        }
+    }
+
+    private Dictionary<string, object> GetAttributes(StudioSection section)
+    {
+        var attrs = new Dictionary<string, object>();
+        // Add ID, Class, Style from properties if available
+        // This is a simplified version
+        return attrs;
+    }
+
+    private RenderFragment RenderSection(StudioSection section) => builder =>
+    {
+        switch (section.ComponentType)
+        {
+             case "Heading":
+                builder.OpenElement(0, "h1");
+                builder.AddContent(1, section.properties.ContainsKey("content") ? section.properties["content"].ToString() : (section.properties.ContainsKey("headline") ? section.properties["headline"].ToString() : section.Title));
+                builder.CloseElement();
+                break;
+                
+            case "TextBlock":
+            case "RichTextBlock":
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "text-content");
+                builder.AddMarkupContent(2, section.properties.ContainsKey("content") ? section.properties["content"]?.ToString() : "");
+                builder.CloseElement();
+                break;
+                
+            case "Image":
+                if (section.properties.ContainsKey("src"))
+                {
+                    builder.OpenElement(0, "img");
+                    builder.AddAttribute(1, "src", section.properties["src"]?.ToString() ?? "");
+                    builder.AddAttribute(2, "class", "img-fluid");
+                    builder.CloseElement();
+                }
+                break;
+                
+            default:
+                builder.OpenElement(0, "div");
+                builder.AddContent(1, $"Unknown Component: {section.ComponentType}");
+                builder.CloseElement();
+                break;
+        }
+    };
+}

@@ -110,7 +110,8 @@ namespace GFC.BlazorServer.Services
                     if (draftSections != null)
                     {
                         // Remove existing sections
-                        context.StudioSections.RemoveRange(page.Sections);
+                        var oldSections = context.StudioSections.Where(s => s.StudioPageId == page.Id);
+                        context.StudioSections.RemoveRange(oldSections);
                         
                         // Add new sections
                         foreach(var ds in draftSections)
@@ -118,24 +119,48 @@ namespace GFC.BlazorServer.Services
                             var newSection = new StudioSection
                             {
                                 StudioPageId = page.Id,
-                                Type = ds.sectionType ?? "Unknown",
-                                OrderIndex = ds.PageIndex,
+                                ComponentType = ds.ComponentType,
+                                OrderIndex = ds.OrderIndex,
+                                ClientId = ds.ClientId,
+                                
+                                // Content & Properties
+                                PropertiesJson = ds.PropertiesJson,
+                                Content = ds.Content,
+                                
+                                // Styles & Design
+                                StylesJson = ds.StylesJson,
+                                
+                                // Animations
                                 AnimationSettingsJson = ds.AnimationSettingsJson,
-                                // Important: Sync properties to Data string for storage
-                                properties = ds.properties ?? new Dictionary<string, object>()
+                                
+                                // Interactions
+                                InteractionJson = ds.InteractionJson,
+                                
+                                // Data Binding
+                                DataBindingJson = ds.DataBindingJson,
+
+                                CreatedAt = DateTime.UtcNow,
+                                CreatedBy = "System (Publish)"
                             };
                             
-                            // Re-apply content/properties
-                            if (!string.IsNullOrEmpty(ds.Content)) newSection.properties["content"] = ds.Content;
-                            if (!string.IsNullOrEmpty(ds.Title)) newSection.properties["headline"] = ds.Title;
-                            
+                            // Ensure data is synced (legacy support)
                             newSection.SyncPropertiesToData();
+                            
                             context.StudioSections.Add(newSection);
                         }
                     }
                 }
-                catch { /* ignore bad json */ }
+                catch (Exception ex) 
+                { 
+                     // Log but allow publish state to update? 
+                     // For now, rethrow to alert user
+                     throw new InvalidOperationException("Failed to process draft content: " + ex.Message);
+                }
             }
+
+            // Update Page Metadata
+            page.UpdatedAt = DateTime.UtcNow;
+            page.Status = "Published"; // Ensure status is updated
 
             await context.SaveChangesAsync();
         }

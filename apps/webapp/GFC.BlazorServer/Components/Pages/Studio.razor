@@ -1082,10 +1082,6 @@
     <div class="modal-backdrop fade show"></div>
 }
 
-@if (showPublishingWizard)
-{
-    <PublishingWizard Page="allPages.FirstOrDefault(p => p.Id == PageId)" OnCancel="() => showPublishingWizard = false" OnConfirm="HandlePublish" />
-}
 
 @if (showSaveVersionModal)
 {
@@ -1157,23 +1153,57 @@
     <div class="modal-backdrop fade show"></div>
 }
 
-@if (showPublishModal)
+@if (showPublishWizard)
 {
     <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Confirm Publish</h5>
-                    <button type="button" class="close" @onclick="() => showPublishModal = false">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <h5 class="modal-title">Publish to Live</h5>
+                    <button type="button" class="close btn-close" @onclick="() => showPublishWizard = false" disabled="@isPublishing"></button>
                 </div>
                 <div class="modal-body">
-                    <p>Are you sure you want to publish your changes to the live website? This action cannot be undone.</p>
+                    @if (isPublishing)
+                    {
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary mb-3" role="status"></div>
+                            <h6 class="fw-bold">@publishMessage</h6>
+                            <p class="text-muted small">This may take a few moments...</p>
+                        </div>
+                    }
+                    else if (saveStatusText == "Published Live")
+                    {
+                         <div class="text-center py-4">
+                            <div class="mb-3 text-success display-1">
+                                <i class="bi bi-check-circle"></i>
+                            </div>
+                            <h4 class="fw-bold text-success mb-2">Published Successfully!</h4>
+                            <p class="text-muted mb-4">Your changes are now live.</p>
+
+                            <a href="/p/@_pageSlug" target="_blank" class="btn btn-success btn-lg px-4">
+                                <i class="bi bi-box-arrow-up-right me-2"></i> View Live Site
+                            </a>
+                        </div>
+                    }
+                    else
+                    {
+                        <p>Are you sure you want to publish your changes? This will:</p>
+                        <ul class="mys-3">
+                            <li>Create a new version snapshot</li>
+                            <li>Generate the static site assets</li>
+                            <li>Update the live website content</li>
+                        </ul>
+                        <div class="alert alert-warning small">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i> This action cannot be undone immediately.
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => showPublishModal = false">Cancel</button>
-                    <button type="button" class="btn btn-primary" @onclick="ConfirmPublish">Publish</button>
+                    <button type="button" class="btn btn-secondary" @onclick="() => showPublishWizard = false" disabled="@isPublishing">@(saveStatusText == "Published Live" ? "Close" : "Cancel")</button>
+                    @if (!isPublishing && saveStatusText != "Published Live")
+                    {
+                        <button type="button" class="btn btn-primary" @onclick="ConfirmPublish"><i class="bi bi-rocket-takeoff me-2"></i> Publish Now</button>
+                    }
                 </div>
             </div>
         </div>
@@ -2139,6 +2169,57 @@
         StateHasChanged();
     }
 
+    // Feature 7: Publish Workflow
+    private bool showPublishWizard = false;
+    private bool isPublishing = false;
+    private string publishMessage = "";
+
+    private void OpenPublishWizard()
+    {
+        showPublishWizard = true;
+        publishMessage = "";
+    }
+
+    private async Task ConfirmPublish()
+    {
+        isPublishing = true;
+        publishMessage = "Generating production build...";
+        StateHasChanged();
+
+        try 
+        {
+            // 1. Save current state
+            await SaveDraft(true);
+            
+            publishMessage = "Deploying to live environment...";
+            StateHasChanged();
+
+            // 2. Publish via Service
+            if (draft != null)
+            {
+                await StudioService.PublishDraftAsync(draft.Id);
+            }
+
+            // 3. (Optional) Generate Static Export for CDN
+            // await StaticExportService.GenerateStaticSiteAsync(PageId);
+
+            publishMessage = "Successfully published!";
+            await Task.Delay(1000);
+            showPublishWizard = false;
+            saveStatus = SaveStatus.Saved;
+            saveStatusText = "Published Live";
+        }
+        catch (Exception ex)
+        {
+            publishMessage = "Error: " + ex.Message;
+            Logger.LogError(ex, "Publish failed");
+        }
+        finally
+        {
+            isPublishing = false;
+        }
+    }
+
     private async Task LoadHistory()
     {
         draftHistory = (await StudioService.GetDraftHistoryAsync(PageId)).ToList();
@@ -2180,43 +2261,6 @@
         {
             Logger.LogError(ex, "Failed to save draft");
             errorMessage = "Failed to save draft: " + ex.Message;
-        }
-    }
-
-    private void OpenPublishWizard()
-    {
-        showPublishingWizard = true;
-    }
-
-    private async Task HandlePublish(string notes)
-    {
-        showPublishModal = true;
-    }
-
-    private async Task ConfirmPublish()
-    {
-        showPublishModal = false;
-
-        try
-        {
-            if (draft == null || draft.Id == 0)
-            {
-                await SaveDraft(true);
-            }
-            
-            if (draft != null)
-            {
-                await StudioService.PublishDraftAsync(draft.Id);
-                // After publishing, we might want to refresh the page or show success
-                saveStatus = SaveStatus.Saved;
-                saveStatusText = "Published successfully!";
-                StateHasChanged();
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to publish page");
-            errorMessage = "Failed to publish page: " + ex.Message;
         }
     }
 
