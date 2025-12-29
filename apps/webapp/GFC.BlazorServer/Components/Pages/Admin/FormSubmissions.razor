@@ -1,0 +1,139 @@
+@page "/admin/form-submissions"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IFormService FormService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@using System.Text.Json
+
+<h3>Form Submissions</h3>
+
+<div class="form-group">
+    <label>Select a Form</label>
+    <select @onchange="OnSelectedFormIdChanged" class="form-control">
+        <option value="0">-- Select a form --</option>
+        @if (forms != null)
+        {
+            @foreach (var form in forms)
+            {
+                <option value="@form.Id">@form.Name</option>
+            }
+        }
+    </select>
+</div>
+
+@if (submissions != null)
+{
+    <button class="btn btn-secondary mb-3" @onclick="ExportToCsv">Export to CSV</button>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Submitted At</th>
+                <th>Status</th>
+                <th>Data</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var submission in submissions)
+            {
+                <tr>
+                    <td>@submission.SubmittedAt</td>
+                    <td>@submission.Status</td>
+                    <td>
+                        <button class="btn btn-sm btn-info" @onclick="() => ViewSubmission(submission)">View</button>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-success" @onclick="() => UpdateSubmissionStatus(submission, "Approved")">Approve</button>
+                        <button class="btn btn-sm btn-danger" @onclick="() => UpdateSubmissionStatus(submission, "Rejected")">Reject</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (selectedSubmission != null)
+{
+    <div class="modal" style="display:block" role="dialog">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Submission Details</h5>
+                    <button type="button" class="close" @onclick="() => selectedSubmission = null">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <ul>
+                        @foreach (var data in JsonSerializer.Deserialize<Dictionary<string, object>>(selectedSubmission.SubmissionData))
+                        {
+                            <li><strong>@data.Key:</strong> @data.Value</li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Form> forms = new List<Form>();
+    private List<FormSubmission> submissions;
+    private FormSubmission selectedSubmission;
+    private int selectedFormId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        forms = await FormService.GetAllFormsAsync();
+    }
+
+    private async Task OnSelectedFormIdChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value.ToString(), out int formId) && formId > 0)
+        {
+            selectedFormId = formId;
+            submissions = await FormService.GetSubmissionsByFormIdAsync(selectedFormId);
+        }
+        else
+        {
+            submissions = null;
+        }
+    }
+
+    private void ViewSubmission(FormSubmission submission)
+    {
+        selectedSubmission = submission;
+    }
+
+    private async Task UpdateSubmissionStatus(FormSubmission submission, string status)
+    {
+        submission.Status = status;
+        await FormService.UpdateSubmissionStatusAsync(submission.Id, status);
+    }
+
+    private async Task ExportToCsv()
+    {
+        if (submissions == null || !submissions.Any())
+        {
+            return;
+        }
+
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine("SubmittedAt,Status,Data");
+
+        foreach (var submission in submissions)
+        {
+            var data = submission.SubmissionData.Replace("\"", "\"\"");
+            csv.AppendLine($"\"{submission.SubmittedAt}\",\"{submission.Status}\",\"{data}\"");
+        }
+
+        var fileName = $"form-submissions-{selectedFormId}-{DateTime.Now:yyyyMMdd}.csv";
+        var fileBytes = System.Text.Encoding.UTF8.GetBytes(csv.ToString());
+
+        using var stream = new System.IO.MemoryStream(fileBytes);
+        using var streamRef = new DotNetStreamReference(stream);
+
+        await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+    }
+}

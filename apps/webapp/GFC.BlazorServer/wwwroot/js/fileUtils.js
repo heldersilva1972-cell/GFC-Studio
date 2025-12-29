@@ -1,11 +1,18 @@
 // [NEW]
-function downloadFileFromStream(fileName, contentStream) {
-    const url = URL.createObjectURL(new Blob([contentStream], { type: 'application/octet-stream' }));
+function downloadFileFromStream(fileName, contentStreamReference) {
     const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
     document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    a.style = 'display: none';
+
+    return contentStreamReference.arrayBuffer().then(buffer => {
+        const blob = new Blob([buffer]);
+        const url = window.URL.createObjectURL(blob);
+
+        a.href = url;
+        a.download = fileName;
+        a.click();
+
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    });
 }
