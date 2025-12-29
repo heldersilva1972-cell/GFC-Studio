@@ -10,6 +10,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
 @using GFC.BlazorServer.Data
+@implements IDisposable
 @inject IJSRuntime JSRuntime
 @inject GFC.BlazorServer.Services.IStudioService StudioService
 @inject IStudioAutoSaveService AutoSaveService
@@ -24,7 +25,7 @@
 @inject IConfiguration Configuration
 @inject IDbContextFactory<GfcDbContext> DbContextFactory
 
-<script src="~/js/studio-preview.js"></script>
+<script src="/js/studio-preview.js"></script>
 
 <style>
     /* DIRECT OVERRIDE TO ENSURE BLUE HEADER APPLIES WITHOUT REBUILD */
@@ -375,45 +376,45 @@
                     <div class="p-2">
                         <!-- 1. Layout -->
                         <div class="panel-section-header bg-transparent border-0 pt-0 pb-1">Layout</div>
-                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Section');">
                             <i class="bi bi-view-list fs-5 text-muted"></i>
                             <div><div class="fw-bold small">Section</div></div>
                         </div>
-                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Grid');">
                             <i class="bi bi-grid-3x3 fs-5 text-muted"></i>
                              <div><div class="fw-bold small">Grid</div></div>
                         </div>
-                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Columns');">
                              <i class="bi bi-layout-three-columns fs-5 text-muted"></i>
                              <div><div class="fw-bold small">Columns</div></div>
                         </div>
 
                          <!-- 2. Basic -->
                          <div class="panel-section-header bg-transparent border-0 pt-2 pb-1">Basic</div>
-                          <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                          <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Heading');">
                             <i class="bi bi-type-h1 fs-5 text-muted"></i>
                             <div><div class="fw-bold small">Heading</div></div>
                         </div>
-                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'TextBlock');">
                             <i class="bi bi-fonts fs-5 text-muted"></i>
                             <div><div class="fw-bold small">Text Block</div></div>
                         </div>
-                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Image');">
                             <i class="bi bi-card-image fs-5 text-muted"></i>
                             <div><div class="fw-bold small">Image</div></div>
                         </div>
-                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                        <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Button');">
                             <i class="bi bi-hand-index-thumb fs-5 text-muted"></i>
                             <div><div class="fw-bold small">Button</div></div>
                         </div>
 
                         <!-- 3. Forms -->
                         <div class="panel-section-header bg-transparent border-0 pt-2 pb-1">Forms</div>
-                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Input');">
                             <i class="bi bi-input-cursor-text fs-5 text-muted"></i>
                             <div><div class="fw-bold small">Input</div></div>
                         </div>
-                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true">
+                         <div class="pro-card d-flex align-items-center gap-2 mb-2" draggable="true" ondragstart="event.dataTransfer.setData('componentType', 'Checkbox');">
                             <i class="bi bi-ui-checks fs-5 text-muted"></i>
                             <div><div class="fw-bold small">Checkbox</div></div>
                         </div>
@@ -701,6 +702,8 @@
 </div>
 
 @code {
+    private DotNetObjectReference<Studio>? dotNetHelper;
+
     // --- STYLE HANDLING ---
     private string GetStyleValue(string property, string defaultValue = "")
     {
@@ -1292,44 +1295,46 @@
                 Logger.LogError(ex, "Failed to load pages list");
             }
 
+            // Initialize global dotNetHelper if not already done
+            if (dotNetHelper == null) dotNetHelper = DotNetObjectReference.Create(this);
+
+            // Initialize Drag & Drop Listener
+            await JSRuntime.InvokeVoidAsync("studioPreview.initDropListener", dotNetHelper);
+            
+            // Legacy init (consider removing if replaced by studioPreview)
             if (PageId == 0)
             {
-                var dotNetHelper = DotNetObjectReference.Create(this);
-                await JSRuntime.InvokeVoidAsync("studioInterop.setDotNetHelper", dotNetHelper);
-                await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler");
+                 // Re-using the same helper
+                 await JSRuntime.InvokeVoidAsync("studioInterop.setDotNetHelper", dotNetHelper);
+                 await JSRuntime.InvokeVoidAsync("studioInterop.initializeMessageHandler");
             }
 
-            var lockResult = await StudioService.AcquireLockAsync(PageId, "System"); // TODO: Use real user
-            if (!lockResult)
+            if (PageId > 0)
             {
-                var currentLock = await StudioService.GetLockAsync(PageId);
-                isLocked = true;
-                lockedBy = currentLock?.LockedBy ?? "another user";
+                try
+                {
+                    var lockResult = await StudioService.AcquireLockAsync(PageId, "System"); // TODO: Use real user
+                    if (!lockResult)
+                    {
+                        var currentLock = await StudioService.GetLockAsync(PageId);
+                        isLocked = true;
+                        lockedBy = currentLock?.LockedBy ?? "another user";
 
-                var userState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-                var user = userState.User;
-                canForceUnlock = (await AuthorizationService.AuthorizeAsync(user, AppPolicies.CanForceUnlock)).Succeeded;
+                        var userState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+                        var user = userState.User;
+                        canForceUnlock = (await AuthorizationService.AuthorizeAsync(user, AppPolicies.CanForceUnlock)).Succeeded;
 
-                return;
+                        return;
+                    }
+
+                    draft = await StudioService.GetLatestDraftAsync(PageId);
+                    latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Error initializing page data inside OnAfterRenderAsync");
+                }
             }
-
-            draft = await StudioService.GetLatestDraftAsync(PageId);
-            latestVersion = await AutoSaveService.GetLatestVersionAsync(PageId);
-
-            if (draft != null && !string.IsNullOrEmpty(draft.ContentJson))
-            {
-                // Sections will be loaded here
-            }
-        }
-        else if (firstRender && !string.IsNullOrEmpty(errorMessage))
-        {
-             // Log error case
-        }
-
-        if (selectedSection != null)
-        {
-            await JSRuntime.InvokeVoidAsync("animationInterop.initializeTimeline", DotNetObjectReference.Create(this));
-            await JSRuntime.InvokeVoidAsync("animationScrubbing.initializeScrubbing", _previewIframe);
         }
     }
 
@@ -1376,6 +1381,56 @@
         StateHasChanged(); // Ensure the UI updates
     }
 
+
+    [JSInvokable]
+    public async Task HandleComponentDrop(string componentType, string closestId, bool insertAfter)
+    {
+        var newSection = new StudioSection
+        {
+            ClientId = Guid.NewGuid(),
+            StudioPageId = PageId,
+            ComponentType = componentType,
+            PropertiesJson = "{}",
+            StylesJson = "{}"
+        };
+
+        // Initialize default props based on type
+        if (componentType == "Heading") newSection.Data = JsonSerializer.Serialize(new { text = "New Heading" });
+        if (componentType == "Button") newSection.Data = JsonSerializer.Serialize(new { text = "Click Me" });
+        if (componentType == "Image") newSection.Data = JsonSerializer.Serialize(new { src = "https://via.placeholder.com/150" });
+
+        newSection.SyncDataToProperties();
+
+        if (string.IsNullOrEmpty(closestId) || closestId == "null")
+        {
+            // Append to end
+            newSection.PageIndex = sections.Count;
+            sections.Add(newSection);
+        }
+        else
+        {
+            // Find insertion point
+            var targetIndex = sections.FindIndex(s => s.ClientId.ToString() == closestId);
+            if (targetIndex >= 0)
+            {
+                var insertIndex = insertAfter ? targetIndex + 1 : targetIndex;
+                sections.Insert(insertIndex, newSection);
+                
+                // Re-index all
+                for(int i=0; i<sections.Count; i++) sections[i].PageIndex = i;
+            }
+            else
+            {
+                 sections.Add(newSection);
+            }
+        }
+
+        // Save and Update
+        MarkAsDirty();
+        StateHasChanged();
+        await SendSectionsToPreview();
+    }
+
     private async Task SendSectionsToPreview()
     {
         try
@@ -1394,6 +1449,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        dotNetHelper = DotNetObjectReference.Create(this);
         try
         {
             allPages = await PageService.GetAllPagesAsync();
@@ -1676,5 +1732,10 @@
             isExporting = false;
             StateHasChanged();
         }
+    }
+
+    public void Dispose()
+    {
+        dotNetHelper?.Dispose();
     }
 }
