@@ -1,138 +1,157 @@
 @page "/admin/form-builder"
-@attribute [Authorize(Roles = "Admin")]
-@using GFC.Core.Models.FormBuilder
-@inject IFormBuilderService FormBuilderService
+@page "/admin/form-builder/{FormId:int}"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@inject IFormService FormService
+@inject NavigationManager NavigationManager
 
-<div class="form-builder-container">
-    <div class="toolbox">
-        <h5>Toolbox</h5>
-        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("text")'>Text Input</div>
-        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("select")'>Select Dropdown</div>
-        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("textarea")'>Text Area</div>
-        <div class="toolbox-item" draggable="true" @ondragstart='() => HandleDragStart("checkbox")'>Checkbox</div>
+<h3>Form Builder</h3>
+
+@if (form != null)
+{
+    <div class="form-group">
+        <label>Form Name</label>
+        <InputText @bind-Value="form.Name" class="form-control" />
     </div>
 
-    <div class="canvas" @ondragover="() => { /* Required to allow drop */ }">
-        <h5>Canvas</h5>
-        @if (formSchema != null)
-        {
-            for (int i = 0; i < formSchema.Fields.Count; i++)
-            {
-                var section = formSchema.Fields[i];
-                <div class="mb-3 p-2 border" @ondrop="() => HandleDrop(section)">
-                    <div class="d-flex justify-content-between">
-                        <input class="form-control" @bind="section.Section" />
-                        <button class="btn btn-sm btn-danger" @onclick="() => formSchema.Fields.Remove(section)">X</button>
+    <div class="form-group">
+        <label>Form Description</label>
+        <InputTextArea @bind-Value="form.Description" class="form-control" />
+    </div>
+
+    <hr />
+
+    <h4>Form Fields</h4>
+
+    @foreach (var field in form.FormFields.OrderBy(f => f.Order))
+    {
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div class="form-group">
+                        <label>Field Type</label>
+                        <InputSelect @bind-Value="field.FieldType" class="form-control">
+                            <option value="text">Text</option>
+                            <option value="email">Email</option>
+                            <option value="tel">Phone</option>
+                            <option value="date">Date</option>
+                            <option value="select">Dropdown</option>
+                            <option value="checkbox">Checkbox</option>
+                            <option value="file">File Upload</option>
+                        </InputSelect>
                     </div>
-                    @foreach (var field in section.Fields)
-                    {
-                        <div class="form-field @(selectedField == field ? "alert-info" : "")" @onclick='() => SelectField(field)'>
-                            @field.Label
-                            <button class="btn btn-sm btn-danger float-end" @onclick="() => section.Fields.Remove(field)">X</button>
-                        </div>
-                    }
+                    <div>
+                        <button class="btn btn-light btn-sm" @onclick="() => MoveFieldUp(field)" disabled="@(form.FormFields.OrderBy(f => f.Order).First() == field)">Up</button>
+                        <button class="btn btn-light btn-sm" @onclick="() => MoveFieldDown(field)" disabled="@(form.FormFields.OrderBy(f => f.Order).Last() == field)">Down</button>
+                    </div>
                 </div>
-            }
-        }
-        <button class="btn btn-secondary mt-2" @onclick="AddSection">Add Section</button>
-    </div>
-
-    <div class="properties">
-        <h5>Properties</h5>
-        @if (selectedField != null)
-        {
-            <div class="mb-2">
-                <label class="form-label">Label</label>
-                <input class="form-control form-control-sm" @bind="selectedField.Label" />
-            </div>
-            <div class="mb-2">
-                <label class="form-label">Name</label>
-                <input class="form-control form-control-sm" @bind="selectedField.Name" />
-            </div>
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" @bind="selectedField.Required" />
-                <label class="form-check-label">Required</label>
-            </div>
-            @if (selectedField.Type == "select")
-            {
-                <div class="mb-2">
-                    <label class="form-label">Options (comma-separated)</label>
-                    <textarea class="form-control form-control-sm" @bind="options" @bind:event="oninput"></textarea>
+                <div class="form-group">
+                    <label>Label</label>
+                    <InputText @bind-Value="field.Label" class="form-control" />
                 </div>
-            }
-        }
-    </div>
-</div>
+                @if (field.FieldType == "select")
+                {
+                    <div class="form-group">
+                        <label>Options (comma-separated)</label>
+                        <InputTextArea @bind-Value="field.Options" class="form-control" />
+                    </div>
+                }
+                <div class="form-group">
+                    <label>Placeholder</label>
+                    <InputText @bind-Value="field.Placeholder" class="form-control" />
+                </div>
+                <div class="form-check">
+                    <InputCheckbox @bind-Value="field.IsRequired" class="form-check-input" />
+                    <label class="form-check-label">Required</label>
+                </div>
+                <button class="btn btn-danger btn-sm" @onclick="() => RemoveField(field)">Remove</button>
+            </div>
+        </div>
+    }
 
-<button class="btn btn-primary mt-3" @onclick="SaveForm">Save Form</button>
+    <button class="btn btn-primary" @onclick="AddField">Add Field</button>
+    <button class="btn btn-success" @onclick="SaveForm">Save Form</button>
+}
+else
+{
+    <p>Loading...</p>
+}
 
 @code {
-    private string draggedType;
-    private FormSchema formSchema;
-    private FormFieldDefinition selectedField;
+    [Parameter]
+    public int FormId { get; set; }
 
-    private string options
-    {
-        get => selectedField?.Options != null ? string.Join(",", selectedField.Options) : "";
-        set => selectedField.Options = value.Split(',').Select(s => s.Trim()).ToList();
-    }
+    private Form form;
 
     protected override async Task OnInitializedAsync()
     {
-        var form = await FormBuilderService.GetFormByNameAsync("hall-rental");
-        if (form != null)
+        if (FormId > 0)
         {
-            formSchema = System.Text.Json.JsonSerializer.Deserialize<FormSchema>(form.SchemaJson, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            form = await FormService.GetFormByIdAsync(FormId);
         }
         else
         {
-            formSchema = new FormSchema
-            {
-                Name = "hall-rental",
-                Fields = new List<FormSection>()
-            };
+            form = new Form();
         }
     }
 
-    private void HandleDragStart(string type)
+    private void AddField()
     {
-        draggedType = type;
-    }
-
-    private void HandleDrop(FormSection section)
-    {
-        if (draggedType != null)
+        form.FormFields.Add(new FormField
         {
-            var newField = new FormFieldDefinition
-            {
-                Name = "new_" + draggedType + "_" + Guid.NewGuid().ToString("N")[..5],
-                Label = "New " + draggedType,
-                Type = draggedType,
-                Required = false,
-                Options = new List<string>()
-            };
-            section.Fields.Add(newField);
+            Order = form.FormFields.Any() ? form.FormFields.Max(f => f.Order) + 1 : 1,
+            FieldType = "text"
+        });
+    }
+
+    private void RemoveField(FormField field)
+    {
+        form.FormFields.Remove(field);
+        RenumberFields();
+    }
+
+    private void MoveFieldUp(FormField field)
+    {
+        var orderedFields = form.FormFields.OrderBy(f => f.Order).ToList();
+        var index = orderedFields.IndexOf(field);
+        if (index > 0)
+        {
+            var previousField = orderedFields[index - 1];
+            (field.Order, previousField.Order) = (previousField.Order, field.Order);
         }
-        draggedType = null;
     }
 
-    private void SelectField(FormFieldDefinition field)
+    private void MoveFieldDown(FormField field)
     {
-        selectedField = field;
+        var orderedFields = form.FormFields.OrderBy(f => f.Order).ToList();
+        var index = orderedFields.IndexOf(field);
+        if (index < orderedFields.Count - 1)
+        {
+            var nextField = orderedFields[index + 1];
+            (field.Order, nextField.Order) = (nextField.Order, field.Order);
+        }
     }
 
-    private void AddSection()
+    private void RenumberFields()
     {
-        formSchema.Fields.Add(new FormSection { Section = "New Section", Fields = new List<FormFieldDefinition>() });
+        var orderedFields = form.FormFields.OrderBy(f => f.Order).ToList();
+        for (int i = 0; i < orderedFields.Count; i++)
+        {
+            orderedFields[i].Order = i + 1;
+        }
     }
 
     private async Task SaveForm()
     {
-        var form = new GFC.Core.Models.DynamicForm
+        if (form.Id > 0)
         {
-            Name = formSchema.Name,
-            SchemaJson = System.Text.Json.JsonSerializer.Serialize(formSchema, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull })
-        };
-        await FormBuilderService.SaveFormAsync(form);
+            await FormService.UpdateFormAsync(form);
+        }
+        else
+        {
+            var createdForm = await FormService.CreateFormAsync(form);
+            form = createdForm;
+        }
+        NavigationManager.NavigateTo($"/admin/form-builder/{form.Id}");
     }
 }

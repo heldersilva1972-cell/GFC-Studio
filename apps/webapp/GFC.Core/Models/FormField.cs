@@ -28,5 +28,7 @@ namespace GFC.Core.Models
         public bool IsRequired { get; set; }
 
         public int Order { get; set; }
+
+        public string Options { get; set; } // Comma-separated for dropdowns
     }
 }
