@@ -159,9 +159,7 @@ public class KeyCardLifecycleService
 
         try
         {
-            // Try immediate sync to controller
-            // NOTE: Controller client integration will be implemented separately
-            // For now, just queue it
+            // Queue for background processing
             await QueueSyncAsync(keyCardId, card.CardNumber, activate, null);
             
             _logger.LogInformation("Queued card {CardNumber} for {Action}", 
@@ -169,8 +167,7 @@ public class KeyCardLifecycleService
         }
         catch (Exception ex)
         {
-            // Controller is offline or error occurred - queue for retry
-            _logger.LogError(ex, "Failed to sync card {CardNumber} to controller - queueing for retry", card.CardNumber);
+            _logger.LogError(ex, "Failed to queue card {CardNumber} for sync", card.CardNumber);
             await QueueSyncAsync(keyCardId, card.CardNumber, activate, ex.Message);
         }
     }
