@@ -3,8 +3,12 @@
 @attribute [Authorize]
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
+@using GFC.BlazorServer.Data
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Components.Pages.KeyCardTabs
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using Microsoft.EntityFrameworkCore
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
 @inject NavigationManager NavManager
@@ -14,6 +18,8 @@
 @inject IBoardRepository BoardRepository
 @inject ControllerHealthService ControllerHealthService
 @inject ControllerFullSyncService ControllerFullSyncService
+@inject IControllerClient ControllerClient
+@inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JSRuntime
 @inject IDuesInsightService DuesInsightService
 @inject KeyCardLifecycleService KeyCardLifecycleService
@@ -177,7 +183,7 @@
     else if (_activeTab == "pending")
     {
         <div class="tab-pane fade-in" key="pending">
-            <MembersNeedingCardsTab />
+            <MembersNeedingCardsTab OnAssignMember="HandleAssignMember" />
         </div>
     }
 </div>
@@ -204,7 +210,7 @@
             <div class="modal-body-modern">
                 <div class="assign-card-content">
                     <!-- Step Indicator -->
-                    <div class="steps-indicator">
+                    <div class="steps-indicator" data-step="@_assignStep">
                         <div class="step @(_assignStep >= 1 ? "active" : "") @(_assignStep > 1 ? "completed" : "")">
                             <div class="step-number">
                                 @if (_assignStep > 1)
@@ -216,25 +222,30 @@
                                     <span>1</span>
                                 }
                             </div>
-                            <div class="step-label">Scan Card</div>
+                            <div class="step-label">Scan</div>
                         </div>
-                        <div class="step-line @(_assignStep > 1 ? "completed" : "")"></div>
-                        <div class="step @(_assignStep >= 2 ? "active" : "") @(_assignStep > 2 ? "completed" : "")">
-                            <div class="step-number">
-                                @if (_assignStep > 2)
-                                {
-                                    <i class="bi bi-check"></i>
-                                }
-                                else
-                                {
-                                    <span>2</span>
-                                }
+                        
+                        @if (_selectedMemberId == 0)
+                        {
+                            <div class="step-line"></div>
+                            <div class="step @(_assignStep >= 2 ? "active" : "") @(_assignStep > 2 ? "completed" : "")">
+                                <div class="step-number">
+                                    @if (_assignStep > 2)
+                                    {
+                                        <i class="bi bi-check"></i>
+                                    }
+                                    else
+                                    {
+                                        <span>2</span>
+                                    }
+                                </div>
+                                <div class="step-label">Member</div>
                             </div>
-                            <div class="step-label">Select Member</div>
-                        </div>
-                        <div class="step-line @(_assignStep > 2 ? "completed" : "")"></div>
+                        }
+                        
+                        <div class="step-line"></div>
                         <div class="step @(_assignStep >= 3 ? "active" : "")">
-                            <div class="step-number">3</div>
+                            <div class="step-number">@(_selectedMemberId == 0 ? "3" : "2")</div>
                             <div class="step-label">Confirm</div>
                         </div>
                     </div>
@@ -247,20 +258,48 @@
                                 @if (!_cardScanned)
                                 {
                                     <div class="scanner-animation">
-                                        <div class="scanner-icon pulse-slow">
+                                        <div class="scanner-icon @(_scanningEnabled ? "pulse-active" : "pulse-slow")">
                                             <i class="bi bi-upc-scan"></i>
                                         </div>
+                                        @if (_scanningEnabled)
+                                        {
+                                            <div class="scanner-status-badge">ACTIVE</div>
+                                        }
                                         <div class="scanner-waves">
                                             <div class="wave wave-1"></div>
                                             <div class="wave wave-2"></div>
                                             <div class="wave wave-3"></div>
                                         </div>
                                     </div>
-                                    <p class="scanner-instruction">Click the button below and tap your card</p>
-                                    <button class="btn btn-primary btn-lg btn-scan" @onclick="EnableScanning" disabled="@_scanningEnabled">
-                                        <i class="bi bi-upc-scan"></i>
-                                        @(_scanningEnabled ? "Waiting for card..." : "Start Scanning")
-                                    </button>
+                                    <h4 class="mt-4 mb-2">@(_scanningEnabled ? "Waiting for Card..." : "Ready to Scan")</h4>
+                                    <p class="scanner-instruction mb-4">
+                                        @if (_scanningEnabled)
+                                        {
+                                            <span>Tap a card on <strong>ANY reader</strong> or scan with a USB device</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Click below to start enrollment</span>
+                                        }
+                                    </p>
+                                    
+                                    <div class="d-flex flex-column gap-2 align-items-center">
+                                        @if (!_scanningEnabled)
+                                        {
+                                            <button class="btn btn-primary btn-lg btn-scan px-5" @onclick="EnableScanning">
+                                                <i class="bi bi-play-fill me-2"></i> Start Card Read
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-outline-danger px-4" @onclick="CancelScanning">
+                                                Cancel
+                                            </button>
+                                            <div class="mt-3 text-muted small">
+                                                <i class="bi bi-info-circle me-1"></i> Supports network readers and USB wedges
+                                            </div>
+                                        }
+                                    </div>
                                 }
                                 else
                                 {
@@ -271,27 +310,30 @@
                                                 <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
                                             </svg>
                                         </div>
-                                        <h4 class="status-title-success mt-3">Card Scanned!</h4>
-                                        <div class="card-number-display">
+                                        <h4 class="status-title-success mt-3">Card Detected!</h4>
+                                        <div class="card-number-display my-3">
+                                            <span class="text-muted small d-block">CARD NUMBER</span>
                                             <code>@_scannedCardNumber</code>
                                         </div>
-                                        <button class="btn btn-primary btn-lg mt-3" @onclick="() => _assignStep = 2">
-                                            Continue <i class="bi bi-arrow-right"></i>
-                                        </button>
+                                        <div class="d-flex gap-2 justify-content-center">
+                                            <button class="btn btn-outline-secondary" @onclick="EnableScanning">Rescan</button>
+                                            <button class="btn btn-outline-danger" @onclick="CloseAssignCardModal">Cancel</button>
+                                            <button class="btn btn-primary px-4" @onclick="HandleContinueFromScan">
+                                                Continue <i class="bi bi-arrow-right ms-1"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 }
                             </div>
                             
-                            <!-- Hidden input for card reader -->
-                            @if (_scanningEnabled && !_cardScanned)
-                            {
-                                 <input type="text" 
-                                       @bind="_scannedCardNumber"
-                                       @bind:event="oninput"
-                                       @onkeydown="HandleCardScan"
-                                       autofocus
-                                       class="hidden-scanner-input" />
-                            }
+                            <!-- Shared Hidden input for capturing keyboard wedge readers -->
+                            <div style="position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none;">
+                                <input @ref="_cardInputRef" 
+                                       @bind="_keyboardInput" 
+                                       @bind:event="oninput" 
+                                       @onkeydown="HandleKeyDown"
+                                       autocomplete="off" />
+                            </div>
                         </div>
                     }
 
@@ -315,25 +357,25 @@
                                     {
                                         <div class="member-card @(_selectedMemberId == member.MemberID ? "selected" : "")"
                                              @onclick="() => SelectMember(member)">
-                                            <div class="member-avatar">
-                                                <i class="bi bi-person-circle"></i>
+                                            <div class="member-card-icon">
+                                                <i class="bi bi-person"></i>
                                             </div>
-                                            <div class="member-info">
-                                                <div class="member-name">
+                                            <div class="member-card-info">
+                                                <span class="member-card-name">
                                                     @member.FirstName @member.LastName
+                                                </span>
+                                                <div class="member-card-meta">
+                                                    <span>ID: @member.MemberID</span> • 
+                                                    <span class="text-@GetStatusClass(member.Status)">@member.Status</span>
                                                     @if (_directorIds.Contains(member.MemberID))
                                                     {
-                                                        <span class="badge bg-danger text-white ms-2" style="font-size: 0.6rem; vertical-align: middle;">DIRECTOR</span>
+                                                        <span class="badge bg-danger text-white ms-1" style="font-size: 0.55rem; padding: 1px 4px;">DIRECTOR</span>
                                                     }
-                                                </div>
-                                                <div class="member-details">
-                                                    <span class="badge-chip">ID: @member.MemberID</span>
-                                                    <span class="badge-chip badge-@GetStatusClass(member.Status)">@member.Status</span>
                                                 </div>
                                             </div>
                                             @if (_selectedMemberId == member.MemberID)
                                             {
-                                                <div class="member-check">
+                                                <div class="member-card-select">
                                                     <i class="bi bi-check-circle-fill"></i>
                                                 </div>
                                             }
@@ -359,7 +401,7 @@
                         <div class="step-content fade-in">
                             <div class="confirmation-summary">
                                 <div class="summary-card">
-                                    <h5>Assignment Summary</h5>
+                                    <div class="summary-label mb-2" style="font-weight: 800; color: #475569;">Assignment Summary</div>
                                     <div class="summary-row">
                                         <span class="summary-label">Card Number:</span>
                                         <span class="summary-value"><code>@_scannedCardNumber</code></span>
@@ -387,10 +429,10 @@
                                 }
 
                                 <div class="step-actions">
-                                    <button class="btn btn-outline-secondary" @onclick="() => _assignStep = 2" disabled="@_assigning">
+                                    <button class="btn btn-outline-secondary" @onclick="HandleBackFromConfirm" disabled="@_assigning">
                                         <i class="bi bi-arrow-left"></i> Back
                                     </button>
-                                    <button class="btn btn-success btn-lg" @onclick="ConfirmAssignment" disabled="@_assigning">
+                                    <button class="btn btn-success btn-lg px-4" @onclick="ConfirmAssignment" disabled="@_assigning">
                                         @if (_assigning)
                                         {
                                             <span class="spinner-border spinner-border-sm me-2"></span>
@@ -519,6 +561,7 @@
     private string _assignNotes = string.Empty;
     private bool _assigning = false;
     private string _assignError = string.Empty;
+    private string _assignSuccessMessage = string.Empty;
     
     private List<Member> _allMembers = new();
     
@@ -534,9 +577,15 @@
     private DateTime? _gracePeriodEditDate;
     private bool _savingGracePeriod = false;
     private string _gracePeriodError = string.Empty;
+    private bool _isAutoSelectedMember = false;
     
     private int _paidMembersWithoutCardsCount = 0;
     private HashSet<int> _directorIds = new();
+    
+    // Scanning state
+    private CancellationTokenSource? _scanCts;
+    private ElementReference _cardInputRef;
+    private string _keyboardInput = string.Empty;
     
     protected override async Task OnInitializedAsync()
     {
@@ -649,33 +698,35 @@
         _activeTab = tab;
     }
     
+    protected override async Task OnParametersSetAsync()
+    {
+        // Check for assignTo query parameter
+        var uri = NavManager.ToAbsoluteUri(NavManager.Uri);
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("assignTo", out var memberIdVal))
+        {
+            if (int.TryParse(memberIdVal, out var mid))
+            {
+                await HandleAssignMember(mid);
+            }
+        }
+    }
+
+    private async Task HandleAssignMember(int memberId)
+    {
+        if (!_allMembers.Any()) await LoadMembersAsync();
+        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
+        if (member != null && !_showAssignModal)
+        {
+            OpenAssignCardModalForMember(member);
+            StateHasChanged();
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            var uri = NavManager.ToAbsoluteUri(NavManager.Uri);
-            if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("assignTo", out var memberIdVal))
-            {
-                if (int.TryParse(memberIdVal, out var mid))
-                {
-                    // Wait for members to load if needed (though they should load fast in OnInitialized)
-                    // If _allMembers is empty, we might miss it. 
-                    // Let's ensure we find it.
-                    var member = _allMembers.FirstOrDefault(m => m.MemberID == mid);
-                    if (member == null)
-                    {
-                        // Reload if not found (lazy safety)
-                        await LoadMembersAsync();
-                        member = _allMembers.FirstOrDefault(m => m.MemberID == mid);
-                    }
-
-                    if (member != null)
-                    {
-                        OpenAssignCardModalForMember(member);
-                        StateHasChanged();
-                    }
-                }
-            }
+            // Initial load is handled in OnParametersSetAsync and OnInitializedAsync
         }
     }
 
@@ -695,6 +746,7 @@
     private void OpenAssignCardModalForMember(Member member)
     {
         OpenAssignCardModal();
+        _isAutoSelectedMember = true;
         _selectedMemberId = member.MemberID;
         _selectedMemberName = $"{member.FirstName} {member.LastName}";
         _memberSearch = member.MemberID.ToString(); // Pre-filter the list so they see the selection clearly
@@ -704,35 +756,144 @@
     private void CloseAssignCardModal()
     {
         _showAssignModal = false;
+        StopScanning();
     }
     
-    private void EnableScanning()
+    private async Task EnableScanning()
     {
         _scanningEnabled = true;
         _cardScanned = false;
         _scannedCardNumber = string.Empty;
+        _keyboardInput = string.Empty;
+        
+        _scanCts?.Cancel();
+        _scanCts = new CancellationTokenSource();
+        
+        try 
+        {
+            await Task.Delay(100);
+            await _cardInputRef.FocusAsync();
+        } 
+        catch { }
+
+        // Start background polling for network readers
+        _ = PollForNetworkCardRead(_scanCts.Token);
+    }
+
+    private void CancelScanning()
+    {
+        StopScanning();
+    }
+
+    private void StopScanning()
+    {
+        _scanningEnabled = false;
+        _scanCts?.Cancel();
+        _keyboardInput = string.Empty;
+    }
+
+    private async Task PollForNetworkCardRead(CancellationToken token)
+    {
+        var startTime = DateTime.UtcNow;
+        var timeout = TimeSpan.FromMinutes(2);
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            while (!token.IsCancellationRequested)
+            {
+                if (DateTime.UtcNow - startTime > timeout)
+                {
+                     StopScanning();
+                     await InvokeAsync(StateHasChanged);
+                     break;
+                }
+
+                // Look for ANY card read from ANY controller in the last few seconds
+                var cardEvent = await db.ControllerEvents
+                    .Where(e => e.TimestampUtc > startTime && e.CardNumber != null)
+                    .OrderBy(e => e.TimestampUtc)
+                    .FirstOrDefaultAsync(token);
+
+                if (cardEvent != null)
+                {
+                    _scannedCardNumber = cardEvent.CardNumber.ToString();
+                    _cardScanned = true;
+                    StopScanning();
+                    await InvokeAsync(StateHasChanged);
+                    break;
+                }
+
+                await Task.Delay(1000, token);
+            }
+        }
+        catch (TaskCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error polling for network card read");
+        }
     }
     
-    private void HandleCardScan(KeyboardEventArgs e)
+    private void HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_scannedCardNumber))
+        if (e.Key == "Enter")
         {
-            _cardScanned = true;
-            _scanningEnabled = false;
+            if (!string.IsNullOrWhiteSpace(_keyboardInput))
+            {
+                _scannedCardNumber = _keyboardInput.Trim();
+                _cardScanned = true;
+                StopScanning();
+                StateHasChanged();
+            }
+        }
+        else if (e.Key == "Escape")
+        {
+            StopScanning();
             StateHasChanged();
         }
     }
     
+    private void HandleCardScan(KeyboardEventArgs e)
+    {
+        // Legacy method, replaced by HandleKeyDown via hidden input
+    }
+    
+    private void HandleContinueFromScan()
+    {
+        if (_selectedMemberId != 0)
+        {
+            _assignStep = 3;
+        }
+        else
+        {
+            _assignStep = 2;
+        }
+    }
+
     private void SelectMember(Member member)
     {
+        _isAutoSelectedMember = false;
         _selectedMemberId = member.MemberID;
         _selectedMemberName = $"{member.FirstName} {member.LastName}";
+    }
+
+    private void HandleBackFromConfirm()
+    {
+        if (_isAutoSelectedMember)
+        {
+            _assignStep = 1;
+        }
+        else
+        {
+            _assignStep = 2;
+        }
     }
     
     private async Task ConfirmAssignment()
     {
         _assigning = true;
         _assignError = string.Empty;
+        _assignSuccessMessage = string.Empty;
         
         try
         {
@@ -753,16 +914,65 @@
                 return;
             }
             
-            // Create the new card
+            // 1. Create the new card in database
             var newCard = await Task.Run(() => 
                 KeyCardRepository.Create(_scannedCardNumber, _selectedMemberId, _assignNotes));
             
-            Logger.LogInformation("Card {CardNumber} assigned to member {MemberId}", _scannedCardNumber, _selectedMemberId);
+            Logger.LogInformation("Card {CardNumber} assigned to member {MemberId} in DB", _scannedCardNumber, _selectedMemberId);
+
+            // 2. Activate card on physical controllers
+            bool anyControllerSuccess = false;
+            bool controllerOffline = false;
             
-            // Close modal and refresh
+            try 
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var controllers = await db.Controllers.ToListAsync();
+                
+                foreach (var controller in controllers)
+                {
+                    var request = new AddOrUpdateCardRequestDto
+                    {
+                        CardNumber = _scannedCardNumber,
+                        DoorIndex = 1, // Default, the controller-level sync will handle specific doors
+                        TimeProfileIndex = 1, // 24/7
+                        Enabled = true
+                    };
+
+                    var result = await ControllerClient.AddOrUpdateCardAsync(controller.SerialNumber.ToString(), request);
+                    if (result.Success)
+                    {
+                        anyControllerSuccess = true;
+                    }
+                    else
+                    {
+                        controllerOffline = true;
+                    }
+                    
+                    // Always queue for reliable eventual consistency
+                    await KeyCardLifecycleService.SyncCardToControllerAsync(newCard.KeyCardId, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error during physical controller sync");
+                controllerOffline = true;
+            }
+            
+            // 3. Close modal and show feedback
             _showAssignModal = false;
             
-            // Trigger refresh of the assignments tab
+            if (controllerOffline && !anyControllerSuccess)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Card assigned! However, card access controller communications is currently down. The card will be activated once back online.");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Card #{_scannedCardNumber} has been successfully assigned and activated.");
+            }
+            
+            // Refresh counts and lists
+            await LoadGracePeriodAndSyncStatusAsync();
             StateHasChanged();
         }
         catch (Exception ex)
@@ -965,124 +1175,9 @@
         if (status.Equals("GUEST", StringComparison.OrdinalIgnoreCase))
             return "info";
             
+        if (status.Equals("DIRECTOR", StringComparison.OrdinalIgnoreCase))
+            return "danger";
+            
         return "secondary";
     }
 }
-
-<style>
-    /* Info Card Modern Styling */
-    .info-card-modern {
-        background: var(--bg-surface);
-        border: 1px solid var(--glass-border);
-        border-radius: 16px;
-        padding: 1.25rem;
-        box-shadow: var(--card-shadow);
-        transition: transform 0.2s, box-shadow 0.2s;
-    }
-
-    .info-card-modern:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-    }
-
-    .info-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-    }
-
-    /* Modal Contextual Styles */
-    .modal-backdrop-modern {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(4px);
-        z-index: 1040;
-    }
-
-    .modal-modern-container {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 1050;
-        width: 100%;
-        max-width: 550px;
-        padding: 1rem;
-    }
-
-    .modal-modern {
-        background: var(--bg-surface);
-        border: 1px solid var(--glass-border);
-        border-radius: 24px;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        overflow: hidden;
-    }
-
-    .modal-header-modern {
-        padding: 1.5rem 2rem;
-        border-bottom: 1px solid var(--glass-border);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .modal-title-modern {
-        font-size: 1.5rem;
-        font-weight: 800;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-
-    .modal-subtitle {
-        color: var(--text-muted);
-        margin: 4px 0 0;
-        font-size: 0.9rem;
-    }
-
-    .modal-body-modern {
-        padding: 2rem;
-    }
-
-    .modal-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 1rem;
-        margin-top: 2rem;
-    }
-
-    .btn-close-modern {
-        background: var(--bg-surface-hover);
-        border: none;
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--text-muted);
-        transition: all 0.2s;
-    }
-
-    .btn-close-modern:hover {
-        background: #fee2e2;
-        color: #ef4444;
-        transform: rotate(90deg);
-    }
-
-    .summary-card {
-        background: var(--bg-primary);
-        border: 1px solid var(--glass-border);
-        border-radius: 12px;
-        padding: 1rem;
-    }
-</style>
