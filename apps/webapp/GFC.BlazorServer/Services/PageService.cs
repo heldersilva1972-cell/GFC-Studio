@@ -38,16 +38,30 @@ namespace GFC.BlazorServer.Services
             return await context.StudioPages.FindAsync(pageId);
         }
 
-        public async Task<StudioPage> CreatePageAsync(string title, int? cloneFromPageId = null)
+        public async Task<StudioPage> CreatePageAsync(string title, string folder = "/", int? cloneFromPageId = null)
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var baseSlug = title.ToLower().Replace(" ", "-").Replace("&", "and").Replace(".", "-");
+            var slug = baseSlug;
+            int counter = 1;
+            
+            while (await context.StudioPages.AnyAsync(p => p.Slug == slug))
+            {
+                slug = $"{baseSlug}-{counter++}";
+            }
 
             var newPage = new StudioPage
             {
                 Title = title,
+                Folder = folder,
                 IsPublished = false,
-                // Slug will be generated on first publish or based on title
-                Slug = title.ToLower().Replace(" ", "-").Replace("&", "and")
+                Status = "Draft",
+                Slug = slug,
+                CreatedBy = GetCurrentUserName(),
+                UpdatedBy = GetCurrentUserName(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
 
             context.StudioPages.Add(newPage);
@@ -63,11 +77,21 @@ namespace GFC.BlazorServer.Services
                 {
                     var newSections = originalPageSections.Select(s => new StudioSection
                     {
-                        ClientId = Guid.NewGuid(),
-                        Title = s.Title,
-                        Content = s.Content,
-                        PageIndex = s.PageIndex,
-                        AnimationSettings = s.AnimationSettings,
+                        ComponentType = s.ComponentType,
+                        Data = s.Data,
+                        OrderIndex = s.OrderIndex,
+                        AnimationSettingsJson = s.AnimationSettingsJson,
+                        StylesJson = s.StylesJson,
+                        InteractionJson = s.InteractionJson,
+                        DataBindingJson = s.DataBindingJson,
+                        IsVisible = s.IsVisible,
+                        VisibleOnDesktop = s.VisibleOnDesktop,
+                        VisibleOnTablet = s.VisibleOnTablet,
+                        VisibleOnMobile = s.VisibleOnMobile,
+                        CreatedBy = GetCurrentUserName(),
+                        UpdatedBy = GetCurrentUserName(),
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow,
                         StudioPageId = newPage.Id
                     }).ToList();
 
@@ -85,8 +109,11 @@ namespace GFC.BlazorServer.Services
                 {
                     var newDraft = new StudioDraft
                     {
-                        PageId = newPage.Id,
+                        StudioPageId = newPage.Id,
                         ContentSnapshotJson = latestDraft.ContentSnapshotJson,
+                        ChangeDescription = $"Cloned from {cloneFromPageId}",
+                        Version = 1,
+                        IsPublished = false,
                         CreatedBy = GetCurrentUserName(),
                         CreatedAt = DateTime.UtcNow
                     };

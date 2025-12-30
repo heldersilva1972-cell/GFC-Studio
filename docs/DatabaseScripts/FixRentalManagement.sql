@@ -353,6 +353,84 @@ BEGIN
     );
 END
 
+-- 7. Create Studio Tables
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StudioPages')
+BEGIN
+    CREATE TABLE StudioPages (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Title NVARCHAR(200) NOT NULL,
+        Folder NVARCHAR(500) NULL DEFAULT '/',
+        Slug NVARCHAR(200) NOT NULL,
+        MetaTitle NVARCHAR(200) NULL,
+        MetaDescription NVARCHAR(500) NULL,
+        OgImage NVARCHAR(500) NULL,
+        Status NVARCHAR(20) NOT NULL DEFAULT 'Draft',
+        PublishedAt DATETIME2 NULL,
+        PublishedBy NVARCHAR(100) NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CreatedBy NVARCHAR(100) NOT NULL DEFAULT 'System',
+        UpdatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        UpdatedBy NVARCHAR(100) NOT NULL DEFAULT 'System',
+        IsDeleted BIT NOT NULL DEFAULT 0,
+        DeletedAt DATETIME2 NULL,
+        DeletedBy NVARCHAR(100) NULL
+    );
+    PRINT '✓ Created StudioPages table';
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StudioSections')
+BEGIN
+    CREATE TABLE StudioSections (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        StudioPageId INT NOT NULL,
+        Type NVARCHAR(50) NOT NULL,
+        OrderIndex INT NOT NULL DEFAULT 0,
+        Data NVARCHAR(MAX) NULL,
+        AnimationSettingsJson NVARCHAR(MAX) NULL,
+        VisibleOnDesktop BIT NOT NULL DEFAULT 1,
+        VisibleOnTablet BIT NOT NULL DEFAULT 1,
+        VisibleOnMobile BIT NOT NULL DEFAULT 1,
+        IsVisible BIT NOT NULL DEFAULT 1,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CreatedBy NVARCHAR(100) NOT NULL DEFAULT 'System',
+        UpdatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        UpdatedBy NVARCHAR(100) NOT NULL DEFAULT 'System',
+        CONSTRAINT FK_StudioSections_StudioPages FOREIGN KEY (StudioPageId) REFERENCES StudioPages(Id) ON DELETE CASCADE
+    );
+    PRINT '✓ Created StudioSections table';
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StudioDrafts')
+BEGIN
+    CREATE TABLE StudioDrafts (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        StudioPageId INT NOT NULL,
+        ContentSnapshotJson NVARCHAR(MAX) NULL,
+        ChangeDescription NVARCHAR(500) NULL,
+        Version INT NOT NULL DEFAULT 1,
+        IsPublished BIT NOT NULL DEFAULT 0,
+        PublishedAt DATETIME2 NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        CreatedBy NVARCHAR(100) NOT NULL DEFAULT 'System',
+        CONSTRAINT FK_StudioDrafts_StudioPages FOREIGN KEY (StudioPageId) REFERENCES StudioPages(Id) ON DELETE CASCADE
+    );
+    PRINT '✓ Created StudioDrafts table';
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'StudioSettings')
+BEGIN
+    CREATE TABLE StudioSettings (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        SettingKey NVARCHAR(100) NOT NULL,
+        SettingValue NVARCHAR(MAX) NULL,
+        Description NVARCHAR(500) NULL,
+        LastUpdated DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+        UpdatedBy NVARCHAR(100) NOT NULL DEFAULT 'System'
+    );
+    CREATE UNIQUE INDEX IX_StudioSettings_SettingKey ON StudioSettings(SettingKey);
+    PRINT '✓ Created StudioSettings table';
+END
+
 PRINT '-----------------------------------------';
 PRINT 'Database fix completed successfully!';
 PRINT '-----------------------------------------';

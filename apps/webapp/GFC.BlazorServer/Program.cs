@@ -201,6 +201,7 @@ public class Program
         builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
         builder.Services.AddScoped<IStaticExportService, StaticExportService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.IStudioService, GFC.BlazorServer.Services.StudioService>();
+        builder.Services.AddSingleton<IStudioEngineService, StudioEngineService>();
         builder.Services.AddScoped<IStudioCmsService, StudioCmsService>();
         builder.Services.AddScoped<IStudioAutoSaveService, StudioAutoSaveService>();
         builder.Services.AddScoped<ITemplateService, TemplateService>();
@@ -227,6 +228,7 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IPageService, PageService>();
         builder.Services.AddScoped<IReviewService, ReviewService>();
         builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
+        builder.Services.AddScoped<IProjectFileService, ProjectFileService>();
         
         // Controller Client Wiring
         
@@ -446,6 +448,32 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                 else
                 {
                     Console.WriteLine($">>> WARNING: Bar Sales schema script not found at {barSalesScriptPath}");
+                }
+
+                // [AUTO-FIX 6] Run the Comprehensive Studio Schema Sync
+                var studioSyncPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "SyncStudioSchema.sql");
+                if (File.Exists(studioSyncPath))
+                {
+                    Console.WriteLine($">>> Applying COMPREHENSIVE Studio Schema Sync from: {studioSyncPath}");
+                    var studioSqlFile = File.ReadAllText(studioSyncPath);
+                    var studioBatches = System.Text.RegularExpressions.Regex.Split(studioSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in studioBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing Studio Sync batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Studio Schema Synchronized Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Studio Sync script not found at {studioSyncPath}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

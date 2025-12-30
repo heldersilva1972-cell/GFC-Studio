@@ -20,13 +20,9 @@ namespace GFC.Core.Interfaces
         /// <returns>The StudioPage object, or null if not found.</returns>
         Task<StudioPage> GetPageAsync(int pageId);
 
-        /// <summary>
-        /// Creates a new page.
-        /// </summary>
-        /// <param name="title">The title of the new page.</param>
-        /// <param name="cloneFromPageId">Optional. If provided, the new page will be a clone of the page with this ID.</param>
+        /// <param name="folder">The virtual folder path where this page belongs (defaults to site root '/').</param>
         /// <returns>The newly created StudioPage object.</returns>
-        Task<StudioPage> CreatePageAsync(string title, int? cloneFromPageId = null);
+        Task<StudioPage> CreatePageAsync(string title, string folder = "/", int? cloneFromPageId = null);
 
         /// <summary>
         /// Updates an existing page's properties.
