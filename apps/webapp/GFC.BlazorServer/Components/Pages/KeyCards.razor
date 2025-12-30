@@ -132,6 +132,32 @@
     </div>
 </div>
 
+@if (!_controllerOnline)
+{
+    <div class="communication-alert-banner fade-in" style="animation-delay: 0.3s;">
+        <div class="d-flex align-items-center gap-3">
+            <div class="info-icon bg-danger text-white" style="width: 40px; height: 40px; border-radius: 8px;">
+                <i class="bi bi-wifi-off"></i>
+            </div>
+            <div>
+                <h6 class="mb-0 fw-bold text-danger">Hardware Communication Offline</h6>
+                <p class="mb-0 text-muted small">The card access controller is currently unreachable. New assignments will be queued automatically.</p>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            @if (_pendingSyncCount > 0)
+            {
+                <span class="badge bg-warning text-dark d-flex align-items-center px-3" style="font-size: 0.75rem;">
+                    <i class="bi bi-hourglass-split me-2"></i> @_pendingSyncCount Pending Syncs
+                </span>
+            }
+            <button class="btn btn-outline-danger btn-sm" @onclick="ViewSyncQueue">
+                Manage Queue
+            </button>
+        </div>
+    </div>
+}
+
 <!-- Tab Navigation with Slide Animation -->
 <div class="tab-navigation-modern slide-in-up">
     <div class="tab-nav-container">
@@ -202,10 +228,18 @@
                     </h3>
                     <p class="modal-subtitle">Scan a card and assign it to a member</p>
                 </div>
-                <button class="btn-close-modern" @onclick="CloseAssignCardModal">
+                <button class="btn-close-modern" @onclick="CloseAssignCardModal" disabled="@_assigning">
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
+            
+            @if (!_controllerOnline && !_assigning && string.IsNullOrEmpty(_assignSuccessMessage))
+            {
+                <div class="alert alert-warning border-0 rounded-0 m-0 d-flex align-items-center gap-2" style="font-size: 0.8rem; padding: 0.5rem 1.25rem; background: #fffbeb;">
+                    <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                    <span><strong>Controller Offline:</strong> New assignments will be queued and synced automatically.</span>
+                </div>
+            }
             
             <div class="modal-body-modern">
                 <div class="assign-card-content">
@@ -243,10 +277,24 @@
                             </div>
                         }
                         
-                        <div class="step-line"></div>
-                        <div class="step @(_assignStep >= 3 ? "active" : "")">
+                        <div class="step @(_assignStep >= 3 ? "active" : "") @(_assignStep > 3 ? "completed" : "")">
                             <div class="step-number">@(_selectedMemberId == 0 ? "3" : "2")</div>
                             <div class="step-label">Confirm</div>
+                        </div>
+
+                        <div class="step-line"></div>
+                        <div class="step @(_assignStep >= 4 ? "active" : "")">
+                            <div class="step-number">
+                                @if (_assignStep >= 4)
+                                {
+                                    <i class="bi bi-check"></i>
+                                }
+                                else
+                                {
+                                    <span>@(_selectedMemberId == 0 ? "4" : "3")</span>
+                                }
+                            </div>
+                            <div class="step-label">Finish</div>
                         </div>
                     </div>
 
@@ -432,19 +480,54 @@
                                     <button class="btn btn-outline-secondary" @onclick="HandleBackFromConfirm" disabled="@_assigning">
                                         <i class="bi bi-arrow-left"></i> Back
                                     </button>
-                                    <button class="btn btn-success btn-lg px-4" @onclick="ConfirmAssignment" disabled="@_assigning">
+                                    <button class="btn btn-primary px-4" @onclick="ConfirmAssignment" disabled="@_assigning">
                                         @if (_assigning)
                                         {
                                             <span class="spinner-border spinner-border-sm me-2"></span>
-                                            <span>Assigning...</span>
+                                            <span>Processing...</span>
                                         }
                                         else
                                         {
-                                            <i class="bi bi-check-circle"></i>
-                                            <span>Assign & Activate Card</span>
+                                            <span><i class="bi bi-shield-check me-2"></i> Confirm & Sync</span>
                                         }
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Step 4: Final Feedback -->
+                    @if (_assignStep == 4)
+                    {
+                        <div class="step-content fade-in text-center py-3">
+                            <div class="success-checkmark mb-3 mx-auto">
+                                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none" style="stroke: #10b981;"/>
+                                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" style="stroke: #10b981;"/>
+                                </svg>
+                            </div>
+                            
+                            <h4 class="mb-2">Assignment Processed</h4>
+                            <p class="text-muted small px-4 mb-4">@_assignSuccessMessage</p>
+                            
+                            @if (_pendingSyncCount > 0 && !_controllerOnline)
+                            {
+                                <div class="sync-queue-tip mb-4 p-3 rounded-3" style="background: #f8fafc; border: 1px solid #e2e8f0; text-align: left;">
+                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                        <i class="bi bi-info-circle text-info"></i>
+                                        <span class="fw-800 small text-uppercase" style="letter-spacing: 0.5px;">Sync Logic</span>
+                                    </div>
+                                    <div class="small text-muted">
+                                        The system is waiting for the controller to come back online. You can monitor the progress in the 
+                                        <a href="/keycards/sync-queue" class="text-primary text-decoration-none fw-bold" @onclick="CloseAssignCardModal">Sync Queue</a>.
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="step-actions">
+                                <button class="btn btn-success px-5" @onclick="CloseAssignCardModal">
+                                    Done
+                                </button>
                             </div>
                         </div>
                     }
@@ -960,15 +1043,17 @@
             }
             
             // 3. Close modal and show feedback
-            _showAssignModal = false;
+            _assigning = false;
             
             if (controllerOffline && !anyControllerSuccess)
             {
-                await JSRuntime.InvokeVoidAsync("alert", "Card assigned! However, card access controller communications is currently down. The card will be activated once back online.");
+                _assignSuccessMessage = $"Card #{_scannedCardNumber} assigned to {_selectedMemberName}. The controller is offline, so the card is queued for sync.";
+                _assignStep = 4; // New completion step
             }
             else
             {
-                await JSRuntime.InvokeVoidAsync("alert", $"Card #{_scannedCardNumber} has been successfully assigned and activated.");
+                _assignSuccessMessage = $"Card #{_scannedCardNumber} has been successfully assigned and activated for {_selectedMemberName}.";
+                _assignStep = 4; // New completion step
             }
             
             // Refresh counts and lists
@@ -979,9 +1064,6 @@
         {
             Logger.LogError(ex, "Error assigning card");
             _assignError = "Failed to assign card. Please try again.";
-        }
-        finally
-        {
             _assigning = false;
         }
     }

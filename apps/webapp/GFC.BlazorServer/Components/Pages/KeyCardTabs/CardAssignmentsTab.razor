@@ -5,6 +5,7 @@
 @inject IBoardRepository BoardRepository
 @inject IDuesInsightService DuesInsightService
 @inject ICardDeactivationLogRepository DeactivationLogRepository
+@inject IControllerSyncQueueRepository SyncQueueRepository
 @inject ILogger<CardAssignmentsTab> Logger
 @inject IJSRuntime JSRuntime
 
@@ -171,6 +172,13 @@
                                 @(card.IsActive ? "Active" : "Inactive")
                             </div>
                         </div>
+
+                        @if (card.IsSyncPending)
+                        {
+                            <div class="sync-status-indicator pulse-slow">
+                                <i class="bi bi-clock-history"></i> Pending Sync to Controller
+                            </div>
+                        }
                         
                         <div class="card-item-body">
                             <div class="member-info-row">
@@ -258,6 +266,12 @@
                                     <span class="badge @(card.IsActive ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger") border border-@(card.IsActive ? "success" : "danger") border-opacity-25 rounded-pill px-3">
                                         @(card.IsActive ? "Active" : "Inactive")
                                     </span>
+                                    @if (card.IsSyncPending)
+                                    {
+                                        <span class="badge bg-warning-subtle text-warning border border-warning border-opacity-25 rounded-pill px-2 ms-1" style="font-size: 0.65rem;">
+                                            <i class="bi bi-clock-history me-1"></i>SYNC PENDING
+                                        </span>
+                                    }
                                 </td>
                                 <td>@(card.IssuedDate?.ToString("MMM dd, yyyy") ?? "-")</td>
                                 <td class="@(card.LastUsed.HasValue ? "" : "text-muted italic")">
@@ -446,6 +460,11 @@
             var year = DateTime.Today.Year;
             var boardMemberIds = BoardRepository.GetAssignmentsByYear(year).Select(a => a.MemberID).ToHashSet();
             
+            // Sync status check
+            var pendingSyncs = await SyncQueueRepository.GetByStatusAsync("PENDING");
+            var processingSyncs = await SyncQueueRepository.GetByStatusAsync("PROCESSING");
+            var pendingCardIds = pendingSyncs.Concat(processingSyncs).Select(x => x.KeyCardId).ToHashSet();
+
             _allCards = cards.Select(c => {
                 var member = members.FirstOrDefault(m => m.MemberID == c.MemberId);
                 var isDirector = boardMemberIds.Contains(c.MemberId);
@@ -472,7 +491,8 @@
                     LastUsed = null,
                     CardType = c.CardType ?? "Card",
                     IsEligible = isEligible,
-                    IsDirector = isDirector
+                    IsDirector = isDirector,
+                    IsSyncPending = pendingCardIds.Contains(c.KeyCardId)
                 };
             }).ToList();
             
@@ -689,5 +709,6 @@
         public string CardType { get; set; } = "Card";
         public bool IsEligible { get; set; }
         public bool IsDirector { get; set; }
+        public bool IsSyncPending { get; set; }
     }
 }
