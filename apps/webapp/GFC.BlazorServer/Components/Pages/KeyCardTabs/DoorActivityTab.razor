@@ -5,6 +5,7 @@
 @inject GfcDbContext DbContext
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
+@inject IJSRuntime JSRuntime
 @inject ILogger<DoorActivityTab> Logger
 
 <div class="activity-container">
@@ -184,6 +185,64 @@
             }
         </div>
     }
+
+    <!-- Detail Modal -->
+    @if (_showDetailsModal && _selectedActivity != null)
+    {
+        <div class="modal-backdrop-modern fade-in" @onclick="CloseDetailsModal"></div>
+        <div class="modal-modern-container fade-in scale-in">
+            <div class="modal-modern">
+                <div class="modal-header-modern">
+                    <h3 class="modal-title-modern">
+                        <i class="bi bi-activity text-primary"></i>
+                        Event Details
+                    </h3>
+                    <button class="btn-close-modern" @onclick="CloseDetailsModal">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="modal-body-modern">
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <label>Timestamp</label>
+                            <div>@_selectedActivity.TimestampUtc.ToLocalTime().ToString("MM/dd/yyyy HH:mm:ss")</div>
+                        </div>
+                        <div class="detail-item">
+                            <label>Controller</label>
+                            <div>@_selectedActivity.ControllerName</div>
+                        </div>
+                        <div class="detail-item">
+                            <label>Door</label>
+                            <div>@_selectedActivity.DoorName</div>
+                        </div>
+                        <div class="detail-item">
+                            <label>Member</label>
+                            <div>@(_selectedActivity.MemberName ?? "Unknown")</div>
+                        </div>
+                        <div class="detail-item">
+                            <label>Card Number</label>
+                            <div>#@(_selectedActivity.CardNumber?.ToString() ?? "-")</div>
+                        </div>
+                        <div class="detail-item">
+                            <label>Event Type</label>
+                            <div>
+                                <span class="badge bg-@GetEventClass(_selectedActivity.EventType)">
+                                    @GetEventName(_selectedActivity.EventType)
+                                </span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <label>Reason Code</label>
+                            <div>@(_selectedActivity.ReasonCode?.ToString() ?? "None")</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer-modern">
+                    <button class="btn btn-secondary" @onclick="CloseDetailsModal">Close</button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -204,6 +263,10 @@
     private bool _hasMore = false;
     private int _currentPage = 0;
     private const int PageSize = 100;
+    
+    // Modal State
+    private bool _showDetailsModal = false;
+    private ActivityItem? _selectedActivity;
     
     protected override async Task OnInitializedAsync()
     {
@@ -324,15 +387,35 @@
         };
     }
     
-    private void ExportToCsv()
+    private async Task ExportToCsv()
     {
-        // TODO: Implement CSV export
+        try 
+        {
+            var csv = new System.Text.StringBuilder();
+            csv.AppendLine("Time,Controller,Door,Card,Member,Event,Reason");
+            
+            foreach (var a in _activities)
+            {
+                csv.AppendLine($"{a.TimestampUtc},{a.ControllerName},{a.DoorName},{a.CardNumber},{a.MemberName},{GetEventName(a.EventType)},{a.ReasonCode}");
+            }
+            
+            var fileName = $"door_activity_export_{DateTime.Now:yyyyMMdd}.csv";
+            await JSRuntime.InvokeVoidAsync("blazorInterop.downloadFile", fileName, "text/csv", csv.ToString());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Export failed");
+            _errorMessage = "Export failed.";
+        }
     }
     
     private void ViewDetails(ActivityItem activity)
     {
-        // TODO: Show activity details modal
+        _selectedActivity = activity;
+        _showDetailsModal = true;
     }
+    
+    private void CloseDetailsModal() => _showDetailsModal = false;
     
     private string GetRowClass(ActivityItem activity)
     {

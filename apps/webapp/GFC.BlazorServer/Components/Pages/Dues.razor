@@ -4,252 +4,486 @@
 @using System.ComponentModel.DataAnnotations
 @using GFC.Core.Enums
 @using GFC.Core.Models
+@using GFC.Core.Interfaces
 @inject IDuesInsightService DuesService
 @inject IDuesRepository DuesRepository
+@inject IKeyCardRepository KeyCardRepository
 @inject GFC.BlazorServer.Services.DuesService DuesServiceEF
 @inject GFC.BlazorServer.Services.WaiverService WaiverService
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject IDuesWaiverRepository DuesWaiverRepository
 @inject IMemberRepository MemberRepository
 @inject MemberService MemberService
 @inject IGlobalNoteRepository GlobalNoteRepository
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject ILogger<Dues> Logger
 @inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+@inject IControllerSyncQueueRepository SyncQueueRepository
+@inject KeyCardLifecycleService KeyCardLifecycleService
+@implements IDisposable
 
-<h1 class="page-title">Dues</h1>
+<PageTitle>Dues Management - GFC</PageTitle>
 
-<div class="toolbar gap-2 flex-wrap">
-    <select class="form-select" @bind="_selectedYear" @bind:after="OnYearChanged">
-        @foreach (var year in _years)
-        {
-            <option value="@year">@year</option>
-        }
-    </select>
-    
-    <div class="search-input ms-auto">
-        <input class="form-control dues-search"
-               placeholder="Search by member name"
-               @bind="_searchText"
-               @bind:event="oninput" />
-        @if (!string.IsNullOrWhiteSpace(_searchText))
-        {
-            <button type="button"
-                    class="btn btn-clear"
-                    title="Clear search"
-                    @onclick="ClearDuesSearch">
-                &times;
-            </button>
-        }
+<div class="dues-container fade-in">
+    <!-- Header Section -->
+    <div class="page-header d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="page-title-modern">Dues & Payments</h1>
+            <p class="text-muted mb-0">Manage membership dues, payments, and waivers for @_selectedYear</p>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+             <div class="scanner-status" title="Card Scanner Ready">
+                <span class="pulse-dot"></span>
+                <i class="bi bi-upc-scan"></i>
+                <span class="d-none d-md-inline ms-2">Ready to Scan</span>
+            </div>
+            <select class="form-select year-select" @bind="_selectedYear" @bind:after="OnYearChanged">
+                @foreach (var year in _years)
+                {
+                    <option value="@year">@year</option>
+                }
+            </select>
+        </div>
     </div>
-</div>
 
-@if (!string.IsNullOrWhiteSpace(_operationMessage))
-{
-    <div class="alert @( _operationError ? "alert-danger" : "alert-success")">@_operationMessage</div>
-}
+    @if (!string.IsNullOrWhiteSpace(_operationMessage))
+    {
+        <div class="alert @( _operationError ? "alert-danger" : "alert-success") shadow-sm border-0 mb-4">
+            <i class="bi @( _operationError ? "bi-exclamation-octagon" : "bi-check-circle") me-2"></i>
+            @_operationMessage
+        </div>
+    }
 
-@if (_loading)
-{
-    <div class="loading-state">
-        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-        Loading dues...
-    </div>
-}
-else if (!string.IsNullOrWhiteSpace(_errorMessage))
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-else
-{
-    <div class="dues-summary-grid mb-4">
-        @if (_summary is not null)
-        {
-            <div class="metric-tile metric-tile-success @(_activeFilter == DuesFilter.Paid ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Paid)">
-                <div class="metric-tile-icon">
+    <!-- Status Banners -->
+    @if (_graceEndDate.HasValue && DateTime.Today <= _graceEndDate.Value)
+    {
+        var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
+        var alertClass = daysRemaining > 30 ? "status-banner-success" : daysRemaining > 14 ? "status-banner-warning" : "status-banner-danger";
+        
+        <div class="status-banner @alertClass mb-4">
+            <div class="d-flex align-items-center">
+                <div class="banner-icon">
+                    <i class="bi bi-hourglass-split"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h5 class="mb-1">Grace Period Active</h5>
+                    <p class="mb-0">
+                        @daysRemaining days remaining until @_graceEndDate.Value.ToString("MMMM d, yyyy").
+                        @if (_membersAtRiskCount > 0)
+                        {
+                            <span class="fw-bold ms-1">⚠️ @_membersAtRiskCount members at risk of deactivation.</span>
+                        }
+                    </p>
+                </div>
+                <div class="badge-new">NEW</div>
+            </div>
+            
+            <!-- Progress Bar -->
+            @{
+                var totalDays = (_graceEndDate.Value - new DateTime(_selectedYear, 1, 1)).Days; // approx start of year
+                var progress = 100 - (int)((double)daysRemaining / totalDays * 100);
+                progress = Math.Clamp(progress, 0, 100);
+            }
+            <div class="progress mt-2" style="height: 6px;">
+                 <div class="progress-bar @(daysRemaining < 14 ? "bg-danger" : "bg-warning")" 
+                      role="progressbar" 
+                      style="width: @progress%" 
+                      aria-valuenow="@progress" 
+                      aria-valuemin="0" 
+                      aria-valuemax="100"></div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="status-banner status-banner-neutral mb-4">
+             <div class="d-flex align-items-center">
+                <div class="banner-icon">
+                    <i class="bi bi-calendar-check"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h5 class="mb-1">Standard Collection Period</h5>
+                    <p class="mb-0 text-muted">No grace period is currently active for @_selectedYear.</p>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_pendingSyncCount > 0)
+    {
+        <div class="status-banner status-banner-info mb-4">
+            <div class="d-flex align-items-center">
+                <div class="banner-icon">
+                    <i class="bi bi-arrow-repeat spin-slow"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h5 class="mb-1">Controller Sync Pending</h5>
+                    <p class="mb-0">@_pendingSyncCount cards waiting to sync. Last success: @(_lastSyncTime?.ToString("h:mm tt") ?? "Unknown")</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-light text-info fw-bold" @onclick="ViewSyncQueue">View Queue</button>
+                    <button class="btn btn-sm btn-info text-white" @onclick="RetryAllSync">Retry All</button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+         <div class="status-banner status-banner-success-subtle mb-4">
+            <div class="d-flex align-items-center">
+                <div class="banner-icon">
                     <i class="bi bi-check-circle-fill"></i>
                 </div>
-                <div class="metric-tile-content">
-                    <div class="metric-tile-label">Paid</div>
-                    <div class="metric-tile-value">@_summary.PaidCount</div>
+                <div class="flex-grow-1">
+                    <h5 class="mb-1">System Synchronized</h5>
+                    <p class="mb-0">All key cards are synced with the controller.</p>
                 </div>
+                <button class="btn btn-sm btn-outline-success" @onclick="ViewSyncQueue">Details</button>
             </div>
+        </div>
+    }
 
-            <div class="metric-tile metric-tile-warning @(_activeFilter == DuesFilter.Unpaid ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Unpaid)">
-                <div class="metric-tile-icon">
-                    <i class="bi bi-clock-fill"></i>
+    @if (_loading)
+    {
+        <div class="loading-container">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Loading dues information...</p>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger shadow-sm">@_errorMessage</div>
+    }
+    else
+    {
+        <!-- Metrics Grid -->
+        <div class="metrics-grid mb-4">
+            @if (_summary is not null)
+            {
+                <div class="metric-card @(_activeFilter == DuesFilter.Paid ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Paid)">
+                    <div class="metric-icon bg-success-subtle text-success">
+                        <i class="bi bi-check-lg"></i>
+                    </div>
+                    <div>
+                        <div class="metric-label">Paid</div>
+                        <div class="metric-value">@_summary.PaidCount</div>
+                    </div>
                 </div>
-                <div class="metric-tile-content">
-                    <div class="metric-tile-label">Unpaid</div>
-                    <div class="metric-tile-value">@_summary.UnpaidCount</div>
-                </div>
-            </div>
 
-            <div class="metric-tile metric-tile-info @(_activeFilter == DuesFilter.Waived ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Waived)">
-                <div class="metric-tile-icon">
-                    <i class="bi bi-shield-fill-check"></i>
+                <div class="metric-card @(_activeFilter == DuesFilter.Unpaid ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Unpaid)">
+                    <div class="metric-icon bg-warning-subtle text-warning">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                    <div>
+                        <div class="metric-label">Unpaid</div>
+                        <div class="metric-value">@_summary.UnpaidCount</div>
+                    </div>
                 </div>
-                <div class="metric-tile-content">
-                    <div class="metric-tile-label">Waived</div>
-                    <div class="metric-tile-value">@_summary.WaivedCount</div>
-                </div>
-            </div>
 
-            <div class="metric-tile metric-tile-primary">
-                <div class="metric-tile-icon">
-                    <i class="bi bi-cash-stack"></i>
+                <div class="metric-card @(_activeFilter == DuesFilter.Waived ? "active" : "")" @onclick="() => SetFilter(DuesFilter.Waived)">
+                    <div class="metric-icon bg-info-subtle text-info">
+                        <i class="bi bi-shield-check"></i>
+                    </div>
+                    <div>
+                        <div class="metric-label">Waived</div>
+                        <div class="metric-value">@_summary.WaivedCount</div>
+                    </div>
                 </div>
-                <div class="metric-tile-content">
-                    <div class="metric-tile-label">Amount Collected</div>
-                    <div class="metric-tile-value">@_summary.AmountCollected.ToString("C0")</div>
-                </div>
-            </div>
-        }
-    </div>
 
-    <div class="table-container dues-table-container">
-        <table class="data-table table-compact table-sticky-header">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Amount</th>
-                    <th>Paid Date</th>
-                    <th>Overdue</th>
-                    <th style="width:220px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (!FilteredItems.Any())
+                <div class="metric-card highlight">
+                    <div class="metric-icon bg-primary-subtle text-primary">
+                        <i class="bi bi-currency-dollar"></i>
+                    </div>
+                    <div>
+                        <div class="metric-label">Collected</div>
+                        <div class="metric-value">@_summary.AmountCollected.ToString("C0")</div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Search & Toolbar -->
+        <div class="toolbar-card mb-4">
+            <div class="search-wrapper">
+                <i class="bi bi-search search-icon"></i>
+                <input class="form-control search-input"
+                       placeholder="Search by name..."
+                       @bind="_searchText"
+                       @bind:event="oninput" />
+                @if (!string.IsNullOrWhiteSpace(_searchText))
                 {
-                    <tr>
-                        <td colspan="6" class="text-center text-muted py-4">No records found for @(_activeFilter) filter.</td>
-                    </tr>
+                    <button class="btn-clear" @onclick="ClearDuesSearch">&times;</button>
                 }
-                else
-                {
-                    @foreach (var item in FilteredItems)
-                    {
-                        var overdueClass = (_activeFilter == DuesFilter.Unpaid) && item.MonthsOverdue >= 15 ? "overdue-flag" : string.Empty;
-                        <tr class="@GetRowClass(item)">
-                            <td>@item.FullName</td>
-                            <td>
-                                <div class="table-status">
-                                    <span class="badge @GetStatusBadge(item.Status)">@GetStatusLabel(item.Status)</span>
-                                    @if (item.Status == MemberStatus.Life)
-                                    {
-                                        <span class="status-note text-muted">Life (waived)</span>
-                                    }
-                                    else if (item.IsBoardMember)
-                                    {
-                                        <span class="status-note text-muted">Board (waived)</span>
-                                    }
-                                    else if (item.IsWaived)
-                                    {
-                                        <span class="status-note text-muted">Waived</span>
-                                    }
-                                </div>
-                            </td>
-                            <td>@(item.Amount?.ToString("C") ?? "--")</td>
-                            <td>@(item.PaidDate?.ToString("MMM d, yyyy") ?? (_activeFilter == DuesFilter.Paid ? "--" : "Pending"))</td>
-                            <td>
-                                @if (_activeFilter == DuesFilter.Unpaid)
-                                {
-                                    <span class="@overdueClass">@FormatOverdueText(item.MonthsOverdue)</span>
-                                }
-                                else
-                                {
-                                    <span>--</span>
-                                }
-                            </td>
-                            <td>
-                                @if (IsExempt(item))
-                                {
-                                    <span class="text-muted small">No payment required</span>
-                                }
-                                else if (IsPaid(item))
-                                {
-                                    <span class="text-muted small">Paid</span>
-                                }
-                                else
-                                {
-                                    <div class="table-actions">
-                                        <button class="btn btn-outline btn-sm"
-                                                disabled="@(!CanRecordPayment(item))"
-                                                @onclick="() => OpenPaymentModal(item)">
-                                            Record Payment
-                                        </button>
-                                        @if (item.MonthsOverdue >= 15)
+            </div>
+            <div class="ms-auto text-muted small">
+                Showing @FilteredItems.Count() records
+            </div>
+        </div>
+
+        <!-- Member List -->
+        <div class="card shadow-sm border-0 overflow-hidden">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light">
+                        <tr>
+                            <th class="ps-4">Member</th>
+                            <th>Status</th>
+                            <th>Payment</th>
+                            <th>Date</th>
+                            <th>Card</th>
+                            <th>Overdue</th>
+                            <th class="text-end pe-4">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (!FilteredItems.Any())
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-5">
+                                    <div class="text-muted">
+                                        <i class="bi bi-inbox fs-1 d-block mb-3"></i>
+                                        No members found matching your criteria.
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var item in FilteredItems.Take(100))
+                            {
+                                var overdueClass = (_activeFilter == DuesFilter.Unpaid) && item.MonthsOverdue >= 15 ? "text-danger fw-bold" : "";
+                                <tr>
+                                    <td class="ps-4">
+                                        <div class="d-flex align-items-center">
+                                            <div class="avatar-circle me-3 @(GetAvatarClass(item))">
+                                                @GetInitials(item.FullName)
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold text-dark">@item.FullName</div>
+                                                <div class="small text-muted">ID: @item.MemberId</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetStatusBadge(item.Status)">
+                                            @GetStatusLabel(item.Status)
+                                        </span>
+                                        @if(item.IsBoardMember) { <span class="badge bg-purple-subtle text-purple ms-1">Board</span> }
+                                        @if(item.Status == MemberStatus.Life) { <span class="badge bg-gold-subtle text-gold ms-1">Life</span> }
+                                    </td>
+                                    <td>
+                                        @if (item.Amount > 0)
                                         {
-                                            <button class="btn btn-primary btn-sm"
-                                                    disabled="@(!CanSetInactive(item))"
-                                                    @onclick="async () => await ConfirmAndSetInactiveAsync(item)">
-                                                Set Inactive
+                                            <span class="fw-medium">@item.Amount?.ToString("C")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">--</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (item.PaidDate.HasValue)
+                                        {
+                                            <span class="text-success"><i class="bi bi-check2-circle me-1"></i>@item.PaidDate.Value.ToString("MMM d")</span>
+                                        }
+                                        else if (_activeFilter == DuesFilter.Unpaid)
+                                        {
+                                             <span class="badge bg-light text-dark border">Unpaid</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">--</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @{
+                                            var hasCard = _memberCards.TryGetValue(item.MemberId, out var card);
+                                            if (hasCard)
+                                            {
+                                                var isPending = _pendingSyncs.ContainsKey(card.KeyCardId);
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                        <i class="bi bi-credit-card-2-front"></i> Active
+                                                    </span>
+                                                    @if (isPending)
+                                                    {
+                                                        <span class="text-warning" title="Sync Pending">
+                                                            <i class="bi bi-arrow-repeat spin-slow"></i>
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-success" title="Synced">
+                                                            <i class="bi bi-cloud-check"></i>
+                                                        </span>
+                                                    }
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-light text-muted border">No Card</span>
+                                            }
+                                        }
+                                    </td>
+                                    <td class="@overdueClass">
+                                         @if (_activeFilter == DuesFilter.Unpaid)
+                                         {
+                                             @FormatOverdueText(item.MonthsOverdue)
+                                         }
+                                         else
+                                         {
+                                             <span class="text-muted">--</span>
+                                         }
+                                    </td>
+                                    <td class="text-end pe-4">
+                                        @if (CanRecordPayment(item))
+                                        {
+                                            <button class="btn btn-sm btn-primary px-3" @onclick="() => OpenPaymentModal(item)">
+                                                Pay
                                             </button>
                                         }
-                                    </div>
-                                }
-                            </td>
-                        </tr>
-                    }
-                }
-            </tbody>
-        </table>
-    </div>
+                                        else if (item.MonthsOverdue >= 15 && CanSetInactive(item))
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="async () => await ConfirmAndSetInactiveAsync(item)">
+                                                Deactivate
+                                            </button>
+                                        }
+                                        else if (IsPaid(item))
+                                        {
+                                            <button class="btn btn-sm btn-light text-muted" disabled>Paid</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (FilteredItems.Count() > 100)
+            {
+                <div class="card-footer text-center text-muted small py-3">
+                    Showing first 100 results. Use search to find specific members.
+                </div>
+            }
+        </div>
+    }
 
+    <!-- Payment Modal -->
     @if (_showPaymentModal && _paymentTarget is not null)
     {
         <div class="modal-backdrop fade show"></div>
-        <div class="modal-card payment-modal">
-            <div class="modal-card__header d-flex justify-content-between align-items-center">
-                <div>
-                    <h4 class="mb-0">Record payment</h4>
-                    <small class="text-muted">@_paymentTarget.FullName · @_selectedYear</small>
+        <div class="modal fade show d-block" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header border-bottom-0 pb-0">
+                        <h5 class="modal-title">Record Payment</h5>
+                        <button type="button" class="btn-close" @onclick="ClosePaymentModal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="d-flex align-items-center mb-4 p-3 bg-light rounded-3">
+                            <div class="avatar-circle me-3 bg-primary text-white">
+                                @GetInitials(_paymentTarget.FullName)
+                            </div>
+                            <div>
+                                <h6 class="mb-0">@_paymentTarget.FullName</h6>
+                                <small class="text-muted">Member ID: @_paymentTarget.MemberId</small>
+                            </div>
+                            <div class="ms-auto text-end">
+                                <div class="small text-muted">Dues Year</div>
+                                <div class="fw-bold">@_selectedYear</div>
+                            </div>
+                        </div>
+
+                        <EditForm Model="_paymentForm" OnValidSubmit="SubmitPaymentAsync">
+                            <DataAnnotationsValidator />
+                            
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Amount</label>
+                                    <div class="input-group input-group-lg">
+                                        <span class="input-group-text bg-white text-muted">$</span>
+                                        <InputNumber class="form-control fw-bold" @bind-Value="_paymentForm.Amount" />
+                                    </div>
+                                    <ValidationMessage For="@(() => _paymentForm.Amount)" />
+                                </div>
+                                
+                                <div class="col-6">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Date</label>
+                                    <InputDate class="form-control" @bind-Value="_paymentForm.PaidDate" />
+                                    <ValidationMessage For="@(() => _paymentForm.PaidDate)" />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Method</label>
+                                    <InputSelect class="form-select" @bind-Value="_paymentForm.PaymentType">
+                                        @foreach (var method in PaymentMethods)
+                                        {
+                                            <option value="@method">@method</option>
+                                        }
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => _paymentForm.PaymentType)" />
+                                </div>
+                                
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Notes</label>
+                                    <InputText class="form-control" placeholder="Check #, Reference, etc." @bind-Value="_paymentForm.Notes" />
+                                    <ValidationMessage For="@(() => _paymentForm.Notes)" />
+                                </div>
+                            </div>
+
+                            <div class="d-grid mt-4">
+                                <button class="btn btn-primary btn-lg" type="submit" disabled="@_operationInProgress">
+                                    @if (_operationInProgress)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span>Processing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Confirm Payment</span>
+                                    }
+                                </button>
+                            </div>
+                        </EditForm>
+                    </div>
                 </div>
-                <button class="btn btn-link text-decoration-none" type="button" @onclick="ClosePaymentModal">
-                    <i class="bi bi-x-lg"></i>
-                </button>
             </div>
-            <EditForm Model="_paymentForm" OnValidSubmit="SubmitPaymentAsync">
-                <DataAnnotationsValidator />
-                <ValidationSummary />
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Amount<span class="text-danger">*</span></label>
-                        <InputNumber class="form-control" @bind-Value="_paymentForm.Amount" />
-                        <ValidationMessage For="@(() => _paymentForm.Amount)" />
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Payment date<span class="text-danger">*</span></label>
-                        <InputDate class="form-control" @bind-Value="_paymentForm.PaidDate" />
-                        <ValidationMessage For="@(() => _paymentForm.PaidDate)" />
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Method<span class="text-danger">*</span></label>
-                        <InputSelect class="form-select" @bind-Value="_paymentForm.PaymentType">
-                            @foreach (var method in PaymentMethods)
-                            {
-                                <option value="@method">@method</option>
-                            }
-                        </InputSelect>
-                        <ValidationMessage For="@(() => _paymentForm.PaymentType)" />
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Reference / Notes</label>
-                        <InputText class="form-control" @bind-Value="_paymentForm.Notes" />
-                        <ValidationMessage For="@(() => _paymentForm.Notes)" />
-                    </div>
-                </div>
-                <div class="modal-card__actions mt-4">
-                    <button class="btn btn-primary" type="submit" disabled="@_operationInProgress">
-                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" hidden="@(!_operationInProgress)"></span>
-                        Save payment
-                    </button>
-                    <button class="btn btn-outline" type="button" @onclick="ClosePaymentModal">Cancel</button>
-                </div>
-            </EditForm>
         </div>
     }
-}
+    
+    <!-- Payment Success Modal -->
+    @if (_showSuccessModal && _lastPaymentMember != null)
+    {
+        <div class="modal-backdrop fade show"></div>
+        <div class="modal fade show d-block" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg text-center">
+                    <div class="modal-body p-5">
+                       <div class="mb-3 text-success">
+                           <i class="bi bi-check-circle-fill display-1"></i>
+                       </div>
+                       <h3 class="fw-bold mb-3">Payment Recorded!</h3>
+                       <p class="text-muted mb-4">
+                           Payment of <strong>@_lastPaymentAmount.ToString("C")</strong> for <strong>@_lastPaymentMember</strong> was successful.
+                       </p>
+                        <div class="d-grid gap-2 col-8 mx-auto">
+                            @if (!_hasActiveCard)
+                            {
+                                <button class="btn btn-success btn-lg mb-2" @onclick="NavigateToAssignCard">
+                                    <i class="bi bi-plus-lg me-2"></i> Assign Key Card
+                                </button>
+                            }
+                            <button class="btn btn-primary" @onclick="PrintReceipt">
+                                <i class="bi bi-printer me-2"></i> Print Receipt
+                            </button>
+                            <button class="btn btn-outline-secondary" @onclick="CloseSuccessModal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
 
 @code {
     private enum DuesFilter { Unpaid, Paid, Waived }
@@ -258,7 +492,7 @@ else
     private int _selectedYear;
     private DuesFilter _activeFilter = DuesFilter.Unpaid;
     private bool _loading = true;
-    private List<DuesListItemDto> _allItems = new(); // Contains both Paid and Unpaid fetched from repo
+    private List<DuesListItemDto> _allItems = new();
     private DuesSummaryDto? _summary;
     private string? _errorMessage;
     private string? _operationMessage;
@@ -267,12 +501,35 @@ else
     private DuesYearSettings? _currentYearSettings;
     private string _searchText = string.Empty;
     private bool _showPaymentModal;
+    private bool _showSuccessModal;
+    private string? _lastPaymentMember;
+    private decimal _lastPaymentAmount;
+    private int _lastPaymentMemberId;
+    private bool _hasActiveCard;
     private DuesListItemDto? _paymentTarget;
     private PaymentFormModel _paymentForm = PaymentFormModel.CreateDefault();
     private static readonly string[] PaymentMethods = { "Cash", "Check", "Card", "Online", "Other" };
+    
+    private DateTime? _graceEndDate;
+    private int _membersAtRiskCount = 0;
+    private int _pendingSyncCount = 0;
+    private DateTime? _lastSyncTime;
+    
+    // Data Caches
+    private Dictionary<int, KeyCard> _memberCards = new();
+    private Dictionary<int, ControllerSyncQueueItem> _pendingSyncs = new();
+
+    // Scan Buffer
+    private string _scanBuffer = "";
+    private System.Timers.Timer _scanTimer;
+    private DotNetObjectReference<Dues>? _objRef;
 
     protected override async Task OnInitializedAsync()
     {
+        _scanTimer = new System.Timers.Timer(100); // 100ms timeout for rapid variance
+        _scanTimer.Elapsed += (s, e) => _scanBuffer = "";
+        _scanTimer.AutoReset = false;
+
         try
         {
             _years = (await DuesService.GetAvailableYearsAsync()).OrderBy(y => y).ToList();
@@ -295,6 +552,97 @@ else
         await LoadDataInternal();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _objRef = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("blazorInterop.registerKeyListener", _objRef);
+            }
+            catch (JSException ex)
+            {
+                // Likely a cached JS file issue or older client.
+                Logger.LogWarning(ex, "Failed to register key listener. Scanner features may be unavailable.");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Unexpected error registering key listener.");
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleGlobalKeyPress(string key)
+    {
+        if (key == "Enter")
+        {
+            if (!string.IsNullOrWhiteSpace(_scanBuffer))
+            {
+                await ProcessScanAsync(_scanBuffer);
+                _scanBuffer = "";
+            }
+        }
+        else if (key.Length == 1)
+        {
+            _scanBuffer += key;
+            _scanTimer.Stop();
+            _scanTimer.Start();
+        }
+    }
+
+    private async Task ProcessScanAsync(string cardNumber)
+    {
+        // Find member by card
+        try
+        {
+            var card = await Task.Run(() => KeyCardRepository.GetByCardNumber(cardNumber));
+            if (card != null)
+            {
+                var memberItem = _allItems.FirstOrDefault(m => m.MemberId == card.MemberId);
+                if (memberItem != null)
+                {
+                    _operationMessage = $"Card Scanned: Found {memberItem.FullName}";
+                    _operationError = false;
+                    _searchText = memberItem.FullName; // Filter view
+                    
+                    // If unpaid, prompt for payment? Or just show?
+                    // Let's just filter so user can decide. 
+                    // Or if unpaid, open modal automatically?
+                     if (CanRecordPayment(memberItem)) 
+                     {
+                         OpenPaymentModal(memberItem);
+                     }
+                     StateHasChanged();
+                }
+                else
+                {
+                    _operationMessage = "Card scanned, but member not found in current dues list.";
+                    _operationError = true;
+                    StateHasChanged();
+                }
+            }
+            else
+            {
+                _operationMessage = "Card scanned, but no matching key card found in system.";
+                _operationError = true;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+        }
+    }
+
+    public void Dispose()
+    {
+        _scanTimer?.Dispose();
+        _objRef?.Dispose();
+        JSRuntime.InvokeVoidAsync("blazorInterop.unregisterKeyListener").AsTask();
+    }
+
     private async Task OnYearChanged()
     {
         _operationMessage = null;
@@ -313,20 +661,50 @@ else
         _errorMessage = null;
         try
         {
-            // Execute sequentially to avoid EF Core concurrency issues on the shared DbContext
             var unpaidItems = await DuesService.GetDuesAsync(_selectedYear, false);
             var paidItems = await DuesService.GetDuesAsync(_selectedYear, true);
             _summary = await DuesService.GetSummaryAsync(_selectedYear);
             
-            // Offload synchronous repo call to thread pool, but strictly after async calls to ensure Context isn't busy
             _currentYearSettings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(_selectedYear));
 
-            // Combine distinct items
             var combined = new List<DuesListItemDto>();
             if (unpaidItems != null) combined.AddRange(unpaidItems);
             if (paidItems != null) combined.AddRange(paidItems);
             
             _allItems = combined.GroupBy(x => x.MemberId).Select(g => g.First()).ToList();
+            
+            _graceEndDate = _currentYearSettings?.GraceEndDate;
+            if (_graceEndDate.HasValue && DateTime.Today <= _graceEndDate.Value)
+            {
+                _membersAtRiskCount = _allItems.Count(x => x.PaidDate == null && (x.Amount ?? 0) > 0);
+            }
+            else
+            {
+                _membersAtRiskCount = 0;
+            }
+            
+            // Load Card and Sync Data
+            try 
+            {
+                var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+                _memberCards = allCards
+                    .Where(c => c.IsActive)
+                    .GroupBy(c => c.MemberId)
+                    .ToDictionary(g => g.Key, g => g.First());
+
+                var allPendingSyncs = await SyncQueueRepository.GetPendingItemsAsync();
+                _pendingSyncs = allPendingSyncs
+                    .GroupBy(s => s.KeyCardId)
+                    .ToDictionary(g => g.Key, g => g.First());
+
+                _pendingSyncCount = _pendingSyncs.Count;
+                _lastSyncTime = await SyncQueueRepository.GetLastCompletedTimeAsync();
+            }
+            catch (Exception)
+            {
+                _memberCards = new();
+                _pendingSyncs = new();
+            }
         }
         catch (Exception ex)
         {
@@ -343,10 +721,7 @@ else
 
     private void OpenPaymentModal(DuesListItemDto item)
     {
-        if (!CanRecordPayment(item))
-        {
-            return;
-        }
+        if (!CanRecordPayment(item)) return;
 
         var suggestedAmount = item.Amount ?? _currentYearSettings?.StandardDues ?? 0m;
         _paymentTarget = item;
@@ -364,123 +739,130 @@ else
 
     private async Task SubmitPaymentAsync()
     {
-        if (_paymentTarget is null)
-        {
-            return;
-        }
-
+        if (_paymentTarget is null) return;
         _operationInProgress = true;
-        _operationMessage = null;
-
+        
         try
         {
             var currentUser = AuthStateProvider.GetCurrentUser();
-            var userId = currentUser?.UserId;
             await DuesServiceEF.RecordPaymentAsync(
                 _paymentTarget.MemberId,
                 _selectedYear,
                 _paymentForm.Amount,
                 _paymentForm.PaidDate,
                 _paymentForm.Notes,
-                userId);
+                currentUser?.UserId);
+            
+            // Auto-clear waiver if exists (Requirement: Automatically clear waivers upon payment)
+            try 
+            {
+               var waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId));
+               var activeWaiver = waivers.FirstOrDefault(w => _selectedYear >= w.StartYear && _selectedYear <= w.EndYear);
+               if (activeWaiver != null)
+               {
+                   await Task.Run(() => DuesWaiverRepository.DeleteWaiver(activeWaiver.WaiverId));
+                   Logger.LogInformation("Waiver {WaiverId} auto-cleared due to payment", activeWaiver.WaiverId);
+               }
+            }
+            catch (Exception wEx)
+            {
+                Logger.LogWarning(wEx, "Failed to auto-clear waiver");
+            }
+
+            _operationMessage = $"Payment recorded for {_paymentTarget.FullName}.";
             _operationError = false;
-            _operationMessage = $"Recorded a payment for {_paymentTarget.FullName}.";
+            
+            var memberId = _paymentTarget.MemberId;
+            var memberName = _paymentTarget.FullName;
+            var amount = _paymentForm.Amount;
+            
             ClosePaymentModal();
             await LoadDataInternal();
+
+            // Store for success modal
+            _lastPaymentMember = memberName;
+            _lastPaymentAmount = amount;
+            _lastPaymentMemberId = memberId;
+            _hasActiveCard = _memberCards.ContainsKey(memberId);
+            _showSuccessModal = true;
+            
+            // Note: Card prompt removed from here as per preference for receipt first.
+            // If card is missing, user can navigate manually or we can add a nudge in success modal later.
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "[Dues] Failed to record payment for member {MemberId}", _paymentTarget.MemberId);
+            Logger.LogError(ex, "Payment failed");
             _operationError = true;
-            _operationMessage = "Unable to record the payment right now.";
+            _operationMessage = "Payment failed. Please try again.";
         }
         finally
         {
             _operationInProgress = false;
         }
+    }
+
+    private void CloseSuccessModal()
+    {
+        _showSuccessModal = false;
+        _lastPaymentMember = null;
+    }
+
+    private void NavigateToAssignCard()
+    {
+        _showSuccessModal = false;
+        NavManager.NavigateTo($"/keycards?assignTo={_lastPaymentMemberId}");
+    }
+
+    private async Task PrintReceipt()
+    {
+        await JSRuntime.InvokeVoidAsync("print");
     }
 
     private async Task ConfirmAndSetInactiveAsync(DuesListItemDto item)
     {
-        if (!CanSetInactive(item))
-        {
-            return;
-        }
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Deactivate {item.FullName}? This will also deactivate their key card.")) return;
+        
+        // Implementation of SetInactive
+         _operationInProgress = true;
+         try {
+             var member = await Task.Run(() => MemberRepository.GetMemberById(item.MemberId));
+             if (member != null) {
+                 member.InactiveDate = DateTime.Today;
+                 await Task.Run(() => MemberService.UpdateMemberStatus(member, "INACTIVE", "System", false));
+                 
+                 // Log note
+                 await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote {
+                     NoteDate = DateTime.Now,
+                     Category = "STATUS CHANGE",
+                     Text = $"{item.FullName} (ID {item.MemberId}) set inactive on {DateTime.Today:yyyy-MM-dd} for unpaid dues."
+                 }));
 
-        var confirmMessage = $"Set {item.FullName} inactive for unpaid dues? This will record today's date and reason.";
-        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", confirmMessage);
-
-        if (!confirmed)
-        {
-            return;
-        }
-
-        await SetInactiveAsync(item);
-    }
-
-    private async Task SetInactiveAsync(DuesListItemDto item)
-    {
-        if (!CanSetInactive(item))
-        {
-            return;
-        }
-
-        _operationInProgress = true;
-        _operationMessage = null;
-
-        try
-        {
-            var member = await Task.Run(() => MemberRepository.GetMemberById(item.MemberId));
-            if (member is null)
-            {
-                _operationError = true;
-                _operationMessage = "The selected member no longer exists.";
-                return;
-            }
-
-            member.InactiveDate = DateTime.Today;
-            var currentUser = AuthStateProvider.GetCurrentUser();
-            var username = currentUser?.Username ?? "Unknown";
-            var userId = currentUser?.UserId;
-            await Task.Run(() => MemberService.UpdateMemberStatus(member, "INACTIVE", username, bypassAutomations: false));
-            await LogInactiveReasonAsync(item, member.InactiveDate.Value);
-            _operationError = false;
-            _operationMessage = $"{item.FullName} marked as Inactive.";
-            await LoadDataInternal();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "[Dues] Failed to mark member {MemberId} inactive", item.MemberId);
-            _operationError = true;
-            _operationMessage = "Unable to set the member inactive.";
-        }
-        finally
-        {
-            _operationInProgress = false;
-        }
-    }
-
-    private async Task LogInactiveReasonAsync(DuesListItemDto item, DateTime inactiveDate)
-    {
-        try
-        {
-            await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote
-            {
-                NoteDate = DateTime.Now,
-                Category = "STATUS CHANGE",
-                Text = $"{item.FullName} (ID {item.MemberId}) set inactive on {inactiveDate:yyyy-MM-dd} for unpaid dues."
-            }));
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "[Dues] Failed to log inactive reason for member {MemberId}", item.MemberId);
-        }
+                 // Deactivate Key Card
+                 var activeCard = await Task.Run(() => KeyCardRepository.GetActiveMemberCard(item.MemberId));
+                 if (activeCard != null && activeCard.IsActive)
+                 {
+                     await KeyCardLifecycleService.DeactivateCardAsync(
+                         activeCard.KeyCardId, 
+                         "Member Deactivated", 
+                         "Dues > Set Inactive Action", 
+                         CancellationToken.None);
+                 }
+                 
+                 _operationMessage = $"{item.FullName} marked as Inactive and key card deactivated.";
+                 await LoadDataInternal();
+             }
+         } catch(Exception ex) {
+             Logger.LogError(ex, "Deactivate failed");
+             _operationError = true;
+             _operationMessage = "Deactivation failed.";
+         } finally {
+             _operationInProgress = false;
+         }
     }
 
     private bool IsExempt(DuesListItemDto item) =>
         item.Status == MemberStatus.Life || item.IsBoardMember || item.IsWaived;
 
-    // Helper to determine if an item counts as "Paid" in the business rule (has paid date and not explicitly waived)
     private bool IsPaid(DuesListItemDto item) =>
         item.PaidDate.HasValue && !item.IsWaived;
 
@@ -490,46 +872,14 @@ else
     private bool CanSetInactive(DuesListItemDto item) =>
         !IsPaid(item) && !IsExempt(item) && item.MonthsOverdue >= 15 && !_operationInProgress;
 
-    private static string FormatOverdueText(int months) =>
-        $"{months} month{(months == 1 ? string.Empty : "s")}";
-
-    private static string GetRowClass(DuesListItemDto item) =>
-        item.Status == MemberStatus.Life || item.IsBoardMember ? "table-row-waived" : string.Empty;
-
-    private static string GetStatusBadge(MemberStatus status) =>
-        status switch
-        {
-            MemberStatus.Regular or MemberStatus.RegularNonPortuguese => "badge badge-success",
-            MemberStatus.Life => "badge badge-success",
-            MemberStatus.Guest => "badge badge-warning",
-            MemberStatus.Inactive => "badge badge-danger",
-            MemberStatus.Deceased => "badge badge-danger",
-            _ => "badge bg-secondary"
-        };
-
-    private static string GetStatusLabel(MemberStatus status) =>
-        status switch
-        {
-            MemberStatus.Regular => "Regular",
-            MemberStatus.RegularNonPortuguese => "Regular-NP",
-            MemberStatus.Guest => "Guest",
-            MemberStatus.Life => "Life",
-            MemberStatus.Inactive => "Inactive",
-            MemberStatus.Deceased => "Deceased",
-            MemberStatus.Rejected => "Rejected",
-            _ => "Unknown"
-        };
-
     private IEnumerable<DuesListItemDto> FilteredItems
     {
         get
         {
-            // 1. Filter by search text
             var items = string.IsNullOrWhiteSpace(_searchText)
                 ? _allItems
                 : _allItems.Where(item => item.FullName.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
             
-            // 2. Filter by Active Filter
             return _activeFilter switch
             {
                 DuesFilter.Paid => items.Where(i => i.PaidDate.HasValue && !i.IsWaived),
@@ -540,157 +890,199 @@ else
         }
     }
 
-    private void ClearDuesSearch()
-    {
-        if (string.IsNullOrWhiteSpace(_searchText))
-        {
-            return;
-        }
+    private static string FormatOverdueText(int months) => $"{months} mo";
+    
+    private static string GetStatusBadge(MemberStatus status) => status switch {
+        MemberStatus.Regular or MemberStatus.RegularNonPortuguese => "bg-success-subtle text-success",
+        MemberStatus.Life => "bg-gold-subtle text-gold",
+        MemberStatus.Guest => "bg-warning-subtle text-warning",
+        MemberStatus.Inactive => "bg-danger-subtle text-danger",
+        _ => "bg-light text-muted"
+    };
 
-        _searchText = string.Empty;
+    private static string GetStatusLabel(MemberStatus status) => status.ToString();
+    
+    private static string GetInitials(string name) {
+        if (string.IsNullOrEmpty(name)) return "?";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1) return parts[0][0].ToString().ToUpper();
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpper();
     }
+    
+    private static string GetAvatarClass(DuesListItemDto item) => (item.PaidDate.HasValue && !item.IsWaived) ? "bg-success text-white" : "bg-light text-muted";
+
+    private void ViewSyncQueue() => NavManager.NavigateTo("/keycards/sync-queue");
+    private async Task RetryAllSync()
+    {
+        try
+        {
+            await SyncQueueRepository.ResetPendingAsync();
+            await LoadDataInternal();
+            Logger.LogInformation("Sync queue reset from Dues page");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to retry all syncs");
+        }
+    }
+    private void ClearDuesSearch() => _searchText = string.Empty;
 
     private sealed class PaymentFormModel
     {
         [Required]
-        [Range(typeof(decimal), "0.01", "1000000", ErrorMessage = "Amount must be greater than zero.")]
+        [Range(typeof(decimal), "0.01", "1000000")]
         public decimal Amount { get; set; } = 0.01m;
-
         [Required]
         public DateTime PaidDate { get; set; } = DateTime.Today;
-
         [Required]
-        [StringLength(50)]
         public string PaymentType { get; set; } = PaymentMethods.First();
-
-        [StringLength(200)]
         public string? Notes { get; set; }
-
         public static PaymentFormModel CreateDefault() => new();
     }
 }
 
 <style>
-    .dues-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 1.25rem;
-        margin-bottom: 2rem;
+    :root {
+        --glass-border: rgba(255, 255, 255, 0.1);
+        --bg-surface: #ffffff;
+        --text-primary: #1f2937;
+        --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+    
+    .bg-purple-subtle { background-color: #f3e8ff; }
+    .text-purple { color: #9333ea; }
+    .bg-gold-subtle { background-color: #fef9c3; }
+    .text-gold { color: #ca8a04; }
+
+    .page-title-modern {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: -0.025em;
     }
 
-    .metric-tile {
+    .metric-card {
         background: var(--bg-surface);
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 1.25rem;
         display: flex;
         align-items: center;
-        gap: 1.25rem;
+        gap: 1rem;
+        border: 1px solid #e5e7eb;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-2px);
         box-shadow: var(--card-shadow);
-        transition: all 0.3s ease;
-        border: 1px solid var(--glass-border);
-        position: relative;
-        overflow: hidden;
+    }
+    
+    .metric-card.active {
+        border-color: #3b82f6;
+        background-color: #eff6ff;
+    }
+    
+    .metric-card.highlight {
+        border-color: #8b5cf6;
+        background: linear-gradient(135deg, #f5f3ff, #ede9fe);
     }
 
-    .metric-tile::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: linear-gradient(90deg, var(--tile-color-start), var(--tile-color-end));
-    }
-
-    .metric-tile:hover {
-        transform: translateY(-4px);
-        background: var(--bg-surface-hover);
-    }
-
-    .metric-tile-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: 12px;
+    .metric-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.75rem;
-        flex-shrink: 0;
-        background: linear-gradient(135deg, var(--tile-color-start), var(--tile-color-end));
-        color: white;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        font-size: 1.5rem;
     }
 
-    .metric-tile-content {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .metric-tile-label {
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 0.5rem;
-    }
-
-    .metric-tile-value {
-        font-size: 2rem;
+    .metric-value {
+        font-size: 1.5rem;
         font-weight: 700;
-        color: var(--text-primary);
         line-height: 1;
     }
 
-    /* Success Tile (Paid) */
-    .metric-tile-success {
-        --tile-color-start: #10b981;
-        --tile-color-end: #059669;
+    .metric-label {
+        font-size: 0.875rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+    }
+    
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
     }
 
-    /* Warning Tile (Unpaid) */
-    .metric-tile-warning {
-        --tile-color-start: #f59e0b;
-        --tile-color-end: #d97706;
+    .status-banner {
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .status-banner-neutral { background: #f3f4f6; border-left: 4px solid #9ca3af; }
+    .status-banner-info { background: #e0f2fe; border-left: 4px solid #0ea5e9; }
+    .status-banner-success-subtle { background: #dcfce7; border: 1px solid #86efac; }
+    .status-banner-warning { background: #fef3c7; border-left: 4px solid #f59e0b; }
+    .status-banner-danger { background: #fee2e2; border-left: 4px solid #ef4444; }
+
+    .banner-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 1rem;
+        font-size: 1.25rem;
     }
 
-    /* Info Tile (Waived) */
-    .metric-tile-info {
-        --tile-color-start: #3b82f6;
-        --tile-color-end: #2563eb;
+    .avatar-circle {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.875rem;
     }
 
-    /* Primary Tile (Amount) */
-    .metric-tile-primary {
-        --tile-color-start: #8b5cf6;
-        --tile-color-end: #7c3aed;
+    .scanner-status {
+        display: flex;
+        align-items: center;
+        font-size: 0.875rem;
+        color: #10b981;
+        background: #ecfdf5;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: 500;
     }
 
-    /* Responsive adjustments */
-    @@media (max-width: 768px) {
-        .dues-summary-grid {
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-
-        .metric-tile {
-            padding: 1.25rem;
-        }
-
-        .metric-tile-icon {
-            width: 48px;
-            height: 48px;
-            font-size: 1.5rem;
-        }
-
-        .metric-tile-value {
-            font-size: 1.75rem;
-        }
+    .pulse-dot {
+        width: 8px;
+        height: 8px;
+        background: #10b981;
+        border-radius: 50%;
+        margin-right: 8px;
+        animation: pulse 2s infinite;
     }
-
-    @@media (max-width: 480px) {
-        .dues-summary-grid {
-            grid-template-columns: 1fr;
-        }
+    
+    @@keyframes pulse {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
     }
+    
+    .spin-slow {
+        animation: spin 3s linear infinite;
+    }
+    
+    @@keyframes spin { 100% { transform: rotate(360deg); } }
 </style>

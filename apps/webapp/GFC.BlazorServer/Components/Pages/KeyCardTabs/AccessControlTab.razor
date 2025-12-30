@@ -1,10 +1,14 @@
 @using GFC.BlazorServer.Data.Entities
+@using TimeProfile = GFC.BlazorServer.Data.Entities.TimeProfile
 @using GFC.BlazorServer.Data
 @using GFC.Core.Interfaces
 @using Microsoft.EntityFrameworkCore
 @inject GfcDbContext DbContext
 @inject IKeyCardRepository _keyCardRepository
+@inject KeyCardLifecycleService KeyCardLifecycleService
+@inject IJSRuntime JSRuntime
 @inject ILogger<AccessControlTab> Logger
+@inject IMemberRepository MemberRepository
 
 <div class="access-container">
     <div class="access-info slide-in-up">
@@ -179,6 +183,84 @@
             </div>
         }
     </div>
+    
+    <!-- Add Access Modal -->
+    @if (_showAddModal)
+    {
+        <div class="modal-backdrop-modern fade-in" @onclick="CloseAddModal"></div>
+        <div class="modal-modern-container fade-in scale-in">
+            <div class="modal-modern">
+                <div class="modal-header-modern">
+                    <h3 class="modal-title-modern">
+                        <i class="bi bi-shield-plus text-primary"></i>
+                        Grant Access
+                    </h3>
+                    <button class="btn-close-modern" @onclick="CloseAddModal">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="modal-body-modern">
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <div class="alert alert-danger">@_errorMessage</div>
+                    }
+                    
+                    <div class="form-group-modern mb-3">
+                        <label class="form-label-modern">Target</label>
+                        <div class="form-control-plaintext fw-bold">
+                            @(_viewMode == "member" ? _selectedMemberName : _selectedDoorName)
+                        </div>
+                    </div>
+
+                    @if (_viewMode == "member")
+                    {
+                        <div class="form-group-modern mb-3">
+                            <label class="form-label-modern">Select Door <span class="text-danger">*</span></label>
+                            <select class="form-select" @bind="_newAccessTargetId">
+                                <option value="0">-- Select Door --</option>
+                                @foreach (var door in _doors.Where(d => !_memberAccess.Any(ma => ma.DoorId == d.Id)))
+                                {
+                                    <option value="@door.Id">@door.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-group-modern mb-3">
+                            <label class="form-label-modern">Select Member <span class="text-danger">*</span></label>
+                            <select class="form-select" @bind="_newAccessTargetId">
+                                <option value="0">-- Select Member --</option>
+                                @foreach (var m in _membersWithCards.Where(m => !_doorAccess.Any(da => da.MemberId == m.MemberId)))
+                                {
+                                    <option value="@m.MemberId">@m.MemberName</option>
+                                }
+                            </select>
+                        </div>
+                    }
+
+                    <div class="form-group-modern mb-4">
+                        <label class="form-label-modern">Time Profile</label>
+                        <select class="form-select" @bind="_selectedProfileId">
+                            <option value="">24/7 Access (Default)</option>
+                            @foreach (var profile in _timeProfiles)
+                            {
+                                <option value="@profile.Id">@profile.Name</option>
+                            }
+                        </select>
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button class="btn btn-outline-secondary" @onclick="CloseAddModal">Cancel</button>
+                        <button class="btn btn-success" @onclick="SaveAccess" disabled="@(_newAccessTargetId == 0 || _isSaving)">
+                             @if (_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                             Grant Access
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -191,8 +273,16 @@
     
     private List<MemberWithCard> _membersWithCards = new();
     private List<Door> _doors = new();
+    private List<TimeProfile> _timeProfiles = new();
     private List<AccessItem> _memberAccess = new();
     private List<AccessItem> _doorAccess = new();
+
+    // Add Modal State
+    private bool _showAddModal = false;
+    private int _newAccessTargetId = 0;
+    private int? _selectedProfileId;
+    private bool _isSaving = false;
+    private string _errorMessage = string.Empty;
     
     protected override async Task OnInitializedAsync()
     {
@@ -203,13 +293,15 @@
     {
         try
         {
-            // Load members with cards
+            // Load members and cards
             var keycards = await Task.Run(() => _keyCardRepository.GetAll());
+            var members = await Task.Run(() => MemberRepository.GetAllMembers());
+            var memberMap = members.ToDictionary(m => m.MemberID, m => $"{m.FirstName} {m.LastName}");
             
             _membersWithCards = keycards.Select(k => new MemberWithCard
             {
                 MemberId = k.MemberId,
-                MemberName = $"Member {k.MemberId}", // TODO: Get actual member name
+                MemberName = memberMap.TryGetValue(k.MemberId, out var name) ? name : $"Member {k.MemberId}",
                 CardNumber = k.CardNumber
             }).ToList();
             
@@ -217,6 +309,9 @@
             _doors = await DbContext.Doors
                 .Include(d => d.Controller)
                 .ToListAsync();
+
+            // Load profiles
+            _timeProfiles = await DbContext.TimeProfiles.ToListAsync();
         }
         catch (Exception ex)
         {
@@ -277,12 +372,15 @@
                 .Include(a => a.TimeProfile)
                 .ToListAsync();
             
+            var members = await Task.Run(() => MemberRepository.GetAllMembers());
+            var memberMap = members.ToDictionary(m => m.MemberID, m => $"{m.FirstName} {m.LastName}");
+
             _doorAccess = access.Select(a => new AccessItem
             {
                 Id = a.Id,
                 MemberId = a.MemberId,
                 DoorId = a.DoorId,
-                MemberName = $"Member {a.MemberId}", // TODO: Get actual member name
+                MemberName = memberMap.TryGetValue(a.MemberId, out var name) ? name : $"Member {a.MemberId}",
                 CardNumber = a.CardNumber,
                 TimeProfileName = a.TimeProfile?.Name ?? "24/7",
                 IsEnabled = a.IsEnabled
@@ -300,22 +398,124 @@
     
     private void ShowAddDoorModal()
     {
-        // TODO: Show modal to add door access
+        _newAccessTargetId = 0;
+        _selectedProfileId = null;
+        _errorMessage = string.Empty;
+        _showAddModal = true;
     }
     
     private void ShowAddMemberModal()
     {
-        // TODO: Show modal to add member access
+        _newAccessTargetId = 0;
+        _selectedProfileId = null;
+        _errorMessage = string.Empty;
+        _showAddModal = true;
     }
     
+    private void CloseAddModal() => _showAddModal = false;
+
+    private async Task SaveAccess()
+    {
+        _isSaving = true;
+        _errorMessage = string.Empty;
+        try
+        {
+            var memberId = _viewMode == "member" ? _selectedMemberId : _newAccessTargetId;
+            var doorId = _viewMode == "member" ? _newAccessTargetId : _selectedDoorId;
+
+            // Get card number
+            var card = await Task.Run(() => _keyCardRepository.GetActiveMemberCard(memberId));
+            if (card == null)
+            {
+                _errorMessage = "Member does not have an active key card.";
+                return;
+            }
+
+            var newAccess = new MemberDoorAccess
+            {
+                MemberId = memberId,
+                DoorId = doorId,
+                CardNumber = card.CardNumber,
+                TimeProfileId = _selectedProfileId,
+                IsEnabled = true
+            };
+
+            DbContext.MemberDoorAccesses.Add(newAccess);
+            await DbContext.SaveChangesAsync();
+
+            await TriggerSyncForMember(memberId);
+            
+            CloseAddModal();
+            if (_viewMode == "member") await LoadMemberAccessAsync();
+            else await LoadDoorAccessAsync();
+        }
+        catch (Exception ex)
+        {
+             Logger.LogError(ex, "Failed to save access");
+             _errorMessage = "Failed to grant access.";
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
     private async Task ToggleAccess(AccessItem access)
     {
-        // TODO: Toggle access and sync to controller
+        try 
+        {
+            var entity = await DbContext.MemberDoorAccesses.FindAsync(access.Id);
+            if (entity != null)
+            {
+                entity.IsEnabled = !entity.IsEnabled; // Toggle
+                await DbContext.SaveChangesAsync();
+                
+                // Update UI immediately for responsiveness
+                access.IsEnabled = entity.IsEnabled;
+                
+                // Sync
+                await TriggerSyncForMember(entity.MemberId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling access");
+            // Revert UI?
+        }
     }
     
     private async Task RemoveAccess(AccessItem access)
     {
-        // TODO: Remove access and sync to controller
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to remove this access rule?")) return;
+        
+        try
+        {
+             var entity = await DbContext.MemberDoorAccesses.FindAsync(access.Id);
+             if (entity != null)
+             {
+                 DbContext.MemberDoorAccesses.Remove(entity);
+                 await DbContext.SaveChangesAsync();
+                 
+                 await TriggerSyncForMember(entity.MemberId);
+                 
+                 if (_viewMode == "member") _memberAccess.Remove(access);
+                 else _doorAccess.Remove(access);
+             }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error removing access");
+        }
+    }
+
+    private async Task TriggerSyncForMember(int memberId)
+    {
+        // Find active card for member
+        var card = await Task.Run(() => _keyCardRepository.GetActiveMemberCard(memberId));
+        if (card != null && card.IsActive)
+        {
+            await KeyCardLifecycleService.SyncCardToControllerAsync(card.KeyCardId, true, CancellationToken.None);
+        }
     }
     
     private class MemberWithCard

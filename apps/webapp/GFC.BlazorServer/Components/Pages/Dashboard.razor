@@ -21,6 +21,10 @@
 @using GFC.Core.Models
 @inject IRentalService RentalService
 @inject IJSRuntime JS
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject IControllerSyncQueueRepository SyncQueueRepository
+@inject ControllerHealthService ControllerHealthService
+@inject KeyCardLifecycleService KeyCardLifecycleService
 
 @if (_showSplash)
 {
@@ -182,6 +186,30 @@
                                        @bind="ShowActivityFeedCard">
                                 <label class="form-check-label" for="settingShowActivityFeed">
                                     Show Recent Activity Feed
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowGracePeriod"
+                                       @bind="ShowGracePeriodCard">
+                                <label class="form-check-label" for="settingShowGracePeriod">
+                                    Show Grace Period status
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="settingShowControllerHealth"
+                                       @bind="ShowControllerHealthCard">
+                                <label class="form-check-label" for="settingShowControllerHealth">
+                                    Show Controller Health &amp; Queue
                                 </label>
                             </div>
                         </div>
@@ -500,6 +528,79 @@
                     </div>
 
                     <div class="col-12 col-lg-4">
+                        @if (ShowGracePeriodCard && _graceEndDate.HasValue && DateTime.Today <= _graceEndDate.Value)
+                        {
+                            var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
+                            var statusColor = daysRemaining > 30 ? "success" : daysRemaining > 7 ? "warning" : "danger";
+                            var iconClass = daysRemaining > 7 ? "bi-calendar-check" : "bi-exclamation-circle";
+                            
+                            <div class="card mb-3 shadow-sm rounded metric-card dash-card-action" role="button" tabindex="0" @onclick='() => NavMgr.NavigateTo("/keycards")'>
+                                <div class="card-header d-flex justify-content-between align-items-center dash-card-header">
+                                    <h5 class="mb-0">
+                                        <i class="bi @iconClass me-2 text-@statusColor"></i>Grace Period
+                                    </h5>
+                                    <span class="badge bg-@statusColor">@daysRemaining days</span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="small text-muted">Ends</div>
+                                        <div class="fw-semibold">@_graceEndDate.Value.ToShortDateString()</div>
+                                    </div>
+                                    @if (_membersAtRiskCount > 0)
+                                    {
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div class="small text-muted">Members at Risk</div>
+                                            <span class="badge bg-warning text-dark">@_membersAtRiskCount</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        @if (ShowControllerHealthCard)
+                        {
+                            var isOnline = _controllerHealthStatus?.IsOnline ?? false;
+                            var statusClass = isOnline ? "success" : "danger";
+                            var statusText = isOnline ? "Online" : "Offline";
+                            
+                            <div class="card mb-3 shadow-sm rounded metric-card dash-card-action" role="button" tabindex="0" @onclick='() => NavMgr.NavigateTo("/keycards/sync-queue")'>
+                                <div class="card-header d-flex justify-content-between align-items-center dash-card-header">
+                                    <h5 class="mb-0">
+                                        <i class="bi bi-cpu me-2"></i>Controller Health
+                                    </h5>
+                                    <span class="badge bg-@statusClass">@statusText</span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="small text-muted">Pending Syncs</div>
+                                        <div class="fw-semibold">
+                                            @if (_pendingSyncCount > 0)
+                                            {
+                                                <span class="badge bg-warning text-dark">@_pendingSyncCount</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-success">All Clear</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="small text-muted">Last Ping</div>
+                                        <div class="small">
+                                            @if (_controllerHealthStatus?.LastSuccessfulPing.HasValue == true)
+                                            {
+                                                @GetRelativeTime(_controllerHealthStatus.LastSuccessfulPing.Value.ToUniversalTime())
+                                            }
+                                            else
+                                            {
+                                                <span>Never</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
                         @if (ShowAlertsCard)
                         {
                             <div class="@($"card mb-3 shadow-sm rounded metric-card dash-card-action {GetAlertsCardStateClass()}")" role="button" tabindex="0" aria-label="Open alerts center" @onclick="NavigateToAlerts" @onkeydown="(e => HandleCardKeyDown(e, NavigateToAlerts))">
@@ -913,6 +1014,8 @@
     private bool ShowSystemStatusCard { get; set; } = true;
     private bool ShowBarSalesCard { get; set; } = true;
     private bool ShowBartendersCard { get; set; } = true;
+    private bool ShowGracePeriodCard { get; set; } = true;
+    private bool ShowControllerHealthCard { get; set; } = true;
     private bool ShowActivityFeedCard { get; set; } = true;
 
     // Quick Action Toggles
@@ -936,6 +1039,8 @@
         public bool ShowBarSalesCard { get; set; } = true;
         public bool ShowBartendersCard { get; set; } = true;
         public bool ShowActivityFeedCard { get; set; } = true;
+        public bool ShowGracePeriodCard { get; set; } = true;
+        public bool ShowControllerHealthCard { get; set; } = true;
         public bool QaShowAddMember { get; set; } = true;
         public bool QaShowRecordPayment { get; set; } = true;
         public bool QaShowOpenDoor { get; set; } = true;
@@ -961,6 +1066,8 @@
                 ShowBarSalesCard = ShowBarSalesCard,
                 ShowBartendersCard = ShowBartendersCard,
                 ShowActivityFeedCard = ShowActivityFeedCard,
+                ShowGracePeriodCard = ShowGracePeriodCard,
+                ShowControllerHealthCard = ShowControllerHealthCard,
                 QaShowAddMember = QaShowAddMember,
                 QaShowRecordPayment = QaShowRecordPayment,
                 QaShowOpenDoor = QaShowOpenDoor,
@@ -998,6 +1105,8 @@
                     ShowBarSalesCard = prefs.ShowBarSalesCard;
                     ShowBartendersCard = prefs.ShowBartendersCard;
                     ShowActivityFeedCard = prefs.ShowActivityFeedCard;
+                    ShowGracePeriodCard = prefs.ShowGracePeriodCard;
+                    ShowControllerHealthCard = prefs.ShowControllerHealthCard;
                     QaShowAddMember = prefs.QaShowAddMember;
                     QaShowRecordPayment = prefs.QaShowRecordPayment;
                     QaShowOpenDoor = prefs.QaShowOpenDoor;
@@ -1028,6 +1137,13 @@
     }
 
     private List<DashboardAlert> Alerts { get; set; } = new();
+    
+    // Key Card & Sync Data
+    private DateTime? _graceEndDate;
+    private int _membersAtRiskCount;
+    private int _pendingSyncCount;
+    private ControllerHealthStatus _controllerHealthStatus;
+    
     private enum MetricState
     {
         Normal,
@@ -1103,15 +1219,39 @@
             StateHasChanged();
 
             // 4. Update data as it arrives (Progressive Loading)
-            _memberSummary = await memberTask;
-            _duesSummary = await duesTask;
-            _alerts = await alertsTask;
-            _backupStatus = await backupStatusTask;
+            try { _memberSummary = await memberTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:memberTask] {ex.Message}"); }
+            try { _duesSummary = await duesTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:duesTask] {ex.Message}"); }
+            try { _alerts = await alertsTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:alertsTask] {ex.Message}"); }
+            try { _backupStatus = await backupStatusTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:backupStatusTask] {ex.Message}"); }
             
-            var allRentals = await rentalsTask;
-            var rentalList = allRentals.ToList();
-            _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
-            _pendingRentalCount = rentalList.Count(r => r.Status == RentalStatus.Pending);
+            // New Data Fetching
+            try 
+            {
+                var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(DateTime.Today.Year));
+                _graceEndDate = settings?.GraceEndDate;
+                
+                var risks = await KeyCardLifecycleService.GetMembersAtRiskAsync(DateTime.Today.Year);
+                _membersAtRiskCount = risks.Count;
+                
+                _pendingSyncCount = await SyncQueueRepository.GetPendingCountAsync();
+                _controllerHealthStatus = ControllerHealthService.GetHealthStatus();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Dashboard:newMetrics] {ex.Message}");
+            }
+            
+            try 
+            {
+                var allRentals = await rentalsTask;
+                var rentalList = allRentals.ToList();
+                _upcomingRentals = rentalList.Where(r => r.Status == RentalStatus.Approved && r.RequestedDate.Date >= DateTime.Today).OrderBy(r => r.RequestedDate).Take(3).ToList();
+                _pendingRentalCount = rentalList.Count(r => r.Status == RentalStatus.Pending);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Dashboard:rentalsTask] {ex.Message}");
+            }
 
             _importantAlerts.Clear();
             _alertPreview.Clear();
@@ -1126,9 +1266,8 @@
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[Dashboard] {ex}");
-            // Only show error if we haven't shown the shell yet
-            if (_isLoading) _errorMessage = "We couldn't load the dashboard metrics right now.";
+            Console.Error.WriteLine($"[Dashboard] Critical: {ex.Message}");
+            // We no longer set _errorMessage here to allow the shell to stay visible even if data fails.
             _isLoading = false;
         }
 

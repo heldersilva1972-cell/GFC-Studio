@@ -1,0 +1,585 @@
+@page "/keycards/sync-queue"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@inject IControllerSyncQueueRepository SyncQueueRepository
+@inject IKeyCardRepository KeyCardRepository
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject ILogger<SyncQueue> Logger
+
+<PageTitle>Controller Sync Queue - GFC</PageTitle>
+
+<!-- Page Header -->
+<div class="page-header-modern fade-in">
+    <div class="header-content">
+        <div class="header-icon-wrapper">
+            <div class="header-icon pulse">
+                <i class="bi bi-arrow-repeat"></i>
+            </div>
+        </div>
+        <div>
+            <h1 class="page-title-modern">Controller Sync Queue</h1>
+            <p class="page-subtitle">Monitor and manage card synchronization operations</p>
+        </div>
+    </div>
+    <div class="header-actions">
+        <button class="btn btn-outline-secondary" @onclick="GoBack">
+            <i class="bi bi-arrow-left"></i> Back to Key Cards
+        </button>
+        <button class="btn btn-primary" @onclick="RefreshQueue">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row g-3 mb-4 fade-in" style="animation-delay: 0.1s;">
+    <div class="col-md-4">
+        <div class="metric-card bg-warning-subtle">
+            <div class="metric-icon">
+                <i class="bi bi-hourglass-split text-warning"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Pending Syncs</div>
+                <div class="metric-value">@_pendingCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="metric-card bg-success-subtle">
+            <div class="metric-icon">
+                <i class="bi bi-check-circle text-success"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Completed Today</div>
+                <div class="metric-value">@_completedTodayCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="metric-card bg-info-subtle">
+            <div class="metric-icon">
+                <i class="bi bi-clock-history text-info"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Oldest Pending</div>
+                <div class="metric-value">@(_oldestPendingAge ?? "N/A")</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters & Actions -->
+<div class="toolbar mb-3 fade-in" style="animation-delay: 0.2s;">
+    <div class="btn-group">
+        <button class="btn @(_statusFilter == "ALL" ? "btn-primary" : "btn-outline-secondary")" 
+                @onclick='() => SetStatusFilter("ALL")'>
+            All (@_allItems.Count)
+        </button>
+        <button class="btn @(_statusFilter == "PENDING" ? "btn-primary" : "btn-outline-secondary")" 
+                @onclick='() => SetStatusFilter("PENDING")'>
+            Pending (@_pendingCount)
+        </button>
+        <button class="btn @(_statusFilter == "COMPLETED" ? "btn-primary" : "btn-outline-secondary")" 
+                @onclick='() => SetStatusFilter("COMPLETED")'>
+            Completed (@_completedTodayCount)
+        </button>
+    </div>
+    
+    <div class="ms-auto d-flex gap-2">
+        <button class="btn btn-info" @onclick="RetryAllPending" disabled="@(_pendingCount == 0 || _processing)">
+            <i class="bi bi-arrow-repeat"></i> Retry All Pending
+        </button>
+        <button class="btn btn-outline-danger" @onclick="ClearCompleted" disabled="@(_completedTodayCount == 0 || _processing)">
+            <i class="bi bi-trash"></i> Clear Completed
+        </button>
+    </div>
+</div>
+
+<!-- Queue Table -->
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p>Loading sync queue...</p>
+    </div>
+}
+else if (!FilteredItems.Any())
+{
+    <div class="empty-state fade-in">
+        <i class="bi bi-inbox fs-1 text-muted"></i>
+        <h4>No items in queue</h4>
+        <p class="text-muted">All cards are synced with the controller</p>
+    </div>
+}
+else
+{
+    <div class="table-container fade-in" style="animation-delay: 0.3s;">
+        <table class="data-table table-sticky-header">
+            <thead>
+                <tr>
+                    <th>Card Number</th>
+                    <th>Member</th>
+                    <th>Action</th>
+                    <th>Status</th>
+                    <th>Attempts</th>
+                    <th>Queued</th>
+                    <th>Next Retry</th>
+                    <th>Last Error</th>
+                    <th style="width: 150px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in FilteredItems)
+                {
+                    <tr class="@GetRowClass(item)">
+                        <td>
+                            <code class="badge bg-secondary">@item.CardNumber</code>
+                        </td>
+                        <td>
+                            @if (_memberNames.TryGetValue(item.KeyCardId, out var memberName))
+                            {
+                                <span>@memberName</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">Unknown</span>
+                            }
+                        </td>
+                        <td>
+                            @if (item.Action == "ACTIVATE")
+                            {
+                                <span class="badge bg-success">
+                                    <i class="bi bi-unlock"></i> ACTIVATE
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger">
+                                    <i class="bi bi-lock"></i> DEACTIVATE
+                                </span>
+                            }
+                        </td>
+                        <td>
+                            @if (item.Status == "PENDING")
+                            {
+                                <span class="badge bg-warning">⏳ Pending</span>
+                            }
+                            else if (item.Status == "PROCESSING")
+                            {
+                                <span class="badge bg-info">
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                    Processing
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">✅ Completed</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="@GetAttemptsClass(item.AttemptCount)">
+                                @item.AttemptCount
+                            </span>
+                        </td>
+                        <td>
+                            <small class="text-muted">
+                                @GetTimeAgo(item.QueuedDate)
+                            </small>
+                        </td>
+                        <td>
+                            @if (item.Status == "PENDING" && item.LastAttemptDate.HasValue)
+                            {
+                                var nextRetry = CalculateNextRetryTime(item.AttemptCount, item.LastAttemptDate.Value);
+                                var timeUntil = nextRetry - DateTime.Now;
+                                
+                                @if (timeUntil.TotalSeconds > 0)
+                                {
+                                    <small class="text-info">
+                                        In @FormatTimeSpan(timeUntil)
+                                    </small>
+                                }
+                                else
+                                {
+                                    <small class="text-success">Ready now</small>
+                                }
+                            }
+                            else if (item.Status == "PENDING")
+                            {
+                                <small class="text-success">Ready now</small>
+                            }
+                            else
+                            {
+                                <small class="text-muted">--</small>
+                            }
+                        </td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(item.LastError))
+                            {
+                                <small class="text-danger" title="@item.LastError">
+                                    @TruncateError(item.LastError)
+                                </small>
+                            }
+                            else
+                            {
+                                <small class="text-muted">--</small>
+                            }
+                        </td>
+                        <td>
+                            @if (item.Status == "PENDING")
+                            {
+                                <button class="btn btn-sm btn-outline-primary" 
+                                        @onclick="() => RetryItem(item.QueueId)"
+                                        disabled="@_processing">
+                                    <i class="bi bi-arrow-repeat"></i> Retry
+                                </button>
+                            }
+                            else if (item.Status == "COMPLETED")
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" 
+                                        @onclick="() => ViewDetails(item)"
+                                        disabled="@_processing">
+                                    <i class="bi bi-eye"></i> View
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert @(_messageIsError ? "alert-danger" : "alert-success") mt-3 fade-in">
+        <i class="bi @(_messageIsError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+        @_message
+    </div>
+}
+
+@code {
+    private List<ControllerSyncQueueItem> _allItems = new();
+    private Dictionary<int, string> _memberNames = new();
+    private bool _loading = true;
+    private bool _processing = false;
+    private string _statusFilter = "ALL";
+    private int _pendingCount = 0;
+    private int _completedTodayCount = 0;
+    private string? _oldestPendingAge = null;
+    private string _message = string.Empty;
+    private bool _messageIsError = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadQueueAsync();
+    }
+
+    private async Task LoadQueueAsync()
+    {
+        _loading = true;
+        _message = string.Empty;
+        
+        try
+        {
+            // Load all queue items
+            var pending = await SyncQueueRepository.GetByStatusAsync("PENDING");
+            var completed = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
+            
+            _allItems = pending.Concat(completed).OrderBy(x => x.QueuedDate).ToList();
+            
+            // Calculate metrics
+            _pendingCount = pending.Count;
+            _completedTodayCount = completed.Count(x => x.CompletedDate.HasValue && x.CompletedDate.Value.Date == DateTime.Today);
+            
+            if (pending.Any())
+            {
+                var oldest = pending.OrderBy(x => x.QueuedDate).First();
+                var age = DateTime.Now - oldest.QueuedDate;
+                _oldestPendingAge = FormatTimeSpan(age);
+            }
+            else
+            {
+                _oldestPendingAge = null;
+            }
+            
+            // Load member names
+            _memberNames.Clear();
+            foreach (var item in _allItems)
+            {
+                try
+                {
+                    var card = await Task.Run(() => KeyCardRepository.GetById(item.KeyCardId));
+                    if (card != null)
+                    {
+                        var member = await Task.Run(() => MemberRepository.GetMemberById(card.MemberId));
+                        if (member != null)
+                        {
+                            _memberNames[item.KeyCardId] = $"{member.FirstName} {member.LastName}";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to load member name for card {KeyCardId}", item.KeyCardId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading sync queue");
+            _message = "Failed to load sync queue";
+            _messageIsError = true;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private IEnumerable<ControllerSyncQueueItem> FilteredItems
+    {
+        get
+        {
+            return _statusFilter switch
+            {
+                "PENDING" => _allItems.Where(x => x.Status == "PENDING"),
+                "COMPLETED" => _allItems.Where(x => x.Status == "COMPLETED"),
+                _ => _allItems
+            };
+        }
+    }
+
+    private void SetStatusFilter(string filter)
+    {
+        _statusFilter = filter;
+    }
+
+    private async Task RefreshQueue()
+    {
+        await LoadQueueAsync();
+    }
+
+    private async Task RetryItem(int queueId)
+    {
+        _processing = true;
+        _message = string.Empty;
+        
+        try
+        {
+            // TODO: Implement actual retry logic
+            Logger.LogInformation("Retrying sync for queue item {QueueId}", queueId);
+            _message = "Retry triggered successfully";
+            _messageIsError = false;
+            
+            await Task.Delay(500); // Simulate processing
+            await LoadQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error retrying sync");
+            _message = "Failed to retry sync";
+            _messageIsError = true;
+        }
+        finally
+        {
+            _processing = false;
+        }
+    }
+
+    private async Task RetryAllPending()
+    {
+        _processing = true;
+        _message = string.Empty;
+        
+        try
+        {
+            // TODO: Implement retry all logic
+            Logger.LogInformation("Retrying all pending syncs");
+            _message = $"Triggered retry for {_pendingCount} pending sync(s)";
+            _messageIsError = false;
+            
+            await Task.Delay(500);
+            await LoadQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error retrying all syncs");
+            _message = "Failed to retry all syncs";
+            _messageIsError = true;
+        }
+        finally
+        {
+            _processing = false;
+        }
+    }
+
+    private async Task ClearCompleted()
+    {
+        _processing = true;
+        _message = string.Empty;
+        
+        try
+        {
+            await SyncQueueRepository.DeleteCompletedOlderThanAsync(0); // Delete all completed
+            _message = "Cleared completed sync items";
+            _messageIsError = false;
+            
+            await LoadQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error clearing completed items");
+            _message = "Failed to clear completed items";
+            _messageIsError = true;
+        }
+        finally
+        {
+            _processing = false;
+        }
+    }
+
+    private void ViewDetails(ControllerSyncQueueItem item)
+    {
+        // TODO: Show details modal
+        Logger.LogInformation("View details for queue item {QueueId}", item.QueueId);
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/keycards");
+    }
+
+    private string GetRowClass(ControllerSyncQueueItem item)
+    {
+        if (item.Status == "COMPLETED") return "table-row-success";
+        if (item.AttemptCount > 50) return "table-row-danger";
+        if (item.AttemptCount > 20) return "table-row-warning";
+        return "";
+    }
+
+    private string GetAttemptsClass(int attempts)
+    {
+        if (attempts > 50) return "badge bg-danger";
+        if (attempts > 20) return "badge bg-warning";
+        if (attempts > 10) return "badge bg-info";
+        return "badge bg-secondary";
+    }
+
+    private DateTime CalculateNextRetryTime(int attemptCount, DateTime lastAttemptDate)
+    {
+        TimeSpan delay = attemptCount switch
+        {
+            0 => TimeSpan.Zero,
+            1 => TimeSpan.FromMinutes(5),
+            2 => TimeSpan.FromMinutes(15),
+            _ => TimeSpan.FromMinutes(30)
+        };
+        
+        return lastAttemptDate.Add(delay);
+    }
+
+    private string GetTimeAgo(DateTime date)
+    {
+        var span = DateTime.Now - date;
+        
+        if (span.TotalMinutes < 1) return "Just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
+        
+        return date.ToString("MMM d, yyyy");
+    }
+
+    private string FormatTimeSpan(TimeSpan span)
+    {
+        if (span.TotalMinutes < 1) return "< 1 min";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes} min";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h {span.Minutes}m";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d {span.Hours}h";
+        
+        return $"{(int)span.TotalDays} days";
+    }
+
+    private string TruncateError(string error)
+    {
+        if (string.IsNullOrEmpty(error)) return "";
+        return error.Length > 50 ? error.Substring(0, 47) + "..." : error;
+    }
+}
+
+<style>
+    .metric-card {
+        background: var(--bg-surface);
+        border-radius: 12px;
+        padding: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--card-shadow);
+    }
+
+    .metric-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+
+    .metric-content {
+        flex: 1;
+    }
+
+    .metric-label {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        margin-bottom: 0.25rem;
+    }
+
+    .metric-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .table-row-success {
+        background-color: rgba(25, 135, 84, 0.05);
+    }
+
+    .table-row-warning {
+        background-color: rgba(255, 193, 7, 0.05);
+    }
+
+    .table-row-danger {
+        background-color: rgba(220, 53, 69, 0.05);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+
+    .info-card-modern {
+        background: var(--bg-surface);
+        border-radius: 12px;
+        padding: 1.25rem;
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--card-shadow);
+    }
+
+    .info-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+</style>

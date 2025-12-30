@@ -117,30 +117,25 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
     {
         try
         {
-            // TODO: Implement NP queue activity timeline once NPQueueEntries table and NP queue logic are finalized and migrated.
+            var entries = await _dbContext.NPQueueEntries
+                .AsNoTracking()
+                .Where(n => n.MemberId == memberId)
+                .OrderByDescending(n => n.AddedDate)
+                .ToListAsync(ct);
 
-            // var entries = await _dbContext.NPQueueEntries
-            //     .AsNoTracking()
-            //     .Where(n => n.MemberId == memberId)
-            //     .OrderByDescending(n => n.AddedDate)
-            //     .ToListAsync(ct);
-            //
-            // foreach (var entry in entries)
-            // {
-            //     var summary = "NP queue action";
-            //     var details = $"Status {entry.Status}, position {entry.QueuePosition}";
-            //
-            //     events.Add(new MemberActivityEvent
-            //     {
-            //         TimestampUtc = EnsureUtc(entry.AddedDate),
-            //         Source = GetSourceLabel("NP Queue"),
-            //         Summary = summary,
-            //         Details = details
-            //     });
-            // }
+            foreach (var entry in entries)
+            {
+                var summary = "NP queue action";
+                var details = $"Status {entry.Status}, position {entry.QueuePosition}";
 
-            // Placeholder implementation: NP queue events unavailable until NPQueueEntries table exists.
-            await Task.CompletedTask;
+                events.Add(new MemberActivityEvent
+                {
+                    TimestampUtc = EnsureUtc(entry.AddedDate),
+                    Source = GetSourceLabel("NP Queue"),
+                    Summary = summary,
+                    Details = details
+                });
+            }
         }
         catch (Exception ex)
         {
@@ -152,32 +147,28 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
     {
         try
         {
-            // TODO: Re-enable when KeyHistory table and schema are created.
-            // var history = await _dbContext.KeyHistories
-            //     .AsNoTracking()
-            //     .Where(k => k.MemberId == memberId)
-            //     .OrderByDescending(k => k.Date)
-            //     .ToListAsync(ct);
-            //
-            // foreach (var entry in history)
-            // {
-            //     var details = $"Card {entry.CardNumber}";
-            //     if (!string.IsNullOrWhiteSpace(entry.Reason))
-            //     {
-            //         details += $"; {entry.Reason}";
-            //     }
-            //
-            //     events.Add(new MemberActivityEvent
-            //     {
-            //         TimestampUtc = EnsureUtc(entry.Date),
-            //         Source = GetSourceLabel("Key"),
-            //         Summary = $"Key card {entry.Action}",
-            //         Details = details
-            //     });
-            // }
+            var history = await _dbContext.KeyHistories
+                .AsNoTracking()
+                .Where(k => k.MemberId == memberId)
+                .OrderByDescending(k => k.Date)
+                .ToListAsync(ct);
 
-            // Placeholder: key history events not available until KeyHistory table exists.
-            await Task.CompletedTask;
+            foreach (var entry in history)
+            {
+                var details = $"Card {entry.CardNumber}";
+                if (!string.IsNullOrWhiteSpace(entry.Reason))
+                {
+                    details += $"; {entry.Reason}";
+                }
+
+                events.Add(new MemberActivityEvent
+                {
+                    TimestampUtc = EnsureUtc(entry.Date),
+                    Source = GetSourceLabel("Key"),
+                    Summary = $"Key card {entry.Action}",
+                    Details = details
+                });
+            }
         }
         catch (Exception ex)
         {

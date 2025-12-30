@@ -8,5 +8,6 @@ namespace GFC.Core.Interfaces;
 public interface IDuesYearSettingsRepository
 {
     DuesYearSettings? GetSettingsForYear(int year);
+    Task UpsertSettings(DuesYearSettings settings);
 }
 

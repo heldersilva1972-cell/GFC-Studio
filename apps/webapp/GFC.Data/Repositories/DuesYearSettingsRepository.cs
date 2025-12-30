@@ -72,10 +72,10 @@ public class DuesYearSettingsRepository : IDuesYearSettingsRepository
     /// <summary>
     /// Inserts or updates the dues settings record for a year.
     /// </summary>
-    public void UpsertSettings(DuesYearSettings settings)
+    public async Task UpsertSettings(DuesYearSettings settings)
     {
         using var connection = Db.GetConnection();
-        connection.Open();
+        await connection.OpenAsync();
 
         const string sql = @"
 IF EXISTS (SELECT 1 FROM dbo.DuesYearSettings WHERE [Year] = @Year)
@@ -98,7 +98,7 @@ END";
         command.Parameters.AddWithValue("@GraceEndApplied", settings.GraceEndApplied);
         command.Parameters.AddWithValue("@GraceEndDate", (object?)settings.GraceEndDate ?? DBNull.Value);
 
-        command.ExecuteNonQuery();
+        await command.ExecuteNonQueryAsync();
     }
 
 }

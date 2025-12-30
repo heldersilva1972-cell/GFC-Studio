@@ -74,17 +74,16 @@ public class MemberAccessService : IMemberAccessService
             throw new InvalidOperationException($"Member {memberId} not found.");
         }
 
-        var eligibility = _keyCardService.GetKeyCardEligibility(memberId, DateTime.Today.Year);
+        var currentYear = DateTime.Today.Year;
+        var eligibility = _keyCardService.GetKeyCardEligibility(memberId, currentYear);
         var isEligible = eligibility.Eligible;
 
-        // TODO: Re-enable when MemberDoorAccess table exists in the database.
-        // var accessRecords = await _dbContext.MemberDoorAccesses
-        //     .Include(m => m.Door)
-        //         .ThenInclude(d => d!.Controller)
-        //     .Include(m => m.TimeProfile)
-        //     .Where(m => m.MemberId == memberId)
-        //     .ToListAsync(cancellationToken);
-        var accessRecords = new List<MemberDoorAccess>();
+        var accessRecords = await _dbContext.MemberDoorAccesses
+            .Include(m => m.Door)
+                .ThenInclude(d => d!.Controller)
+            .Include(m => m.TimeProfile)
+            .Where(m => m.MemberId == memberId)
+            .ToListAsync(cancellationToken);
 
         var allDoors = await _controllerRegistryService.GetControllersAsync(includeDoors: true, cancellationToken);
         var allDoorsList = allDoors.SelectMany(c => c.Doors).ToList();
@@ -128,236 +127,167 @@ public class MemberAccessService : IMemberAccessService
 
     public async Task UpdateMemberDoorAccessAsync(int memberId, IEnumerable<MemberDoorAccessUpdateDto> updates, CancellationToken cancellationToken = default)
     {
-        // Placeholder: MemberDoorAccess table is not yet available; skip persisting changes.
-        await Task.CompletedTask;
+        var member = _memberRepository.GetMemberById(memberId);
+        if (member == null)
+        {
+            throw new InvalidOperationException($"Member {memberId} not found.");
+        }
 
-        // Original logic retained for future enablement when the table exists.
-        // var member = _memberRepository.GetMemberById(memberId);
-        // if (member == null)
-        // {
-        //     throw new InvalidOperationException($"Member {memberId} not found.");
-        // }
-        //
-        // var eligibility = _keyCardService.GetKeyCardEligibility(memberId, DateTime.Today.Year);
-        // if (!eligibility.Eligible)
-        // {
-        //     throw new InvalidOperationException("Member is not eligible for door access. Member must be eligible for key cards (paid/waived dues, REGULAR/LIFE status).");
-        // }
-        //
-        // var updatesList = updates.ToList();
-        // var doorIds = updatesList.Select(u => u.DoorId).Distinct().ToList();
-        //
-        // var existingAccess = await _dbContext.MemberDoorAccesses
-        //     .Where(m => m.MemberId == memberId && doorIds.Contains(m.DoorId))
-        //     .ToListAsync(cancellationToken);
-        //
-        // var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
-        // if (cardAssignment == null || cardAssignment.KeyCard == null)
-        // {
-        //     throw new InvalidOperationException("Member does not have an active key card assignment.");
-        // }
-        //
-        // var cardNumber = cardAssignment.KeyCard.CardNumber;
-        //
-        // foreach (var update in updatesList)
-        // {
-        //     var existing = existingAccess.FirstOrDefault(a => a.DoorId == update.DoorId && a.CardNumber == update.CardNumber);
-        //     
-        //     if (existing != null)
-        //     {
-        //         existing.IsEnabled = update.IsEnabled;
-        //         existing.TimeProfileId = update.TimeProfileId;
-        //     }
-        //     else
-        //     {
-        //         var newAccess = new MemberDoorAccess
-        //         {
-        //             MemberId = memberId,
-        //             CardNumber = update.CardNumber,
-        //             DoorId = update.DoorId,
-        //             IsEnabled = update.IsEnabled,
-        //             TimeProfileId = update.TimeProfileId
-        //         };
-        //         _dbContext.MemberDoorAccesses.Add(newAccess);
-        //     }
-        // }
-        //
-        // await _dbContext.SaveChangesAsync(cancellationToken);
+        var currentYear = DateTime.Today.Year;
+        var eligibility = _keyCardService.GetKeyCardEligibility(memberId, currentYear);
+        if (!eligibility.Eligible)
+        {
+            throw new InvalidOperationException("Member is not eligible for door access.");
+        }
+
+        var updatesList = updates.ToList();
+        var doorIds = updatesList.Select(u => u.DoorId).Distinct().ToList();
+
+        var existingAccess = await _dbContext.MemberDoorAccesses
+            .Where(m => m.MemberId == memberId && doorIds.Contains(m.DoorId))
+            .ToListAsync(cancellationToken);
+
+        var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
+        if (cardAssignment == null || cardAssignment.KeyCard == null)
+        {
+            throw new InvalidOperationException("Member does not have an active key card assignment.");
+        }
+
+        var cardNumber = cardAssignment.KeyCard.CardNumber;
+
+        foreach (var update in updatesList)
+        {
+            var existing = existingAccess.FirstOrDefault(a => a.DoorId == update.DoorId);
+            
+            if (existing != null)
+            {
+                existing.IsEnabled = update.IsEnabled;
+                existing.TimeProfileId = update.TimeProfileId;
+                existing.CardNumber = cardNumber; // Sync card number if changed
+            }
+            else
+            {
+                var newAccess = new GFC.BlazorServer.Data.Entities.MemberDoorAccess
+                {
+                    MemberId = memberId,
+                    CardNumber = cardNumber,
+                    DoorId = update.DoorId,
+                    IsEnabled = update.IsEnabled,
+                    TimeProfileId = update.TimeProfileId
+                };
+                _dbContext.MemberDoorAccesses.Add(newAccess);
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Updated door access permissions for member {MemberId} across {Count} doors", memberId, updatesList.Count);
     }
 
     public async Task SyncMemberPrivilegesAsync(int memberId, CancellationToken cancellationToken = default)
     {
-        // Placeholder: MemberDoorAccess table is not available; skip sync operations.
-        await Task.CompletedTask;
+        var member = _memberRepository.GetMemberById(memberId);
+        if (member == null)
+        {
+            throw new InvalidOperationException($"Member {memberId} not found.");
+        }
 
-        // Original implementation retained for future enablement.
-        // var member = _memberRepository.GetMemberById(memberId);
-        // if (member == null)
-        // {
-        //     throw new InvalidOperationException($"Member {memberId} not found.");
-        // }
-        //
-        // var eligibility = _keyCardService.GetKeyCardEligibility(memberId, DateTime.Today.Year);
-        // var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
-        // 
-        // if (cardAssignment == null || cardAssignment.KeyCard == null)
-        // {
-        //     throw new InvalidOperationException("Member does not have an active key card assignment.");
-        // }
-        //
-        // var cardNumber = cardAssignment.KeyCard.CardNumber;
-        // var accessRecords = await _dbContext.MemberDoorAccesses
-        //     .Include(m => m.Door)
-        //         .ThenInclude(d => d!.Controller)
-        //     .Where(m => m.MemberId == memberId)
-        //     .ToListAsync(cancellationToken);
-        //
-        // var controllers = await _controllerRegistryService.GetControllersAsync(includeDoors: true, cancellationToken);
-        // var useRealControllers = _modeProvider.UseRealControllers;
-        //
-        // var syncResults = new List<string>();
-        //
-        // foreach (var controller in controllers)
-        // {
-        //     if (!controller.IsEnabled)
-        //     {
-        //         continue;
-        //     }
-        //
-        //     var controllerDoors = controller.Doors.Where(d => d.IsEnabled).ToList();
-        //     var controllerAccessRecords = accessRecords.Where(a => controllerDoors.Any(d => d.Id == a.DoorId)).ToList();
-        //
-        //     foreach (var door in controllerDoors)
-        //     {
-        //         var access = controllerAccessRecords.FirstOrDefault(a => a.DoorId == door.Id && a.CardNumber == cardNumber);
-        //         var shouldHaveAccess = eligibility.Eligible && access?.IsEnabled == true;
-        //
-        //         if (shouldHaveAccess)
-        //         {
-        //             if (access == null)
-        //             {
-        //                 continue;
-        //             }
-        //
-        //             if (useRealControllers)
-        //             {
-        //                 var timeProfileIndex = await GetTimeProfileIndexForController(controller.Id, access.TimeProfileId, cancellationToken);
-        //                 var cardRequest = new AddOrUpdateCardRequestDto
-        //                 {
-        //                     CardNumber = cardNumber,
-        //                     DoorIndex = door.DoorIndex,
-        //                     TimeProfileIndex = timeProfileIndex,
-        //                     Enabled = true
-        //                 };
-        //
-        //                 var result = await _controllerClient.AddOrUpdateCardAsync(controller.SerialNumberDisplay, cardRequest, cancellationToken);
-        //                 access.LastSyncedAt = DateTime.UtcNow;
-        //                 access.LastSyncResult = result.Success ? "Success" : result.Message;
-        //                 syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Synced" : $"Failed: {result.Message}")}");
-        //             }
-        //             else
-        //             {
-        //                 access.LastSyncedAt = DateTime.UtcNow;
-        //                 access.LastSyncResult = "Simulated (no real controller changes)";
-        //                 syncResults.Add($"{controller.Name}/{door.Name}: Simulated");
-        //             }
-        //         }
-        //         else
-        //         {
-        //             if (useRealControllers)
-        //             {
-        //                 var result = await _controllerClient.DeleteCardAsync(controller.SerialNumberDisplay, cardNumber, cancellationToken);
-        //                 if (access != null)
-        //                 {
-        //                     access.IsEnabled = false;
-        //                     access.LastSyncedAt = DateTime.UtcNow;
-        //                     access.LastSyncResult = result.Success ? "Removed" : result.Message;
-        //                 }
-        //                 syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Removed" : $"Failed: {result.Message}")}");
-        //             }
-        //             else
-        //             {
-        //                 if (access != null)
-        //                 {
-        //                     access.IsEnabled = false;
-        //                     access.LastSyncedAt = DateTime.UtcNow;
-        //                     access.LastSyncResult = "Simulated removal";
-        //                 }
-        //                 syncResults.Add($"{controller.Name}/{door.Name}: Simulated removal");
-        //             }
-        //         }
-        //     }
-        // }
-        //
-        // await _dbContext.SaveChangesAsync(cancellationToken);
-        //
-        // var currentUser = Environment.UserName ?? "System";
-        // _historyService.LogChange(memberId, "DoorAccess", null, $"Synced privileges: {string.Join("; ", syncResults)}", currentUser);
+        var currentYear = DateTime.Today.Year;
+        var eligibility = _keyCardService.GetKeyCardEligibility(memberId, currentYear);
+        var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
+        
+        if (cardAssignment == null || cardAssignment.KeyCard == null)
+        {
+            _logger.LogWarning("Member {MemberId} has no active card assignment for sync", memberId);
+            return;
+        }
+
+        var cardNumber = cardAssignment.KeyCard.CardNumber;
+        var accessRecords = await _dbContext.MemberDoorAccesses
+            .Include(m => m.Door)
+                .ThenInclude(d => d!.Controller)
+            .Where(m => m.MemberId == memberId)
+            .ToListAsync(cancellationToken);
+
+        var controllers = await _controllerRegistryService.GetControllersAsync(includeDoors: true, cancellationToken);
+        var syncResults = new List<string>();
+
+        foreach (var controller in controllers)
+        {
+            if (!controller.IsEnabled) continue;
+
+            var controllerDoors = controller.Doors.Where(d => d.IsEnabled).ToList();
+            
+            foreach (var door in controllerDoors)
+            {
+                var access = accessRecords.FirstOrDefault(a => a.DoorId == door.Id && a.CardNumber == cardNumber);
+                var shouldHaveAccess = eligibility.Eligible && access?.IsEnabled == true;
+
+                if (shouldHaveAccess)
+                {
+                    var timeProfileIndex = await GetTimeProfileIndexForController(controller.Id, access!.TimeProfileId, cancellationToken);
+                    var cardRequest = new AddOrUpdateCardRequestDto
+                    {
+                        CardNumber = cardNumber,
+                        DoorIndex = door.DoorIndex,
+                        TimeProfileIndex = timeProfileIndex,
+                        Enabled = true
+                    };
+
+                    var result = await _controllerClient.AddOrUpdateCardAsync(controller.SerialNumber.ToString(), cardRequest, cancellationToken);
+                    access.LastSyncedAt = DateTime.UtcNow;
+                    access.LastSyncResult = result.Success ? "Success" : result.Message;
+                    syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Synced" : $"Failed: {result.Message}")}");
+                }
+                else
+                {
+                    var result = await _controllerClient.DeleteCardAsync(controller.SerialNumber.ToString(), cardNumber, cancellationToken);
+                    if (access != null)
+                    {
+                        access.LastSyncedAt = DateTime.UtcNow;
+                        access.LastSyncResult = result.Success ? "Removed" : result.Message;
+                    }
+                    syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Removed" : $"Failed: {result.Message}")}");
+                }
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Sync results for member {MemberId}: {Results}", memberId, string.Join("; ", syncResults));
     }
 
     public async Task RemoveCardAsync(int memberId, string cardNumber, string? performedByUserName = null, int? performedByUserId = null, CancellationToken cancellationToken = default)
     {
-        // Placeholder: MemberDoorAccess table is not available; skip removal logic.
-        await Task.CompletedTask;
+        var accessRecords = await _dbContext.MemberDoorAccesses
+            .Include(m => m.Door)
+                .ThenInclude(d => d!.Controller)
+            .Where(m => m.MemberId == memberId && m.CardNumber == cardNumber)
+            .ToListAsync(cancellationToken);
 
-        // Original implementation retained for future enablement.
-        // var member = _memberRepository.GetMemberById(memberId);
-        // if (member == null)
-        // {
-        //     throw new InvalidOperationException($"Member {memberId} not found.");
-        // }
-        //
-        // var accessRecords = await _dbContext.MemberDoorAccesses
-        //     .Include(m => m.Door)
-        //         .ThenInclude(d => d!.Controller)
-        //     .Where(m => m.MemberId == memberId && m.CardNumber == cardNumber)
-        //     .ToListAsync(cancellationToken);
-        //
-        // var controllers = accessRecords
-        //     .Select(a => a.Door?.Controller)
-        //     .Where(c => c != null)
-        //     .Distinct()
-        //     .ToList();
-        //
-        // var useRealControllers = _modeProvider.UseRealControllers;
-        //
-        // foreach (var controller in controllers)
-        // {
-        //     if (controller == null || !controller.IsEnabled)
-        //     {
-        //         continue;
-        //     }
-        //
-        //     if (useRealControllers)
-        //     {
-        //         var result = await _controllerClient.DeleteCardAsync(controller.SerialNumberDisplay, cardNumber, cancellationToken);
-        //         _logger.LogInformation("DeleteCard for controller {ControllerId} ({SerialNumber}): {Success} - {Message}",
-        //             controller.Id, controller.SerialNumber, result.Success, result.Message);
-        //     }
-        //     else
-        //     {
-        //         _logger.LogInformation("DeleteCard simulated for controller {ControllerId} ({SerialNumber})",
-        //             controller.Id, controller.SerialNumber);
-        //     }
-        // }
-        //
-        // foreach (var access in accessRecords)
-        // {
-        //     access.IsEnabled = false;
-        //     access.LastSyncedAt = DateTime.UtcNow;
-        //     access.LastSyncResult = useRealControllers ? "Removed" : "Simulated removal";
-        // }
-        //
-        // await _dbContext.SaveChangesAsync(cancellationToken);
-        //
-        // var performedBy = performedByUserName ?? Environment.UserName ?? "System";
-        // _historyService.LogChange(memberId, "DoorAccess", null, $"Removed card {cardNumber} from controllers", performedBy);
-        // var details = $"Disabled card {cardNumber} and removed from controllers";
-        // _auditLogger.Log(
-        //     AuditLogActions.KeyCardDisabled,
-        //     performedByUserId,
-        //     null,
-        //     details);
+        var controllers = accessRecords
+            .Select(a => a.Door?.Controller)
+            .Where(c => c != null)
+            .Distinct()
+            .ToList();
+
+        foreach (var controller in controllers)
+        {
+            if (controller == null || !controller.IsEnabled) continue;
+
+            var result = await _controllerClient.DeleteCardAsync(controller.SerialNumber.ToString(), cardNumber, cancellationToken);
+            _logger.LogInformation("DeleteCard for controller {SerialNumber}: {Success}", controller.SerialNumber, result.Success);
+        }
+
+        foreach (var access in accessRecords)
+        {
+            access.IsEnabled = false;
+            access.LastSyncedAt = DateTime.UtcNow;
+            access.LastSyncResult = "Removed";
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        
+        var performedBy = performedByUserName ?? "System";
+        _historyService.LogChange(memberId, "DoorAccess", null, $"Removed card {cardNumber} from controllers", performedBy);
     }
 
     public async Task ClearAllPrivilegesAsync(int controllerId, CancellationToken cancellationToken = default)
@@ -390,7 +320,7 @@ public class MemberAccessService : IMemberAccessService
             controllerId, currentUser);
     }
 
-    private string GetStatusText(MemberDoorAccess? access, bool isEligible)
+    private string GetStatusText(GFC.BlazorServer.Data.Entities.MemberDoorAccess? access, bool isEligible)
     {
         if (!isEligible)
         {
@@ -436,18 +366,17 @@ public class MemberAccessService : IMemberAccessService
             throw new InvalidOperationException($"Member {memberId} not found.");
         }
 
+        var currentYear = DateTime.Today.Year;
         var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
         var cardNumber = cardAssignment?.KeyCard?.CardNumber;
         var hasActiveCard = !string.IsNullOrWhiteSpace(cardNumber);
 
-        // TODO: Re-enable when MemberDoorAccess table is available.
-        // var accessRecords = await _dbContext.MemberDoorAccesses
-        //     .Include(m => m.Door)
-        //         .ThenInclude(d => d!.Controller)
-        //     .Include(m => m.TimeProfile)
-        //     .Where(m => m.MemberId == memberId && m.IsEnabled)
-        //     .ToListAsync(cancellationToken);
-        var accessRecords = new List<MemberDoorAccess>();
+        var accessRecords = await _dbContext.MemberDoorAccesses
+            .Include(m => m.Door)
+                .ThenInclude(d => d!.Controller)
+            .Include(m => m.TimeProfile)
+            .Where(m => m.MemberId == memberId && m.IsEnabled)
+            .ToListAsync(cancellationToken);
 
         var controllers = await _controllerRegistryService.GetControllersAsync(includeDoors: true, cancellationToken);
 

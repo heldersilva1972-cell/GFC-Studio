@@ -160,6 +160,19 @@ public class Program
         builder.Services.AddScoped<KeyCardService>();
         builder.Services.AddScoped<IMemberHistoryService, MemberHistoryService>();
         builder.Services.AddScoped<KeyCardAdminService>();
+        
+        // Key Card Lifecycle & Sync Services
+        builder.Services.AddScoped<IControllerSyncQueueRepository, ControllerSyncQueueRepository>();
+        builder.Services.AddScoped<ICardDeactivationLogRepository, CardDeactivationLogRepository>();
+        builder.Services.AddScoped<KeyCardLifecycleService>();
+        builder.Services.AddHostedService<ControllerSyncWorker>();
+        builder.Services.AddHostedService<CardLifecycleBackgroundService>();
+        
+        // Controller Health & Full Sync
+        builder.Services.AddScoped<ControllerHealthService>();
+        builder.Services.AddScoped<ControllerFullSyncService>();
+        builder.Services.AddHostedService<ControllerHealthMonitor>();
+        
         builder.Services.AddScoped<IBoardTermConfirmationService, BoardTermConfirmationService>();
         builder.Services.AddScoped<ILotteryShiftService, LotteryShiftService>();
         builder.Services.AddScoped<IDataExportService, DataExportService>();
@@ -474,6 +487,52 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                 else
                 {
                     Console.WriteLine($">>> WARNING: Studio Sync script not found at {studioSyncPath}");
+                }
+
+                // [AUTO-FIX 7] Run Key Card Enhancements Migration (DIRECT EXECUTION)
+                // We run the critical column addition directly to avoid path issues
+                try
+                {
+                    var criticalFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.KeyCards') AND name = 'IsActive')
+                        BEGIN
+                            ALTER TABLE dbo.KeyCards ADD IsActive BIT NOT NULL DEFAULT 1;
+                            PRINT 'Added IsActive column directly';
+                        END
+                        
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.KeyCards') AND name = 'CardType')
+                        BEGIN
+                            ALTER TABLE dbo.KeyCards ADD CardType NVARCHAR(10) NULL;
+                            PRINT 'Added CardType column directly';
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(criticalFixSql);
+                    Console.WriteLine(">>> Critical KeyCard Columns (IsActive, CardType) verified/applied.");
+
+                    // Attempt to run the full script for other tables (queues, logs) if file found
+                    var keyCardScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "apps", "webapp", "GFC.Data", "Migrations", "KeyCardEnhancements_Migration.sql");
+                    if (File.Exists(keyCardScriptPath))
+                    {
+                        Console.WriteLine($">>> Applying Full Key Card Enhancements Migration from: {keyCardScriptPath}");
+                        var keyCardSql = File.ReadAllText(keyCardScriptPath);
+                        var keyCardBatches = System.Text.RegularExpressions.Regex.Split(keyCardSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                        foreach (var batch in keyCardBatches)
+                        {
+                            if (!string.IsNullOrWhiteSpace(batch))
+                            {
+                                try {
+                                    dbContext.Database.ExecuteSqlRaw(batch);
+                                } catch (Exception ex) {
+                                    Console.WriteLine($"Error executing usage key card batch: {ex.Message}");
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                     Console.WriteLine($">>> Error executing direct key card fix: {ex.Message}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

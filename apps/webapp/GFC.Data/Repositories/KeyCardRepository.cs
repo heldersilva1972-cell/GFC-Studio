@@ -15,7 +15,9 @@ public class KeyCardRepository : IKeyCardRepository
         "KeyCardId",
         "MemberID",
         "CardNumber",
-        "Notes"
+        "Notes",
+        "IsActive",
+        "CardType"
     };
 
     private static string GetContext(string methodName) => $"{nameof(KeyCardRepository)}.{methodName}";
@@ -26,7 +28,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
             FROM dbo.KeyCards
             WHERE KeyCardId = @KeyCardId";
 
@@ -43,7 +45,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
             FROM dbo.KeyCards
             WHERE CardNumber = @CardNumber";
 
@@ -60,7 +62,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
             FROM dbo.KeyCards
             ORDER BY KeyCardId DESC";
 
@@ -82,9 +84,10 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes)
-            VALUES (@MemberID, @CardNumber, @Notes);
+            INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType)
+            VALUES (@MemberID, @CardNumber, @Notes, 1, 'Card');
             SELECT CAST(SCOPE_IDENTITY() AS INT);";
+        // Note: Defaulting to 'Card' for now, should update Create method to accept type
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@MemberID", memberId);
@@ -104,16 +107,38 @@ public class KeyCardRepository : IKeyCardRepository
             UPDATE dbo.KeyCards
             SET MemberID = @MemberID,
                 CardNumber = @CardNumber,
-                Notes = @Notes
+                Notes = @Notes,
+                IsActive = @IsActive,
+                CardType = @CardType
             WHERE KeyCardId = @KeyCardId";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@MemberID", card.MemberId);
         command.Parameters.AddWithValue("@CardNumber", card.CardNumber);
         command.Parameters.AddWithValue("@Notes", (object?)card.Notes ?? DBNull.Value);
+        command.Parameters.AddWithValue("@IsActive", card.IsActive);
+        command.Parameters.AddWithValue("@CardType", (object?)card.CardType ?? DBNull.Value);
         command.Parameters.AddWithValue("@KeyCardId", card.KeyCardId);
 
         command.ExecuteNonQuery();
+    }
+
+    public KeyCard? GetActiveMemberCard(int memberId)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        const string sql = @"
+            SELECT TOP 1 KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
+            FROM dbo.KeyCards
+            WHERE MemberID = @MemberID
+            ORDER BY KeyCardId DESC";
+
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@MemberID", memberId);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? MapReader(reader, nameof(GetActiveMemberCard)) : null;
     }
 
     private static KeyCard MapReader(SqlDataReader reader, string context)
@@ -125,11 +150,10 @@ public class KeyCardRepository : IKeyCardRepository
             KeyCardId = (int)reader["KeyCardId"],
             MemberId = (int)reader["MemberID"],
             CardNumber = reader["CardNumber"].ToString() ?? string.Empty,
-            IsActive = true,
+            IsActive = (bool)reader["IsActive"],
+            CardType = reader["CardType"] as string,
             Notes = reader["Notes"] as string,
             CreatedDate = DateTime.MinValue
         };
     }
 }
-
-

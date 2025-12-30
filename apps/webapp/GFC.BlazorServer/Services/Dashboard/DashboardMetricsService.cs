@@ -37,66 +37,74 @@ public class DashboardMetricsService : IDashboardMetricsService
 
     public async Task<DashboardMetricsDto> GetMetricsAsync(CancellationToken ct = default)
     {
-        var currentYear = DateTime.Today.Year;
-        var now = DateTime.UtcNow;
-        var today = DateTime.Today;
-        var weekStart = today.AddDays(-7);
-        var prevWeekStart = today.AddDays(-14);
-
-        var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), ct);
-        var currentYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
-        var previousYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1), ct);
-        var settingsTask = Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
-        var alertSummaryTask = _dashboardService.GetAlertSummaryAsync(ct);
-        var cardCountsTask = GetCardCountsAsync(ct);
-        var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
-        var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
-        var staffTask = GetTonightStaffAsync(today, ct);
-        var activityFeedTask = GetRecentActivitiesAsync(ct);
-
-        await Task.WhenAll(
-            membersTask,
-            currentYearDuesTask,
-            previousYearDuesTask,
-            settingsTask,
-            alertSummaryTask,
-            cardCountsTask,
-            membershipChangesTask,
-            barSalesTask,
-            staffTask,
-            activityFeedTask);
-
-        var members = membersTask.Result;
-        var currentYearDues = currentYearDuesTask.Result;
-        var previousYearDues = previousYearDuesTask.Result;
-        var graceEndDate = settingsTask.Result?.GraceEndDate?.Date;
-        var (activeMembers, pastDueMembers) = CalculateMembership(members, currentYearDues, previousYearDues, graceEndDate);
-
-        var alertSummary = alertSummaryTask.Result;
-        var npQueueCount = alertSummary?.NpQueueCount ?? 0;
-        var openAlerts = alertSummary is null ? 0 : CalculateOpenAlerts(alertSummary);
-
-        var (enabledCards, disabledCards) = cardCountsTask.Result;
-        var (weeklySales, weeklyTransactions, trend) = barSalesTask.Result;
-
-        return new DashboardMetricsDto
+        try
         {
-            TotalMembers = members.Count,
-            ActiveMembers = activeMembers,
-            PastDueMembers = pastDueMembers,
-            NpQueueCount = npQueueCount,
-            EnabledCards = enabledCards,
-            DisabledCards = disabledCards,
-            OpenAlerts = openAlerts,
-            MembershipChangesLast24h = membershipChangesTask.Result,
-            
-            // Bar & Staff Real Data
-            WeeklyBarSales = weeklySales,
-            WeeklyBarTransactionCount = weeklyTransactions,
-            WeeklyBarSalesTrend = trend,
-            TonightBartenders = staffTask.Result,
-            RecentActivities = activityFeedTask.Result
-        };
+            var currentYear = DateTime.Today.Year;
+            var now = DateTime.UtcNow;
+            var today = DateTime.Today;
+            var weekStart = today.AddDays(-7);
+            var prevWeekStart = today.AddDays(-14);
+
+            var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), ct);
+            var currentYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
+            var previousYearDuesTask = Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1), ct);
+            var settingsTask = Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
+            var alertSummaryTask = _dashboardService.GetAlertSummaryAsync(ct);
+            var cardCountsTask = GetCardCountsAsync(ct);
+            var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
+            var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
+            var staffTask = GetTonightStaffAsync(today, ct);
+            var activityFeedTask = GetRecentActivitiesAsync(ct);
+
+            await Task.WhenAll(
+                membersTask,
+                currentYearDuesTask,
+                previousYearDuesTask,
+                settingsTask,
+                alertSummaryTask,
+                cardCountsTask,
+                membershipChangesTask,
+                barSalesTask,
+                staffTask,
+                activityFeedTask);
+
+            var members = membersTask.Result;
+            var currentYearDues = currentYearDuesTask.Result;
+            var previousYearDues = previousYearDuesTask.Result;
+            var graceEndDate = settingsTask.Result?.GraceEndDate?.Date;
+            var (activeMembers, pastDueMembers) = CalculateMembership(members, currentYearDues, previousYearDues, graceEndDate);
+
+            var alertSummary = alertSummaryTask.Result;
+            var npQueueCount = alertSummary?.NpQueueCount ?? 0;
+            var openAlerts = alertSummary is null ? 0 : CalculateOpenAlerts(alertSummary);
+
+            var (enabledCards, disabledCards) = cardCountsTask.Result;
+            var (weeklySales, weeklyTransactions, trend) = barSalesTask.Result;
+
+            return new DashboardMetricsDto
+            {
+                TotalMembers = members.Count,
+                ActiveMembers = activeMembers,
+                PastDueMembers = pastDueMembers,
+                NpQueueCount = npQueueCount,
+                EnabledCards = enabledCards,
+                DisabledCards = disabledCards,
+                OpenAlerts = openAlerts,
+                MembershipChangesLast24h = membershipChangesTask.Result,
+                
+                // Bar & Staff Real Data
+                WeeklyBarSales = weeklySales,
+                WeeklyBarTransactionCount = weeklyTransactions,
+                WeeklyBarSalesTrend = trend,
+                TonightBartenders = staffTask.Result,
+                RecentActivities = activityFeedTask.Result
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch consolidated dashboard metrics. Returning empty metrics.");
+            return new DashboardMetricsDto();
+        }
     }
 
     private async Task<List<ActivityFeedItem>> GetRecentActivitiesAsync(CancellationToken ct)
@@ -312,11 +320,8 @@ public class DashboardMetricsService : IDashboardMetricsService
         try
         {
             await using var dbContext = await _contextFactory.CreateDbContextAsync(ct);
-            // TODO: Wire door access metrics to real MemberDoorAccess table once the table and migrations are created.
-            // var enabled = await dbContext.MemberDoorAccesses.CountAsync(da => da.IsEnabled, ct);
-            // var disabled = await dbContext.MemberDoorAccesses.CountAsync(da => !da.IsEnabled, ct);
-            var enabled = 0; // Placeholder until migration
-            var disabled = 0; // Placeholder until migration
+            var enabled = await dbContext.MemberDoorAccesses.CountAsync(da => da.IsEnabled, ct);
+            var disabled = await dbContext.MemberDoorAccesses.CountAsync(da => !da.IsEnabled, ct);
             return (enabled, disabled);
         }
         catch (Exception ex)

@@ -2,7 +2,10 @@
 @using GFC.Core.Models
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
+@inject IDuesInsightService DuesInsightService
+@inject ICardDeactivationLogRepository DeactivationLogRepository
 @inject ILogger<CardAssignmentsTab> Logger
+@inject IJSRuntime JSRuntime
 
 <div class="assignments-container">
     <!-- Summary Metrics -->
@@ -46,6 +49,16 @@
                 <div class="metric-value">@_membersWithCards</div>
             </div>
         </div>
+
+        <div class="metric-card metric-danger" @onclick="HandleNeedingCardsClick">
+            <div class="metric-icon">
+                <i class="bi bi-person-badge-fill"></i>
+            </div>
+            <div class="metric-content">
+                <div class="metric-label">Needing Cards</div>
+                <div class="metric-value">@_membersNeedingCards</div>
+            </div>
+        </div>
     </div>
 
     <!-- Filters and Search -->
@@ -81,6 +94,26 @@
                     <i class="bi bi-pause-circle"></i> Inactive
                 </button>
             </div>
+            
+            <div class="filter-dropdown ms-2">
+                 <select class="form-select" @bind="_typeFilter" @bind:after="ApplyFilters">
+                    <option value="all">All Types</option>
+                    <option value="Card">Cards</option>
+                    <option value="Fob">Fobs</option>
+                </select>
+            </div>
+
+            <div class="filter-dropdown ms-2">
+                 <select class="form-select" @bind="_eligibilityFilter" @bind:after="ApplyFilters">
+                    <option value="all">All Eligibility</option>
+                    <option value="eligible">Eligible Only</option>
+                    <option value="ineligible">Ineligible</option>
+                </select>
+            </div>
+
+            <button class="btn btn-outline-secondary ms-auto" @onclick="ExportCards" title="Export to CSV">
+                <i class="bi bi-download"></i>
+            </button>
         </div>
     </div>
 
@@ -190,16 +223,126 @@
     }
 </div>
 
+<!-- Card Detail Modal -->
+@if (_showDetailModal && _selectedCard != null)
+{
+    <div class="modal-backdrop-modern fade-in" @onclick="CloseDetailModal"></div>
+    <div class="modal-modern-container fade-in scale-in">
+        <div class="modal-modern">
+            <div class="modal-header-modern">
+                <div>
+                    <h3 class="modal-title-modern">
+                        <i class="bi bi-credit-card-2-front text-primary"></i>
+                        Card Details
+                    </h3>
+                    <p class="modal-subtitle">@_selectedCard.CardType #@_selectedCard.CardNumber</p>
+                </div>
+                <button class="btn-close-modern" @onclick="CloseDetailModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body-modern">
+                <div class="detail-card mb-4">
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="text-muted small">Status</label>
+                            <div>
+                                <span class="badge bg-@(_selectedCard.IsActive ? "success" : "danger")-subtle text-@(_selectedCard.IsActive ? "success" : "danger")">
+                                    @(_selectedCard.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <label class="text-muted small">Assigned Member</label>
+                            <div class="fw-bold">@_selectedCard.MemberName</div>
+                        </div>
+                        <div class="col-6">
+                            <label class="text-muted small">Issued Date</label>
+                            <div>@(_selectedCard.IssuedDate?.ToString("MMM dd, yyyy") ?? "-")</div>
+                        </div>
+                        <div class="col-6">
+                            <label class="text-muted small">Eligibility</label>
+                            <div>
+                                @if (_selectedCard.IsEligible)
+                                {
+                                    <span class="text-success"><i class="bi bi-check-circle"></i> Eligible</span>
+                                }
+                                else
+                                {
+                                    <span class="text-danger"><i class="bi bi-x-circle"></i> Ineligible (Unpaid)</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <h6 class="mb-3">History <span class="badge bg-light text-dark ms-2">Real</span></h6>
+                <div class="history-timeline">
+                    <!-- Initial Assignment -->
+                    <div class="timeline-item">
+                        <div class="timeline-marker bg-primary"></div>
+                        <div class="timeline-content">
+                            <div class="fw-bold">Issued</div>
+                            <div class="small text-muted">@(_selectedCard.IssuedDate?.ToString("MMM dd, yyyy") ?? "Unknown Date") - Active</div>
+                        </div>
+                    </div>
+                    
+                    @foreach (var log in _cardHistory)
+                    {
+                        <div class="timeline-item">
+                            <div class="timeline-marker bg-danger"></div>
+                            <div class="timeline-content">
+                                <div class="fw-bold">Deactivated</div>
+                                <div class="small text-muted">@log.DeactivatedDate.ToString("MMM dd") - @log.Reason</div>
+                                @if (!string.IsNullOrEmpty(log.Notes))
+                                {
+                                    <div class="small text-muted fst-italic">"@log.Notes"</div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (_cardHistory.Count == 0 && !_selectedCard.IsActive)
+                    {
+                         <div class="timeline-item">
+                            <div class="timeline-marker bg-secondary"></div>
+                            <div class="timeline-content">
+                                <div class="text-muted">Status changed to Inactive (No log entry)</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            
+            <div class="modal-footer-modern">
+                <button class="btn btn-outline-secondary" @onclick="CloseDetailModal">Close</button>
+                    @if (_selectedCard.IsActive)
+                {
+                    <button class="btn btn-warning" @onclick="() => DeactivateCard(_selectedCard.CardId)">Deactivate</button>
+                }
+                else
+                {
+                    <button class="btn btn-success" @onclick="() => ReactivateCard(_selectedCard.CardId)">Reactivate</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool _loading = true;
     private string _searchTerm = string.Empty;
     private string _statusFilter = "all";
+    private string _typeFilter = "all";
+    private string _eligibilityFilter = "all";
     private string _errorMessage = string.Empty;
     
     private int _totalCards = 0;
     private int _activeCards = 0;
     private int _inactiveCards = 0;
     private int _membersWithCards = 0;
+    private int _membersNeedingCards = 0;
     
     private List<CardListItem> _allCards = new();
     private List<CardListItem> _filteredCards = new();
@@ -219,9 +362,23 @@
             // Load all key cards with member info
             var cards = await Task.Run(() => KeyCardRepository.GetAll());
             var members = await Task.Run(() => MemberRepository.GetAllMembers());
+            var unpaid = await DuesInsightService.GetDuesAsync(DateTime.Today.Year, false);
+            var unpaidIds = unpaid?.Select(u => u.MemberId).ToHashSet() ?? new HashSet<int>();
             
             _allCards = cards.Select(c => {
                 var member = members.FirstOrDefault(m => m.MemberID == c.MemberId);
+                var status = member?.Status ?? string.Empty;
+                var isLife = status.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
+                var isReg = status.Equals("REGULAR", StringComparison.OrdinalIgnoreCase) || 
+                            status.Equals("REGULAR-NP", StringComparison.OrdinalIgnoreCase);
+                var isGuest = status.Equals("GUEST", StringComparison.OrdinalIgnoreCase);
+                
+                var isUnpaid = unpaidIds.Contains(c.MemberId);
+                
+                // Eligibility rule: (Life OR Reg OR Guest) AND Paid
+                // Note: Guests who pay dues ARE eligible for cards.
+                var isEligible = (isLife || isReg || isGuest) && !isUnpaid;
+
                 return new CardListItem
                 {
                     CardId = c.KeyCardId,
@@ -230,9 +387,19 @@
                     MemberName = member != null ? $"{member.FirstName} {member.LastName}" : "Unknown",
                     IsActive = c.IsActive,
                     IssuedDate = c.CreatedDate,
-                    LastUsed = null // TODO: Get from ControllerEvents
+                    LastUsed = null,
+                    CardType = c.CardType ?? "Card",
+                    IsEligible = isEligible
                 };
             }).ToList();
+            
+            // Calculate members needing cards
+            var year = DateTime.Today.Year;
+            var paid = await DuesInsightService.GetDuesAsync(year, true);
+            var waived = await DuesInsightService.GetDuesAsync(year, false);
+            var activeCardMemberIds = _allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
+            _membersNeedingCards = paid.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
+                                    + waived.Count(m => m.IsWaived && !activeCardMemberIds.Contains(m.MemberId));
             
             UpdateMetrics();
             ApplyFilters();
@@ -278,6 +445,20 @@
             _ => query
         };
         
+        // Type filter
+        if (_typeFilter != "all")
+        {
+            query = query.Where(c => c.CardType == _typeFilter);
+        }
+
+        // Eligibility filter
+        if (_eligibilityFilter != "all")
+        {
+             query = _eligibilityFilter == "eligible" 
+                ? query.Where(c => c.IsEligible) 
+                : query.Where(c => !c.IsEligible);
+        }
+        
         _filteredCards = query.OrderByDescending(c => c.IssuedDate).ToList();
     }
     
@@ -293,11 +474,21 @@
         ApplyFilters();
     }
     
-    private void ViewCard(int cardId)
+    private CardListItem? _selectedCard;
+    private bool _showDetailModal;
+    private List<GFC.Core.Models.CardDeactivationLog> _cardHistory = new();
+
+    private async Task ViewCard(int cardId)
     {
-        // Navigate to card detail page or show modal
-        // TODO: Implement card detail view
+        _selectedCard = _filteredCards.FirstOrDefault(c => c.CardId == cardId);
+        if (_selectedCard != null)
+        {
+            _cardHistory = await DeactivationLogRepository.GetByCardIdAsync(cardId);
+            _showDetailModal = true;
+        }
     }
+
+    private void CloseDetailModal() => _showDetailModal = false;
     
     private async Task DeactivateCard(int cardId)
     {
@@ -353,14 +544,45 @@
         }
     }
     
+    [Parameter] public EventCallback<int> OnReplaceCard { get; set; }
+    [Parameter] public EventCallback OnNeedingCardsClick { get; set; }
+
+    private void HandleNeedingCardsClick()
+    {
+        if (OnNeedingCardsClick.HasDelegate)
+        {
+            OnNeedingCardsClick.InvokeAsync();
+        }
+    }
+
     private async Task ReplaceCard(int cardId)
     {
-        // TODO: Show replace card modal with card scanner
-        // This would:
-        // 1. Scan new card
-        // 2. Deactivate old card
-        // 3. Create new card with same member
-        // 4. Copy door access privileges
+        if (OnReplaceCard.HasDelegate)
+        {
+            await OnReplaceCard.InvokeAsync(cardId);
+        }
+    }
+    
+    private async Task ExportCards()
+    {
+        try 
+        {
+            var csv = new System.Text.StringBuilder();
+            csv.AppendLine("CardNumber,MemberId,MemberName,Status,Type,Eligible,IssuedDate");
+            
+            foreach (var card in _filteredCards)
+            {
+                csv.AppendLine($"{card.CardNumber},{card.MemberId},{card.MemberName},{card.IsActive},{card.CardType},{card.IsEligible},{card.IssuedDate:yyyy-MM-dd}");
+            }
+            
+            var fileName = $"keycards_export_{DateTime.Now:yyyyMMdd}.csv";
+            await JSRuntime.InvokeVoidAsync("blazorInterop.downloadFile", fileName, "text/csv", csv.ToString());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Export failed");
+            _errorMessage = "Export failed.";
+        }
     }
     
     private string GetRelativeTime(DateTime date)
@@ -382,5 +604,7 @@
         public bool IsActive { get; set; }
         public DateTime? IssuedDate { get; set; }
         public DateTime? LastUsed { get; set; }
+        public string CardType { get; set; } = "Card";
+        public bool IsEligible { get; set; }
     }
 }

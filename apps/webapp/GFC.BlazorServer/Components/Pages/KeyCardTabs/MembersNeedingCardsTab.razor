@@ -1,0 +1,221 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.Core.DTOs
+@inject IKeyCardRepository KeyCardRepository
+@inject IMemberRepository MemberRepository
+@inject IDuesInsightService DuesInsightService
+@inject NavigationManager NavManager
+@inject ILogger<MembersNeedingCardsTab> Logger
+
+<div class="pending-assignments-container">
+    <div class="info-alert mb-4">
+        <i class="bi bi-info-circle"></i>
+        <div>
+            <strong>Members Needing Cards</strong>
+            <p class="mb-0 small">The following members have paid their dues for @DateTime.Today.Year (or are Exempt/Waived) but do not yet have an active key card assigned.</p>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <div class="spinner-modern">
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+                <div class="spinner-ring"></div>
+            </div>
+            <p>Identifying members...</p>
+        </div>
+    }
+    else if (_membersNeedingCards.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-icon success">
+                <i class="bi bi-check-all"></i>
+            </div>
+            <h3>All Caught Up!</h3>
+            <p>All currently paid members have an active key card.</p>
+        </div>
+    }
+    else
+    {
+        <div class="members-grid">
+            @foreach (var memberId in _membersNeedingCards)
+            {
+                var member = _memberLookup.GetValueOrDefault(memberId);
+                if (member == null) continue;
+
+                <div class="member-need-card">
+                    <div class="member-info">
+                        <div class="member-avatar">
+                            @GetInitials(member.FullName)
+                        </div>
+                        <div class="member-details">
+                            <div class="member-name">@member.FullName</div>
+                            <div class="member-meta">
+                                <span class="badge bg-light text-dark">ID: @member.MemberId</span>
+                                <span class="badge bg-success-subtle text-success">@member.Status</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="member-action">
+                        <button class="btn btn-primary btn-sm" @onclick="() => AssignTo(member.MemberId)">
+                            <i class="bi bi-plus-lg"></i> Assign Card
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private List<int> _membersNeedingCards = new();
+    private Dictionary<int, DuesListItemDto> _memberLookup = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        try
+        {
+            var year = DateTime.Today.Year;
+            // 1. Get all paid members
+            var paidMembers = await DuesInsightService.GetDuesAsync(year, true);
+            // 2. Get waived members (Exempt/Life/Board)
+            var waivedMembers = await DuesInsightService.GetDuesAsync(year, false);
+            var exemptMembers = waivedMembers.Where(m => m.IsWaived).ToList();
+
+            // 3. Get all active cards
+            var activeCards = (await Task.Run(() => KeyCardRepository.GetAll()))
+                                .Where(c => c.IsActive)
+                                .Select(c => c.MemberId)
+                                .ToHashSet();
+
+            // 4. Combine Paid and Exempt (ensure no duplicates)
+            var eligibleMembersList = paidMembers.Concat(exemptMembers).ToList();
+            _memberLookup = new Dictionary<int, DuesListItemDto>();
+            foreach (var m in eligibleMembersList)
+            {
+                _memberLookup[m.MemberId] = m;
+            }
+            
+            var uniqueEligibleIds = _memberLookup.Keys.ToList();
+
+            // 5. Filter for those without cards
+            _membersNeedingCards = uniqueEligibleIds
+                                    .Where(id => !activeCards.Contains(id))
+                                    .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading members needing cards");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void AssignTo(int memberId)
+    {
+        // Redirect to main page with assignTo query
+        NavManager.NavigateTo($"/keycards?assignTo={memberId}");
+    }
+
+    private string GetInitials(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "?";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1) return parts[0][0].ToString().ToUpper();
+        return $"{parts[0][0]}{parts[^1][0]}".ToUpper();
+    }
+}
+
+<style>
+    .pending-assignments-container {
+        padding: 1rem;
+    }
+
+    .info-alert {
+        background: #f0f9ff;
+        border: 1px solid #bae6fd;
+        border-radius: 8px;
+        padding: 1rem;
+        display: flex;
+        gap: 1rem;
+        color: #0369a1;
+    }
+
+    .members-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 1rem;
+    }
+
+    .member-need-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .member-need-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .member-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .member-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #f3f4f6;
+        color: #6b7280;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.875rem;
+    }
+
+    .member-name {
+        font-weight: 600;
+        color: #111827;
+    }
+
+    .member-meta {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.25rem;
+    }
+
+    .loading-state, .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: #6b7280;
+    }
+
+    .empty-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+
+    .empty-icon.success {
+        color: #10b981;
+    }
+</style>

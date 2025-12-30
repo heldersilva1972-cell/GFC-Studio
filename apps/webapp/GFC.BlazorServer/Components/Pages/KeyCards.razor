@@ -9,6 +9,13 @@
 @inject IMemberRepository MemberRepository
 @inject NavigationManager NavManager
 @inject ILogger<KeyCards> Logger
+@inject IControllerSyncQueueRepository SyncQueueRepository
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject ControllerHealthService ControllerHealthService
+@inject ControllerFullSyncService ControllerFullSyncService
+@inject IJSRuntime JSRuntime
+@inject IDuesInsightService DuesInsightService
+@inject KeyCardLifecycleService KeyCardLifecycleService
 
 <PageTitle>Key Card Management - GFC</PageTitle>
 
@@ -34,6 +41,90 @@
     </div>
 </div>
 
+@* Grace Period Configuration - NEW *@
+<div class="info-card-modern mb-4 fade-in" style="animation-delay: 0.1s;">
+    <div class="d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center gap-3">
+            <div class="info-icon bg-success-subtle">
+                <i class="bi bi-calendar-check text-success"></i>
+            </div>
+            <div>
+                <h6 class="mb-1">Grace Period Configuration 
+                    <span class="badge bg-success ms-2" style="font-size: 0.7rem;">
+                        <i class="bi bi-circle-fill me-1" style="font-size: 0.4rem;"></i>NEW
+                    </span>
+                </h6>
+                @if (_graceEndDate.HasValue)
+                {
+                    var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
+                    var statusClass = daysRemaining > 30 ? "success" : daysRemaining > 7 ? "warning" : "danger";
+                    <p class="mb-0 text-muted small">
+                        Grace End Date: <strong>@_graceEndDate.Value.ToString("MMMM d, yyyy")</strong>
+                        <span class="badge bg-@statusClass-subtle text-@statusClass ms-2">
+                            @daysRemaining days remaining
+                        </span>
+                        @if (_membersAtRiskCount > 0)
+                        {
+                            <span class="text-warning ms-2">⚠️ @_membersAtRiskCount member@(_membersAtRiskCount == 1 ? "" : "s") at risk</span>
+                        }
+                    </p>
+                }
+                else
+                {
+                    <p class="mb-0 text-muted small">No grace period configured for current year</p>
+                }
+            </div>
+        </div>
+        <button class="btn btn-outline-primary btn-sm" @onclick="EditGracePeriod">
+            <i class="bi bi-pencil"></i> Edit
+        </button>
+    </div>
+</div>
+
+@* Controller Sync Status - NEW *@
+<div class="info-card-modern mb-4 fade-in" style="animation-delay: 0.2s;">
+    <div class="d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center gap-3">
+            <div class="info-icon @(_controllerOnline ? "bg-success-subtle" : "bg-danger-subtle")">
+                <i class="bi @(_controllerOnline ? "bi-hdd-network" : "bi-hdd-network-fill") @(_controllerOnline ? "text-success" : "text-danger")"></i>
+            </div>
+            <div class="flex-grow-1">
+                <h6 class="mb-1">Controller Sync Status
+                    <span class="badge bg-success ms-2" style="font-size: 0.7rem;">
+                        <i class="bi bi-circle-fill me-1" style="font-size: 0.4rem;"></i>NEW
+                    </span>
+                </h6>
+                <div class="d-flex gap-4 text-muted small">
+                    <span>
+                        Controller: 
+                        @if (_controllerOnline)
+                        {
+                            <span class="text-success fw-bold">✅ Online</span>
+                        }
+                        else
+                        {
+                            <span class="text-danger fw-bold">❌ Offline</span>
+                        }
+                    </span>
+                    <span>Pending: <strong class="@(_pendingSyncCount > 0 ? "text-warning" : "text-success")">@_pendingSyncCount</strong></span>
+                    <span>Last Sync: <strong>@(_lastSyncTime?.ToString("h:mm tt") ?? "Unknown")</strong></span>
+                </div>
+            </div>
+        </div>
+        <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-info" @onclick="ViewSyncQueue">
+                <i class="bi bi-list-ul"></i> View Queue
+            </button>
+            <button class="btn btn-info" @onclick="RetryAllSync" disabled="@(_pendingSyncCount == 0)">
+                <i class="bi bi-arrow-repeat"></i> Retry All
+            </button>
+            <button class="btn btn-warning" @onclick="ForceFullSync">
+                <i class="bi bi-arrow-clockwise"></i> Force Full Sync
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Tab Navigation with Slide Animation -->
 <div class="tab-navigation-modern slide-in-up">
     <div class="tab-nav-container">
@@ -49,10 +140,14 @@
             <span>Door Activity</span>
             <div class="tab-indicator"></div>
         </button>
-        <button class="tab-nav-item @(_activeTab == "access" ? "active" : "")" 
-                @onclick="@(() => SetActiveTab("access"))">
-            <i class="bi bi-shield-lock"></i>
-            <span>Access Control</span>
+        <button class="tab-nav-item @(_activeTab == "pending" ? "active" : "")" 
+                @onclick="@(() => SetActiveTab("pending"))">
+            <i class="bi bi-person-plus"></i>
+            <span>Needing Cards</span>
+            @if (_paidMembersWithoutCardsCount > 0)
+            {
+                <span class="badge bg-danger ms-2 rounded-pill">@_paidMembersWithoutCardsCount</span>
+            }
             <div class="tab-indicator"></div>
         </button>
     </div>
@@ -63,7 +158,7 @@
     @if (_activeTab == "assignments")
     {
         <div class="tab-pane fade-in" key="assignments">
-            <CardAssignmentsTab />
+            <CardAssignmentsTab OnReplaceCard="HandleReplaceCard" OnNeedingCardsClick="@(() => SetActiveTab("pending"))" />
         </div>
     }
     else if (_activeTab == "activity")
@@ -76,6 +171,12 @@
     {
         <div class="tab-pane fade-in" key="access">
             <AccessControlTab />
+        </div>
+    }
+    else if (_activeTab == "pending")
+    {
+        <div class="tab-pane fade-in" key="pending">
+            <MembersNeedingCardsTab />
         </div>
     }
 </div>
@@ -304,6 +405,100 @@
     </div>
 }
 
+<!-- Grace Period Edit Modal - NEW -->
+@if (_showGracePeriodModal)
+{
+    <div class="modal-backdrop-modern fade-in" @onclick="CloseGracePeriodModal"></div>
+    <div class="modal-modern-container fade-in scale-in">
+        <div class="modal-modern">
+            <div class="modal-header-modern">
+                <div>
+                    <h3 class="modal-title-modern">
+                        <i class="bi bi-calendar-check text-success"></i>
+                        Configure Grace Period
+                    </h3>
+                    <p class="modal-subtitle">Set the grace end date for @DateTime.Today.Year dues</p>
+                </div>
+                <button class="btn-close-modern" @onclick="CloseGracePeriodModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body-modern">
+                <div class="grace-period-config">
+                    <div class="alert alert-info mb-4">
+                        <i class="bi bi-info-circle"></i>
+                        <div>
+                            <strong>About Grace Period:</strong>
+                            <p class="mb-0 small">Members who paid dues last year can continue using their key cards until this date, even if they haven't paid for the current year.</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group-modern mb-4">
+                        <label class="form-label-modern">
+                            Grace End Date <span class="text-danger">*</span>
+                        </label>
+                        <input type="date" 
+                               class="form-control form-control-lg" 
+                               @bind="_gracePeriodEditDate"
+                               min="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                        <small class="text-muted">
+                            Cards will be automatically deactivated after this date if dues are unpaid
+                        </small>
+                    </div>
+
+                    @if (_gracePeriodEditDate.HasValue)
+                    {
+                        var daysFromNow = (_gracePeriodEditDate.Value - DateTime.Today).Days;
+                        var statusClass = daysFromNow > 30 ? "success" : daysFromNow > 7 ? "warning" : "danger";
+                        
+                        <div class="summary-card mb-4">
+                            <h6 class="mb-3">Summary</h6>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="text-muted">Selected Date:</span>
+                                <strong>@_gracePeriodEditDate.Value.ToString("MMMM d, yyyy")</strong>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted">Days from Today:</span>
+                                <span class="badge bg-@statusClass">@daysFromNow days</span>
+                            </div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(_gracePeriodError))
+                    {
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle"></i> @_gracePeriodError
+                        </div>
+                    }
+
+                    <div class="modal-actions">
+                        <button class="btn btn-outline-secondary" 
+                                @onclick="CloseGracePeriodModal" 
+                                disabled="@_savingGracePeriod">
+                            Cancel
+                        </button>
+                        <button class="btn btn-success btn-lg" 
+                                @onclick="SaveGracePeriod" 
+                                disabled="@(!_gracePeriodEditDate.HasValue || _savingGracePeriod)">
+                            @if (_savingGracePeriod)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-circle"></i>
+                                <span>Save Grace Period</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private string _activeTab = "assignments";
     private bool _showAssignModal = false;
@@ -320,9 +515,85 @@
     
     private List<Member> _allMembers = new();
     
+    // Grace Period & Sync Status - NEW
+    private DateTime? _graceEndDate;
+    private int _membersAtRiskCount = 0;
+    private int _pendingSyncCount = 0;
+    private DateTime? _lastSyncTime;
+    private bool _controllerOnline = true;
+    
+    // Grace Period Modal - NEW
+    private bool _showGracePeriodModal = false;
+    private DateTime? _gracePeriodEditDate;
+    private bool _savingGracePeriod = false;
+    private string _gracePeriodError = string.Empty;
+    
+    private int _paidMembersWithoutCardsCount = 0;
+    
     protected override async Task OnInitializedAsync()
     {
         await LoadMembersAsync();
+        await LoadGracePeriodAndSyncStatusAsync();
+    }
+    
+    private async Task LoadGracePeriodAndSyncStatusAsync()
+    {
+        try
+        {
+            // Load grace period
+            var currentYear = DateTime.Today.Year;
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
+            _graceEndDate = settings?.GraceEndDate;
+            
+            // Calculate members at risk
+            // Members who are unpaid AND have an active card
+            var dues = await DuesInsightService.GetDuesAsync(currentYear, false); // Get unpaid
+            if (dues != null)
+            {
+                 // We need to know who has an active card. Ideally we'd map this efficiently.
+                 // For now, let's fetch all active cards.
+                 var allActiveCards = (await Task.Run(() => KeyCardRepository.GetAll()))
+                                     .Where(c => c.IsActive)
+                                     .Select(c => c.MemberId)
+                                     .Distinct()
+                                     .ToHashSet();
+                                     
+                 _membersAtRiskCount = dues.Count(d => allActiveCards.Contains(d.MemberId) && d.Amount > 0);
+            }
+            
+            // Load sync status
+            _pendingSyncCount = await SyncQueueRepository.GetPendingCountAsync();
+            
+            // Get last sync time from completed items
+            var completedSyncs = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
+            if (completedSyncs.Any())
+            {
+                _lastSyncTime = completedSyncs.Max(x => x.CompletedDate ?? x.QueuedDate);
+            }
+            else
+            {
+                _lastSyncTime = null; 
+            }
+            
+            // Get real controller health status
+            var healthStatus = ControllerHealthService.GetHealthStatus();
+            _controllerOnline = healthStatus.IsOnline;
+
+            // Calculate members needing cards
+            var paid = await DuesInsightService.GetDuesAsync(currentYear, true);
+            var waived = await DuesInsightService.GetDuesAsync(currentYear, false);
+            var activeCardMemberIds = (await Task.Run(() => KeyCardRepository.GetAll()))
+                                        .Where(c => c.IsActive)
+                                        .Select(c => c.MemberId)
+                                        .ToHashSet();
+            
+            _paidMembersWithoutCardsCount = paid.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
+                                            + waived.Count(m => m.IsWaived && !activeCardMemberIds.Contains(m.MemberId));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading grace period and sync status");
+        }
     }
     
     private async Task LoadMembersAsync()
@@ -331,7 +602,7 @@
         {
             var members = await Task.Run(() => MemberRepository.GetAllMembers());
             _allMembers = members
-                .Where(m => m.Status == "REGULAR" || m.Status == "REGULAR-NP" || m.Status == "LIFE")
+                .Where(m => !m.Status.Equals("DECEASED", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(m => m.LastName)
                 .ThenBy(m => m.FirstName)
                 .ToList();
@@ -365,6 +636,36 @@
         _activeTab = tab;
     }
     
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var uri = NavManager.ToAbsoluteUri(NavManager.Uri);
+            if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("assignTo", out var memberIdVal))
+            {
+                if (int.TryParse(memberIdVal, out var mid))
+                {
+                    // Wait for members to load if needed (though they should load fast in OnInitialized)
+                    // If _allMembers is empty, we might miss it. 
+                    // Let's ensure we find it.
+                    var member = _allMembers.FirstOrDefault(m => m.MemberID == mid);
+                    if (member == null)
+                    {
+                        // Reload if not found (lazy safety)
+                        await LoadMembersAsync();
+                        member = _allMembers.FirstOrDefault(m => m.MemberID == mid);
+                    }
+
+                    if (member != null)
+                    {
+                        OpenAssignCardModalForMember(member);
+                        StateHasChanged();
+                    }
+                }
+            }
+        }
+    }
+
     private void OpenAssignCardModal()
     {
         _showAssignModal = true;
@@ -376,6 +677,15 @@
         _memberSearch = string.Empty;
         _assignNotes = string.Empty;
         _assignError = string.Empty;
+    }
+
+    private void OpenAssignCardModalForMember(Member member)
+    {
+        OpenAssignCardModal();
+        _selectedMemberId = member.MemberID;
+        _selectedMemberName = $"{member.FirstName} {member.LastName}";
+        _memberSearch = member.MemberID.ToString(); // Pre-filter the list so they see the selection clearly
+        // Optional: Could set specific message or note
     }
     
     private void CloseAssignCardModal()
@@ -452,15 +762,196 @@
             _assigning = false;
         }
     }
+
+    private async Task HandleReplaceCard(int cardId)
+    {
+        try
+        {
+            var card = await Task.Run(() => KeyCardRepository.GetById(cardId));
+            if (card == null) return;
+
+            // Deactivate
+            if (card.IsActive)
+            {
+                // We use Lifecycle service to ensure logs are written
+                 await KeyCardLifecycleService.DeactivateCardAsync(
+                     card.KeyCardId, 
+                     "Replaced", 
+                     "User initiated replacement via UI", 
+                     System.Threading.CancellationToken.None);
+            }
+
+            // Open Assign Modal
+            // We need to ensure members are loaded
+            if (!_allMembers.Any()) await LoadMembersAsync();
+            
+            var member = _allMembers.FirstOrDefault(m => m.MemberID == card.MemberId);
+            if (member != null)
+            {
+                OpenAssignCardModalForMember(member);
+                _assignNotes = $"Replacing Card #{card.CardNumber}";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling replace card");
+        }
+    }
+    
+    // Grace Period & Sync Actions - NEW
+    private void EditGracePeriod()
+    {
+        _gracePeriodEditDate = _graceEndDate ?? DateTime.Today.AddMonths(3);
+        _gracePeriodError = string.Empty;
+        _showGracePeriodModal = true;
+    }
+    
+    private void CloseGracePeriodModal()
+    {
+        _showGracePeriodModal = false;
+        _gracePeriodEditDate = null;
+        _gracePeriodError = string.Empty;
+    }
+    
+    private async Task SaveGracePeriod()
+    {
+        if (!_gracePeriodEditDate.HasValue)
+        {
+            _gracePeriodError = "Please select a grace end date";
+            return;
+        }
+        
+        if (_gracePeriodEditDate.Value < DateTime.Today)
+        {
+            _gracePeriodError = "Grace end date must be in the future";
+            return;
+        }
+        
+        _savingGracePeriod = true;
+        _gracePeriodError = string.Empty;
+        
+        try
+        {
+            var currentYear = DateTime.Today.Year;
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
+            
+            if (settings == null)
+            {
+                // Create new settings for this year
+                settings = new DuesYearSettings
+                {
+                    Year = currentYear,
+                    StandardDues = 250, // Default baseline dues
+                    GraceEndApplied = true,
+                    GraceEndDate = _gracePeriodEditDate.Value
+                };
+                await Task.Run(() => DuesYearSettingsRepository.UpsertSettings(settings));
+            }
+            else
+            {
+                // Update existing settings
+                settings.GraceEndDate = _gracePeriodEditDate.Value;
+                settings.GraceEndApplied = true;
+                await Task.Run(() => DuesYearSettingsRepository.UpsertSettings(settings));
+            }
+            
+            Logger.LogInformation("Updated grace period end date to {Date} for year {Year}", 
+                _gracePeriodEditDate.Value, currentYear);
+            
+            // Reload data
+            await LoadGracePeriodAndSyncStatusAsync();
+            
+            // Close modal
+            _showGracePeriodModal = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving grace period");
+            _gracePeriodError = "Failed to save grace period. Please try again.";
+        }
+        finally
+        {
+            _savingGracePeriod = false;
+        }
+    }
+    
+    private void ViewSyncQueue()
+    {
+        NavManager.NavigateTo("/keycards/sync-queue");
+    }
+    
+    private async Task RetryAllSync()
+    {
+        try
+        {
+            await SyncQueueRepository.ResetPendingAsync();
+            await LoadGracePeriodAndSyncStatusAsync();
+            Logger.LogInformation("All pending syncs have been reset for retry");
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resetting sync queue");
+        }
+    }
+    
+    private async Task ForceFullSync()
+    {
+        if (!_controllerOnline)
+        {
+            Logger.LogWarning("Cannot perform full sync - controller is offline");
+            await JSRuntime.InvokeVoidAsync("alert", "Cannot perform full sync - the controller is currently offline.");
+            return;
+        }
+        
+        try
+        {
+            Logger.LogInformation("Starting force full sync");
+            
+            // Show confirmation dialog
+            var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+                "This will sync ALL active cards to the controller. This may take a minute. Continue?");
+            if (!confirmed) return;
+            
+            var result = await ControllerFullSyncService.PerformFullSyncAsync();
+            
+            if (result.Success)
+            {
+                Logger.LogInformation(
+                    "Full sync completed successfully: {Success}/{Total} cards synced in {Duration}s",
+                    result.SuccessCount, result.TotalCards, result.Duration.TotalSeconds);
+                
+                // Reload page data
+                await LoadGracePeriodAndSyncStatusAsync();
+            }
+            else
+            {
+                Logger.LogError(
+                    "Full sync completed with errors: {Success}/{Total} cards synced, {Failed} failures",
+                    result.SuccessCount, result.TotalCards, result.FailureCount);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error performing full sync");
+        }
+    }
     
     private string GetStatusClass(string status)
     {
-        return status switch
-        {
-            "REGULAR" => "success",
-            "REGULAR-NP" => "success",
-            "LIFE" => "primary",
-            _ => "secondary"
-        };
+        if (string.IsNullOrWhiteSpace(status)) return "secondary";
+        
+        if (status.Equals("REGULAR", StringComparison.OrdinalIgnoreCase) || 
+            status.Equals("REGULAR-NP", StringComparison.OrdinalIgnoreCase))
+            return "success";
+            
+        if (status.Equals("LIFE", StringComparison.OrdinalIgnoreCase))
+            return "primary";
+            
+        if (status.Equals("GUEST", StringComparison.OrdinalIgnoreCase))
+            return "info";
+            
+        return "secondary";
     }
 }

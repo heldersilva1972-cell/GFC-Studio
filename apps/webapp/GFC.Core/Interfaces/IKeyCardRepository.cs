@@ -9,5 +9,6 @@ public interface IKeyCardRepository
     List<KeyCard> GetAll();
     KeyCard Create(string cardNumber, int memberId, string? notes);
     void Update(KeyCard card);
+    KeyCard? GetActiveMemberCard(int memberId);
 }
 

@@ -11,12 +11,18 @@ public class DuesService
     private readonly GfcDbContext _dbContext;
     private readonly ILogger<DuesService> _logger;
     private readonly IAuditLogger _auditLogger;
+    private readonly KeyCardLifecycleService? _keyCardLifecycleService;
 
-    public DuesService(GfcDbContext dbContext, ILogger<DuesService> logger, IAuditLogger auditLogger)
+    public DuesService(
+        GfcDbContext dbContext, 
+        ILogger<DuesService> logger, 
+        IAuditLogger auditLogger,
+        KeyCardLifecycleService? keyCardLifecycleService = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
+        _keyCardLifecycleService = keyCardLifecycleService; // Optional - may not be registered yet
     }
 
     public async Task<bool> IsDuesPaidAsync(int memberId, int year, CancellationToken cancellationToken = default)
@@ -103,6 +109,21 @@ public class DuesService
             performedByUserId,
             null,
             details);
+
+        // Trigger card reactivation if lifecycle service is available
+        if (_keyCardLifecycleService != null)
+        {
+            try
+            {
+                await _keyCardLifecycleService.ProcessMemberAsync(memberId, year, cancellationToken);
+                _logger.LogInformation("Triggered card eligibility check for member {MemberId} after dues payment", memberId);
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail the dues payment if card processing fails
+                _logger.LogError(ex, "Error processing card eligibility for member {MemberId} after dues payment", memberId);
+            }
+        }
     }
 
     public async Task<List<DuesPayment>> GetDuesForMemberAsync(int memberId, CancellationToken cancellationToken = default)
