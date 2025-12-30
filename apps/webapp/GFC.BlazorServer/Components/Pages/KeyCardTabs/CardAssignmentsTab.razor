@@ -10,6 +10,7 @@
 @inject KeyCardLifecycleService LifecycleService
 @inject ILogger<CardAssignmentsTab> Logger
 @inject IJSRuntime JSRuntime
+@inject AuthenticationStateProvider AuthStateProvider
 
 <div class="assignments-container">
     <!-- Summary Metrics -->
@@ -314,6 +315,20 @@
             </div>
         }
     }
+    
+    @* Custom Confirmation Modal *@
+    @if (_showConfirmModal)
+    {
+        <ConfirmActionModal 
+            Title="@_confirmTitle"
+            Message="@_confirmMessage"
+            SubMessage="@_confirmSubMessage"
+            ConfirmText="@_confirmActionText"
+            Type="@_confirmType"
+            Icon="@_confirmIcon"
+            OnConfirm="HandleConfirmedAction"
+            OnCancel="() => _showConfirmModal = false" />
+    }
 </div>
 
 @* Card Activity Modal Overlay *@
@@ -431,6 +446,8 @@
     </div>
 }
 
+@* Custom Confirmation Modal moved inside container *@
+
 <style>
     /* Activity Modal Overlay */
     .activity-modal-backdrop {
@@ -438,7 +455,6 @@
         top: 0;
         left: 0;
         width: 100vw;
-        height: 100vh;
         background: rgba(0, 0, 0, 0.6);
         backdrop-filter: blur(4px);
         z-index: 3000;
@@ -665,6 +681,16 @@
     private string _typeFilter = "all";
     private string _eligibilityFilter = "all";
     private string _errorMessage = string.Empty;
+    
+    // Confirmation Modal State
+    private bool _showConfirmModal = false;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmSubMessage = "";
+    private string _confirmActionText = "";
+    private string _confirmIcon = "";
+    private ConfirmActionModal.ConfirmType _confirmType;
+    private Func<Task>? _confirmAction;
     private string _viewMode = "grid"; // New: Toggle between 'grid' and 'list'
     
     private int _totalCards = 0;
@@ -828,16 +854,46 @@
     
     private async Task DeactivateCard(int cardId)
     {
-        try
+        var card = _allCards.FirstOrDefault(c => c.CardId == cardId);
+        if (card == null) return;
+        
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User.Identity?.Name ?? "Unknown";
+
+        _confirmTitle = "Confirm Deactivation";
+        _confirmMessage = $"Are you sure you want to DEACTIVATE Card #{card.CardNumber} for {card.MemberName}?";
+        _confirmSubMessage = "This will immediately disable their door access and lock them out of the facility.";
+        _confirmActionText = "Confirm Deactivate";
+        _confirmType = ConfirmActionModal.ConfirmType.Danger;
+        _confirmIcon = "bi-lock-fill";
+        _confirmAction = async () => 
         {
-            await LifecycleService.DeactivateCardAsync(cardId, "Manual", "Deactivated from management console");
-            Logger.LogInformation("Card {CardId} deactivated manually", cardId);
+            await LifecycleService.DeactivateCardAsync(cardId, "Manual", "Deactivated from management console", performedBy: user);
+            Logger.LogInformation("Card {CardId} deactivated manually by {User}", cardId, user);
             await LoadCardsAsync();
-        }
-        catch (Exception ex)
+        };
+        _showConfirmModal = true;
+    }
+
+    private async Task HandleConfirmedAction()
+    {
+        if (_confirmAction != null)
         {
-            Logger.LogError(ex, "Error deactivating card {CardId}", cardId);
-            _errorMessage = "Failed to deactivate card. Please try again.";
+            try
+            {
+                _showConfirmModal = false;
+                StateHasChanged();
+                await _confirmAction();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error performing confirmed action");
+                _errorMessage = $"Operation failed: {ex.Message}";
+            }
+            finally
+            {
+                StateHasChanged();
+            }
         }
     }
     
@@ -877,30 +933,35 @@
     
     private async Task ReactivateCard(int cardId)
     {
-        try
-        {
-            // Check if member already has another active card
-            var card = _allCards.FirstOrDefault(c => c.CardId == cardId);
-            if (card == null) return;
+        // Check if member already has another active card
+        var card = _allCards.FirstOrDefault(c => c.CardId == cardId);
+        if (card == null) return;
 
-            var memberActiveCard = _allCards.FirstOrDefault(c => 
-                c.MemberId == card.MemberId && c.IsActive && c.CardId != cardId);
-            
-            if (memberActiveCard != null)
-            {
-                _errorMessage = $"Member already has an active card (#{memberActiveCard.CardNumber}). Please deactivate it first.";
-                return;
-            }
-            
-            await LifecycleService.ReactivateCardAsync(cardId, "Manual reactivation from console");
-            Logger.LogInformation("Card {CardId} reactivated manually", cardId);
-            await LoadCardsAsync();
-        }
-        catch (Exception ex)
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User.Identity?.Name ?? "Unknown";
+
+        var memberActiveCard = _allCards.FirstOrDefault(c => 
+            c.MemberId == card.MemberId && c.IsActive && c.CardId != cardId);
+        
+        if (memberActiveCard != null)
         {
-            Logger.LogError(ex, "Error reactivating card {CardId}", cardId);
-            _errorMessage = "Failed to reactivate card. Please try again.";
+            _errorMessage = $"Member already has an active card (#{memberActiveCard.CardNumber}). Please deactivate it first.";
+            return;
         }
+        
+        _confirmTitle = "Confirm Reactivation";
+        _confirmMessage = $"Are you sure you want to REACTIVATE Card #{card.CardNumber} for {card.MemberName}?";
+        _confirmSubMessage = "Access will be restored once synchronized with the hardware controller.";
+        _confirmActionText = "Confirm Reactivate";
+        _confirmType = ConfirmActionModal.ConfirmType.Info;
+        _confirmIcon = "bi-unlock-fill";
+        _confirmAction = async () => 
+        {
+            await LifecycleService.ReactivateCardAsync(cardId, "Manual reactivation from console", performedBy: user);
+            Logger.LogInformation("Card {CardId} reactivated manually by {User}", cardId, user);
+            await LoadCardsAsync();
+        };
+        _showConfirmModal = true;
     }
     
     [Parameter] public EventCallback<int> OnReplaceCard { get; set; }

@@ -12,5 +12,6 @@ namespace GFC.Core.Models
         public bool ControllerSynced { get; set; }
         public DateTime? SyncedDate { get; set; }
         public string? Notes { get; set; }
+        public string? PerformedBy { get; set; }
     }
 }

@@ -345,7 +345,7 @@
                                         }
                                         else if (item.MonthsOverdue >= 15 && CanSetInactive(item))
                                         {
-                                            <button class="btn btn-sm btn-outline-danger" @onclick="async () => await ConfirmAndSetInactiveAsync(item)">
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmAndSetInactiveAsync(item)">
                                                 Deactivate
                                             </button>
                                         }
@@ -501,10 +501,43 @@
     private DuesYearSettings? _currentYearSettings;
     private string _searchText = string.Empty;
     private bool _showPaymentModal;
-    private bool _showSuccessModal;
+    private bool _showSuccessModal = false;
     private string? _lastPaymentMember;
     private decimal _lastPaymentAmount;
     private int _lastPaymentMemberId;
+
+    // Confirmation Modal State
+    private bool _showConfirmModal = false;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmSubMessage = "";
+    private string _confirmActionText = "";
+    private string _confirmIcon = "";
+    private ConfirmActionModal.ConfirmType _confirmType;
+    private Func<Task>? _confirmAction;
+
+    private async Task HandleConfirmedAction()
+    {
+        if (_confirmAction != null)
+        {
+            try
+            {
+                _showConfirmModal = false;
+                StateHasChanged(); // Hide modal immediately
+                await _confirmAction();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error performing confirmed action");
+                _operationError = true;
+                _operationMessage = "An error occurred while performing the action.";
+            }
+            finally
+            {
+                StateHasChanged();
+            }
+        }
+    }
     private bool _hasActiveCard;
     private DuesListItemDto? _paymentTarget;
     private PaymentFormModel _paymentForm = PaymentFormModel.CreateDefault();
@@ -818,46 +851,61 @@
         await JSRuntime.InvokeVoidAsync("print");
     }
 
-    private async Task ConfirmAndSetInactiveAsync(DuesListItemDto item)
+    private void ConfirmAndSetInactiveAsync(DuesListItemDto item)
     {
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Deactivate {item.FullName}? This will also deactivate their key card.")) return;
-        
-        // Implementation of SetInactive
-         _operationInProgress = true;
-         try {
-             var member = await Task.Run(() => MemberRepository.GetMemberById(item.MemberId));
-             if (member != null) {
-                 member.InactiveDate = DateTime.Today;
-                 await Task.Run(() => MemberService.UpdateMemberStatus(member, "INACTIVE", "System", false));
-                 
-                 // Log note
-                 await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote {
-                     NoteDate = DateTime.Now,
-                     Category = "STATUS CHANGE",
-                     Text = $"{item.FullName} (ID {item.MemberId}) set inactive on {DateTime.Today:yyyy-MM-dd} for unpaid dues."
-                 }));
+        _confirmTitle = "Confirm Member Deactivation";
+        _confirmMessage = $"Are you sure you want to deactivate {item.FullName}?";
+        _confirmSubMessage = "This will mark them as INACTIVE and simultaneously deactivate their physical key card access.";
+        _confirmActionText = "Confirm Deactivate";
+        _confirmType = ConfirmActionModal.ConfirmType.Danger;
+        _confirmIcon = "bi-person-x-fill";
+        _confirmAction = async () => 
+        {
+             _operationInProgress = true;
+             try {
+                 var member = await Task.Run(() => MemberRepository.GetMemberById(item.MemberId));
+                 if (member != null) {
+                     member.InactiveDate = DateTime.Today;
+                     await Task.Run(() => MemberService.UpdateMemberStatus(member, "INACTIVE", "System", false));
+                     
+                     // Log note
+                     await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote {
+                         NoteDate = DateTime.Now,
+                         Category = "STATUS CHANGE",
+                         Text = $"{item.FullName} (ID {item.MemberId}) set inactive on {DateTime.Today:yyyy-MM-dd} for unpaid dues."
+                     }));
 
-                 // Deactivate Key Card
-                 var activeCard = await Task.Run(() => KeyCardRepository.GetActiveMemberCard(item.MemberId));
-                 if (activeCard != null && activeCard.IsActive)
-                 {
-                     await KeyCardLifecycleService.DeactivateCardAsync(
-                         activeCard.KeyCardId, 
-                         "Member Deactivated", 
-                         "Dues > Set Inactive Action", 
-                         CancellationToken.None);
+                     // Deactivate Key Card
+                     var activeCard = await Task.Run(() => KeyCardRepository.GetActiveMemberCard(item.MemberId));
+                     if (activeCard != null && activeCard.IsActive)
+                     {
+                         var currentUser = AuthStateProvider.GetCurrentUser();
+                         await KeyCardLifecycleService.DeactivateCardAsync(
+                             activeCard.KeyCardId, 
+                             "Member Deactivated", 
+                             "Dues > Set Inactive Action", 
+                             currentUser?.Username ?? "Unknown",
+                             CancellationToken.None);
+                     }
+                     _operationMessage = $"{item.FullName} marked as Inactive and key card deactivated.";
+                     _operationError = false;
                  }
                  
-                 _operationMessage = $"{item.FullName} marked as Inactive and key card deactivated.";
                  await LoadDataInternal();
+                 StateHasChanged();
              }
-         } catch(Exception ex) {
-             Logger.LogError(ex, "Deactivate failed");
-             _operationError = true;
-             _operationMessage = "Deactivation failed.";
-         } finally {
-             _operationInProgress = false;
-         }
+             catch (Exception ex)
+             {
+                 Logger.LogError(ex, "Error deactivating member");
+                 _operationError = true;
+                 _operationMessage = "Deactivation failed.";
+             }
+             finally
+             {
+                 _operationInProgress = false;
+             }
+        };
+        _showConfirmModal = true;
     }
 
     private bool IsExempt(DuesListItemDto item) =>

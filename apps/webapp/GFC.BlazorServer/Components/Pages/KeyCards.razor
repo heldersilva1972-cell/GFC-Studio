@@ -23,6 +23,8 @@
 @inject IJSRuntime JSRuntime
 @inject IDuesInsightService DuesInsightService
 @inject KeyCardLifecycleService KeyCardLifecycleService
+@inject KeyHistoryService KeyHistoryService
+@inject AuthenticationStateProvider AuthStateProvider
 
 <style>
     /* Identify Modal Styles */
@@ -532,7 +534,7 @@
                                     <button class="btn btn-outline-secondary" @onclick="() => _assignStep = 1">
                                         <i class="bi bi-arrow-left"></i> Back
                                     </button>
-                                    <button class="btn btn-primary" @onclick="() => _assignStep = 3" disabled="@(_selectedMemberId == 0)">
+                                    <button class="btn btn-primary" @onclick="HandleProceedToCardType" disabled="@(_selectedMemberId == 0)">
                                         Continue <i class="bi bi-arrow-right"></i>
                                     </button>
                                 </div>
@@ -540,8 +542,60 @@
                         </div>
                     }
 
-                    <!-- Step 3: Confirm -->
+                    <!-- Step 3: Select Card Type -->
                     @if (_assignStep == 3)
+                    {
+                        <div class="step-content fade-in">
+                            <div class="card-type-selection">
+                                <h5 class="mb-3 text-center">Select Access Device Type</h5>
+                                <p class="text-muted text-center mb-4">Choose whether you're assigning a card or a fob</p>
+                                
+                                <div class="card-type-options">
+                                    <div class="card-type-option @(_selectedCardType == "Card" ? "selected" : "")" 
+                                         @onclick='() => _selectedCardType = "Card"'>
+                                        <div class="card-type-icon">
+                                            <i class="bi bi-credit-card-2-front"></i>
+                                        </div>
+                                        <div class="card-type-label">Key Card</div>
+                                        <div class="card-type-description">Standard access card</div>
+                                        @if (_selectedCardType == "Card")
+                                        {
+                                            <div class="card-type-check">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                            </div>
+                                        }
+                                    </div>
+                                    
+                                    <div class="card-type-option @(_selectedCardType == "Fob" ? "selected" : "")" 
+                                         @onclick='() => _selectedCardType = "Fob"'>
+                                        <div class="card-type-icon">
+                                            <i class="bi bi-key-fill"></i>
+                                        </div>
+                                        <div class="card-type-label">Key Fob</div>
+                                        <div class="card-type-description">Keychain access fob</div>
+                                        @if (_selectedCardType == "Fob")
+                                        {
+                                            <div class="card-type-check">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                <div class="step-actions">
+                                    <button class="btn btn-outline-secondary" @onclick="() => _assignStep = 2">
+                                        <i class="bi bi-arrow-left"></i> Back
+                                    </button>
+                                    <button class="btn btn-primary" @onclick="() => _assignStep = 4" disabled="@(string.IsNullOrEmpty(_selectedCardType))">
+                                        Continue <i class="bi bi-arrow-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Step 4: Confirm -->
+                    @if (_assignStep == 4)
                     {
                         <div class="step-content fade-in">
                             <div class="confirmation-summary">
@@ -558,6 +612,15 @@
                                     <div class="summary-row">
                                         <span class="summary-label">Issued Date:</span>
                                         <span class="summary-value">@DateTime.Today.ToString("MMMM dd, yyyy")</span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span class="summary-label">Device Type:</span>
+                                        <span class="summary-value">
+                                            <span class="badge bg-primary">
+                                                <i class="bi bi-@(_selectedCardType == "Fob" ? "key-fill" : "credit-card-2-front") me-1"></i>
+                                                @_selectedCardType
+                                            </span>
+                                        </span>
                                     </div>
                                 </div>
 
@@ -593,8 +656,8 @@
                         </div>
                     }
 
-                    <!-- Step 4: Final Feedback -->
-                    @if (_assignStep == 4)
+                    <!-- Step 5: Final Feedback -->
+                    @if (_assignStep == 5)
                     {
                         <div class="step-content fade-in text-center py-3">
                             <div class="success-checkmark mb-3 mx-auto">
@@ -694,11 +757,23 @@
                             }
                         </div>
                         
-                        <div class="d-flex gap-2 justify-content-center">
+                        <div class="d-flex flex-wrap gap-2 justify-content-center">
+                            @if (_identifiedCard.IsActive)
+                            {
+                                <button class="btn btn-outline-danger" @onclick="DeactivateIdentifiedCard">
+                                    <i class="bi bi-lock-fill me-1"></i> Deactivate
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-outline-success" @onclick="ReactivateIdentifiedCard">
+                                    <i class="bi bi-unlock-fill me-1"></i> Reactivate
+                                </button>
+                            }
                             <button class="btn btn-outline-secondary" @onclick="HandleScanAnother">
                                 <i class="bi bi-arrow-repeat me-1"></i> Scan Another
                             </button>
-                            <button class="btn btn-primary" @onclick="CloseIdentifyModal">
+                            <button class="btn btn-primary px-4" @onclick="CloseIdentifyModal">
                                 Done
                             </button>
                         </div>
@@ -822,6 +897,7 @@
     private int _selectedMemberId = 0;
     private string _selectedMemberName = string.Empty;
     private string _memberSearch = string.Empty;
+    private string _selectedCardType = "Card"; // Card or Fob
     private string _assignNotes = string.Empty;
     private bool _assigning = false;
     private string _assignError = string.Empty;
@@ -861,6 +937,37 @@
     private KeyCard? _identifiedCard;
     private string _identifiedMemberName = string.Empty;
     private int _identifiedMemberId;
+
+    // Confirmation Modal State
+    private bool _showConfirmModal = false;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmSubMessage = "";
+    private string _confirmActionText = "";
+    private string _confirmIcon = "";
+    private ConfirmActionModal.ConfirmType _confirmType;
+    private Func<Task>? _confirmAction;
+
+    private async Task HandleConfirmedAction()
+    {
+        if (_confirmAction != null)
+        {
+            try
+            {
+                _showConfirmModal = false;
+                StateHasChanged(); // Hide modal immediately
+                await _confirmAction();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error performing confirmed action");
+            }
+            finally
+            {
+                StateHasChanged();
+            }
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1022,6 +1129,7 @@
         _selectedMemberId = 0;
         _selectedMemberName = string.Empty;
         _memberSearch = string.Empty;
+        _selectedCardType = "Card";
         _assignNotes = string.Empty;
         _assignError = string.Empty;
     }
@@ -1177,16 +1285,14 @@
         _selectedMemberName = $"{member.FirstName} {member.LastName}";
     }
 
+    private void HandleProceedToCardType()
+    {
+        _assignStep = 3; // Go to card type selection
+    }
+
     private void HandleBackFromConfirm()
     {
-        if (_isAutoSelectedMember)
-        {
-            _assignStep = 1;
-        }
-        else
-        {
-            _assignStep = 2;
-        }
+        _assignStep = 3; // Go back to card type selection
     }
     
     private async Task ConfirmAssignment()
@@ -1208,9 +1314,18 @@
             
             // 1. Create the new card in database
             var newCard = await Task.Run(() => 
-                KeyCardRepository.Create(_scannedCardNumber, _selectedMemberId, _assignNotes));
+                KeyCardRepository.Create(_scannedCardNumber, _selectedMemberId, _assignNotes, _selectedCardType));
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User.Identity?.Name ?? "Unknown";
             
-            Logger.LogInformation("Card {CardNumber} assigned to member {MemberId} in DB", _scannedCardNumber, _selectedMemberId);
+            // Log to KeyHistory
+            if (long.TryParse(_scannedCardNumber, out long cardNumberLong))
+            {
+                await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, _assignNotes ?? "New Assignment", user, _selectedCardType);
+            }
+            
+            Logger.LogInformation("Card {CardNumber} ({CardType}) assigned to member {MemberId} in DB by {User}", _scannedCardNumber, _selectedCardType, _selectedMemberId, user);
 
             // 2. Activate card on physical controllers
             bool anyControllerSuccess = false;
@@ -1257,12 +1372,12 @@
             if (controllerOffline && !anyControllerSuccess)
             {
                 _assignSuccessMessage = $"Card #{_scannedCardNumber} assigned to {_selectedMemberName}. The controller is offline, so the card is queued for sync.";
-                _assignStep = 4; // New completion step
+                _assignStep = 5; // New completion step
             }
             else
             {
                 _assignSuccessMessage = $"Card #{_scannedCardNumber} has been successfully assigned and activated for {_selectedMemberName}.";
-                _assignStep = 4; // New completion step
+                _assignStep = 5; // New completion step
             }
             
             // Refresh counts and lists
@@ -1291,12 +1406,43 @@
             // Deactivate
             if (card.IsActive)
             {
-                // We use Lifecycle service to ensure logs are written
-                 await KeyCardLifecycleService.DeactivateCardAsync(
-                     card.KeyCardId, 
-                     "Replaced", 
-                     "User initiated replacement via UI", 
-                     System.Threading.CancellationToken.None);
+                _confirmTitle = "Replace Key Card";
+                _confirmMessage = $"Are you sure you want to REPLACE Card #{card.CardNumber}?";
+                _confirmSubMessage = "The current card will be deactivated immediately. You will then be prompted to assign a new physical card.";
+                _confirmActionText = "Confirm Replacement";
+                _confirmType = ConfirmActionModal.ConfirmType.Warning;
+                _confirmIcon = "bi-arrow-repeat";
+                _confirmAction = async () => 
+                {
+                    var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                    var user = authState.User.Identity?.Name ?? "Unknown";
+
+                    // Deactivate and proceed to scan new card
+                    await KeyCardLifecycleService.DeactivateCardAsync(
+                        card.KeyCardId, 
+                        "Replaced", 
+                        "User initiated replacement via UI", 
+                        user,
+                        System.Threading.CancellationToken.None);
+                    
+                    // Log revocation to KeyHistory
+                    if (long.TryParse(card.CardNumber, out long cardNumberLong))
+                    {
+                        await KeyHistoryService.LogRevocationAsync(card.MemberId, cardNumberLong, $"Replacing with new card", user);
+                    }
+
+                    await LoadGracePeriodAndSyncStatusAsync();
+                    
+                    _scannedCardNumber = string.Empty;
+                    _selectedMemberId = card.MemberId;
+                    _selectedMemberName = await GetMemberNameAsync(card.MemberId);
+                    _assignNotes = $"Replacement for card #{card.CardNumber}";
+                    _assignStep = 1;
+                    _showAssignModal = true;
+                    StateHasChanged();
+                };
+                _showConfirmModal = true;
+                return;
             }
 
             // Open Assign Modal
@@ -1425,30 +1571,33 @@
         
         try
         {
-            Logger.LogInformation("Starting force full sync");
-            
-            // Show confirmation dialog
-            var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
-                "This will sync ALL active cards to the controller. This may take a minute. Continue?");
-            if (!confirmed) return;
-            
-            var result = await ControllerFullSyncService.PerformFullSyncAsync();
-            
-            if (result.Success)
+            _confirmTitle = "Full Controller Sync";
+            _confirmMessage = "This will synchronize ALL active cards to the physical controller.";
+            _confirmSubMessage = "This process ensures the controller matches the database exactly. It may take up to a minute depending on the number of cards.";
+            _confirmActionText = "Start Full Sync";
+            _confirmType = ConfirmActionModal.ConfirmType.Info;
+            _confirmIcon = "bi-cpu-fill";
+            _confirmAction = async () => 
             {
-                Logger.LogInformation(
-                    "Full sync completed successfully: {Success}/{Total} cards synced in {Duration}s",
-                    result.SuccessCount, result.TotalCards, result.Duration.TotalSeconds);
+                Logger.LogInformation("Starting force full sync");
+                var result = await ControllerFullSyncService.PerformFullSyncAsync();
                 
-                // Reload page data
-                await LoadGracePeriodAndSyncStatusAsync();
-            }
-            else
-            {
-                Logger.LogError(
-                    "Full sync completed with errors: {Success}/{Total} cards synced, {Failed} failures",
-                    result.SuccessCount, result.TotalCards, result.FailureCount);
-            }
+                if (result.Success)
+                {
+                    Logger.LogInformation(
+                        "Full sync completed successfully: {Success}/{Total} cards synced in {Duration}s",
+                        result.SuccessCount, result.TotalCards, result.Duration.TotalSeconds);
+                    
+                    await LoadGracePeriodAndSyncStatusAsync();
+                }
+                else
+                {
+                    Logger.LogError(
+                        "Full sync completed with errors: {Success}/{Total} cards synced, {Failed} failures",
+                        result.SuccessCount, result.TotalCards, result.FailureCount);
+                }
+            };
+            _showConfirmModal = true;
         }
         catch (Exception ex)
         {
@@ -1575,6 +1724,58 @@
             _identifyError = "Error identifying card. Please try again.";
         }
     }
+
+    private async Task ReactivateIdentifiedCard()
+    {
+        if (_identifiedCard == null) return;
+        
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User.Identity?.Name ?? "Unknown";
+
+        _confirmTitle = "Confirm Reactivation";
+        _confirmMessage = $"Are you sure you want to REACTIVATE Card #{_identifiedCard.CardNumber}?";
+        _confirmSubMessage = $"This will restore door access for {_identifiedMemberName} immediately.";
+        _confirmActionText = "Confirm Reactivate";
+        _confirmType = ConfirmActionModal.ConfirmType.Success;
+        _confirmIcon = "bi-unlock-fill";
+        _confirmAction = async () => 
+        {
+            await KeyCardLifecycleService.ReactivateCardAsync(_identifiedCard.KeyCardId, "Manual reactivation via scan identify", user);
+            
+            // Refresh the identified card state
+            var refreshedCard = await Task.Run(() => KeyCardRepository.GetById(_identifiedCard.KeyCardId));
+            if (refreshedCard != null) _identifiedCard = refreshedCard;
+            
+            await LoadGracePeriodAndSyncStatusAsync();
+        };
+        _showConfirmModal = true;
+    }
+
+    private async Task DeactivateIdentifiedCard()
+    {
+        if (_identifiedCard == null) return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User.Identity?.Name ?? "Unknown";
+
+        _confirmTitle = "Confirm Deactivation";
+        _confirmMessage = $"Are you sure you want to DEACTIVATE Card #{_identifiedCard.CardNumber}?";
+        _confirmSubMessage = $"This will REVOKE door access for {_identifiedMemberName} immediately.";
+        _confirmActionText = "Confirm Deactivate";
+        _confirmType = ConfirmActionModal.ConfirmType.Danger;
+        _confirmIcon = "bi-lock-fill";
+        _confirmAction = async () => 
+        {
+            await KeyCardLifecycleService.DeactivateCardAsync(_identifiedCard.KeyCardId, "Manual", "Deactivated via scan identify", user);
+            
+            // Refresh the identified card state
+            var refreshedCard = await Task.Run(() => KeyCardRepository.GetById(_identifiedCard.KeyCardId));
+            if (refreshedCard != null) _identifiedCard = refreshedCard;
+            
+            await LoadGracePeriodAndSyncStatusAsync();
+        };
+        _showConfirmModal = true;
+    }
     
     private string GetInitials(string name)
     {
@@ -1584,4 +1785,25 @@
         if (parts.Length == 1) return parts[0][0].ToString().ToUpper();
         return $"{parts[0][0]}{parts[^1][0]}".ToUpper();
     }
+
+    private async Task<string> GetMemberNameAsync(int memberId)
+    {
+        if (!_allMembers.Any()) await LoadMembersAsync();
+        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
+        return member != null ? $"{member.FirstName} {member.LastName}" : $"Member #{memberId}";
+    }
+}
+
+@* Custom Confirmation Modal *@
+@if (_showConfirmModal)
+{
+    <ConfirmActionModal 
+        Title="@_confirmTitle"
+        Message="@_confirmMessage"
+        SubMessage="@_confirmSubMessage"
+        ConfirmText="@_confirmActionText"
+        Type="@_confirmType"
+        Icon="@_confirmIcon"
+        OnConfirm="HandleConfirmedAction"
+        OnCancel="() => _showConfirmModal = false" />
 }

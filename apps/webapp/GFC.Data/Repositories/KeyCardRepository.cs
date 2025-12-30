@@ -81,14 +81,14 @@ public class KeyCardRepository : IKeyCardRepository
         return cards;
     }
 
-    public KeyCard Create(string cardNumber, int memberId, string? notes)
+    public KeyCard Create(string cardNumber, int memberId, string? notes, string cardType = "Card")
     {
         using var connection = Db.GetConnection();
         connection.Open();
 
         const string sql = @"
             INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, CreatedDate)
-            VALUES (@MemberID, @CardNumber, @Notes, 1, 'Card', 0, @CreatedDate);
+            VALUES (@MemberID, @CardNumber, @Notes, 1, @CardType, 0, @CreatedDate);
             SELECT CAST(SCOPE_IDENTITY() AS INT);";
         // Note: Defaulting to 'Card' for now, should update Create method to accept type
 
@@ -96,6 +96,7 @@ public class KeyCardRepository : IKeyCardRepository
         command.Parameters.AddWithValue("@MemberID", memberId);
         command.Parameters.AddWithValue("@CardNumber", cardNumber);
         command.Parameters.AddWithValue("@Notes", (object?)notes ?? DBNull.Value);
+        command.Parameters.AddWithValue("@CardType", cardType);
         command.Parameters.AddWithValue("@CreatedDate", DateTime.Now);
 
         var newId = (int)command.ExecuteScalar();

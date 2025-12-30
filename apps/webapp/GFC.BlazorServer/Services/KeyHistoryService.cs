@@ -15,7 +15,7 @@ public class KeyHistoryService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task LogAssignmentAsync(int memberId, long cardNumber, string? reason, CancellationToken cancellationToken = default)
+    public async Task LogAssignmentAsync(int memberId, long cardNumber, string? reason, string? performedBy = null, string? keyType = "Card", CancellationToken cancellationToken = default)
     {
         var history = new KeyHistory
         {
@@ -23,14 +23,16 @@ public class KeyHistoryService
             CardNumber = cardNumber,
             Action = "Assigned",
             Date = DateTime.UtcNow,
-            Reason = reason
+            Reason = reason,
+            PerformedBy = performedBy,
+            KeyType = keyType
         };
 
         _dbContext.KeyHistories.Add(history);
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task LogRevocationAsync(int memberId, long cardNumber, string? reason, CancellationToken cancellationToken = default)
+    public async Task LogRevocationAsync(int memberId, long cardNumber, string? reason, string? performedBy = null, string? keyType = null, CancellationToken cancellationToken = default)
     {
         var history = new KeyHistory
         {
@@ -38,7 +40,9 @@ public class KeyHistoryService
             CardNumber = cardNumber,
             Action = "Revoked",
             Date = DateTime.UtcNow,
-            Reason = reason
+            Reason = reason,
+            PerformedBy = performedBy,
+            KeyType = keyType
         };
 
         _dbContext.KeyHistories.Add(history);

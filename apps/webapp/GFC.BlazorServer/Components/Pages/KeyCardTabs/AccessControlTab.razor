@@ -263,12 +263,58 @@
     }
 </div>
 
+@* Custom Confirmation Modal *@
+@if (_showConfirmModal)
+{
+    <ConfirmActionModal 
+        Title="@_confirmTitle"
+        Message="@_confirmMessage"
+        SubMessage="@_confirmSubMessage"
+        ConfirmText="@_confirmActionText"
+        Type="@_confirmType"
+        Icon="@_confirmIcon"
+        OnConfirm="HandleConfirmedAction"
+        OnCancel="() => _showConfirmModal = false" />
+}
+
 @code {
     private string _viewMode = "member";
     private bool _loading = false;
     private int _selectedMemberId = 0;
     private int _selectedDoorId = 0;
     private string _selectedMemberName = string.Empty;
+    private string _manualMemberId = string.Empty;
+    
+    // Confirmation Modal State
+    private bool _showConfirmModal = false;
+    private string _confirmTitle = "";
+    private string _confirmMessage = "";
+    private string _confirmSubMessage = "";
+    private string _confirmActionText = "";
+    private string _confirmIcon = "";
+    private ConfirmActionModal.ConfirmType _confirmType;
+    private Func<Task>? _confirmAction;
+
+    private async Task HandleConfirmedAction()
+    {
+        if (_confirmAction != null)
+        {
+            try
+            {
+                _showConfirmModal = false;
+                StateHasChanged(); // Hide modal immediately
+                await _confirmAction();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error performing confirmed action");
+            }
+            finally
+            {
+                StateHasChanged();
+            }
+        }
+    }
     private string _selectedDoorName = string.Empty;
     
     private List<MemberWithCard> _membersWithCards = new();
@@ -484,28 +530,36 @@
         }
     }
     
-    private async Task RemoveAccess(AccessItem access)
+    private void RemoveAccess(AccessItem access)
     {
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to remove this access rule?")) return;
-        
-        try
+        _confirmTitle = "Remove Access Rule";
+        _confirmMessage = $"Are you sure you want to remove this access rule?";
+        _confirmSubMessage = "The member will lose access to this specific door immediately upon hardware synchronization.";
+        _confirmActionText = "Remove Access";
+        _confirmType = ConfirmActionModal.ConfirmType.Danger;
+        _confirmIcon = "bi-trash3-fill";
+        _confirmAction = async () => 
         {
-             var entity = await DbContext.MemberDoorAccesses.FindAsync(access.Id);
-             if (entity != null)
-             {
-                 DbContext.MemberDoorAccesses.Remove(entity);
-                 await DbContext.SaveChangesAsync();
-                 
-                 await TriggerSyncForMember(entity.MemberId);
-                 
-                 if (_viewMode == "member") _memberAccess.Remove(access);
-                 else _doorAccess.Remove(access);
-             }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error removing access");
-        }
+            try
+            {
+                 var entity = await DbContext.MemberDoorAccesses.FindAsync(access.Id);
+                 if (entity != null)
+                 {
+                     DbContext.MemberDoorAccesses.Remove(entity);
+                     await DbContext.SaveChangesAsync();
+                     
+                     await TriggerSyncForMember(entity.MemberId);
+                     
+                     if (_viewMode == "member") _memberAccess.Remove(access);
+                     else _doorAccess.Remove(access);
+                 }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error removing access");
+            }
+        };
+        _showConfirmModal = true;
     }
 
     private async Task TriggerSyncForMember(int memberId)

@@ -58,13 +58,13 @@ public class KeyCardLifecycleService
             if (isEligible && activeCard != null && !activeCard.IsActive)
             {
                 // Member is now eligible and has an inactive card - reactivate it
-                await ReactivateCardAsync(activeCard.KeyCardId, "Dues paid - automatic reactivation", ct);
+                await ReactivateCardAsync(activeCard.KeyCardId, "Dues paid - automatic reactivation", "System", ct);
                 _logger.LogInformation("Reactivated card {CardId} for member {MemberId}", activeCard.KeyCardId, memberId);
             }
             else if (!isEligible && activeCard != null && activeCard.IsActive)
             {
                 // Member is no longer eligible - deactivate card
-                await DeactivateCardAsync(activeCard.KeyCardId, "DuesUnpaid", "Automatic deactivation - dues not satisfied", ct);
+                await DeactivateCardAsync(activeCard.KeyCardId, "DuesUnpaid", "Automatic deactivation - dues not satisfied", "System", ct);
                 _logger.LogInformation("Deactivated card {CardId} for member {MemberId}", activeCard.KeyCardId, memberId);
             }
         }
@@ -77,7 +77,7 @@ public class KeyCardLifecycleService
     /// <summary>
     /// Deactivate a card with a specific reason
     /// </summary>
-    public async Task DeactivateCardAsync(int keyCardId, string reason, string notes, CancellationToken ct = default)
+    public async Task DeactivateCardAsync(int keyCardId, string reason, string notes, string? performedBy = null, CancellationToken ct = default)
     {
         try
         {
@@ -104,6 +104,7 @@ public class KeyCardLifecycleService
                 DeactivatedDate = DateTime.Now,
                 Reason = reason,
                 Notes = notes,
+                PerformedBy = performedBy,
                 ControllerSynced = false // Will be updated when sync logs success
             });
 
@@ -119,7 +120,7 @@ public class KeyCardLifecycleService
     /// <summary>
     /// Reactivate a card (dues-related deactivation only)
     /// </summary>
-    public async Task ReactivateCardAsync(int keyCardId, string notes, CancellationToken ct = default)
+    public async Task ReactivateCardAsync(int keyCardId, string notes, string? performedBy = null, CancellationToken ct = default)
     {
         try
         {
@@ -146,6 +147,7 @@ public class KeyCardLifecycleService
                 DeactivatedDate = DateTime.Now,
                 Reason = "Activated",
                 Notes = notes,
+                PerformedBy = performedBy,
                 ControllerSynced = false
             });
 

@@ -23,4 +23,10 @@ public class KeyHistory
 
     [MaxLength(500)]
     public string? Reason { get; set; }
+
+    [MaxLength(255)]
+    public string? PerformedBy { get; set; }
+
+    [MaxLength(50)]
+    public string? KeyType { get; set; } // Card, Fob
 }

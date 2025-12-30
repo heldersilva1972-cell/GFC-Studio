@@ -17,5 +17,6 @@ namespace GFC.Core.Models
         public string? Reason { get; set; }
 
         public DateTime ChangedUtc { get; set; }
+        public string? PerformedBy { get; set; }
     }
 }

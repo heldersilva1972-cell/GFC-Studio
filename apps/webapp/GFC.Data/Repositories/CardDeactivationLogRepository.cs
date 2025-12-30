@@ -13,7 +13,7 @@ namespace GFC.Data.Repositories
         
         private static readonly string[] ColumnNames = 
         { 
-            "LogId", "KeyCardId", "MemberId", "DeactivatedDate", "Reason", "ControllerSynced", "SyncedDate", "Notes" 
+            "LogId", "KeyCardId", "MemberId", "DeactivatedDate", "Reason", "ControllerSynced", "SyncedDate", "Notes", "PerformedBy" 
         };
 
         public async Task<int> AddAsync(GFC.Core.Models.CardDeactivationLog log)
@@ -23,9 +23,9 @@ namespace GFC.Data.Repositories
 
             const string sql = @"
                 INSERT INTO dbo.CardDeactivationLog 
-                (KeyCardId, MemberId, DeactivatedDate, Reason, ControllerSynced, SyncedDate, Notes)
+                (KeyCardId, MemberId, DeactivatedDate, Reason, ControllerSynced, SyncedDate, Notes, PerformedBy)
                 VALUES 
-                (@KeyCardId, @MemberId, @DeactivatedDate, @Reason, @ControllerSynced, @SyncedDate, @Notes);
+                (@KeyCardId, @MemberId, @DeactivatedDate, @Reason, @ControllerSynced, @SyncedDate, @Notes, @PerformedBy);
                 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             using var command = new SqlCommand(sql, connection);
@@ -36,6 +36,7 @@ namespace GFC.Data.Repositories
             command.Parameters.AddWithValue("@ControllerSynced", log.ControllerSynced);
             command.Parameters.AddWithValue("@SyncedDate", (object?)log.SyncedDate ?? DBNull.Value);
             command.Parameters.AddWithValue("@Notes", (object?)log.Notes ?? DBNull.Value);
+            command.Parameters.AddWithValue("@PerformedBy", (object?)log.PerformedBy ?? DBNull.Value);
 
             var result = await command.ExecuteScalarAsync();
             return (int)result;
@@ -47,7 +48,7 @@ namespace GFC.Data.Repositories
             await connection.OpenAsync();
 
             const string sql = @"
-                SELECT LogId, KeyCardId, MemberId, DeactivatedDate, Reason, ControllerSynced, SyncedDate, Notes
+                SELECT LogId, KeyCardId, MemberId, DeactivatedDate, Reason, ControllerSynced, SyncedDate, Notes, PerformedBy
                 FROM dbo.CardDeactivationLog
                 WHERE MemberId = @MemberId
                 ORDER BY DeactivatedDate DESC";
@@ -70,7 +71,7 @@ namespace GFC.Data.Repositories
             await connection.OpenAsync();
 
             const string sql = @"
-                SELECT LogId, KeyCardId, MemberId, DeactivatedDate, Reason, ControllerSynced, SyncedDate, Notes
+                SELECT LogId, KeyCardId, MemberId, DeactivatedDate, Reason, ControllerSynced, SyncedDate, Notes, PerformedBy
                 FROM dbo.CardDeactivationLog
                 WHERE KeyCardId = @KeyCardId
                 ORDER BY DeactivatedDate DESC";
@@ -117,7 +118,8 @@ namespace GFC.Data.Repositories
                 Reason = reader["Reason"].ToString() ?? "",
                 ControllerSynced = (bool)reader["ControllerSynced"],
                 SyncedDate = reader["SyncedDate"] as DateTime?,
-                Notes = reader["Notes"] as string
+                Notes = reader["Notes"] as string,
+                PerformedBy = reader["PerformedBy"] as string
             };
         }
     }
