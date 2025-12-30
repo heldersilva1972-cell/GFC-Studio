@@ -3,11 +3,14 @@
 @attribute [Authorize]
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
+@using GFC.Core.Services
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
+@inject KeyCardLifecycleService LifecycleService
 @inject NavigationManager Navigation
 @inject ILogger<SyncQueue> Logger
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Controller Sync Queue - GFC</PageTitle>
 
@@ -98,158 +101,127 @@
     </div>
 </div>
 
-<!-- Queue Table -->
 @if (_loading)
 {
-    <div class="loading-state">
-        <div class="spinner-border text-primary" role="status"></div>
-        <p>Loading sync queue...</p>
-    </div>
-}
-else if (!FilteredItems.Any())
-{
-    <div class="empty-state fade-in">
-        <i class="bi bi-inbox fs-1 text-muted"></i>
-        <h4>No items in queue</h4>
-        <p class="text-muted">All cards are synced with the controller</p>
+    <div class="loading-state fade-in">
+        <div class="spinner-modern"></div>
+        <p class="mt-3 text-muted">Synchronizing queue data...</p>
     </div>
 }
 else
 {
-    <div class="table-container fade-in" style="animation-delay: 0.3s;">
-        <table class="data-table table-sticky-header">
-            <thead>
-                <tr>
-                    <th>Card Number</th>
-                    <th>Member</th>
-                    <th>Action</th>
-                    <th>Status</th>
-                    <th>Attempts</th>
-                    <th>Queued</th>
-                    <th>Next Retry</th>
-                    <th>Last Error</th>
-                    <th style="width: 150px;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var item in FilteredItems)
-                {
-                    <tr class="@GetRowClass(item)">
-                        <td>
-                            <code class="badge bg-secondary">@item.CardNumber</code>
-                        </td>
-                        <td>
-                            @if (_memberNames.TryGetValue(item.KeyCardId, out var memberName))
-                            {
-                                <span>@memberName</span>
-                            }
-                            else
-                            {
-                                <span class="text-muted">Unknown</span>
-                            }
-                        </td>
-                        <td>
-                            @if (item.Action == "ACTIVATE")
-                            {
-                                <span class="badge bg-success">
-                                    <i class="bi bi-unlock"></i> ACTIVATE
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="badge bg-danger">
-                                    <i class="bi bi-lock"></i> DEACTIVATE
-                                </span>
-                            }
-                        </td>
-                        <td>
+    @if (_unconfirmedMissingFromQueue.Any())
+    {
+        <div class="unconfirmed-notice slide-in-down mb-4">
+            <div class="d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="notice-icon pulse-warning">
+                        <i class="bi bi-exclamation-octagon"></i>
+                    </div>
+                    <div>
+                        <h6 class="mb-1 text-warning fw-bold">Missing Sync Tasks Detected</h6>
+                        <p class="mb-0 text-muted small">@_unconfirmedMissingFromQueue.Count current card status changes are not in the sync queue.</p>
+                    </div>
+                </div>
+                <button class="btn btn-warning btn-sm fw-bold px-3" @onclick="RequeueMissingTasks" disabled="@_processing">
+                    <i class="bi bi-plus-circle me-1"></i> Fix Queue Now
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (!FilteredItems.Any() && !_unconfirmedMissingFromQueue.Any())
+    {
+        <div class="empty-state-modern fade-in">
+            <div class="empty-icon-wrapper">
+                <i class="bi bi-check-all"></i>
+            </div>
+            <h4>Everything is Syncing</h4>
+            <p>All cards are currently confirmed or correctly queued for the controller.</p>
+            <button class="btn btn-outline-primary mt-3" @onclick="GoBack">
+                <i class="bi bi-arrow-left me-2"></i>Back to Management
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="queue-grid fade-in">
+            @foreach (var item in FilteredItems)
+            {
+                <div class="queue-card @GetRowClass(item)">
+                    <div class="queue-card-header">
+                        <div class="card-num-group">
+                            <span class="card-icon"><i class="bi bi-credit-card-2-front"></i></span>
+                            <span class="card-num">#@item.CardNumber</span>
+                        </div>
+                        <div class="status-group">
                             @if (item.Status == "PENDING")
                             {
-                                <span class="badge bg-warning">⏳ Pending</span>
+                                <span class="badge-modern badge-warning">
+                                    <span class="dot pulse-warning"></span>PENDING
+                                </span>
                             }
                             else if (item.Status == "PROCESSING")
                             {
-                                <span class="badge bg-info">
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                    Processing
+                                <span class="badge-modern badge-info">
+                                    <span class="spinner-border spinner-border-sm me-1"></span>SYNCING
                                 </span>
                             }
                             else
                             {
-                                <span class="badge bg-success">✅ Completed</span>
+                                <span class="badge-modern badge-success">
+                                    <i class="bi bi-check2-all me-1"></i>SYNCED
+                                </span>
                             }
-                        </td>
-                        <td>
-                            <span class="@GetAttemptsClass(item.AttemptCount)">
-                                @item.AttemptCount
+                        </div>
+                    </div>
+                    
+                    <div class="queue-card-body">
+                        <div class="member-info">
+                            <div class="member-name">
+                                @(_memberNames.TryGetValue(item.KeyCardId, out var name) ? name : "Unknown Member")
+                            </div>
+                            <div class="member-id">Member #@item.KeyCardId</div>
+                        </div>
+                        
+                        <div class="action-info">
+                            <div class="action-label">Operation</div>
+                            <div class="action-value @(item.Action == "ACTIVATE" ? "text-success" : "text-danger")">
+                                <i class="bi @(item.Action == "ACTIVATE" ? "bi-unlock-fill" : "bi-lock-fill") me-1"></i>
+                                @item.Action
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="queue-card-footer">
+                        <div class="footer-stats">
+                            <span class="stat-item" title="Attempts">
+                                <i class="bi bi-arrow-repeat"></i> @item.AttemptCount
                             </span>
-                        </td>
-                        <td>
-                            <small class="text-muted">
-                                @GetTimeAgo(item.QueuedDate)
-                            </small>
-                        </td>
-                        <td>
-                            @if (item.Status == "PENDING" && item.LastAttemptDate.HasValue)
-                            {
-                                var nextRetry = CalculateNextRetryTime(item.AttemptCount, item.LastAttemptDate.Value);
-                                var timeUntil = nextRetry - DateTime.Now;
-                                
-                                @if (timeUntil.TotalSeconds > 0)
-                                {
-                                    <small class="text-info">
-                                        In @FormatTimeSpan(timeUntil)
-                                    </small>
-                                }
-                                else
-                                {
-                                    <small class="text-success">Ready now</small>
-                                }
-                            }
-                            else if (item.Status == "PENDING")
-                            {
-                                <small class="text-success">Ready now</small>
-                            }
-                            else
-                            {
-                                <small class="text-muted">--</small>
-                            }
-                        </td>
-                        <td>
-                            @if (!string.IsNullOrEmpty(item.LastError))
-                            {
-                                <small class="text-danger" title="@item.LastError">
-                                    @TruncateError(item.LastError)
-                                </small>
-                            }
-                            else
-                            {
-                                <small class="text-muted">--</small>
-                            }
-                        </td>
-                        <td>
+                            <span class="stat-item" title="Queued Time">
+                                <i class="bi bi-clock"></i> @GetTimeAgo(item.QueuedDate)
+                            </span>
+                        </div>
+                        
+                        <div class="footer-actions">
                             @if (item.Status == "PENDING")
                             {
-                                <button class="btn btn-sm btn-outline-primary" 
-                                        @onclick="() => RetryItem(item.QueueId)"
-                                        disabled="@_processing">
-                                    <i class="bi bi-arrow-repeat"></i> Retry
+                                <button class="btn btn-icon-only text-primary" @onclick="() => RetryItem(item.QueueId)" title="Retry Now">
+                                    <i class="bi bi-play-circle-fill fs-5"></i>
                                 </button>
                             }
-                            else if (item.Status == "COMPLETED")
+                            @if (!string.IsNullOrEmpty(item.LastError))
                             {
-                                <button class="btn btn-sm btn-outline-secondary" 
-                                        @onclick="() => ViewDetails(item)"
-                                        disabled="@_processing">
-                                    <i class="bi bi-eye"></i> View
+                                <button class="btn btn-icon-only text-danger" @onclick="() => ShowError(item.LastError)" title="View Error">
+                                    <i class="bi bi-exclamation-circle-fill fs-5"></i>
                                 </button>
                             }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
 }
 
 @if (!string.IsNullOrEmpty(_message))
@@ -262,10 +234,11 @@ else
 
 @code {
     private List<ControllerSyncQueueItem> _allItems = new();
+    private List<KeyCard> _unconfirmedMissingFromQueue = new();
     private Dictionary<int, string> _memberNames = new();
     private bool _loading = true;
     private bool _processing = false;
-    private string _statusFilter = "ALL";
+    private string _statusFilter = "PENDING";
     private int _pendingCount = 0;
     private int _completedTodayCount = 0;
     private string? _oldestPendingAge = null;
@@ -294,6 +267,14 @@ else
             _pendingCount = pending.Count;
             _completedTodayCount = completed.Count(x => x.CompletedDate.HasValue && x.CompletedDate.Value.Date == DateTime.Today);
             
+            // Look for cards that are unconfirmed but NOT in the queue
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            var pendingCardIds = pending.Select(p => p.KeyCardId).ToHashSet();
+            
+            _unconfirmedMissingFromQueue = allCards
+                .Where(c => !c.IsControllerSynced && !pendingCardIds.Contains(c.KeyCardId))
+                .ToList();
+
             if (pending.Any())
             {
                 var oldest = pending.OrderBy(x => x.QueuedDate).First();
@@ -441,10 +422,45 @@ else
         }
     }
 
+    private async Task RequeueMissingTasks()
+    {
+        _processing = true;
+        _message = "Re-queuing missing tasks...";
+        _messageIsError = false;
+        
+        try
+        {
+            int count = 0;
+            foreach (var card in _unconfirmedMissingFromQueue)
+            {
+                await LifecycleService.SyncCardToControllerAsync(card.KeyCardId, card.IsActive);
+                count++;
+            }
+            
+            _message = $"Successfully re-queued {count} task(s).";
+            await LoadQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error re-queuing missing tasks");
+            _message = "Failed to re-queue missing tasks.";
+            _messageIsError = true;
+        }
+        finally
+        {
+            _processing = false;
+        }
+    }
+
     private void ViewDetails(ControllerSyncQueueItem item)
     {
-        // TODO: Show details modal
         Logger.LogInformation("View details for queue item {QueueId}", item.QueueId);
+    }
+
+    private async Task ShowError(string? error)
+    {
+        if (string.IsNullOrEmpty(error)) return;
+        await JSRuntime.InvokeVoidAsync("alert", $"Last Sync Error:\n\n{error}");
     }
 
     private void GoBack()
@@ -513,73 +529,235 @@ else
 <style>
     .metric-card {
         background: var(--bg-surface);
-        border-radius: 12px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-radius: 16px;
         padding: 1.5rem;
         display: flex;
         align-items: center;
-        gap: 1rem;
+        gap: 1.25rem;
         border: 1px solid var(--glass-border);
-        box-shadow: var(--card-shadow);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        transition: transform 0.3s ease;
     }
 
+    .metric-card:hover { transform: translateY(-3px); }
+
     .metric-icon {
-        width: 48px;
-        height: 48px;
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.6rem;
+    }
+
+    .metric-value {
+        font-size: 1.850rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--text-primary);
+    }
+
+    .unconfirmed-notice {
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-left: 5px solid #f59e0b;
+        border-radius: 12px;
+        padding: 1rem 1.5rem;
+    }
+
+    .notice-icon {
+        width: 42px;
+        height: 42px;
+        background: #fef3c7;
+        color: #d97706;
         border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.5rem;
+        font-size: 1.4rem;
     }
 
-    .metric-content {
-        flex: 1;
+    /* Queue Grid & Cards */
+    .queue-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1.5rem;
     }
 
-    .metric-label {
-        font-size: 0.875rem;
+    .queue-card {
+        background: var(--bg-surface);
+        border-radius: 20px;
+        border: 1px solid var(--glass-border);
+        overflow: hidden;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .queue-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+        border-color: var(--accent-primary);
+    }
+
+    .queue-card-header {
+        padding: 1.25rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--glass-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .card-num-group {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .card-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--bg-surface);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         color: var(--text-muted);
-        margin-bottom: 0.25rem;
     }
 
-    .metric-value {
-        font-size: 1.75rem;
+    .card-num {
+        font-family: 'JetBrains Mono', monospace;
         font-weight: 700;
         color: var(--text-primary);
     }
 
-    .table-row-success {
-        background-color: rgba(25, 135, 84, 0.05);
+    .queue-card-body {
+        padding: 1.5rem;
+        flex-grow: 1;
     }
 
-    .table-row-warning {
-        background-color: rgba(255, 193, 7, 0.05);
+    .member-name {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
     }
 
-    .table-row-danger {
-        background-color: rgba(220, 53, 69, 0.05);
+    .member-id {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }
 
-    .empty-state {
-        text-align: center;
-        padding: 4rem 2rem;
-    }
-
-    .info-card-modern {
-        background: var(--bg-surface);
+    .action-info {
+        margin-top: 1.25rem;
+        padding: 0.75rem;
+        background: var(--bg-secondary);
         border-radius: 12px;
-        padding: 1.25rem;
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--card-shadow);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 
-    .info-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 10px;
+    .action-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        font-weight: 700;
+        color: var(--text-muted);
+    }
+
+    .action-value {
+        font-weight: 800;
+        font-size: 0.85rem;
+    }
+
+    .queue-card-footer {
+        padding: 1rem 1.25rem;
+        border-top: 1px solid var(--glass-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.01);
+    }
+
+    .footer-stats {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    /* Modern Badges */
+    .badge-modern {
+        padding: 0.35rem 0.75rem;
+        border-radius: 50px;
+        font-size: 0.65rem;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+    }
+
+    .badge-warning { background: #fffbeb; color: #d97706; }
+    .dot.pulse-warning { background: #f59e0b; animation: pulse-warning 2s infinite; }
+
+    .badge-info { background: #eff6ff; color: #2563eb; }
+    .badge-success { background: #f0fdf4; color: #166534; }
+
+    @@keyframes pulse-warning {
+        0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+        70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+
+    .empty-state-modern {
+        text-align: center;
+        padding: 5rem 2rem;
+        background: var(--bg-surface);
+        border-radius: 24px;
+        border: 2px dashed var(--glass-border);
+    }
+
+    .empty-icon-wrapper {
+        width: 80px;
+        height: 80px;
+        background: var(--bg-secondary);
+        color: var(--text-muted);
+        border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.5rem;
+        font-size: 2.5rem;
+        margin: 0 auto 1.5rem;
     }
+
+    .spinner-modern {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--bg-secondary);
+        border-top-color: var(--accent-primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+    }
+
+    @@keyframes spin { to { transform: rotate(360deg); } }
 </style>

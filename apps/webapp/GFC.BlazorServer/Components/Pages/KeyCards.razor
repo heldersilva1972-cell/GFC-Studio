@@ -899,7 +899,15 @@
             }
             
             // Load sync status
-            _pendingSyncCount = await SyncQueueRepository.GetPendingCountAsync();
+            var pendingSyncs = await SyncQueueRepository.GetPendingItemsAsync();
+            
+            // Get all unconfirmed cards that might not be in the queue yet
+            var allCards = (await Task.Run(() => KeyCardRepository.GetAll()));
+            var unconfirmedCards = allCards.Where(c => !c.IsControllerSynced).ToList();
+            var pendingCardIdsInQueue = pendingSyncs.Select(p => p.KeyCardId).ToHashSet();
+            
+            // Final pending count = Items in queue + Unconfirmed cards NOT in queue
+            _pendingSyncCount = pendingSyncs.Count + unconfirmedCards.Count(c => !pendingCardIdsInQueue.Contains(c.KeyCardId));
             
             // Get last sync time from completed items
             var completedSyncs = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
