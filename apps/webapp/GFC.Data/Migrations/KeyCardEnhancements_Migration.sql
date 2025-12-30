@@ -19,8 +19,11 @@ BEGIN
 
     ALTER TABLE dbo.KeyCards
     ADD IsActive BIT NOT NULL DEFAULT 1;
+
+    ALTER TABLE dbo.KeyCards
+    ADD CreatedDate DATETIME NULL;
     
-    PRINT 'Added CardType and IsActive columns to KeyCards table';
+    PRINT 'Added CardType, IsActive, and CreatedDate columns to KeyCards table';
 END
 GO
 

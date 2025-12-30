@@ -17,7 +17,8 @@ public class KeyCardRepository : IKeyCardRepository
         "CardNumber",
         "Notes",
         "IsActive",
-        "CardType"
+        "CardType",
+        "CreatedDate"
     };
 
     private static string GetContext(string methodName) => $"{nameof(KeyCardRepository)}.{methodName}";
@@ -28,7 +29,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
             FROM dbo.KeyCards
             WHERE KeyCardId = @KeyCardId";
 
@@ -45,7 +46,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
             FROM dbo.KeyCards
             WHERE CardNumber = @CardNumber";
 
@@ -62,7 +63,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
             FROM dbo.KeyCards
             ORDER BY KeyCardId DESC";
 
@@ -84,8 +85,8 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType)
-            VALUES (@MemberID, @CardNumber, @Notes, 1, 'Card');
+            INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate)
+            VALUES (@MemberID, @CardNumber, @Notes, 1, 'Card', @CreatedDate);
             SELECT CAST(SCOPE_IDENTITY() AS INT);";
         // Note: Defaulting to 'Card' for now, should update Create method to accept type
 
@@ -93,6 +94,7 @@ public class KeyCardRepository : IKeyCardRepository
         command.Parameters.AddWithValue("@MemberID", memberId);
         command.Parameters.AddWithValue("@CardNumber", cardNumber);
         command.Parameters.AddWithValue("@Notes", (object?)notes ?? DBNull.Value);
+        command.Parameters.AddWithValue("@CreatedDate", DateTime.Now);
 
         var newId = (int)command.ExecuteScalar();
         return GetById(newId)!;
@@ -129,7 +131,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT TOP 1 KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType
+            SELECT TOP 1 KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
             FROM dbo.KeyCards
             WHERE MemberID = @MemberID
             ORDER BY KeyCardId DESC";
@@ -153,7 +155,7 @@ public class KeyCardRepository : IKeyCardRepository
             IsActive = (bool)reader["IsActive"],
             CardType = reader["CardType"] as string,
             Notes = reader["Notes"] as string,
-            CreatedDate = DateTime.MinValue
+            CreatedDate = reader["CreatedDate"] as DateTime? ?? DateTime.MinValue
         };
     }
 }
