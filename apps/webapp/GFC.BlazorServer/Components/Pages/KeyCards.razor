@@ -11,6 +11,7 @@
 @inject ILogger<KeyCards> Logger
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject IBoardRepository BoardRepository
 @inject ControllerHealthService ControllerHealthService
 @inject ControllerFullSyncService ControllerFullSyncService
 @inject IJSRuntime JSRuntime
@@ -318,9 +319,15 @@
                                                 <i class="bi bi-person-circle"></i>
                                             </div>
                                             <div class="member-info">
-                                                <div class="member-name">@member.FirstName @member.LastName</div>
+                                                <div class="member-name">
+                                                    @member.FirstName @member.LastName
+                                                    @if (_directorIds.Contains(member.MemberID))
+                                                    {
+                                                        <span class="badge bg-danger text-white ms-2" style="font-size: 0.6rem; vertical-align: middle;">DIRECTOR</span>
+                                                    }
+                                                </div>
                                                 <div class="member-details">
-                                                     <span class="badge-chip">ID: @member.MemberID</span>
+                                                    <span class="badge-chip">ID: @member.MemberID</span>
                                                     <span class="badge-chip badge-@GetStatusClass(member.Status)">@member.Status</span>
                                                 </div>
                                             </div>
@@ -529,6 +536,7 @@
     private string _gracePeriodError = string.Empty;
     
     private int _paidMembersWithoutCardsCount = 0;
+    private HashSet<int> _directorIds = new();
     
     protected override async Task OnInitializedAsync()
     {
@@ -544,6 +552,11 @@
             var currentYear = DateTime.Today.Year;
             var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
             _graceEndDate = settings?.GraceEndDate;
+            
+            // Load Directors
+            _directorIds = BoardRepository.GetAssignmentsByYear(currentYear)
+                            .Select(a => a.MemberID)
+                            .ToHashSet();
             
             // Calculate members at risk
             // Members who are unpaid AND have an active card

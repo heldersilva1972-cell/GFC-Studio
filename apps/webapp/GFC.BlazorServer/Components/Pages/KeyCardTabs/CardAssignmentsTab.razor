@@ -2,6 +2,7 @@
 @using GFC.Core.Models
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
+@inject IBoardRepository BoardRepository
 @inject IDuesInsightService DuesInsightService
 @inject ICardDeactivationLogRepository DeactivationLogRepository
 @inject ILogger<CardAssignmentsTab> Logger
@@ -52,7 +53,7 @@
 
         <div class="metric-card metric-danger" @onclick="HandleNeedingCardsClick">
             <div class="metric-icon">
-                <i class="bi bi-person-badge-fill"></i>
+                <i class="bi bi-person-exclamation"></i>
             </div>
             <div class="metric-content">
                 <div class="metric-label">Needing Cards</div>
@@ -93,22 +94,13 @@
                         @onclick='() => SetStatusFilter("inactive")'>
                     <i class="bi bi-pause-circle"></i> Inactive
                 </button>
-            </div>
-            
-            <div class="filter-dropdown ms-2">
-                 <select class="form-select" @bind="_typeFilter" @bind:after="ApplyFilters">
-                    <option value="all">All Types</option>
-                    <option value="Card">Cards</option>
-                    <option value="Fob">Fobs</option>
-                </select>
-            </div>
-
-            <div class="filter-dropdown ms-2">
-                 <select class="form-select" @bind="_eligibilityFilter" @bind:after="ApplyFilters">
-                    <option value="all">All Eligibility</option>
-                    <option value="eligible">Eligible Only</option>
-                    <option value="ineligible">Ineligible</option>
-                </select>
+                <button class="filter-pill filter-pill-danger" @onclick="HandleNeedingCardsClick">
+                    <i class="bi bi-person-badge"></i> Needing Cards
+                    @if (_membersNeedingCards > 0)
+                    {
+                        <span class="badge bg-danger ms-1">@_membersNeedingCards</span>
+                    }
+                </button>
             </div>
 
             <button class="btn btn-outline-secondary ms-auto" @onclick="ExportCards" title="Export to CSV">
@@ -152,15 +144,21 @@
             {
                 <div class="card-item slide-in-up" style="animation-delay: @(0.05 * index)s;">
                     <div class="card-item-header">
-                        <div class="card-number-badge">
-                            <i class="bi bi-credit-card"></i>
-                            <span>@card.CardNumber</span>
-                        </div>
-                        <div class="status-badge status-@(card.IsActive ? "active" : "inactive")">
-                            <i class="bi bi-@(card.IsActive ? "check" : "pause")-circle-fill"></i>
-                            <span>@(card.IsActive ? "Active" : "Inactive")</span>
-                        </div>
-                    </div>
+                <div class="card-number-badge">
+                    <i class="bi bi-credit-card-2-front"></i>
+                    <span>#@card.CardNumber</span>
+                    @if (card.IsDirector)
+                    {
+                        <span class="badge bg-warning text-dark ms-2" style="font-size: 0.7rem; letter-spacing: 0.5px;">
+                            <i class="bi bi-star-fill me-1"></i>DIRECTOR
+                        </span>
+                    }
+                </div>
+                <div class="status-badge @(card.IsActive ? "status-active" : "status-inactive")">
+                    <i class="bi @(card.IsActive ? "bi-check-circle-fill" : "bi-pause-circle-fill")"></i>
+                    @(card.IsActive ? "Active" : "Inactive")
+                </div>
+            </div>
                     
                     <div class="card-item-body">
                         <div class="member-info-row">
@@ -365,8 +363,12 @@
             var unpaid = await DuesInsightService.GetDuesAsync(DateTime.Today.Year, false);
             var unpaidIds = unpaid?.Select(u => u.MemberId).ToHashSet() ?? new HashSet<int>();
             
+            var year = DateTime.Today.Year;
+            var boardMemberIds = BoardRepository.GetAssignmentsByYear(year).Select(a => a.MemberID).ToHashSet();
+            
             _allCards = cards.Select(c => {
                 var member = members.FirstOrDefault(m => m.MemberID == c.MemberId);
+                var isDirector = boardMemberIds.Contains(c.MemberId);
                 var status = member?.Status ?? string.Empty;
                 var isLife = status.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
                 var isReg = status.Equals("REGULAR", StringComparison.OrdinalIgnoreCase) || 
@@ -389,17 +391,17 @@
                     IssuedDate = c.CreatedDate,
                     LastUsed = null,
                     CardType = c.CardType ?? "Card",
-                    IsEligible = isEligible
+                    IsEligible = isEligible,
+                    IsDirector = isDirector
                 };
             }).ToList();
             
             // Calculate members needing cards
-            var year = DateTime.Today.Year;
             var paid = await DuesInsightService.GetDuesAsync(year, true);
             var waived = await DuesInsightService.GetDuesAsync(year, false);
             var activeCardMemberIds = _allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
             _membersNeedingCards = paid.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
-                                    + waived.Count(m => m.IsWaived && !activeCardMemberIds.Contains(m.MemberId));
+                                    + waived.Count(m => (m.IsWaived || m.IsBoardMember) && !activeCardMemberIds.Contains(m.MemberId));
             
             UpdateMetrics();
             ApplyFilters();
@@ -606,5 +608,6 @@
         public DateTime? LastUsed { get; set; }
         public string CardType { get; set; } = "Card";
         public bool IsEligible { get; set; }
+        public bool IsDirector { get; set; }
     }
 }

@@ -55,11 +55,15 @@
                             <div class="member-meta">
                                 <span class="badge bg-light text-dark">ID: @member.MemberId</span>
                                 <span class="badge bg-success-subtle text-success">@member.Status</span>
+                                @if (member.IsBoardMember)
+                                {
+                                    <span class="badge bg-danger text-white">DIRECTOR</span>
+                                }
                             </div>
                         </div>
                     </div>
                     <div class="member-action">
-                        <button class="btn btn-primary btn-sm" @onclick="() => AssignTo(member.MemberId)">
+                        <button class="btn-assign-modern" @onclick="() => AssignTo(member.MemberId)">
                             <i class="bi bi-plus-lg"></i> Assign Card
                         </button>
                     </div>
@@ -97,12 +101,18 @@
                                 .Select(c => c.MemberId)
                                 .ToHashSet();
 
-            // 4. Combine Paid and Exempt (ensure no duplicates)
-            var eligibleMembersList = paidMembers.Concat(exemptMembers).ToList();
+            // 4. Combine Paid, Exempt, and Directors (ensure no duplicates)
+            var eligibleMembersList = paidMembers
+                                        .Concat(waivedMembers.Where(m => m.IsWaived || m.IsBoardMember))
+                                        .ToList();
             _memberLookup = new Dictionary<int, DuesListItemDto>();
             foreach (var m in eligibleMembersList)
             {
-                _memberLookup[m.MemberId] = m;
+                // Ensure directors take precedence if they show up in multiple lists
+                if (!_memberLookup.ContainsKey(m.MemberId) || m.IsBoardMember)
+                {
+                    _memberLookup[m.MemberId] = m;
+                }
             }
             
             var uniqueEligibleIds = _memberLookup.Keys.ToList();
@@ -154,54 +164,107 @@
 
     .members-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-        gap: 1rem;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1.25rem;
     }
 
     .member-need-card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 1rem;
+        background: var(--bg-surface, white);
+        border: 1px solid var(--glass-border, #e5e7eb);
+        border-radius: 16px;
+        padding: 1.25rem;
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        transition: transform 0.2s, box-shadow 0.2s;
+        gap: 1rem;
+        box-shadow: var(--card-shadow, 0 1px 3px rgba(0,0,0,0.1));
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .member-need-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        transform: translateY(-3px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        border-color: var(--accent-primary, #667eea);
     }
 
     .member-info {
         display: flex;
         align-items: center;
         gap: 1rem;
+        flex: 1;
+        min-width: 0; /* Allow text truncate or wrap properly */
     }
 
     .member-avatar {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        color: #6b7280;
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+        color: #4b5563;
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: 700;
-        font-size: 0.875rem;
+        font-size: 1rem;
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+
+    .member-details {
+        flex: 1;
+        min-width: 0;
     }
 
     .member-name {
-        font-weight: 600;
-        color: #111827;
+        font-weight: 700;
+        color: var(--text-primary, #111827);
+        font-size: 1rem;
+        margin-bottom: 2px;
+        line-height: 1.25;
     }
 
     .member-meta {
         display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        align-items: center;
+    }
+
+    .member-meta .badge {
+        font-size: 0.7rem;
+        padding: 0.25rem 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+    }
+
+    .member-action {
+        flex-shrink: 0; /* Prevent button from squeezing */
+    }
+
+    .btn-assign-modern {
+        display: flex;
+        align-items: center;
         gap: 0.5rem;
-        margin-top: 0.25rem;
+        padding: 0.6rem 1rem;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 0.875rem;
+        background: var(--accent-primary, #667eea);
+        color: white;
+        border: none;
+        transition: all 0.2s;
+        white-space: nowrap;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-assign-modern:hover {
+        filter: brightness(1.1);
+        transform: scale(1.02);
+        box-shadow: 0 6px 10px -1px rgba(0, 0, 0, 0.15);
+    }
+
+    .btn-assign-modern i {
+        font-size: 1rem;
     }
 
     .loading-state, .empty-state {
@@ -211,8 +274,8 @@
     }
 
     .empty-icon {
-        font-size: 3rem;
-        margin-bottom: 1rem;
+        font-size: 3.5rem;
+        margin-bottom: 1.5rem;
     }
 
     .empty-icon.success {
