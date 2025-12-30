@@ -25,6 +25,7 @@
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject ControllerHealthService ControllerHealthService
 @inject KeyCardLifecycleService KeyCardLifecycleService
+@inject IKeyCardRepository KeyCardRepository
 
 @if (_showSplash)
 {
@@ -386,6 +387,76 @@
                                                 <li>Recent Door Events: <span class="fw-semibold">[placeholder]</span></li>
                                             </ul>
                                             @* TODO: Connect to controller status and event summaries *@
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (ShowControllerHealthCard)
+                            {
+                                <div class="card mb-3 shadow-sm rounded metric-card dash-card-action" role="button" tabindex="0" aria-label="View sync queue" @onclick='() => NavMgr.NavigateTo("/keycards/sync-queue")'>
+                                    <div class="card-header d-flex justify-content-between align-items-center dash-card-header">
+                                        <button class="btn btn-link btn-sm text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#dash-sync-health-card" aria-expanded="true" aria-controls="dash-sync-health-card" @onclick:stopPropagation="true">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <h5 class="mb-0">
+                                                    <i class="bi bi-hdd-network me-2"></i>Controller Sync Health
+                                                </h5>
+                                                @if (_pendingSyncCount > 0)
+                                                {
+                                                    <span class="badge bg-warning text-dark dash-pill-hover">@_pendingSyncCount Pending</span>
+                                                }
+                                                else if (_outOfSyncCount > 0)
+                                                {
+                                                    <span class="badge bg-danger dash-pill-hover">@_outOfSyncCount Out of Sync</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-success dash-pill-hover">Synced</span>
+                                                }
+                                            </div>
+                                        </button>
+                                        <NavLink href="/keycards/sync-queue" class="small text-decoration-none" @onclick:stopPropagation="true">
+                                            View queue
+                                        </NavLink>
+                                    </div>
+                                    <div class="collapse show" id="dash-sync-health-card">
+                                        <div class="card-body">
+                                            <div class="small fw-semibold mb-2" style="color: @(_controllerOnline ? "#10b981" : "#ef4444");">
+                                                <i class="bi @(_controllerOnline ? "bi-check-circle-fill" : "bi-x-circle-fill") me-1"></i>
+                                                Controller @(_controllerOnline ? "Online" : "Offline")
+                                            </div>
+                                            <ul class="mb-2 small list-unstyled">
+                                                <li class="mb-2 d-flex justify-content-between">
+                                                    <span class="text-muted">Pending Syncs:</span>
+                                                    <span class="fw-semibold @(_pendingSyncCount > 0 ? "text-warning" : "")">@_pendingSyncCount</span>
+                                                </li>
+                                                <li class="mb-2 d-flex justify-content-between">
+                                                    <span class="text-muted">Out-of-Sync Cards:</span>
+                                                    <span class="fw-semibold @(_outOfSyncCount > 0 ? "text-danger" : "")">@_outOfSyncCount</span>
+                                                </li>
+                                                <li class="d-flex justify-content-between">
+                                                    <span class="text-muted">Last Sync:</span>
+                                                    <span class="fw-semibold">@(_lastSyncTime?.ToString("MMM dd, h:mm tt") ?? "Never")</span>
+                                                </li>
+                                            </ul>
+                                            @if (!_controllerOnline || _pendingSyncCount > 0 || _outOfSyncCount > 0)
+                                            {
+                                                <div class="alert alert-warning py-2 px-3 mb-0 small">
+                                                    <i class="bi bi-info-circle me-1"></i>
+                                                    @if (!_controllerOnline)
+                                                    {
+                                                        <span>Controller offline. Cards will sync when connection is restored.</span>
+                                                    }
+                                                    else if (_outOfSyncCount > 0)
+                                                    {
+                                                        <span>@_outOfSyncCount card(s) active in database but not confirmed by controller.</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>@_pendingSyncCount card(s) waiting to sync to controller.</span>
+                                                    }
+                                                </div>
+                                            }
                                         </div>
                                     </div>
                                 </div>
@@ -1142,6 +1213,9 @@
     private DateTime? _graceEndDate;
     private int _membersAtRiskCount;
     private int _pendingSyncCount;
+    private int _outOfSyncCount;
+    private bool _controllerOnline = true;
+    private DateTime? _lastSyncTime;
     private ControllerHealthStatus _controllerHealthStatus;
     
     private enum MetricState
@@ -1235,6 +1309,15 @@
                 
                 _pendingSyncCount = await SyncQueueRepository.GetPendingCountAsync();
                 _controllerHealthStatus = ControllerHealthService.GetHealthStatus();
+                _controllerOnline = _controllerHealthStatus.IsOnline;
+                
+                var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+                _outOfSyncCount = allCards.Count(c => c.IsActive && !c.IsControllerSynced);
+                
+                var completedSyncs = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
+                _lastSyncTime = completedSyncs.Any() 
+                    ? completedSyncs.Max(x => x.CompletedDate ?? x.QueuedDate) 
+                    : null;
             }
             catch (Exception ex)
             {
