@@ -347,6 +347,13 @@
                                                 <i class="bi bi-info-circle me-1"></i> Supports network readers and USB wedges
                                             </div>
                                         }
+                                        
+                                        @if (!string.IsNullOrEmpty(_assignError))
+                                        {
+                                            <div class="alert alert-danger mt-3 slide-in-down">
+                                                <i class="bi bi-exclamation-triangle"></i> @_assignError
+                                            </div>
+                                        }
                                     </div>
                                 }
                                 else
@@ -917,14 +924,28 @@
         }
     }
     
-    private void HandleKeyDown(KeyboardEventArgs e)
+    private async Task HandleKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
         {
             if (!string.IsNullOrWhiteSpace(_keyboardInput))
             {
                 _scannedCardNumber = _keyboardInput.Trim();
+                
+                // Check for duplicate immediately
+                var existingCard = await Task.Run(() => KeyCardRepository.GetByCardNumber(_scannedCardNumber));
+                if (existingCard != null)
+                {
+                    _assignError = $"Card #{_scannedCardNumber} is already assigned to another member.";
+                    _cardScanned = false;
+                    _scannedCardNumber = string.Empty;
+                    _keyboardInput = string.Empty;
+                    StateHasChanged();
+                    return;
+                }
+                
                 _cardScanned = true;
+                _assignError = string.Empty;
                 StopScanning();
                 StateHasChanged();
             }
@@ -980,14 +1001,6 @@
         
         try
         {
-            // Check if card number already exists
-            var existingCard = await Task.Run(() => KeyCardRepository.GetByCardNumber(_scannedCardNumber));
-            if (existingCard != null)
-            {
-                _assignError = $"Card number {_scannedCardNumber} is already assigned to another member.";
-                return;
-            }
-            
             // Check if member already has an active card
             var allCards = await Task.Run(() => KeyCardRepository.GetAll());
             var memberActiveCard = allCards.FirstOrDefault(c => c.MemberId == _selectedMemberId && c.IsActive);
