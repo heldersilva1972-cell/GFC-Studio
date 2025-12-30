@@ -11,13 +11,16 @@ public class CardEligibilityService : ICardEligibilityService
 {
     private readonly IDuesRepository _duesRepository;
     private readonly IDuesYearSettingsRepository _duesYearSettingsRepository;
+    private readonly IBoardRepository _boardRepository;
 
     public CardEligibilityService(
         IDuesRepository duesRepository,
-        IDuesYearSettingsRepository duesYearSettingsRepository)
+        IDuesYearSettingsRepository duesYearSettingsRepository,
+        IBoardRepository boardRepository)
     {
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
         _duesYearSettingsRepository = duesYearSettingsRepository ?? throw new ArgumentNullException(nameof(duesYearSettingsRepository));
+        _boardRepository = boardRepository ?? throw new ArgumentNullException(nameof(boardRepository));
     }
 
     public CardEligibilityResult Evaluate(Member member)
@@ -59,6 +62,14 @@ public class CardEligibilityService : ICardEligibilityService
     private CardEligibilityResult EvaluateDues(int memberId)
     {
         var evaluationYear = DateTime.Today.Year;
+        
+        // Check if member is a board member (director) for this year
+        // Directors automatically have their dues waived and are eligible
+        if (_boardRepository.IsBoardMemberForYear(memberId, evaluationYear))
+        {
+            return CardEligibilityResult.Eligible();
+        }
+        
         var currentYearDues = _duesRepository.GetDuesForMemberYear(memberId, evaluationYear);
         var previousYearDues = _duesRepository.GetDuesForMemberYear(memberId, evaluationYear - 1);
 

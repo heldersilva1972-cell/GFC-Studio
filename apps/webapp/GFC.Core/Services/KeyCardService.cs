@@ -12,15 +12,18 @@ public class KeyCardService
     private readonly IMemberRepository _memberRepository;
     private readonly IDuesRepository _duesRepository;
     private readonly IDuesYearSettingsRepository _duesYearSettingsRepository;
+    private readonly IBoardRepository _boardRepository;
 
     public KeyCardService(
         IMemberRepository memberRepository,
         IDuesRepository duesRepository,
-        IDuesYearSettingsRepository duesYearSettingsRepository)
+        IDuesYearSettingsRepository duesYearSettingsRepository,
+        IBoardRepository boardRepository)
     {
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
         _duesYearSettingsRepository = duesYearSettingsRepository ?? throw new ArgumentNullException(nameof(duesYearSettingsRepository));
+        _boardRepository = boardRepository ?? throw new ArgumentNullException(nameof(boardRepository));
     }
 
     public KeyCardEligibilityResult GetKeyCardEligibility(int memberId, int year)
@@ -31,12 +34,17 @@ public class KeyCardService
             return new KeyCardEligibilityResult(false, false, false, false, false, null, "UNKNOWN");
         }
 
+        // Check if member is a board member (director) for this year
+        var isBoardMember = _boardRepository.IsBoardMemberForYear(memberId, year);
+
         var currentYearDues = _duesRepository.GetDuesForMemberYear(memberId, year);
         var previousYearDues = _duesRepository.GetDuesForMemberYear(memberId, year - 1);
         var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(year)?.GraceEndDate?.Date;
 
         var statusAllowed = IsStatusEligible(member.Status);
-        var currentYearSatisfied = IsDuesSatisfied(currentYearDues?.PaymentType, currentYearDues?.PaidDate);
+        
+        // Directors (board members) are automatically considered as having satisfied dues
+        var currentYearSatisfied = isBoardMember || IsDuesSatisfied(currentYearDues?.PaymentType, currentYearDues?.PaidDate);
         var previousYearSatisfied = IsDuesSatisfied(previousYearDues?.PaymentType, previousYearDues?.PaidDate);
 
         return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, member.Status, graceEndDate);
@@ -53,12 +61,18 @@ public class KeyCardService
         }
 
         var evaluationYear = year ?? DateTime.Today.Year;
+        
+        // Check if member is a board member (director) for this year
+        var isBoardMember = _boardRepository.IsBoardMemberForYear(member.MemberID, evaluationYear);
+        
         var currentYearDues = _duesRepository.GetDuesForMemberYear(member.MemberID, evaluationYear);
         var previousYearDues = _duesRepository.GetDuesForMemberYear(member.MemberID, evaluationYear - 1);
         var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(evaluationYear)?.GraceEndDate?.Date;
 
         var statusAllowed = IsStatusEligible(member.Status);
-        var currentYearSatisfied = IsDuesSatisfied(currentYearDues?.PaymentType, currentYearDues?.PaidDate);
+        
+        // Directors (board members) are automatically considered as having satisfied dues
+        var currentYearSatisfied = isBoardMember || IsDuesSatisfied(currentYearDues?.PaymentType, currentYearDues?.PaidDate);
         var previousYearSatisfied = IsDuesSatisfied(previousYearDues?.PaymentType, previousYearDues?.PaidDate);
 
         return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, member.Status, graceEndDate).Eligible;
