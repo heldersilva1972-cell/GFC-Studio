@@ -18,7 +18,10 @@ BEGIN
     ADD CardType NVARCHAR(10) NULL;
 
     ALTER TABLE dbo.KeyCards
-    ADD IsActive BIT NOT NULL DEFAULT 1;
+    ADD IsControllerSynced BIT NOT NULL DEFAULT 0;
+
+    ALTER TABLE dbo.KeyCards
+    ADD LastControllerSyncDate DATETIME NULL;
 
     ALTER TABLE dbo.KeyCards
     ADD CreatedDate DATETIME NULL;

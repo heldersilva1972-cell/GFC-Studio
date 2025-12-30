@@ -90,6 +90,7 @@ public class KeyCardLifecycleService
 
             // Update card status in database
             card.IsActive = false;
+            card.IsControllerSynced = false;
             _keyCardRepository.Update(card);
 
             // Queue sync to controller
@@ -131,10 +132,22 @@ public class KeyCardLifecycleService
 
             // Update card status in database
             card.IsActive = true;
+            card.IsControllerSynced = false;
             _keyCardRepository.Update(card);
 
             // Queue sync to controller
             await SyncCardToControllerAsync(keyCardId, true, ct);
+
+            // Log reactivation
+            await _deactivationLogRepository.AddAsync(new CardDeactivationLog
+            {
+                KeyCardId = keyCardId,
+                MemberId = card.MemberId,
+                DeactivatedDate = DateTime.Now,
+                Reason = "Activated",
+                Notes = notes,
+                ControllerSynced = false
+            });
 
             _logger.LogInformation("Reactivated card {CardId}", keyCardId);
         }

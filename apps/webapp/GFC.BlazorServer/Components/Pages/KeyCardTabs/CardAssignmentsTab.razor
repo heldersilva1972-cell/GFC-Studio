@@ -1,11 +1,13 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
+@using GFC.Core.Services
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
 @inject IBoardRepository BoardRepository
 @inject IDuesInsightService DuesInsightService
 @inject ICardDeactivationLogRepository DeactivationLogRepository
 @inject IControllerSyncQueueRepository SyncQueueRepository
+@inject KeyCardLifecycleService LifecycleService
 @inject ILogger<CardAssignmentsTab> Logger
 @inject IJSRuntime JSRuntime
 
@@ -179,10 +181,10 @@
                                 <i class="bi bi-clock-history"></i> Pending Sync to Controller
                             </div>
                         }
-                        else if (card.IsActive && !card.IsControllerSynced)
+                        else if (!card.IsControllerSynced)
                         {
                             <div class="sync-status-indicator" style="background: rgba(239, 68, 68, 0.1); color: #dc2626;">
-                                <i class="bi bi-exclamation-triangle"></i> Not Confirmed by Controller
+                                <i class="bi bi-exclamation-triangle"></i> @(card.IsActive ? "Activation Not Confirmed" : "Deactivation Not Confirmed")
                             </div>
                         }
                         
@@ -398,22 +400,23 @@
                 </div>
             }
 
-            @* Deactivation History *@
+            @* Card History (Lifecycle) *@
             @if (_cardHistory.Any())
             {
                 <div class="section-header mb-3">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Deactivation History
+                    <i class="bi bi-clock-history me-2"></i>Card History
                 </div>
                 <div class="deactivation-list">
                     @foreach (var log in _cardHistory.OrderByDescending(l => l.DeactivatedDate))
                     {
-                        <div class="deactivation-entry">
+                        var isActivation = log.Reason.Equals("Activated", StringComparison.OrdinalIgnoreCase);
+                        <div class="deactivation-entry @(isActivation ? "entry-activation" : "entry-deactivation")">
                             <div class="deactivation-dot"></div>
                             <div class="deactivation-content">
-                                <div class="deactivation-title">Deactivated</div>
+                                <div class="deactivation-title">@(isActivation ? "Activated" : "Deactivated")</div>
                                 <div class="deactivation-time">@log.DeactivatedDate.ToString("MMM dd, yyyy h:mm tt")</div>
                                 <div class="deactivation-reason">
-                                    <span class="badge bg-warning text-dark">@log.Reason</span>
+                                    <span class="badge @(isActivation ? "bg-success-subtle text-success" : "bg-warning text-dark")">@log.Reason</span>
                                 </div>
                                 @if (!string.IsNullOrEmpty(log.Notes))
                                 {
@@ -618,23 +621,38 @@
     }
 
     .deactivation-entry {
-        background: #fff1f2;
-        border: 1px solid #fecdd3;
         border-radius: 8px;
         padding: 1rem;
         display: flex;
         gap: 1rem;
+        border: 1px solid transparent;
+    }
+
+    .entry-deactivation {
+        background: #fff1f2;
+        border-color: #fecdd3;
+    }
+
+    .entry-activation {
+        background: #f0fdf4;
+        border-color: #bbf7d0;
     }
 
     .deactivation-title {
-        color: #9f1239;
-        font-weight: 600;
+        font-weight: 700;
+        font-size: 0.95rem;
     }
+
+    .entry-deactivation .deactivation-title { color: #9f1239; }
+    .entry-activation .deactivation-title { color: #166534; }
     
     .deactivation-time {
         font-size: 0.75rem;
-        color: #be123c;
+        opacity: 0.8;
     }
+
+    .entry-deactivation .deactivation-time { color: #be123c; }
+    .entry-activation .deactivation-time { color: #15803d; }
 
     @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @@keyframes slideUp { from { opacity: 0; transform: translate(-50%, -45%); } to { opacity: 1; transform: translate(-50%, -50%); } }
@@ -812,15 +830,8 @@
     {
         try
         {
-            var card = await Task.Run(() => KeyCardRepository.GetById(cardId));
-            if (card == null) return;
-            
-            card.IsActive = false;
-            await Task.Run(() => KeyCardRepository.Update(card));
-            
-            Logger.LogInformation("Card {CardId} deactivated", cardId);
-            
-            // Refresh the list
+            await LifecycleService.DeactivateCardAsync(cardId, "Manual", "Deactivated from management console");
+            Logger.LogInformation("Card {CardId} deactivated manually", cardId);
             await LoadCardsAsync();
         }
         catch (Exception ex)
@@ -868,10 +879,10 @@
     {
         try
         {
-            var card = await Task.Run(() => KeyCardRepository.GetById(cardId));
-            if (card == null) return;
-            
             // Check if member already has another active card
+            var card = _allCards.FirstOrDefault(c => c.CardId == cardId);
+            if (card == null) return;
+
             var memberActiveCard = _allCards.FirstOrDefault(c => 
                 c.MemberId == card.MemberId && c.IsActive && c.CardId != cardId);
             
@@ -881,12 +892,8 @@
                 return;
             }
             
-            card.IsActive = true;
-            await Task.Run(() => KeyCardRepository.Update(card));
-            
-            Logger.LogInformation("Card {CardId} reactivated", cardId);
-            
-            // Refresh the list
+            await LifecycleService.ReactivateCardAsync(cardId, "Manual reactivation from console");
+            Logger.LogInformation("Card {CardId} reactivated manually", cardId);
             await LoadCardsAsync();
         }
         catch (Exception ex)

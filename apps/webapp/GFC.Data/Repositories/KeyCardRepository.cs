@@ -18,6 +18,8 @@ public class KeyCardRepository : IKeyCardRepository
         "Notes",
         "IsActive",
         "CardType",
+        "IsControllerSynced",
+        "LastControllerSyncDate",
         "CreatedDate"
     };
 
@@ -29,7 +31,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
             FROM dbo.KeyCards
             WHERE KeyCardId = @KeyCardId";
 
@@ -46,7 +48,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
             FROM dbo.KeyCards
             WHERE CardNumber = @CardNumber";
 
@@ -63,7 +65,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
+            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
             FROM dbo.KeyCards
             ORDER BY KeyCardId DESC";
 
@@ -85,8 +87,8 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate)
-            VALUES (@MemberID, @CardNumber, @Notes, 1, 'Card', @CreatedDate);
+            INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, CreatedDate)
+            VALUES (@MemberID, @CardNumber, @Notes, 1, 'Card', 0, @CreatedDate);
             SELECT CAST(SCOPE_IDENTITY() AS INT);";
         // Note: Defaulting to 'Card' for now, should update Create method to accept type
 
@@ -111,7 +113,9 @@ public class KeyCardRepository : IKeyCardRepository
                 CardNumber = @CardNumber,
                 Notes = @Notes,
                 IsActive = @IsActive,
-                CardType = @CardType
+                CardType = @CardType,
+                IsControllerSynced = @IsControllerSynced,
+                LastControllerSyncDate = @LastControllerSyncDate
             WHERE KeyCardId = @KeyCardId";
 
         using var command = new SqlCommand(sql, connection);
@@ -120,6 +124,8 @@ public class KeyCardRepository : IKeyCardRepository
         command.Parameters.AddWithValue("@Notes", (object?)card.Notes ?? DBNull.Value);
         command.Parameters.AddWithValue("@IsActive", card.IsActive);
         command.Parameters.AddWithValue("@CardType", (object?)card.CardType ?? DBNull.Value);
+        command.Parameters.AddWithValue("@IsControllerSynced", card.IsControllerSynced);
+        command.Parameters.AddWithValue("@LastControllerSyncDate", (object?)card.LastControllerSyncDate ?? DBNull.Value);
         command.Parameters.AddWithValue("@KeyCardId", card.KeyCardId);
 
         command.ExecuteNonQuery();
@@ -131,7 +137,7 @@ public class KeyCardRepository : IKeyCardRepository
         connection.Open();
 
         const string sql = @"
-            SELECT TOP 1 KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, CreatedDate
+            SELECT TOP 1 KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
             FROM dbo.KeyCards
             WHERE MemberID = @MemberID
             ORDER BY KeyCardId DESC";
@@ -153,6 +159,8 @@ public class KeyCardRepository : IKeyCardRepository
             MemberId = (int)reader["MemberID"],
             CardNumber = reader["CardNumber"].ToString() ?? string.Empty,
             IsActive = (bool)reader["IsActive"],
+            IsControllerSynced = reader["IsControllerSynced"] as bool? ?? false,
+            LastControllerSyncDate = reader["LastControllerSyncDate"] as DateTime?,
             CardType = reader["CardType"] as string,
             Notes = reader["Notes"] as string,
             CreatedDate = reader["CreatedDate"] as DateTime? ?? DateTime.MinValue
