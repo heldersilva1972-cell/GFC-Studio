@@ -29,7 +29,10 @@ internal static class CommandProfileFactory
             SetNetworkConfig = WgCommandProfile.Create("SetNetworkConfig", 23, 92, WgPacketFormat.Basic, 16, 64),
             SetAllowedPc = WgCommandProfile.Unconfigured(nameof(ControllerCommandProfiles.SetAllowedPc)),
             Reboot = WgCommandProfile.Create("Reboot", 23, 254, WgPacketFormat.Basic, 0, 64),
-            Search = WgCommandProfile.Create("Search", 23, 148, WgPacketFormat.Basic, 0, 64)
+            Search = WgCommandProfile.Create("Search", 23, 148, WgPacketFormat.Basic, 0, 64),
+            SetDoorConfig = WgCommandProfile.Create("SetDoorConfig", 23, 142, WgPacketFormat.Basic, 64, 64),
+            ResetPrivileges = WgCommandProfile.Create("ResetPrivileges", 23, 16, WgPacketFormat.Basic, 0, 64),
+            ResetPrivilegeIndex = WgCommandProfile.Create("ResetPrivilegeIndex", 23, 17, WgPacketFormat.Basic, 0, 64)
         };
     }
 }

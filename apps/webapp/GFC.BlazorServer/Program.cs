@@ -208,7 +208,7 @@ public class Program
         builder.Services.AddScoped<IUserConnectionService, UserConnectionService>();
 
         // GFC Ecosystem Foundation
-        builder.Services.AddSingleton<ToastService>();
+        builder.Services.AddSingleton<IToastService, ToastService>();
         builder.Services.AddHttpClient();
         builder.Services.AddScoped<IMediaStorageService, MediaStorageService>();
         builder.Services.AddScoped<IContentIngestionService, ContentIngestionService>();
@@ -273,6 +273,8 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         
         // Register centralized controller status monitor (singleton - shared across all components)
         builder.Services.AddSingleton<ControllerStatusMonitor>();
+        builder.Services.AddSingleton<ICommunicationLogService, CommunicationLogService>();
+        builder.Services.AddScoped<IControllerSyncService, ControllerSyncService>();
         
         builder.Services.AddScoped<ControllerTestService>();
 
@@ -549,6 +551,32 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                 catch (Exception ex)
                 {
                      Console.WriteLine($">>> Error executing direct key card fix: {ex.Message}");
+                }
+
+                // [AUTO-FIX 8] Run Member Access Tables script
+                var accessScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "CreateMemberAccessTables.sql");
+                if (File.Exists(accessScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Member Access Schema Fixes from: {accessScriptPath}");
+                    var accessSqlFile = File.ReadAllText(accessScriptPath);
+                    var accessBatches = System.Text.RegularExpressions.Regex.Split(accessSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in accessBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing access batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Member Access Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Member Access schema script not found at {accessScriptPath}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

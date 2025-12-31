@@ -10,12 +10,14 @@
 @inject DoorConfigSyncService SyncService
 @inject IJSRuntime JSRuntime
 @inject ILogger<DoorsTab> Logger
+@inject IToastService ToastService
+@inject IControllerClient ControllerClient
 
 <div class="doors-tab-container fadeIn">
-    <div class="row g-4 h-100">
+    <div class="row g-4">
         <!-- Door List (Left Sidebar) -->
         <div class="col-md-4 col-lg-3 d-flex flex-column">
-            <div class="glass-panel h-100 d-flex flex-column p-0 overflow-hidden">
+            <div class="glass-panel d-flex flex-column p-0 overflow-hidden" style="min-height: 400px;">
                 <div class="p-3 border-bottom border-glass bg-surface-subtle">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h5 class="mb-0 fw-bold">Doors</h5>
@@ -64,11 +66,10 @@
             </div>
         </div>
 
-        <!-- Door Details (Right Content) -->
         <div class="col-md-8 col-lg-9">
             @if (_selectedDoor != null)
             {
-                <div class="glass-panel h-100 d-flex flex-column fadeIn">
+                <div class="glass-panel d-flex flex-column fadeIn">
                     <!-- Header -->
                     <div class="panel-header border-bottom border-glass pb-3 mb-4 d-flex justify-content-between align-items-start">
                         <div>
@@ -93,7 +94,7 @@
                     </div>
 
                     <!-- Configuration Form -->
-                    <EditForm Model="_selectedDoor" class="flex-grow-1 overflow-auto custom-scrollbar px-1">
+                    <EditForm Model="_selectedDoor" class="flex-grow-1 px-1">
                         
                         <div class="row g-4">
                             <!-- Column 1: General Settings -->
@@ -137,7 +138,19 @@
                             <!-- Column 2: Advanced Timers -->
                             <div class="col-xl-6">
                                 <div class="bg-surface-subtle rounded-3 p-3 border border-glass h-100">
-                                    <h5 class="section-title mb-3 text-primary"><i class="bi bi-stopwatch me-2"></i>Hardware Timers</h5>
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h5 class="section-title mb-0 text-primary"><i class="bi bi-stopwatch me-2"></i>Hardware Timers</h5>
+                                        @if (_hwDiscovery != null && _selectedDoor != null)
+                                        {
+                                            var hwMode = _hwDiscovery.DoorModes[_selectedDoor.DoorIndex - 1];
+                                            var isInSync = hwMode == _doorConfig?.ControlMode;
+                                            <span class="badge @(isInSync ? "bg-success" : "bg-warning") cursor-pointer" title="Hardware Sync Status - Click to Verify Mode (0x94)" @onclick="RefreshHardwareInfo">
+                                                <i class="bi @(isInSync ? "bi-cpu-fill" : "bi-exclamation-circle") me-1"></i>
+                                                HW Mode: @GetHwModeText(hwMode)
+                                                <i class="bi bi-arrow-clockwise ms-2 opacity-50"></i>
+                                            </span>
+                                        }
+                                    </div>
                                     
                                     @if (_doorConfig != null)
                                     {
@@ -151,20 +164,50 @@
                                         </div>
 
                                         <div class="modern-field mb-3">
-                                            <label class="form-label d-flex justify-content-between">
-                                                <span>Lock Delay</span>
-                                                <span class="badge bg-secondary">@_doorConfig.LockDelaySeconds sec</span>
-                                            </label>
-                                            <input type="range" class="form-range" min="0" max="60" @bind="_doorConfig.LockDelaySeconds" />
-                                            <div class="form-label-desc">Delay before firing the relay (usually 0).</div>
+                                            <label class="form-label">Control Mode</label>
+                                            <select class="form-select modern-input" @bind="_doorConfig.ControlMode">
+                                                <option value="@((byte)1)">Always Open</option>
+                                                <option value="@((byte)2)">Always Closed</option>
+                                                <option value="@((byte)3)">Controlled (Card Required)</option>
+                                            </select>
                                         </div>
 
-                                        <div class="form-check form-switch mt-4">
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <div class="modern-field mb-3">
+                                                    <label class="form-label">Door Sensor</label>
+                                                    <select class="form-select modern-input" @bind="_doorConfig.SensorType">
+                                                        <option value="@((byte)0)">Not Used</option>
+                                                        <option value="@((byte)1)">Normally Closed (NC)</option>
+                                                        <option value="@((byte)2)">Normally Open (NO)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="modern-field mb-3">
+                                                    <label class="form-label">Interlock Group</label>
+                                                    <select class="form-select modern-input" @bind="_doorConfig.Interlock">
+                                                        <option value="@((byte)0)">None</option>
+                                                        <option value="@((byte)1)">2-Door Interlock</option>
+                                                        <option value="@((byte)2)">3-Door Interlock</option>
+                                                        <option value="@((byte)3)">4-Door Interlock</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-check form-switch mt-3">
                                             <input class="form-check-input" type="checkbox" @bind="_doorConfig.AlarmEnabled" id="alarmEnabled" />
                                             <label class="form-check-label" for="alarmEnabled">
                                                 <strong>Hardware Alarm Trigger</strong>
-                                                <div class="text-xs text-muted">Fire alarm output if forced open?</div>
                                             </label>
+                                        </div>
+
+                                        <div class="mt-4 pt-3 border-top border-glass d-grid">
+                                            <button type="button" class="btn btn-accent-modern w-100" @onclick="SyncToController" disabled="@(_isSyncing || !Controller!.IsEnabled)">
+                                                @if (_isSyncing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                                <i class="bi bi-cpu-fill me-2"></i> Sync Config to Controller
+                                            </button>
                                         </div>
                                     }
                                     else
@@ -242,13 +285,32 @@
     private DoorConfigEntity? _doorConfig;
     private bool _isLoading = false;
     private bool _isSaving = false;
+    private bool _isSyncing = false;
+    private GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult? _hwDiscovery;
+
+    private int _lastControllerId;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (Controller != null)
+        if (Controller != null && Controller.Id != _lastControllerId)
         {
+            _lastControllerId = Controller.Id;
+            _selectedDoor = null; // Clear selection when changing controllers
+            _doorConfig = null;
+            _hwDiscovery = null;
             await LoadDoors();
+            await RefreshHardwareInfo();
         }
+    }
+
+    private async Task RefreshHardwareInfo()
+    {
+        if (Controller == null || !Controller.IsEnabled) return;
+        try 
+        {
+            _hwDiscovery = await ControllerClient.GetHardwareInfoAsync(Controller.SerialNumberDisplay);
+        }
+        catch { }
     }
 
     private async Task LoadDoors()
@@ -293,6 +355,9 @@
             _doorConfig = (DoorConfigEntity)existing;
         else 
             _doorConfig = (DoorConfigEntity)DoorConfigService.CreateDefaultForDoor(door);
+
+        // Auto-refresh HW info when selecting a door to ensure sync status is fresh
+        _ = RefreshHardwareInfo();
     }
 
     private async Task SaveCurrentDoor()
@@ -315,30 +380,69 @@
             }
             await db.SaveChangesAsync();
 
-            // 2. Save Config Entity (now that we definitely have a DoorId)
+            // 2. Save Config Entity
             if (_doorConfig != null)
             {
                 _doorConfig.DoorId = _selectedDoor.Id;
-                
-                // We use the service to save config + sync potential support
-                // For now, simpler direct save or check existing service method
-                 await DoorConfigService.SaveConfigsAsync(Controller.Id, new[] { _doorConfig });
+                await DoorConfigService.SaveConfigsAsync(Controller.Id, new[] { _doorConfig });
+
+                // 3. Automatically sync to hardware on save if enabled
+                if (Controller.IsEnabled)
+                {
+                    await PerformHardwareSync();
+                    // Give controller a moment to process before verifying
+                    await Task.Delay(500);
+                }
             }
 
             await LoadDoors();
+            await RefreshHardwareInfo();
             // Re-select to refresh state
             var savedDoor = _doors.FirstOrDefault(d => d.Id == _selectedDoor.Id);
             if(savedDoor != null) await SelectDoor(savedDoor);
             
+            ToastService.ShowSuccess($"Door {_selectedDoor.Name} saved and synced to hardware.");
+
             // Notify parent to refresh
             await OnDoorsUpdated.InvokeAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to save door");
-            // Show toast or alert
+            ToastService.ShowError($"Failed to save door: {ex.Message}");
         }
         finally { _isSaving = false; }
+    }
+
+    private async Task SyncToController()
+    {
+        _isSyncing = true;
+        try
+        {
+            await PerformHardwareSync();
+            ToastService.ShowSuccess("Config synced to hardware.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Hardware sync failed");
+            ToastService.ShowError($"Sync failed: {ex.Message}");
+        }
+        finally { _isSyncing = false; }
+    }
+
+    private async Task PerformHardwareSync()
+    {
+        if (_selectedDoor == null || _doorConfig == null || Controller == null) return;
+        
+        // The protocol is: 0x8E (142), Door Index, Control Mode, Relay Delay, Door Sensor, Interlock
+        await ControllerClient.SetDoorConfigAsync(
+            Controller.SerialNumberDisplay, 
+            _selectedDoor.DoorIndex,
+            _doorConfig.ControlMode,
+            (byte)_doorConfig.OpenTimeSeconds,
+            _doorConfig.SensorType,
+            _doorConfig.Interlock
+        );
     }
 
     private async Task DeleteDoor()
@@ -373,4 +477,12 @@
             if (!_doors.Any(d => d.DoorIndex == i)) return i;
         return 1;
     }
+
+    private string GetHwModeText(byte mode) => mode switch
+    {
+        1 => "Always Open",
+        2 => "Always Closed",
+        3 => "Controlled",
+        _ => "Not Configured"
+    };
 }

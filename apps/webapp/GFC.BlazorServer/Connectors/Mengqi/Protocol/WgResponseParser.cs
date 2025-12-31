@@ -58,7 +58,10 @@ internal static class WgResponseParser
             Doors = doors,
             RelayStates = Array.Empty<bool>(),
             IsFireAlarmActive = payload.Length >= 8 && (payload[7] & 0x01) != 0,
-            IsTamperActive = payload.Length >= 8 && (payload[7] & 0x02) != 0
+            IsTamperActive = payload.Length >= 8 && (payload[7] & 0x02) != 0,
+            // User script: Total Cards (bytes 8-11 -> payload 4-7), Total Events (bytes 12-15 -> payload 8-11)
+            TotalCards = payload.Length >= 8 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]) : 0,
+            TotalEvents = payload.Length >= 12 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[8..12]) : 0
         };
     }
 
@@ -113,17 +116,27 @@ internal static class WgResponseParser
         var mac = $"{payload[16]:X2}:{payload[17]:X2}:{payload[18]:X2}:{payload[19]:X2}:{payload[20]:X2}:{payload[21]:X2}";
         var version = $"{payload[22]}.{payload[23]}";
         
-        // Date: 20YY/MM/DD
+        // Date: 20YY/MM/DD (Offsets 24, 25, 26)
         var dateStr = $"20{payload[24]:D2}-{payload[25]:D2}-{payload[26]:D2}";
         DateTime.TryParse(dateStr, out var date);
 
-        // Port (usually at offset 28 in payload / 32 in frame)
-        var port = BinaryPrimitives.ReadUInt16LittleEndian(payload[28..30]);
+        // Door Modes: Offsets 28, 29, 30, 31 (Frame 32, 33, 34, 35)
+        var modes = new byte[4];
+        payload[28..32].CopyTo(modes);
+
+        // Port: Traditionally at offset 32/33 in some variants
+        var port = BinaryPrimitives.ReadUInt16LittleEndian(payload[32..34]);
         if (port == 0) port = 60000;
 
-        // Allowed PC IP (usually at offset 30 or 34 in payload)
-        // In some variants it's at offset 30 (bytes 34-37 of frame)
-        var allowedIp = $"{payload[30]}.{payload[31]}.{payload[32]}.{payload[33]}";
+        // Allowed PC IP: Traditionally at offset 34..38
+        var allowedIp = $"{payload[34]}.{payload[35]}.{payload[36]}.{payload[37]}";
+
+        // Door Delays: Offsets 32, 33, 34, 35 (Frame 36, 37, 38, 39)
+        var delays = new byte[4];
+        if (payload.Length >= 36)
+        {
+            payload[32..36].CopyTo(delays);
+        }
 
         return new DiscoveryResult
         {
@@ -135,7 +148,9 @@ internal static class WgResponseParser
             FirmwareVersion = version,
             ControllerDate = date,
             Port = port,
-            AllowedPcIp = allowedIp
+            AllowedPcIp = allowedIp,
+            DoorModes = modes,
+            DoorDelays = delays
         };
     }
 }

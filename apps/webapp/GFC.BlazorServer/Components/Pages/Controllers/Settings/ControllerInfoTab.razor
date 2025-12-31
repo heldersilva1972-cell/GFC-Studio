@@ -1,0 +1,268 @@
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Controllers
+@using MengqiModels = GFC.BlazorServer.Connectors.Mengqi.Models
+@inject IControllerClient ControllerClient
+
+<div class="glass-panel p-4 fadeIn">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="mb-1 fw-bold">Controller Information</h3>
+            <p class="text-muted small mb-0">Hardware specifications and database statistics directly from the device.</p>
+        </div>
+        <button class="btn btn-primary-modern" @onclick="RefreshData" disabled="@_isLoading">
+            @if (_isLoading)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                <span>Refreshing...</span>
+            }
+            else
+            {
+                <i class="bi bi-arrow-clockwise me-2"></i>
+                <span>Refresh Data</span>
+            }
+        </button>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger d-flex align-items-center mb-4">
+            <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
+            <div>
+                <div class="fw-bold">Connection Failed</div>
+                <div class="small">@_error</div>
+            </div>
+        </div>
+    }
+
+    @if (_discoveryResult != null || _runStatus != null)
+    {
+        <div class="row g-4">
+            <!-- System Info -->
+            <div class="col-md-6">
+                <div class="bg-surface-subtle border border-glass rounded-3 p-3 h-100">
+                    <h5 class="section-title mb-3 text-primary"><i class="bi bi-cpu me-2"></i>System Information</h5>
+                    
+                    @if (_discoveryResult != null)
+                    {
+                        <div class="info-grid">
+                            <div class="info-label">Serial Number</div>
+                            <div class="info-value">@_discoveryResult.SerialNumber</div>
+
+                            <div class="info-label">Version</div>
+                            <div class="info-value">@_discoveryResult.FirmwareVersion</div>
+
+                            <div class="info-label">Date</div>
+                            <div class="info-value">@_discoveryResult.ControllerDate.ToString("yyyy-MM-dd")</div>
+
+                            <div class="info-label">MAC Address</div>
+                            <div class="info-value font-monospace">@_discoveryResult.MacAddress</div>
+                            
+                            <div class="info-label">IP Address</div>
+                            <div class="info-value">@_discoveryResult.IpAddress</div>
+                            
+                            <div class="info-label">Subnet Mask</div>
+                            <div class="info-value">@_discoveryResult.SubnetMask</div>
+
+                            <div class="info-label">Gateway</div>
+                            <div class="info-value">@_discoveryResult.Gateway</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-muted small">System info not available.</div>
+                    }
+                </div>
+            </div>
+
+            <!-- Database Stats -->
+            <div class="col-md-6">
+                 <div class="bg-surface-subtle border border-glass rounded-3 p-3 h-100">
+                    <h5 class="section-title mb-3 text-success"><i class="bi bi-database me-2"></i>Database Statistics</h5>
+                    
+                    @if (_runStatus != null)
+                    {
+                        <div class="d-flex flex-column gap-3 py-2">
+                             <div class="stat-card">
+                                <div class="stat-label">Total Cards Registered</div>
+                                <div class="stat-value text-primary">@_runStatus.TotalCards.ToString("N0")</div>
+                            </div>
+                            
+                            <div class="stat-card">
+                                <div class="stat-label">Total Swipe Records</div>
+                                <div class="stat-value text-success">@_runStatus.TotalEvents.ToString("N0")</div>
+                            </div>
+                            
+                            <div class="mt-3 small text-muted">
+                                <i class="bi bi-check-circle-fill text-success me-1"></i>
+                                Status: @(_runStatus.IsOnline ? "Online" : "Offline")
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                         <div class="text-center py-4 text-muted">
+                            <span class="spinner-border spinner-border-sm me-2"></span> Fetching database stats...
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Door Configs -->
+             <div class="col-12">
+                 <div class="bg-surface-subtle border border-glass rounded-3 p-3">
+                    <h5 class="section-title mb-3 text-warning"><i class="bi bi-door-open me-2"></i>Door Configuration (Hardware)</h5>
+                    
+                    @if (_discoveryResult != null)
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm table-borderless align-middle mb-0">
+                                <thead class="text-muted small text-uppercase">
+                                    <tr>
+                                        <th>Door</th>
+                                        <th>Hardware Mode</th>
+                                        <th>Relay Delay</th>
+                                        <th>Real-time Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (int i = 0; i < (Controller?.DoorCount ?? 4); i++)
+                                    {
+                                        var mode = _discoveryResult.DoorModes.Length > i ? _discoveryResult.DoorModes[i] : (byte)0;
+                                        var delay = _discoveryResult.DoorDelays.Length > i ? _discoveryResult.DoorDelays[i] : (byte)0;
+                                        var doorStatus = _runStatus?.Doors.FirstOrDefault(d => d.DoorIndex == i + 1);
+                                        
+                                        <tr>
+                                            <td class="fw-bold">Door @(i + 1)</td>
+                                            <td>
+                                                @GetModeBadge(mode)
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary">@delay sec</span>
+                                            </td>
+                                            <td>
+                                                @if (doorStatus != null) {
+                                                    <span class="badge @(doorStatus.IsDoorOpen ? "bg-danger" : "bg-success") me-2">
+                                                        @(doorStatus.IsDoorOpen ? "Open" : "Closed")
+                                                    </span>
+                                                    <span class="badge @(doorStatus.IsRelayOn ? "bg-warning text-dark" : "bg-light text-dark border")">
+                                                        @(doorStatus.IsRelayOn ? "Relay ON" : "Relay OFF")
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-muted small">Door configuration not available.</div>
+                    }
+                 </div>
+            </div>
+        </div>
+    }
+    else if (!_isLoading)
+    {
+         <div class="text-center py-5 text-muted">
+            <i class="bi bi-wifi-off fs-1 mb-2 d-block opacity-50"></i>
+            <p>No data available. Check connection and try refreshing.</p>
+        </div>
+    }
+</div>
+
+<style>
+    .info-grid {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 0.75rem;
+        font-size: 0.9rem;
+    }
+    .info-label { color: var(--text-secondary); font-weight: 500; }
+    .info-value { color: var(--text-primary); font-weight: 600; }
+    
+    .stat-card {
+        background: rgba(255,255,255,0.5);
+        border: 1px solid var(--glass-border);
+        padding: 1rem;
+        border-radius: 8px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .stat-label { font-weight: 500; color: var(--text-secondary); }
+    .stat-value { font-size: 1.5rem; font-weight: 700; }
+</style>
+
+@code {
+    [Parameter] public ControllerDevice? Controller { get; set; }
+
+    private bool _isLoading = false;
+    private string? _error;
+    private MengqiModels.DiscoveryResult? _discoveryResult;
+    private RunStatusModel? _runStatus;
+    
+    private int _lastControllerId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+         if (Controller != null && Controller.Id != _lastControllerId)
+        {
+            _lastControllerId = Controller.Id;
+            await RefreshData();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        if (Controller == null || !Controller.IsEnabled) return;
+        
+        _isLoading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var t1 = ControllerClient.GetHardwareInfoAsync(Controller.SerialNumberDisplay);
+            var t2 = ControllerClient.GetRunStatusAsync(Controller.Id, CancellationToken.None);
+             
+            await Task.WhenAll(t1, t2);
+            
+            _discoveryResult = t1.Result;
+            _runStatus = t2.Result;
+        }
+        catch (Exception ex) 
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private RenderFragment GetModeBadge(byte mode) => builder =>
+    {
+        // 1=AlwaysOpen; 2=AlwaysClosed; 3=Controlled (Card); 0=Not Configured
+        string cssClass = "bg-secondary";
+        string text = "Unknown";
+        
+        switch (mode)
+        {
+            case 1: cssClass = "bg-warning text-dark"; text = "Always Open"; break;
+            case 2: cssClass = "bg-dark"; text = "Always Closed"; break;
+            case 3: cssClass = "bg-success"; text = "Controlled"; break;
+            case 0: cssClass = "bg-light text-dark border"; text = "Not Configured"; break;
+        }
+        
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", $"badge {cssClass}");
+        builder.AddContent(2, text);
+        builder.CloseElement();
+    };
+}

@@ -145,6 +145,21 @@ internal static class WgPayloadFactory
         return payload;
     }
 
+    public static byte[] BuildDoorConfigPayload(WgCommandProfile profile, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock)
+    {
+        // 0x8E command uses a specific layout within the 64-byte frame (offset 8 of packet is offset 0 of this payload)
+        var payload = Allocate(profile, 56);
+        payload[0] = (byte)doorIndex;  // Packet Offset 8
+        payload[1] = controlMode;      // Packet Offset 9: 1=AlwaysOpen, 2=AlwaysClosed, 3=Controlled
+        payload[2] = relayDelay;       // Packet Offset 10: seconds
+        payload[3] = doorSensor;       // Packet Offset 11: 0=None, 1=NC, 2=NO
+        
+        // Interlock is at Packet Offset 14, which is Payload Offset 6
+        payload[6] = interlock;        // Packet Offset 14: 0=None, 1=2Door, 2=3Door, 3=4Door
+        
+        return payload;
+    }
+
     private static byte[] Allocate(WgCommandProfile profile, int minimumLength)
     {
         var length = profile.RequestPayloadLength > 0 ? profile.RequestPayloadLength : minimumLength;

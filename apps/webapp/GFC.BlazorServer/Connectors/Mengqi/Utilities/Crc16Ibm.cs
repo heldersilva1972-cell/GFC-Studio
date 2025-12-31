@@ -8,33 +8,41 @@ internal static class Crc16Ibm
 
     public static ushort Compute(ReadOnlySpan<byte> buffer)
     {
-        // CRITICAL: Match vendor implementation (wgCRC.cs lines 44-56)
-        // Must zero out bytes 2-3 before calculating CRC!
-        var tempBuffer = buffer.ToArray();
-        if (tempBuffer.Length > 4)
-        {
-            tempBuffer[2] = 0;
-            tempBuffer[3] = 0;
-        }
+        // CRITICAL: Match vendor implementation for N3000/Mengqi controllers.
+        // The CRC-16 calculation range MUST EXCLUDE bytes 2 and 3 (the checksum placeholder).
+        // Processing a 0x00 byte in these positions results in a different state than skipping them.
         
-        // CRC-16 IBM with initial value 0 (not 0xFFFF!)
         ushort crc = 0;
-        foreach (var b in tempBuffer)
+
+        // Process bytes 0 and 1
+        for (int i = 0; i < 2 && i < buffer.Length; i++)
         {
-            crc ^= b;
-            for (var i = 0; i < 8; i++)
-            {
-                if ((crc & 1) != 0)
-                {
-                    crc = (ushort)((crc >> 1) ^ Polynomial);
-                }
-                else
-                {
-                    crc >>= 1;
-                }
-            }
+            crc = UpdateCrc(crc, buffer[i]);
         }
 
+        // Process bytes 4 through end
+        for (int i = 4; i < buffer.Length; i++)
+        {
+            crc = UpdateCrc(crc, buffer[i]);
+        }
+
+        return crc;
+    }
+
+    private static ushort UpdateCrc(ushort crc, byte b)
+    {
+        crc ^= b;
+        for (var i = 0; i < 8; i++)
+        {
+            if ((crc & 1) != 0)
+            {
+                crc = (ushort)((crc >> 1) ^ Polynomial);
+            }
+            else
+            {
+                crc >>= 1;
+            }
+        }
         return crc;
     }
 }

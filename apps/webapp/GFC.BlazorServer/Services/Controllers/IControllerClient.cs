@@ -39,5 +39,7 @@ public interface IControllerClient
     Task<AllowedPcAndPasswordRequestDto?> GetAllowedPcSettingsAsync(string controllerSn, CancellationToken cancellationToken = default);
     Task<ApiResult> SetAllowedPcSettingsAsync(string controllerSn, AllowedPcAndPasswordRequestDto dto, CancellationToken cancellationToken = default);
     Task RebootAsync(string controllerSn, CancellationToken cancellationToken = default);
+    Task SetDoorConfigAsync(string controllerSn, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock, CancellationToken cancellationToken = default);
+    Task<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult?> GetHardwareInfoAsync(string controllerSn, CancellationToken cancellationToken = default);
     Task<IEnumerable<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult>> DiscoverAsync(CancellationToken cancellationToken = default);
 }

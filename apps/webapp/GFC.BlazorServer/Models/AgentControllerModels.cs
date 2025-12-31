@@ -11,6 +11,9 @@ public sealed class AgentRunStatusDto
     public List<bool> RelayStates { get; set; } = new List<bool>();
     public bool IsFireAlarmActive { get; set; }
     public bool IsTamperActive { get; set; }
+    
+    public uint TotalCards { get; set; }
+    public uint TotalEvents { get; set; }
 
     public class DoorRunStatus
     {

@@ -1,10 +1,20 @@
-// [NEW]
+// [MODIFIED]
 using System;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services
 {
-    public class ToastService
+    public interface IToastService
+    {
+        event Func<string, ToastLevel, Task> OnShow;
+        Task ShowToastAsync(string message, ToastLevel level);
+        Task ShowSuccess(string message);
+        Task ShowError(string message);
+        Task ShowWarning(string message);
+        Task ShowInfo(string message);
+    }
+
+    public class ToastService : IToastService
     {
         public event Func<string, ToastLevel, Task> OnShow;
 

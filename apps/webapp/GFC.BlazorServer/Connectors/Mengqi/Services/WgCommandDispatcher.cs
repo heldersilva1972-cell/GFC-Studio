@@ -7,6 +7,7 @@ using GFC.BlazorServer.Connectors.Mengqi.Interop;
 using GFC.BlazorServer.Connectors.Mengqi.Packets;
 using GFC.BlazorServer.Connectors.Mengqi.Transport;
 using GFC.BlazorServer.Connectors.Mengqi.Utilities;
+using GFC.BlazorServer.Services.Controllers;
 
 namespace GFC.BlazorServer.Connectors.Mengqi.Services;
 
@@ -15,6 +16,7 @@ internal sealed class WgCommandDispatcher
     private readonly ControllerClientOptions _options;
     private readonly IControllerEndpointResolver _endpointResolver;
     private readonly IControllerTransport _transport;
+    private readonly ICommunicationLogService? _logService;
     private readonly WgPacketBuilder _packetBuilder;
     private readonly AsyncLock _sendLock = new();
     private ushort _xid;
@@ -22,11 +24,13 @@ internal sealed class WgCommandDispatcher
     public WgCommandDispatcher(
         ControllerClientOptions options,
         IControllerEndpointResolver endpointResolver,
-        IControllerTransport transport)
+        IControllerTransport transport,
+        ICommunicationLogService? logService = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _endpointResolver = endpointResolver ?? throw new ArgumentNullException(nameof(endpointResolver));
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        _logService = logService;
         _packetBuilder = new WgPacketBuilder(options);
     }
 
@@ -35,6 +39,16 @@ internal sealed class WgCommandDispatcher
         var endpoint = _endpointResolver.Resolve(controllerSn);
         var request = _packetBuilder.Build(controllerSn, NextXid(), profile, payload.Span);
         var span = request.AsSpan();
+
+        // Log request (before encryption for debuggability of the technical content if desired, 
+        // but usually we want to see what's on the wire. Actually, let's log the "Intent".)
+        var entry = new CommunicationLogEntry
+        {
+            ControllerSn = controllerSn,
+            Operation = profile.Name,
+            RequestPacket = request.ToArray(),
+            PlainEnglish = GetPlainEnglish(profile, payload.Span)
+        };
 
         // In the N3000 64-byte protocol, bytes 0-3 are the core header (Type, Cmd, CRC)
         // Offset 4 onwards is the payload (SN + Data) that should be encrypted
@@ -67,6 +81,10 @@ internal sealed class WgCommandDispatcher
                         }
                     }
 
+                    entry.ResponsePacket = response;
+                    entry.Description = $"Success (Attempt {attempt + 1})";
+                    _logService?.Log(entry);
+
                     return response;
                 }
             }
@@ -77,7 +95,28 @@ internal sealed class WgCommandDispatcher
             }
         }
 
+        entry.IsError = true;
+        entry.ErrorMessage = lastError?.Message ?? "Timeout";
+        _logService?.Log(entry);
+
         throw lastError ?? new TimeoutException($"Controller SN {controllerSn} did not respond after {_options.MaxRetries + 1} attempts.");
+    }
+
+    private string GetPlainEnglish(WgCommandProfile profile, ReadOnlySpan<byte> payload)
+    {
+        // Add plain English descriptions for common commands
+        return profile.Name switch
+        {
+            "GetRunStatus" => "Checking if the controller is online and getting door states.",
+            "OpenDoor" => $"Remote open request for Door {(payload.Length > 0 ? payload[0] : '?')}.",
+            "AddOrUpdateCard" => "Adding or updating a card's permissions on the controller.",
+            "DeleteCard" => "Removing a card from the controller's memory.",
+            "GetEvents" => "Fetching the latest access logs from the controller.",
+            "SyncTime" => "Setting the controller's internal clock to match the server.",
+            "SetDoorConfig" => $"Configuring parameters for Door {(payload.Length > 0 ? payload[0] : '?')}.",
+            "Search" => "Searching for controllers on the local network.",
+            _ => $"Executing {profile.Name} command."
+        };
     }
 
     public async IAsyncEnumerable<byte[]> BroadcastAsync(WgCommandProfile profile, ReadOnlyMemory<byte> payload, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)

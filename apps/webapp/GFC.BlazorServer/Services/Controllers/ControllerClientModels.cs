@@ -47,6 +47,9 @@ public sealed class RunStatusModel
     public uint? LastRecordIndex { get; set; }
 
     public IReadOnlyList<DoorStatus> Doors { get; set; } = Array.Empty<DoorStatus>();
+    
+    public uint TotalCards { get; set; }
+    public uint TotalEvents { get; set; }
 
     public sealed class DoorStatus
     {

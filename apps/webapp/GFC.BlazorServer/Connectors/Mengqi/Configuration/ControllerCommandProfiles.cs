@@ -43,6 +43,10 @@ public sealed class ControllerCommandProfiles
 
     public WgCommandProfile Reboot { get; set; } = WgCommandProfile.Unconfigured(nameof(Reboot));
     public WgCommandProfile Search { get; set; } = WgCommandProfile.Unconfigured(nameof(Search));
+    public WgCommandProfile SetDoorConfig { get; set; } = WgCommandProfile.Unconfigured(nameof(SetDoorConfig));
+    
+    public WgCommandProfile ResetPrivileges { get; set; } = WgCommandProfile.Unconfigured(nameof(ResetPrivileges));
+    public WgCommandProfile ResetPrivilegeIndex { get; set; } = WgCommandProfile.Unconfigured(nameof(ResetPrivilegeIndex));
 
     public void EnsureAllConfigured()
     {
@@ -66,6 +70,9 @@ public sealed class ControllerCommandProfiles
         // SetAllowedPc.EnsureConfigured();
         Reboot.EnsureConfigured();
         Search.EnsureConfigured();
+        SetDoorConfig.EnsureConfigured();
+        ResetPrivileges.EnsureConfigured();
+        ResetPrivilegeIndex.EnsureConfigured();
     }
 }
 

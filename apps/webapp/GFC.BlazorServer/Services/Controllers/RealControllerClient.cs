@@ -138,11 +138,13 @@ public class RealControllerClient : IControllerClient
         return new RunStatusModel
         {
             IsOnline = true,
+            TotalCards = status.TotalCards,
+            TotalEvents = status.TotalEvents,
             Doors = status.Doors.Select(d => new RunStatusModel.DoorStatus
             {
                 DoorIndex = d.DoorNumber,
                 IsDoorOpen = d.IsDoorOpen,
-                IsRelayOn = d.IsRelayOn, // Assuming map is direct
+                IsRelayOn = d.IsRelayOn,
                 IsSensorActive = d.IsSensorActive
             }).ToList()
         };
@@ -251,6 +253,8 @@ public class RealControllerClient : IControllerClient
                  SerialNumber = sn,
                  IsOnline = true,
                  ControllerTimeUtc = DateTime.UtcNow,
+                 TotalCards = status.TotalCards,
+                 TotalEvents = status.TotalEvents,
                  Doors = status.Doors.Select(d => new AgentRunStatusDto.DoorRunStatus
                  {
                      DoorNumber = d.DoorNumber,
@@ -406,6 +410,24 @@ public class RealControllerClient : IControllerClient
     {
         if (!uint.TryParse(controllerSn, out var sn)) return;
         await _mengqiClient.RebootControllerAsync(sn, cancellationToken);
+    }
+    
+    public async Task ResetControllerAsync(string controllerSn, CancellationToken cancellationToken = default)
+    {
+        if (!uint.TryParse(controllerSn, out var sn)) return;
+        await _mengqiClient.ResetControllerAsync(sn, cancellationToken);
+    }
+
+    public async Task SetDoorConfigAsync(string controllerSn, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock, CancellationToken cancellationToken = default)
+    {
+        if (!uint.TryParse(controllerSn, out var sn)) return;
+        await _mengqiClient.SetDoorConfigAsync(sn, doorIndex, controlMode, relayDelay, doorSensor, interlock, cancellationToken);
+    }
+
+    public async Task<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult?> GetHardwareInfoAsync(string controllerSn, CancellationToken cancellationToken = default)
+    {
+        if (!uint.TryParse(controllerSn, out var sn)) return null;
+        return await _mengqiClient.GetHardwareInfoAsync(sn, cancellationToken);
     }
 
     public async Task<IEnumerable<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult>> DiscoverAsync(CancellationToken cancellationToken = default)

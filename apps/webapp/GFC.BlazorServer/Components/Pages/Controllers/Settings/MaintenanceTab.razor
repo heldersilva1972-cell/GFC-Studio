@@ -2,6 +2,7 @@
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Services.Controllers
+@inject IControllerClient ControllerClient
 @using Microsoft.EntityFrameworkCore
 @inject IMemberAccessService MemberAccessService
 @inject CommandInfoService CommandInfoService
@@ -60,15 +61,18 @@
                             </div>
                          </div>
                          
-                         <!-- Placeholder for other tasks (Reboot, etc) -->
+                         <!-- Deep Reset / Recovery -->
                          <div class="col-md-6">
-                            <div class="bg-surface-subtle p-4 rounded-3 border border-glass h-100 opacity-75">
-                                <h5 class="text-secondary"><i class="bi bi-power me-2"></i>Remote Reboot</h5>
+                            <div class="bg-surface-subtle p-4 rounded-3 border border-glass h-100">
+                                <h5 class="text-primary fw-bold"><i class="bi bi-arrow-counterclockwise me-2"></i>Deep Reset & Recovery</h5>
                                 <p class="small text-muted mb-3">
-                                    Restart the controller hardware remotely. (Feature coming soon)
+                                    Resets internal privilege counters, wipes ghost records (0x10), and re-initializes door modes. Use this if database stats show millions of records.
                                 </p>
-                                <button class="btn btn-outline-secondary w-100" disabled>
-                                    Reboot Controller
+                                <button class="btn btn-outline-primary w-100" 
+                                        @onclick="ShowResetModal"
+                                        disabled="@(_isResetting || !Controller.IsEnabled)">
+                                    @if (_isResetting) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                    Execute Deep Reset
                                 </button>
                             </div>
                          </div>
@@ -114,6 +118,40 @@
     </div>
 }
 
+@* Reset Confirmation Modal *@
+@if (_showResetModal)
+{
+    <div class="modal-backdrop fade show" @onclick="CloseResetModal"></div>
+    <div class="modern-modal-container">
+        <div class="modern-modal fadeIn">
+            <div class="modal-header-modern primary">
+                <div class="header-icon"><i class="bi bi-arrow-counterclockwise"></i></div>
+                <h2>Confirm Deep Reset</h2>
+                <button class="btn-close-modern" @onclick="CloseResetModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body-modern">
+                <div class="alert alert-info">
+                   This process will:
+                   <ul class="mb-0 ps-3">
+                       <li>Wipe all records (0x10) - Ghost records removal</li>
+                       <li>Reset internal counter (0x11)</li>
+                       <li>Force Doors 1-@(Controller?.DoorCount ?? 4) to Controlled Mode (0x8E)</li>
+                   </ul>
+                </div>
+                <p class="mb-2">Are you sure you want to proceed?</p>
+            </div>
+            <div class="modal-footer-modern">
+                <button class="btn-modern btn-outline-modern" @onclick="CloseResetModal">Cancel</button>
+                <button class="btn-modern btn-primary" 
+                        @onclick="ExecuteReset" 
+                        disabled="@(_isResetting)">
+                    @(_isResetting ? "Resetting..." : "Yes, Reset Controller")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     /* Scoped minimal styles reuse */
     .glass-panel { background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: 16px; padding: 1.5rem; }
@@ -139,11 +177,19 @@
     private string? _successMessage;
     private ControllerCommandInfo? _clearAllCommandInfo;
     private bool _showClearAllModal = false;
+    private bool _showResetModal = false;
+    private bool _isResetting = false;
     private string _clearAllConfirmText = string.Empty;
+
+    private int _lastControllerId;
 
     protected override async Task OnParametersSetAsync()
     {
-         if (Controller != null) await LoadCommandInfo();
+         if (Controller != null && Controller.Id != _lastControllerId)
+         {
+             _lastControllerId = Controller.Id;
+             await LoadCommandInfo();
+         }
     }
 
     private async Task LoadCommandInfo()
@@ -158,6 +204,30 @@
     }
 
     private void CloseClearAllModal() => _showClearAllModal = false;
+
+    private void ShowResetModal() => _showResetModal = true;
+    private void CloseResetModal() => _showResetModal = false;
+
+    private async Task ExecuteReset()
+    {
+         if (Controller == null) return;
+         _isResetting = true;
+         _errorMessage = null; _successMessage = null;
+         try
+         {
+             await ((RealControllerClient)ControllerClient).ResetControllerAsync(Controller.SerialNumberDisplay);
+             _successMessage = "Deep reset completed successfully. Ghost records cleared.";
+             await LogCommand("DeepReset", true);
+             CloseResetModal();
+         }
+         catch (Exception ex)
+         {
+             Logger.LogError(ex, "Failed to reset");
+             _errorMessage = "Reset failed: " + ex.Message;
+             await LogCommand("DeepReset", false, ex.Message);
+         }
+         finally { _isResetting = false; }
+    }
 
     private async Task ExecuteClearAll()
     {

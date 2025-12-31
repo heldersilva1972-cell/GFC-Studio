@@ -34,8 +34,11 @@ internal sealed class WgPacketBuilder
         BinaryPrimitives.WriteUInt32LittleEndian(span[4..], targetControllerSn);
         
         // 2b. XID (Offsets 40-43)
-        // N3000 Short Packet (0x17) places sequence ID at offset 40.
-        BinaryPrimitives.WriteUInt32LittleEndian(span[40..], (uint)xid);
+        // N3000 Short Packet (0x17) originally placed sequence ID at offset 40.
+        // However, verified hardware tests show that for certain configuration commands (like 0x8E), 
+        // the controller expects these bytes to be zero (or they interfere with the payload).
+        // Removing for maximum compatibility with N3000 baseline.
+        // BinaryPrimitives.WriteUInt32LittleEndian(span[40..], (uint)xid);
 
         // 3. Command Payload (Offset 8 onwards)
         if (!payload.IsEmpty)

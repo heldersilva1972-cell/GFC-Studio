@@ -37,7 +37,7 @@ public class ControllerSyncWorker : BackgroundService
             {
                 using var scope = _scopeFactory.CreateScope();
                 var syncQueue = scope.ServiceProvider.GetRequiredService<IControllerSyncQueueRepository>();
-                var controllerClient = scope.ServiceProvider.GetRequiredService<IControllerClient>();
+                var syncService = scope.ServiceProvider.GetRequiredService<IControllerSyncService>();
 
                 // Get pending items
                 var pendingItems = await syncQueue.GetPendingItemsAsync();
@@ -60,85 +60,12 @@ public class ControllerSyncWorker : BackgroundService
 
                     try
                     {
-                        // Mark as processing
-                        await syncQueue.UpdateStatusAsync(item.QueueId, "PROCESSING");
-                        _logger.LogInformation("Processing sync item {QueueId} (Card: {CardNumber}, Action: {Action})", 
-                            item.QueueId, item.CardNumber, item.Action);
-
-                        // Attempt sync to controller
-                        if (item.Action == "ACTIVATE")
-                        {
-                            // Get door permissions for this card
-                            var dbContext = scope.ServiceProvider.GetRequiredService<GFC.BlazorServer.Data.GfcDbContext>();
-                            var permissions = await dbContext.MemberDoorAccesses
-                                .Include(a => a.Door)
-                                .Where(a => a.CardNumber == item.CardNumber && a.IsEnabled)
-                                .ToListAsync(stoppingToken);
-
-                            if (!permissions.Any())
-                            {
-                                // If NO permissions exist, we shouldn't necessarily delete it if it was just assigned.
-                                // It's better to log this as a pending state or skip it till permissions are added.
-                                _logger.LogWarning("No door permissions found for card {CardNumber}. Skipping activation until permissions are assigned.", item.CardNumber);
-                                await syncQueue.UpdateStatusAsync(item.QueueId, "PENDING"); // Put back in pending but skip for now
-                                continue;
-                            }
-                            
-                            foreach (var perm in permissions)
-                            {
-                                var controllerId = perm.Door?.ControllerId ?? 0;
-                                if (controllerId == 0)
-                                {
-                                    var door = await dbContext.Doors.FindAsync(new object[] { perm.DoorId }, stoppingToken);
-                                    if (door != null) controllerId = door.ControllerId;
-                                }
-
-                                if (controllerId == 0)
-                                {
-                                    _logger.LogWarning("Could not resolve Controller ID for door {DoorId}", perm.DoorId);
-                                    continue;
-                                }
-
-                                // Resolve time profile index
-                                int? timeProfileIndex = null;
-                                if (perm.TimeProfileId.HasValue)
-                                {
-                                    var link = await dbContext.ControllerTimeProfileLinks
-                                        .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == perm.TimeProfileId.Value, stoppingToken);
-                                    timeProfileIndex = link?.ControllerProfileIndex;
-                                }
-
-                                var privilege = new CardPrivilegeModel
-                                {
-                                    ControllerId = controllerId,
-                                    DoorId = perm.DoorId,
-                                    CardNumber = long.Parse(item.CardNumber),
-                                    TimeProfileIndex = timeProfileIndex ?? 1, // Default to Always if not specified
-                                    Enabled = true
-                                };
-
-                                await controllerClient.AddOrUpdatePrivilegeAsync(privilege, stoppingToken);
-                            }
-                        }
-                        else
-                        {
-                            await controllerClient.DeletePrivilegeAsync(long.Parse(item.CardNumber), stoppingToken);
-                        }
-
-                        // Success - mark as completed
-                        await syncQueue.MarkAsCompletedAsync(item.QueueId);
-                        _logger.LogInformation(
-                            "Successfully synced queued item {QueueId} for card {CardNumber} (action {Action}, attempt {Attempt})",
-                            item.QueueId, item.CardNumber, item.Action, item.AttemptCount + 1);
+                        await syncService.ProcessQueueItemAsync(item.QueueId, stoppingToken);
                     }
                     catch (Exception ex)
                     {
-                        // Failed - increment attempt count and log error
-                        // NEVER give up - just keep retrying
-                        await syncQueue.IncrementAttemptAsync(item.QueueId, ex.Message);
-                        _logger.LogWarning(ex,
-                            "Failed to sync queued item {QueueId} (attempt {Attempt}) - will retry in 30 minutes",
-                            item.QueueId, item.AttemptCount + 1);
+                        // Logged inside service, but we catch to continue with next item
+                        _logger.LogWarning("Worker failed to process sync item {QueueId}: {Message}", item.QueueId, ex.Message);
                     }
                 }
             }

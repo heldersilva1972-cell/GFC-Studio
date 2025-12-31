@@ -107,6 +107,21 @@ public interface IMengqiControllerClient
     ///     Broadcasts a search packet to discover all controllers on the subnet.
     /// </summary>
     Task<IEnumerable<DiscoveryResult>> DiscoverControllersAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     Configures key door parameters (Control Mode, Relay Delay, Sensors, Interlock).
+    /// </summary>
+    Task SetDoorConfigAsync(uint controllerSn, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     Retrieves detailed hardware info (IP, MAC, Firmware, Door Modes) from a specific controller.
+    /// </summary>
+    Task<DiscoveryResult?> GetHardwareInfoAsync(uint controllerSn, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     Performs a 'Deep Reset' by clearing ghost records (0x10) and resetting privilege counter (0x11).
+    /// </summary>
+    Task ResetControllerAsync(uint controllerSn, CancellationToken cancellationToken = default);
 }
 
 

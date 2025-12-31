@@ -13,4 +13,6 @@ public sealed class DiscoveryResult
     public DateTime ControllerDate { get; init; }
     public int Port { get; init; }
     public string AllowedPcIp { get; init; } = string.Empty;
+    public byte[] DoorModes { get; init; } = new byte[4];
+    public byte[] DoorDelays { get; init; } = new byte[4];
 }

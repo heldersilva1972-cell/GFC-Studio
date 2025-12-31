@@ -10,6 +10,8 @@ using GFC.BlazorServer.Connectors.Mengqi.Services;
 using GFC.BlazorServer.Connectors.Mengqi.Transport;
 using GFC.BlazorServer.Connectors.Mengqi.Packets;
 using Microsoft.Extensions.Logging;
+using GFC.BlazorServer.Services.Controllers;
+using MengqiModels = GFC.BlazorServer.Connectors.Mengqi.Models;
 
 namespace GFC.BlazorServer.Connectors.Mengqi;
 
@@ -24,6 +26,7 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
     public MengqiControllerClient(
         ControllerClientOptions options,
         IControllerEndpointResolver endpointResolver,
+        ICommunicationLogService? logService = null,
         IControllerTransport? transport = null,
         ILogger<MengqiControllerClient>? logger = null)
     {
@@ -32,7 +35,7 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
 
         _commands = options.CommandProfiles ?? throw new ArgumentNullException(nameof(options.CommandProfiles));
         _transport = transport ?? new UdpControllerTransport();
-        _dispatcher = new WgCommandDispatcher(options, endpointResolver, _transport);
+        _dispatcher = new WgCommandDispatcher(options, endpointResolver, _transport, logService);
         _logger = logger;
     }
 
@@ -49,15 +52,38 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         await SendAndExpectAck(controllerSn, _commands.SyncTime, payload, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task AddOrUpdateCardAsync(uint controllerSn, CardPrivilegeModel model, CancellationToken cancellationToken = default)
+    public async Task AddOrUpdateCardAsync(uint controllerSn, MengqiModels.CardPrivilegeModel model, CancellationToken cancellationToken = default)
     {
         var payload = WgPayloadFactory.BuildPrivilegePayload(_commands.AddOrUpdateCard, model, markAsDeleted: false);
         await SendAndExpectAck(controllerSn, _commands.AddOrUpdateCard, payload, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task SetDoorConfigAsync(uint controllerSn, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock, CancellationToken cancellationToken = default)
+    {
+        var payload = WgPayloadFactory.BuildDoorConfigPayload(_commands.SetDoorConfig, doorIndex, controlMode, relayDelay, doorSensor, interlock);
+        await SendAndExpectAck(controllerSn, _commands.SetDoorConfig, payload, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<DiscoveryResult?> GetHardwareInfoAsync(uint controllerSn, CancellationToken cancellationToken = default)
+    {
+        // Use 0x94 (Search) targeted at a specific SN
+        var response = await _dispatcher.SendAsync(controllerSn, _commands.Search, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
+        if (response.Length < 64) return null;
+        
+        try 
+        {
+            return WgResponseParser.ParseDiscovery(response);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "Failed to parse hardware info response for {Sn}", controllerSn);
+            return null;
+        }
+    }
+
     public async Task DeleteCardAsync(uint controllerSn, long cardNumber, CancellationToken cancellationToken = default)
     {
-        var model = new CardPrivilegeModel
+        var model = new MengqiModels.CardPrivilegeModel
         {
             CardNumber = cardNumber,
             DoorList = Array.Empty<int>()
@@ -66,7 +92,7 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         await SendAndExpectAck(controllerSn, _commands.DeleteCard, payload, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task BulkUploadCardsAsync(uint controllerSn, IEnumerable<CardPrivilegeModel> cards, CancellationToken cancellationToken = default)
+    public async Task BulkUploadCardsAsync(uint controllerSn, IEnumerable<MengqiModels.CardPrivilegeModel> cards, CancellationToken cancellationToken = default)
     {
         foreach (var card in cards)
         {
@@ -93,7 +119,7 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         return WgResponseParser.ParseEvents(response);
     }
 
-    public async Task<RunStatusModel> GetRunStatusAsync(uint controllerSn, CancellationToken cancellationToken = default)
+    public async Task<MengqiModels.RunStatusModel> GetRunStatusAsync(uint controllerSn, CancellationToken cancellationToken = default)
     {
         var response = await _dispatcher.SendAsync(controllerSn, _commands.GetRunStatus, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
         WgResponseParser.EnsureAck(response, _commands.GetRunStatus);
@@ -153,6 +179,25 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
     {
         var payload = Array.Empty<byte>();
         await SendAndExpectAck(controllerSn, _commands.Reboot, payload, cancellationToken).ConfigureAwait(false);
+    }
+    
+    public async Task ResetControllerAsync(uint controllerSn, CancellationToken cancellationToken = default)
+    {
+        // 1. Wipe Ghost Records (0x10)
+        await SendAndExpectAck(controllerSn, _commands.ResetPrivileges, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
+        _logger?.LogInformation("Cleared privileges for controller {Sn}", controllerSn);
+        
+        // 2. Reset Counter (0x11)
+        await SendAndExpectAck(controllerSn, _commands.ResetPrivilegeIndex, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
+        _logger?.LogInformation("Reset privilege index for controller {Sn}", controllerSn);
+        
+        // 3. Initialize Doors (1-4)
+        for (int i = 1; i <= 4; i++)
+        {
+             // Force to Controlled Mode (3) with 5s delay as per recovery script
+             await SetDoorConfigAsync(controllerSn, i, 0x03, 0x05, 0, 0, cancellationToken);
+        }
+        _logger?.LogInformation("Initialized all doors for controller {Sn}", controllerSn);
     }
 
     public async Task<IEnumerable<DiscoveryResult>> DiscoverControllersAsync(CancellationToken cancellationToken = default)

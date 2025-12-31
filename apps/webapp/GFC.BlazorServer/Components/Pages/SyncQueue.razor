@@ -4,11 +4,15 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using GFC.Core.Services
+@implements IDisposable
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
 @inject KeyCardLifecycleService LifecycleService
+@inject ICommunicationLogService CommunicationLog
+@inject IControllerSyncService SyncService
 @inject NavigationManager Navigation
+@inject IToastService ToastService
 @inject ILogger<SyncQueue> Logger
 @inject IJSRuntime JSRuntime
 
@@ -34,6 +38,70 @@
         <button class="btn btn-primary" @onclick="RefreshQueue">
             <i class="bi bi-arrow-clockwise"></i> Refresh
         </button>
+    </div>
+</div>
+
+<!-- Real-time Communication Log -->
+<div class="row mb-4 fade-in" style="animation-delay: 0.05s;">
+    <div class="col-12">
+        <div class="communication-log-card">
+            <div class="log-header">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="live-indicator"><span class="live-dot"></span>LIVE</span>
+                    <h5 class="mb-0 fw-bold">Hardware Communication Monitor</h5>
+                </div>
+                <div class="log-actions">
+                    <button class="btn btn-sm btn-outline-light" @onclick="ClearLogs">Clear Logs</button>
+                </div>
+            </div>
+            <div class="log-body" id="comm-log-container">
+                @if (!_recentLogs.Any())
+                {
+                    <div class="text-center py-4 text-muted small">
+                        <i class="bi bi-activity me-2"></i>Waiting for hardware activity...
+                    </div>
+                }
+                else
+                {
+                    @foreach (var log in _recentLogs)
+                    {
+                        <div class="log-entry @(log.IsError ? "log-error" : "")">
+                            <div class="log-time">@log.Timestamp.ToString("HH:mm:ss.fff")</div>
+                            <div class="log-content">
+                                <div class="log-summary">
+                                    <span class="log-op badge @(log.IsError ? "bg-danger" : "bg-primary")">@log.Operation</span>
+                                    <span class="log-sn">SN: @log.ControllerSn</span>
+                                    <span class="log-plain">@log.PlainEnglish</span>
+                                </div>
+                                <div class="log-details">
+                                    @if (!string.IsNullOrEmpty(log.Description))
+                                    {
+                                        <div class="log-status @(log.IsError ? "text-danger" : "text-success")">@log.Description</div>
+                                    }
+                                    @if (log.IsError && !string.IsNullOrEmpty(log.ErrorMessage))
+                                    {
+                                        <div class="log-error-msg">Error: @log.ErrorMessage</div>
+                                    }
+                                    <div class="log-packets">
+                                        @if (log.RequestPacket != null)
+                                        {
+                                            <span class="packet-label">TX:</span> 
+                                            <code>@BitConverter.ToString(log.RequestPacket).Replace("-", "")</code>
+                                        }
+                                        @if (log.ResponsePacket != null)
+                                        {
+                                            <br />
+                                            <span class="packet-label">RX:</span> 
+                                            <code>@BitConverter.ToString(log.ResponsePacket).Replace("-", "")</code>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
     </div>
 </div>
 
@@ -223,15 +291,6 @@ else
         </div>
     }
 }
-
-@if (!string.IsNullOrEmpty(_message))
-{
-    <div class="alert @(_messageIsError ? "alert-danger" : "alert-success") mt-3 fade-in">
-        <i class="bi @(_messageIsError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
-        @_message
-    </div>
-}
-
 @code {
     private List<ControllerSyncQueueItem> _allItems = new();
     private List<KeyCard> _unconfirmedMissingFromQueue = new();
@@ -242,18 +301,52 @@ else
     private int _pendingCount = 0;
     private int _completedTodayCount = 0;
     private string? _oldestPendingAge = null;
-    private string _message = string.Empty;
-    private bool _messageIsError = false;
+    
+    private List<CommunicationLogEntry> _recentLogs = new();
 
     protected override async Task OnInitializedAsync()
     {
+        _recentLogs = CommunicationLog.GetRecentLogs(20).Reverse().ToList();
+        CommunicationLog.OnLog += HandleCommLog;
         await LoadQueueAsync();
+    }
+
+    private void HandleCommLog(CommunicationLogEntry entry)
+    {
+        InvokeAsync(async () => 
+        {
+            _recentLogs.Insert(0, entry);
+            if (_recentLogs.Count > 50) _recentLogs.RemoveAt(_recentLogs.Count - 1);
+            StateHasChanged();
+            
+            // Helpful if there are many updates - scroll to top might happen naturally by insert at 0
+            // but let's ensure visibility
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('comm-log-container')?.scrollTo({top: 0, behavior: 'smooth'})");
+        });
+    }
+
+    private async Task ShowError(string? error)
+    {
+        if (!string.IsNullOrEmpty(error))
+        {
+            await ToastService.ShowError(error);
+        }
+    }
+
+    private void ClearLogs()
+    {
+        _recentLogs.Clear();
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        CommunicationLog.OnLog -= HandleCommLog;
     }
 
     private async Task LoadQueueAsync()
     {
         _loading = true;
-        _message = string.Empty;
         
         try
         {
@@ -311,8 +404,7 @@ else
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading sync queue");
-            _message = "Failed to load sync queue";
-            _messageIsError = true;
+            await ToastService.ShowError("Failed to load sync queue");
         }
         finally
         {
@@ -346,26 +438,21 @@ else
     private async Task RetryItem(int queueId)
     {
         _processing = true;
-        _message = string.Empty;
         
         try
         {
-            // TODO: Implement actual retry logic
-            Logger.LogInformation("Retrying sync for queue item {QueueId}", queueId);
-            _message = "Retry triggered successfully";
-            _messageIsError = false;
+            await SyncService.ProcessQueueItemAsync(queueId);
             
-            await Task.Delay(500); // Simulate processing
-            await LoadQueueAsync();
+            await ToastService.ShowSuccess("Sync completed successfully");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error retrying sync");
-            _message = "Failed to retry sync";
-            _messageIsError = true;
+            Logger.LogError(ex, "Failed to retry sync for queue item {QueueId}", queueId);
+            await ToastService.ShowError($"Sync failed: {ex.Message}");
         }
         finally
         {
+            await LoadQueueAsync();
             _processing = false;
         }
     }
@@ -373,26 +460,24 @@ else
     private async Task RetryAllPending()
     {
         _processing = true;
-        _message = string.Empty;
         
         try
         {
-            // TODO: Implement retry all logic
-            Logger.LogInformation("Retrying all pending syncs");
-            _message = $"Triggered retry for {_pendingCount} pending sync(s)";
-            _messageIsError = false;
+            int count = FilteredItems.Count(x => x.Status == "PENDING");
+            Logger.LogInformation("Retrying all {Count} pending sync items", count);
             
-            await Task.Delay(500);
-            await LoadQueueAsync();
+            await SyncService.ProcessAllPendingAsync();
+            
+            await ToastService.ShowSuccess($"Mass retry triggered for {count} items");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error retrying all syncs");
-            _message = "Failed to retry all syncs";
-            _messageIsError = true;
+            Logger.LogError(ex, "Failed to retry all pending items");
+            await ToastService.ShowError($"Mass retry failed: {ex.Message}");
         }
         finally
         {
+            await LoadQueueAsync();
             _processing = false;
         }
     }
@@ -400,21 +485,17 @@ else
     private async Task ClearCompleted()
     {
         _processing = true;
-        _message = string.Empty;
         
         try
         {
-            await SyncQueueRepository.DeleteCompletedOlderThanAsync(0); // Delete all completed
-            _message = "Cleared completed sync items";
-            _messageIsError = false;
-            
+            await SyncQueueRepository.DeleteCompletedOlderThanAsync(0);
+            await ToastService.ShowSuccess("Cleared completed sync items");
             await LoadQueueAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error clearing completed items");
-            _message = "Failed to clear completed items";
-            _messageIsError = true;
+            await ToastService.ShowError("Failed to clear completed items");
         }
         finally
         {
@@ -425,8 +506,6 @@ else
     private async Task RequeueMissingTasks()
     {
         _processing = true;
-        _message = "Re-queuing missing tasks...";
-        _messageIsError = false;
         
         try
         {
@@ -437,14 +516,13 @@ else
                 count++;
             }
             
-            _message = $"Successfully re-queued {count} task(s).";
+            await ToastService.ShowSuccess($"Successfully re-queued {count} task(s).");
             await LoadQueueAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error re-queuing missing tasks");
-            _message = "Failed to re-queue missing tasks.";
-            _messageIsError = true;
+            await ToastService.ShowError("Failed to re-queue missing tasks.");
         }
         finally
         {
@@ -455,12 +533,6 @@ else
     private void ViewDetails(ControllerSyncQueueItem item)
     {
         Logger.LogInformation("View details for queue item {QueueId}", item.QueueId);
-    }
-
-    private async Task ShowError(string? error)
-    {
-        if (string.IsNullOrEmpty(error)) return;
-        await JSRuntime.InvokeVoidAsync("alert", $"Last Sync Error:\n\n{error}");
     }
 
     private void GoBack()
@@ -527,6 +599,146 @@ else
 }
 
 <style>
+    /* Communication Log Monitor */
+    .communication-log-card {
+        background: #1a1a1a;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid #333;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    .log-header {
+        background: #2d2d2d;
+        padding: 0.75rem 1.25rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #444;
+        color: #eee;
+    }
+
+    .live-indicator {
+        font-size: 0.65rem;
+        font-weight: 800;
+        background: rgba(220, 38, 38, 0.2);
+        color: #ef4444;
+        padding: 2px 8px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        letter-spacing: 0.5px;
+    }
+
+    .live-dot {
+        width: 6px;
+        height: 6px;
+        background: #ef4444;
+        border-radius: 50%;
+        animation: pulse-red 1.5s infinite;
+    }
+
+    @@keyframes pulse-red {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    .log-body {
+        max-height: 250px;
+        overflow-y: auto;
+        padding: 0.5rem;
+        font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+    }
+
+    .log-entry {
+        display: flex;
+        gap: 15px;
+        padding: 0.75rem;
+        border-bottom: 1px solid #2a2a2a;
+        font-size: 0.85rem;
+        transition: background 0.2s;
+    }
+
+    .log-entry:hover {
+        background: #252525;
+    }
+
+    .log-time {
+        color: #666;
+        min-width: 90px;
+        font-size: 0.75rem;
+    }
+
+    .log-content {
+        flex-grow: 1;
+    }
+
+    .log-summary {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 5px;
+        flex-wrap: wrap;
+    }
+
+    .log-op {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        padding: 2px 6px;
+    }
+
+    .log-sn {
+        color: #888;
+        font-weight: bold;
+    }
+
+    .log-plain {
+        color: #ddd;
+        font-weight: 500;
+    }
+
+    .log-details {
+        font-size: 0.75rem;
+        margin-top: 4px;
+        border-left: 2px solid #333;
+        padding-left: 10px;
+    }
+
+    .log-status {
+        margin-bottom: 2px;
+        font-weight: 600;
+    }
+
+    .log-error-msg {
+        color: #ef4444;
+        margin-bottom: 4px;
+    }
+
+    .log-packets {
+        background: #111;
+        padding: 5px 8px;
+        border-radius: 4px;
+        margin-top: 5px;
+        word-break: break-all;
+    }
+
+    .packet-label {
+        color: #fbbf24;
+        font-weight: 800;
+        margin-right: 5px;
+    }
+
+    code {
+        color: #9cdcfe;
+    }
+
+    .log-error {
+        border-left: 3px solid #ef4444;
+        background: rgba(239, 68, 68, 0.05);
+    }
+
     .metric-card {
         background: var(--bg-surface);
         backdrop-filter: blur(12px);

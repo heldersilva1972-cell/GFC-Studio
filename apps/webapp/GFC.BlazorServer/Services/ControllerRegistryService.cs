@@ -56,7 +56,7 @@ public class ControllerRegistryService
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
     }
 
-    public async Task UpdateControllerAsync(int controllerId, string name, uint serialNumber, string ipAddress, CancellationToken cancellationToken = default)
+    public async Task UpdateControllerAsync(int controllerId, string name, uint serialNumber, string ipAddress, int doorCount, CancellationToken cancellationToken = default)
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var controller = await dbContext.Controllers.FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
@@ -65,6 +65,7 @@ public class ControllerRegistryService
             controller.Name = name;
             controller.SerialNumber = serialNumber;
             controller.IpAddress = ipAddress;
+            controller.DoorCount = doorCount;
             await dbContext.SaveChangesAsync(cancellationToken);
         }
     }

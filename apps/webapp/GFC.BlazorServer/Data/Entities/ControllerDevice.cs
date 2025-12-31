@@ -22,6 +22,9 @@ public class ControllerDevice
     public string IpAddress { get; set; } = string.Empty;
 
     public int Port { get; set; } = 60000;
+    
+    [Range(1, 4)]
+    public int DoorCount { get; set; } = 4;
 
     public bool IsEnabled { get; set; } = true;
 

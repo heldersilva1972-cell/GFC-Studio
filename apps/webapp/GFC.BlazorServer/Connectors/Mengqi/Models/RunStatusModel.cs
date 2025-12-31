@@ -13,6 +13,9 @@ public sealed class RunStatusModel
 
     public bool IsTamperActive { get; init; }
 
+    public uint TotalCards { get; init; }
+    public uint TotalEvents { get; init; }
+
     public sealed class DoorStatus
     {
         public int DoorNumber { get; init; }
@@ -22,6 +25,11 @@ public sealed class RunStatusModel
         public bool IsRelayOn { get; init; }
 
         public bool IsSensorActive { get; init; }
+
+        /// <summary>
+        /// 0=NotConfigured, 1=AlwaysOpen, 2=AlwaysClosed, 3=Controlled
+        /// </summary>
+        public byte ControlMode { get; init; }
     }
 }
 
