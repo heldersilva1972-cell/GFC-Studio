@@ -1350,20 +1350,37 @@
                     if (result.Success)
                     {
                         anyControllerSuccess = true;
+                        Logger.LogInformation("Successfully synced card {CardNumber} to controller {Controller}", _scannedCardNumber, controller.SerialNumber);
                     }
                     else
                     {
                         controllerOffline = true;
+                        Logger.LogWarning("Failed to sync card {CardNumber} to controller {Controller}: {Error}", _scannedCardNumber, controller.SerialNumber, result.Message);
                     }
-                    
-                    // Always queue for reliable eventual consistency
+                }
+                
+                // Update the card's sync status based on actual controller communication
+                if (anyControllerSuccess)
+                {
+                    newCard.IsControllerSynced = true;
+                    newCard.LastControllerSyncDate = DateTime.Now;
+                    await Task.Run(() => KeyCardRepository.Update(newCard));
+                    Logger.LogInformation("Card {CardId} marked as synced after successful controller communication", newCard.KeyCardId);
+                }
+                else
+                {
+                    // Queue for background retry since immediate sync failed
                     await KeyCardLifecycleService.SyncCardToControllerAsync(newCard.KeyCardId, true);
+                    Logger.LogInformation("Card {CardId} queued for background sync - no controllers responded", newCard.KeyCardId);
                 }
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error during physical controller sync");
                 controllerOffline = true;
+                
+                // Queue for background retry
+                await KeyCardLifecycleService.SyncCardToControllerAsync(newCard.KeyCardId, true);
             }
             
             // 3. Close modal and show feedback
