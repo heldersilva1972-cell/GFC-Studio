@@ -39,7 +39,7 @@ public class MemberDoorAccessUpdateDto
 public class AddOrUpdateCardRequestDto
 {
     public string CardNumber { get; set; } = string.Empty;
-    public int DoorIndex { get; set; }
+    public List<int> DoorIndexes { get; set; } = new();
     public int? TimeProfileIndex { get; set; }
     public bool Enabled { get; set; } = true;
 }

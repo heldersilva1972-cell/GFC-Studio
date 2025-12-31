@@ -181,44 +181,87 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         await SendAndExpectAck(controllerSn, _commands.Reboot, payload, cancellationToken).ConfigureAwait(false);
     }
     
-    public async Task ResetControllerAsync(uint controllerSn, int doorCount = 4, CancellationToken cancellationToken = default)
+    public async Task ResetControllerAsync(uint controllerSn, int doorCount = 4, IEnumerable<DoorHardwareConfig>? doorConfigs = null, MengqiModels.CardPrivilegeModel? primaryCard = null, CancellationToken cancellationToken = default)
     {
-        // Note: Skipping 0x10 (Reset Privileges) and 0x11 (Reset Index) as they may not be supported
-        // or may cause the controller to become unresponsive. Focusing on door configuration instead.
-        
-        // 1. Sync Time (0x30) - Critical for Mode 3 (Controlled) access logic
+        // 1. Clear All Privileges (0x54) - Set Card Count to 0
         try
         {
-            await SyncTimeAsync(controllerSn, DateTime.Now, cancellationToken).ConfigureAwait(false);
-            _logger?.LogInformation("Synchronized time for controller {Sn}", controllerSn);
-            await Task.Delay(300, cancellationToken);
+            await ClearAllCardsAsync(controllerSn, cancellationToken).ConfigureAwait(false);
+            _logger?.LogInformation("Wiped privilege database (0x54) for controller {Sn}", controllerSn);
+            
+            // Step 1.5: Cold Wait (500ms) - Essential for EEPROM commit
+            await Task.Delay(500, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Time sync failed for controller {Sn}, continuing with door config", controllerSn);
+            _logger?.LogWarning(ex, "Failed to wipe privileges for {Sn}, continuing", controllerSn);
         }
-        
-        // 2. Initialize Doors based on configured door count
-        // Active doors (1 to doorCount): Set to Controlled Mode (3)
-        for (int i = 1; i <= doorCount && i <= 4; i++)
+
+        // 2. Adjust Time (0x30) - Fix the "Month 26" error to correct local time
+        try
         {
-             // Force to Controlled Mode (3) with 5s delay
-             await SetDoorConfigAsync(controllerSn, i, 0x03, 0x05, 0, 0, cancellationToken);
-             _logger?.LogInformation("Configured Door {DoorIndex} to Mode 3 (Controlled) for controller {Sn}", i, controllerSn);
-             await Task.Delay(200, cancellationToken);
+            await SyncTimeAsync(controllerSn, DateTime.Now, cancellationToken).ConfigureAwait(false);
+            _logger?.LogInformation("Synchronized time (0x30) for controller {Sn}", controllerSn);
+            await Task.Delay(300, cancellationToken);
+
+            // Step 2.5: Verify Clock (0x20) - Ensure year matches 2025
+            var status = await GetRunStatusAsync(controllerSn, cancellationToken).ConfigureAwait(false);
+            if (!status.ControllerTime.HasValue || status.ControllerTime.Value.Year < 2025)
+            {
+                var currentYear = status.ControllerTime?.Year.ToString() ?? "Unknown";
+                var errorMsg = $"[Hardware Clock Lock] Controller {controllerSn} rejected time sync. Year is still {currentYear}. Clear All (0x54) might have failed to unlock RTC.";
+                _logger?.LogError(errorMsg);
+                throw new InvalidOperationException(errorMsg);
+            }
         }
-        
-        // Unused doors (doorCount+1 to 4): Set to Disabled Mode (0)
-        for (int i = doorCount + 1; i <= 4; i++)
+        catch (Exception ex)
         {
-             // Set to Not Configured/Disabled Mode (0) to prevent ghost data
-             await SetDoorConfigAsync(controllerSn, i, 0x00, 0x00, 0, 0, cancellationToken);
-             _logger?.LogInformation("Disabled Door {DoorIndex} (Mode 0) for controller {Sn}", i, controllerSn);
-             await Task.Delay(200, cancellationToken);
+            _logger?.LogWarning(ex, "Time sync failed/verified for controller {Sn}. Reset process potentially compromised.", controllerSn);
+            throw; // Critical for deep reset
         }
         
-        _logger?.LogInformation("Deep Reset complete: Initialized {ActiveDoors} active doors and disabled {DisabledDoors} unused doors for controller {Sn}", 
-            doorCount, 4 - doorCount, controllerSn);
+        // 3 & 4. Initialize Doors (0x8E) - Set Mode 3 for active doors, Mode 0 for unused doors to wipe Ghost Data
+        var configList = doorConfigs?.ToList() ?? new List<DoorHardwareConfig>();
+
+        for (int i = 1; i <= 4; i++)
+        {
+            if (i <= doorCount)
+            {
+                // Active Door (Step 3) - Enable physical doors
+                var config = configList.FirstOrDefault(c => c.DoorIndex == i);
+                
+                byte mode = config?.ControlMode ?? 0x03;
+                byte delay = config?.RelayDelay ?? 0x05;
+                byte sensor = config?.SensorType ?? 0x00;
+                byte interlock = config?.Interlock ?? 0x00;
+
+                await SetDoorConfigAsync(controllerSn, i, mode, delay, sensor, interlock, cancellationToken);
+                _logger?.LogInformation("Configured Door {DoorIndex} (Mode={Mode}, Delay={Delay}s) for controller {Sn}", i, mode, delay, controllerSn);
+            }
+            else
+            {
+                // Unused Door (Step 4) - Wipe Ghost Data (Force Mode 0)
+                await SetDoorConfigAsync(controllerSn, i, 0x00, 0x00, 0, 0, cancellationToken);
+                _logger?.LogInformation("Disabled Door {DoorIndex} (Mode 0 - Wipe Ghost Data) for controller {Sn}", i, controllerSn);
+            }
+            await Task.Delay(200, cancellationToken);
+        }
+
+        // 5. Re-Add Member Card (0x50) - Re-authorize the card with the corrected clock
+        if (primaryCard != null)
+        {
+            try
+            {
+                await AddOrUpdateCardAsync(controllerSn, primaryCard, cancellationToken).ConfigureAwait(false);
+                _logger?.LogInformation("Re-added primary member card {CardNumber} to controller {Sn}", primaryCard.CardNumber, controllerSn);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to re-add primary card for {Sn}", controllerSn);
+            }
+        }
+        
+        _logger?.LogInformation("Deep Reset complete for controller {Sn}", controllerSn);
     }
 
     public async Task<IEnumerable<DiscoveryResult>> DiscoverControllersAsync(CancellationToken cancellationToken = default)

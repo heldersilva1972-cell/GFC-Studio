@@ -88,7 +88,7 @@ internal sealed class WgCommandDispatcher
                     }
 
                     entry.ResponsePacket = response;
-                    entry.Description = $"Success (Attempt {attempt + 1})";
+                    entry.Description = $"Success (Attempt {attempt + 1}) on {endpoint.Address}:{endpoint.UdpPort}";
                     _logService?.Log(entry);
 
                     return response;
@@ -116,6 +116,7 @@ internal sealed class WgCommandDispatcher
 
         entry.IsError = true;
         entry.ErrorMessage = lastError?.Message ?? "Timeout - No Response";
+        entry.Description = $"Failed on {endpoint.Address}:{endpoint.UdpPort} after {_options.MaxRetries + 1} attempts";
         _logService?.Log(entry);
 
         throw lastError ?? new TimeoutException($"Controller SN {controllerSn} did not respond after {_options.MaxRetries + 1} attempts.");

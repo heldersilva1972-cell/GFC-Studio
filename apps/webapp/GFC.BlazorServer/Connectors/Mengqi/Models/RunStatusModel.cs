@@ -15,6 +15,7 @@ public sealed class RunStatusModel
 
     public uint TotalCards { get; init; }
     public uint TotalEvents { get; init; }
+    public DateTime? ControllerTime { get; init; }
 
     public sealed class DoorStatus
     {

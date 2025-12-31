@@ -22,108 +22,86 @@ internal static class WgPayloadFactory
     public static byte[] BuildSyncTimePayload(WgCommandProfile profile, DateTime utcTime)
     {
         var payload = Allocate(profile, 8);
-        var current = utcTime.ToLocalTime();
-        payload[0] = (byte)(current.Year - 2000);
-        payload[1] = (byte)current.Month;
-        payload[2] = (byte)current.Day;
-        payload[3] = (byte)current.Hour;
-        payload[4] = (byte)current.Minute;
-        payload[5] = (byte)current.Second;
-        payload[6] = (byte)(((int)current.DayOfWeek + 6) % 7 + 1);
-        payload[7] = 0; // reserved
+        var now = utcTime.ToLocalTime();
+        
+        // As per user verified structure:
+        // Offset 0: Century prefix (0x20)
+        // Offset 1: Year (BCD)
+        // Offset 2: Month (BCD)
+        // Offset 3: Day (BCD)
+        // Offset 4: Hour (BCD)
+        // Offset 5: Minute (BCD)
+        // Offset 6: Second (BCD)
+        // Offset 7: 0x00
+        
+        payload[0] = 0x20; // Century (20)
+        payload[1] = ToBcd(now.Year % 100);
+        payload[2] = ToBcd(now.Month);
+        payload[3] = ToBcd(now.Day);
+        payload[4] = ToBcd(now.Hour);
+        payload[5] = ToBcd(now.Minute);
+        payload[6] = ToBcd(now.Second);
+        payload[7] = 0x00;
+        
         return payload;
     }
 
     public static byte[] BuildPrivilegePayload(WgCommandProfile profile, CardPrivilegeModel model, bool markAsDeleted)
     {
-        // Handle Delete Card (0x52)
-        if (profile.CommandCode == 82)
+        // For N3000 "Add/Modify Privilege" (0x50) and "Delete" (0x52)
+        // User-verified structure for N3000:
+        // Offset 0-3: Card Number (4 bytes, Little Endian)
+        // Offset 4-7: Start Date (4 bytes: Century, Year, Month, Day)
+        // Offset 8-11: End Date (4 bytes: Century, Year, Month, Day)
+        // Offset 12-15: Door Control (4 bytes: 1=Allowed, 0=Denied per door)
+
+        var payload = Allocate(profile, 56);
+        var span = payload.AsSpan();
+
+        // 1. Card Number (4 bytes)
+        BinaryPrimitives.WriteUInt32LittleEndian(span[0..4], unchecked((uint)model.CardNumber));
+
+        if (profile.CommandCode == 82 || markAsDeleted)
         {
-            var deletePayload = Allocate(profile, 56);
-            // Lower 32 bits of CardID at Offset 0
-            BinaryPrimitives.WriteUInt32LittleEndian(deletePayload.AsSpan(0, 4), unchecked((uint)model.CardNumber));
-            // Upper 32 bits of CardID at Offset 36 (Packet Offset 44)
-            BinaryPrimitives.WriteUInt32LittleEndian(deletePayload.AsSpan(36, 4), (uint)(model.CardNumber >> 32));
-            return deletePayload;
+            // For Delete (0x52) or marked as deleted, we set dates and doors to 0
+            // Some models might just ignore the rest, but 0 is safest.
+            return payload;
         }
 
-        // For N3000 "Add Privilege" (0x50), the payload is 56 bytes (to fill the 64-byte frame from offset 8).
-        // It's a special structure:
-        // Offset 0-23: MjRegisterCard data (24 bytes)
-        // Offset 24-31: Zero padding
-        // Offset 32-35: XID (Handled by PacketBuilder, will be overwritten)
-        // Offset 36-39: Zero padding
-        // Offset 40-55: Duplicated MjRegisterCard data (partial, 16 bytes)
+        // 2. Start Date (4 bytes: Cent, Year, Month, Day)
+        WriteDate(span[4..8], model.ValidFrom ?? new DateTime(2025, 1, 1));
 
-        // 1. Construct the 24-byte MjRegisterCard buffer first
-        Span<byte> cardData = stackalloc byte[24];
-        
-        // 0-7: Card ID (8 bytes)
-        BinaryPrimitives.WriteUInt32LittleEndian(cardData[0..], unchecked((uint)model.CardNumber));
-        // Note: Upper 4 bytes of CardID are usually 0 for standard WG26/34. 
-        // We write 0 explicitly to be safe, or assume model.CardNumber is long.
-         BinaryPrimitives.WriteUInt32LittleEndian(cardData[4..], (uint)(model.CardNumber >> 32));
+        // 3. End Date (4 bytes: Cent, Year, Month, Day)
+        WriteDate(span[8..12], model.ValidTo ?? new DateTime(2029, 12, 31));
 
-        // 8: Option
-        // Active = 0xA0 (NotDeleted 0x80 | Reserved 0x20)
-        // Deleted = 0x20
-        byte option = markAsDeleted ? (byte)0x20 : (byte)0xA0;
-        cardData[8] = option;
+        // 4. Door Control (Offsets 12-15)
+        // Even if DoorMask is provided, we prefer DoorList if available for clarity
+        byte mask = model.DoorMask != 0 ? model.DoorMask : BuildDoorMask(model.DoorList);
+        span[12] = (byte)((mask & 0x01) > 0 ? 1 : 0); // Door 1
+        span[13] = (byte)((mask & 0x02) > 0 ? 1 : 0); // Door 2
+        span[14] = (byte)((mask & 0x04) > 0 ? 1 : 0); // Door 3 (Disabled)
+        span[15] = (byte)((mask & 0x08) > 0 ? 1 : 0); // Door 4 (Disabled)
 
-        // 9-11: Password (3 bytes) - Default 0
-        cardData[9] = 0;
-        cardData[10] = 0;
-        cardData[11] = 0;
-
-        // 12-13: Start Date (Compressed YMD)
-        BinaryPrimitives.WriteUInt16LittleEndian(cardData[12..], ToCompressedDate(model.ValidFrom ?? DateTime.Today));
-
-        // 14-15: End Date (Compressed YMD)
-        BinaryPrimitives.WriteUInt16LittleEndian(cardData[14..], ToCompressedDate(model.ValidTo ?? DateTime.Today.AddYears(10)));
-        
-        // 16-19: Door Control (4 bytes)
-        // model.DoorMask 0 means all doors? Or specific mask.
-        // N3000 usually uses 1 byte per door index?
-        // Actually MjRegisterCard uses 4 bytes for "ControlSegIndex" or similar.
-        // But verify ps1: $cardStruct[16..19] = 1 (Allow).
-        // If DoorMask is set, we need to map it.
-        // Let's assume DoorMask bits map to doors 1-4.
-        // If bit 0 is set, Door 1 is allowed (1). If not, 0.
-        byte doorMask = model.DoorMask != 0 ? model.DoorMask : BuildDoorMask(model.DoorList);
-        cardData[16] = (byte)((doorMask & 0x01) > 0 ? 1 : 0);
-        cardData[17] = (byte)((doorMask & 0x02) > 0 ? 1 : 0);
-        cardData[18] = (byte)((doorMask & 0x04) > 0 ? 1 : 0);
-        cardData[19] = (byte)((doorMask & 0x08) > 0 ? 1 : 0);
-
-        // 20-21: More Cards (0)
-        cardData[20] = 0;
-        cardData[21] = 0;
-
-        // 22-23: Ext/MaxSwipe (0)
-        cardData[22] = 0;
-        cardData[23] = 0;
-
-        // 2. Build the final payload
-        var payload = Allocate(profile, 56);
-        var pSpan = payload.AsSpan();
-
-        // Copy generic 24 bytes to beginning (Offset 0 of payload)
-        cardData.CopyTo(pSpan[0..]);
-
-        // Copy partial 16 bytes (starting from Option at index 8) to offset 40
-        // This duplication is required by the 0x50 command protocol.
-        cardData.Slice(8, 16).CopyTo(pSpan[40..]);
+        // The user's verified hex shows the rest of the 56-byte payload (Packet Offset 24-63) is 0.
+        // Allocate(profile, 56) already zero-initializes.
 
         return payload;
     }
 
-    private static ushort ToCompressedDate(DateTime date)
+    private static void WriteDate(Span<byte> span, DateTime date)
     {
-        // Format: (Year-2000)<<9 | Month<<5 | Day
-        var y = (date.Year >= 2000) ? date.Year - 2000 : 0;
-        var m = date.Month;
-        var d = date.Day;
-        return (ushort)((y << 9) | (m << 5) | d);
+        // Format: Cent, Year, Month, Day (e.g., 20 25 01 01)
+        // We use BCD-like byte values as requested
+        span[0] = (byte)ToBcd(date.Year / 100);
+        span[1] = (byte)ToBcd(date.Year % 100);
+        span[2] = (byte)ToBcd(date.Month);
+        span[3] = (byte)ToBcd(date.Day);
+    }
+
+    public static byte ToBcd(int value)
+    {
+        // Example: 31 becomes 0x31 (Binary: 0011 0001)
+        return (byte)((value / 10 << 4) | (value % 10));
     }
 
     public static byte[] BuildFlashReadPayload(WgCommandProfile profile, FlashArea area, int start, int length)

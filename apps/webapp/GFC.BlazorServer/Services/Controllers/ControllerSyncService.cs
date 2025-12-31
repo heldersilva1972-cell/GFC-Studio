@@ -75,40 +75,78 @@ public class ControllerSyncService : IControllerSyncService
                 if (!permissions.Any())
                 {
                     _logger.LogWarning("No door permissions found for card {CardNumber}. Skipping activation.", item.CardNumber);
+                    
+                    _logService.Log(new CommunicationLogEntry
+                    {
+                        ControllerSn = 0,
+                        Operation = "ACTIVATE",
+                        IsError = true,
+                        ErrorMessage = "No door permissions found in database for this card. Sync skipped.",
+                        Description = $"Card {item.CardNumber} has no assigned doors in MemberDoorAccess table."
+                    });
+
                     await _queueRepo.IncrementAttemptAsync(item.QueueId, "No door permissions found for card.");
                     return;
                 }
                 
-                foreach (var perm in permissions)
+                // Group permissions by controller
+                var perController = permissions.GroupBy(p => p.Door?.ControllerId ?? 0);
+
+                foreach (var group in perController)
                 {
-                    var controllerId = perm.Door?.ControllerId ?? 0;
-                    if (controllerId == 0)
-                    {
-                        var door = await dbContext.Doors.FindAsync(new object[] { perm.DoorId }, ct);
-                        if (door != null) controllerId = door.ControllerId;
-                    }
+                    var controllerId = group.Key;
+                    if (controllerId == 0) continue;
 
-                    if (controllerId == 0)
-                    {
-                        _logger.LogWarning("Could not resolve Controller ID for door {DoorId}", perm.DoorId);
-                        continue;
-                    }
+                    _logger.LogInformation("Performing Robust Step-by-Step Sync for controller {Id}...", controllerId);
 
-                    // Resolve time profile index
+                    // 1. Stop the Engine (0x54) - Clear all privileges to unlock RTC
+                    await _controllerClient.ClearAllCardsAsync(controllerId, ct).ConfigureAwait(false);
+                    
+                    // 2. Cold Wait (500ms) - Allow EEPROM to commit the empty state
+                    await Task.Delay(500, ct);
+
+                    // 3. Force Clock (0x30) - Set verified BCD time
+                    await _controllerClient.SyncTimeAsync(controllerId, ct).ConfigureAwait(false);
+                    
+                    // 4. Verify Clock (0x20) - Ensure year is matches 2025
+                    var status = await _controllerClient.GetRunStatusAsync(controllerId, ct).ConfigureAwait(false);
+                    if (!status.ControllerTimeUtc.HasValue || status.ControllerTimeUtc.Value.Year < 2025)
+                    {
+                        var currentYear = status.ControllerTimeUtc?.Year.ToString() ?? "Unknown";
+                        var errorMsg = $"[Hardware Clock Lock] Controller {controllerId} rejected sync. Year is still {currentYear}. Clear All (0x54) might have failed.";
+                        _logger.LogError(errorMsg);
+                        await _queueRepo.IncrementAttemptAsync(item.QueueId, errorMsg);
+                        throw new InvalidOperationException(errorMsg);
+                    }
+                    _logger.LogInformation("Clock Verified: {Time}. Cleaning up Ghost Data (Step 4.5)...", status.ControllerTimeUtc);
+
+                    // 4.5 Wipe Ghost Data (0x8E) - Resolve unmapped memory residue on Doors 3 & 4
+                    await _controllerClient.SetDoorConfigAsync(controllerId.ToString(), 3, 0x00, 0x00, 0, 0, ct).ConfigureAwait(false);
+                    await _controllerClient.SetDoorConfigAsync(controllerId.ToString(), 4, 0x00, 0x00, 0, 0, ct).ConfigureAwait(false);
+
+                    // 5. Add Card (0x50)
+                    var doorIndexes = group
+                        .Select(p => p.Door?.DoorIndex ?? 0)
+                        .Where(idx => idx > 0)
+                        .ToList();
+
+                    if (!doorIndexes.Any()) continue;
+
                     int? timeProfileIndex = null;
-                    if (perm.TimeProfileId.HasValue)
+                    var firstPerm = group.First();
+                    if (firstPerm.TimeProfileId.HasValue)
                     {
                         var link = await dbContext.ControllerTimeProfileLinks
-                            .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == perm.TimeProfileId.Value, ct);
+                            .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == firstPerm.TimeProfileId.Value, ct);
                         timeProfileIndex = link?.ControllerProfileIndex;
                     }
 
                     var privilege = new CardPrivilegeModel
                     {
                         ControllerId = controllerId,
-                        DoorId = perm.DoorId,
                         CardNumber = long.Parse(item.CardNumber),
-                        TimeProfileIndex = timeProfileIndex ?? 1, // Default to Always if not specified
+                        DoorIndexes = doorIndexes,
+                        TimeProfileIndex = timeProfileIndex ?? 1,
                         Enabled = true
                     };
 

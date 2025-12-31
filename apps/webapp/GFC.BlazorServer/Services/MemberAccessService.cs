@@ -229,7 +229,7 @@ public class MemberAccessService : IMemberAccessService
                     var cardRequest = new AddOrUpdateCardRequestDto
                     {
                         CardNumber = cardNumber,
-                        DoorIndex = door.DoorIndex,
+                        DoorIndexes = new List<int> { door.DoorIndex },
                         TimeProfileIndex = timeProfileIndex,
                         Enabled = true
                     };
@@ -432,5 +432,42 @@ public class MemberAccessService : IMemberAccessService
         }
 
         return result;
+    }
+
+    public async Task GrantDefaultAccessAsync(int memberId, string cardNumber, CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        // Find all controllers that have at least one door
+        var controllers = await dbContext.Controllers
+            .Include(c => c.Doors)
+            .Where(c => c.IsEnabled)
+            .ToListAsync(cancellationToken);
+
+        foreach (var controller in controllers)
+        {
+            // Default to granting access to Door 1 (Main entrance usually)
+            var mainDoor = controller.Doors.FirstOrDefault(d => d.DoorIndex == 1 && d.IsEnabled);
+            if (mainDoor == null) continue;
+
+            // Check if access already exists
+            var exists = await dbContext.MemberDoorAccesses
+                .AnyAsync(a => a.MemberId == memberId && a.CardNumber == cardNumber && a.DoorId == mainDoor.Id, cancellationToken);
+
+            if (!exists)
+            {
+                dbContext.MemberDoorAccesses.Add(new GFC.BlazorServer.Data.Entities.MemberDoorAccess
+                {
+                    MemberId = memberId,
+                    CardNumber = cardNumber,
+                    DoorId = mainDoor.Id,
+                    IsEnabled = true,
+                    TimeProfileId = null // Default to 24/7
+                });
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Granted default Door 1 access for card {CardNumber} to member {MemberId}", cardNumber, memberId);
     }
 }

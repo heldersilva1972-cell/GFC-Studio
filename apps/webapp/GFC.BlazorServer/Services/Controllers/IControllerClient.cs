@@ -17,6 +17,7 @@ public interface IControllerClient
     Task SyncTimeAsync(int controllerId, CancellationToken ct);
     Task<RunStatusModel> GetRunStatusAsync(int controllerId, CancellationToken ct);
     Task<IReadOnlyList<EventLogModel>> GetEventsByIndexAsync(int controllerId, long fromIndex, int maxCount, CancellationToken ct);
+    Task ResetControllerAsync(int controllerId, CancellationToken ct = default);
 
     // Existing surface (kept for backward compatibility)
     Task<bool> PingAsync(CancellationToken cancellationToken = default);

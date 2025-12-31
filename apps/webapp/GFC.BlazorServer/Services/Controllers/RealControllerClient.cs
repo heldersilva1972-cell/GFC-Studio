@@ -5,6 +5,7 @@ using GFC.BlazorServer.Models;
 using GFC.BlazorServer.Services;
 using GFC.BlazorServer.Services.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Services.Controllers;
 
@@ -16,15 +17,18 @@ public class RealControllerClient : IControllerClient
     private readonly GFC.BlazorServer.Connectors.Mengqi.MengqiControllerClient _mengqiClient;
     private readonly ILogger<RealControllerClient> _logger;
     private readonly ControllerRegistryService _controllerRegistry;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
 
     public RealControllerClient(
         GFC.BlazorServer.Connectors.Mengqi.MengqiControllerClient mengqiClient,
         ILogger<RealControllerClient> logger,
-        ControllerRegistryService controllerRegistry)
+        ControllerRegistryService controllerRegistry,
+        IDbContextFactory<GfcDbContext> contextFactory)
     {
         _mengqiClient = mengqiClient ?? throw new ArgumentNullException(nameof(mengqiClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _controllerRegistry = controllerRegistry ?? throw new ArgumentNullException(nameof(controllerRegistry));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
     }
 
     // ... (Wait, I need to preserve the SimMode S2 contract region or just replace the HTTP calls?)
@@ -53,16 +57,17 @@ public class RealControllerClient : IControllerClient
             throw new InvalidOperationException($"Controller {model.ControllerId} not found for AddOrUpdatePrivilege");
         }
 
-        var doorIndex = ResolveDoorIndex(model, controller);
-        if (doorIndex == null)
+        var doorIndexes = ResolveDoorIndexes(model, controller);
+        if (!doorIndexes.Any())
         {
-            throw new InvalidOperationException($"Door not resolved for controller {controller.Id}. Check if DoorId {model.DoorId} is valid.");
+            _logger.LogWarning("No door indexes resolved for controller {ControllerId} and Card {CardNumber}. Skipping hardware update.", controller.Id, model.CardNumber);
+            return;
         }
 
         var request = new AddOrUpdateCardRequestDto
         {
             CardNumber = model.CardNumber.ToString(),
-            DoorIndex = doorIndex.Value,
+            DoorIndexes = doorIndexes,
             TimeProfileIndex = model.TimeProfileIndex,
             Enabled = model.Enabled
         };
@@ -152,6 +157,7 @@ public class RealControllerClient : IControllerClient
         return new RunStatusModel
         {
             IsOnline = true,
+            ControllerTimeUtc = status.ControllerTimeUtc,
             TotalCards = status.TotalCards,
             TotalEvents = status.TotalEvents,
             Doors = filteredDoors
@@ -256,11 +262,30 @@ public class RealControllerClient : IControllerClient
              }
 
              _logger.LogInformation("Controller {Sn} is ONLINE.", sn);
+
+             // Automatic Time Sync Logic (Step-by-step per user request)
+             if (status.ControllerTime.HasValue)
+             {
+                 var drift = Math.Abs((DateTime.Now - status.ControllerTime.Value).TotalSeconds);
+                 if (drift > 5) 
+                 {
+                     _logger.LogInformation("Controller {Sn} time drift detected ({Drift:F1}s). Syncing automatically...", sn, drift);
+                     try 
+                     {
+                         await _mengqiClient.SyncTimeAsync(sn, DateTime.Now, cancellationToken).ConfigureAwait(false);
+                     }
+                     catch (Exception ex)
+                     {
+                         _logger.LogWarning(ex, "Automatic time sync failed for controller {Sn}", sn);
+                     }
+                 }
+             }
+
              return new AgentRunStatusDto 
              {
                  SerialNumber = sn,
                  IsOnline = true,
-                 ControllerTimeUtc = DateTime.UtcNow,
+                 ControllerTimeUtc = (status.ControllerTime ?? DateTime.Now).ToUniversalTime(),
                  TotalCards = status.TotalCards,
                  TotalEvents = status.TotalEvents,
                  Doors = status.Doors.Select(d => new AgentRunStatusDto.DoorRunStatus
@@ -295,10 +320,10 @@ public class RealControllerClient : IControllerClient
         var model = new GFC.BlazorServer.Connectors.Mengqi.Models.CardPrivilegeModel 
         {
              CardNumber = long.Parse(request.CardNumber),
-             DoorList = new[] { request.DoorIndex },
+             DoorList = request.DoorIndexes,
              TimeZones = new[] { tzIndex, tzIndex, tzIndex, tzIndex },
              Flags = flags,
-             ValidFrom = null, // Valid forever
+             ValidFrom = null, // Valid forever (WgPayloadFactory handles defaults)
              ValidTo = null    // Valid forever
         };
         
@@ -420,10 +445,66 @@ public class RealControllerClient : IControllerClient
         await _mengqiClient.RebootControllerAsync(sn, cancellationToken);
     }
     
+    public async Task ResetControllerAsync(int controllerId, CancellationToken ct = default)
+    {
+        var controller = await _controllerRegistry.GetControllerByIdAsync(controllerId, ct);
+        if (controller == null) return;
+
+        if (!uint.TryParse(controller.SerialNumberDisplay, out var sn)) return;
+
+        // Fetch Door Configs from database to apply hardware timers
+        await using var db = await _contextFactory.CreateDbContextAsync(ct);
+        var doors = await db.Doors.AsNoTracking()
+            .Where(d => d.ControllerId == controllerId)
+            .ToListAsync(ct);
+
+        var doorIds = doors.Select(d => d.Id).ToList();
+        var configs = await db.DoorConfigs.AsNoTracking()
+            .Where(c => doorIds.Contains(c.DoorId))
+            .ToListAsync(ct);
+
+        var hwConfigs = doors.Select(d => {
+            var cfg = configs.FirstOrDefault(c => c.DoorId == d.Id);
+            return new GFC.BlazorServer.Connectors.Mengqi.Models.DoorHardwareConfig
+            {
+                DoorIndex = d.DoorIndex,
+                ControlMode = cfg?.ControlMode ?? 3,
+                RelayDelay = (byte)(cfg?.OpenTimeSeconds ?? 5),
+                SensorType = cfg?.SensorType ?? 0,
+                Interlock = cfg?.Interlock ?? 0
+            };
+        });
+
+        // Step 5: Fetch a primary card to re-add (first active card with access to this controller)
+        GFC.BlazorServer.Connectors.Mengqi.Models.CardPrivilegeModel? primaryCard = null;
+        var access = await db.MemberDoorAccesses.AsNoTracking()
+            .Where(a => doorIds.Contains(a.DoorId) && a.IsEnabled)
+            .OrderBy(a => a.Id)
+            .FirstOrDefaultAsync(ct);
+
+        if (access != null && long.TryParse(access.CardNumber, out var cardNo))
+        {
+            // Fetch all doors for this card on this controller
+            var cardDoors = await db.MemberDoorAccesses.AsNoTracking()
+                .Where(a => a.CardNumber == access.CardNumber && doorIds.Contains(a.DoorId) && a.IsEnabled)
+                .Select(a => a.Door.DoorIndex)
+                .ToListAsync(ct);
+
+            primaryCard = new GFC.BlazorServer.Connectors.Mengqi.Models.CardPrivilegeModel
+            {
+                CardNumber = cardNo,
+                DoorList = cardDoors,
+                Flags = GFC.BlazorServer.Connectors.Mengqi.Models.CardPrivilegeFlags.Normal
+            };
+        }
+
+        await _mengqiClient.ResetControllerAsync(sn, controller.DoorCount, hwConfigs, primaryCard, ct);
+    }
+
     public async Task ResetControllerAsync(string controllerSn, int doorCount = 4, CancellationToken cancellationToken = default)
     {
         if (!uint.TryParse(controllerSn, out var sn)) return;
-        await _mengqiClient.ResetControllerAsync(sn, doorCount, cancellationToken);
+        await _mengqiClient.ResetControllerAsync(sn, doorCount, null, null, cancellationToken);
     }
 
     public async Task SetDoorConfigAsync(string controllerSn, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock, CancellationToken cancellationToken = default)
@@ -462,19 +543,24 @@ public class RealControllerClient : IControllerClient
         return (controller, door);
     }
 
-    private static int? ResolveDoorIndex(CardPrivilegeModel model, ControllerDevice controller)
+    private static List<int> ResolveDoorIndexes(CardPrivilegeModel model, ControllerDevice controller)
     {
-        if (model.DoorIndex.HasValue)
-        {
-            return model.DoorIndex.Value;
-        }
+        var result = new List<int>();
 
-        if (model.DoorId.HasValue)
+        if (model.DoorIndexes != null && model.DoorIndexes.Any())
+        {
+            result.AddRange(model.DoorIndexes);
+        }
+        else if (model.DoorIndex.HasValue)
+        {
+            result.Add(model.DoorIndex.Value);
+        }
+        else if (model.DoorId.HasValue)
         {
             var door = controller.Doors.FirstOrDefault(d => d.Id == model.DoorId.Value);
-            return door?.DoorIndex;
+            if (door != null) result.Add(door.DoorIndex);
         }
 
-        return null;
+        return result.Distinct().Where(idx => idx >= 1 && idx <= 4).ToList();
     }
 }

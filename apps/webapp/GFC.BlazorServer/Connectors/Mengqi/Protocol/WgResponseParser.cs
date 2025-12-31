@@ -34,21 +34,41 @@ internal static class WgResponseParser
     {
         var payload = GetPayload(packet);
         var doors = new List<RunStatusModel.DoorStatus>(4);
+        DateTime? controllerTime = null;
         
         // N3000 response: [Type][Cmd][CRC][SN][DATA...]
         // payload starts at frame offset 4 (at the SN)
         // Actual status data starts at payload offset 4 (frame offset 8)
-        if (payload.Length >= 8)
+        if (payload.Length >= 20)
         {
             var data = payload[4..];
+            
+            // 1. Parse BCD Time (data[0..6])
+            int? parsedYear = null;
+            try {
+                parsedYear = 2000 + BcdToInt(data[1]);
+                int month = BcdToInt(data[2]);
+                int day = BcdToInt(data[3]);
+                int hour = BcdToInt(data[4]);
+                int minute = BcdToInt(data[5]);
+                int second = BcdToInt(data[6]);
+                controllerTime = new DateTime(parsedYear.Value, month, day, hour, minute, second);
+            } catch { 
+                // If full date is invalid (corrupt hardware state), fallback to just reporting the year if possible
+                if (parsedYear.HasValue) {
+                    controllerTime = new DateTime(parsedYear.Value, 1, 1); 
+                }
+            }
+
+            // 2. Parse Door Status (Following the 7-byte BCD time block)
             for (var i = 0; i < 4; i++)
             {
                 doors.Add(new RunStatusModel.DoorStatus
                 {
                     DoorNumber = i + 1,
-                    IsDoorOpen = (data[0] & (1 << i)) != 0,
-                    IsRelayOn = (data[1] & (1 << i)) != 0,
-                    IsSensorActive = (data.Length > 2 && (data[2] & (1 << i)) != 0)
+                    IsDoorOpen = (data[7] & (1 << i)) != 0,
+                    IsRelayOn = (data[8] & (1 << i)) != 0,
+                    IsSensorActive = (data.Length > 9 && (data[9] & (1 << i)) != 0)
                 });
             }
         }
@@ -59,10 +79,9 @@ internal static class WgResponseParser
             RelayStates = Array.Empty<bool>(),
             IsFireAlarmActive = payload.Length >= 8 && (payload[7] & 0x01) != 0,
             IsTamperActive = payload.Length >= 8 && (payload[7] & 0x02) != 0,
-            // User script: Total Cards and Events logic conflicts with Door Status bitmasks at the same offsets.
-            // Disabling to restore Door Status visibility until correct offsets are verified.
-            TotalCards = 0, // payload.Length >= 8 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]) : 0,
-            TotalEvents = 0 // payload.Length >= 12 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[8..12]) : 0
+            TotalCards = 0,
+            TotalEvents = 0,
+            ControllerTime = controllerTime
         };
     }
 
@@ -154,6 +173,9 @@ internal static class WgResponseParser
             DoorDelays = delays
         };
     }
+
+    private static int BcdToInt(byte bcd)
+    {
+        return ((bcd >> 4) * 10) + (bcd & 0x0F);
+    }
 }
-
-

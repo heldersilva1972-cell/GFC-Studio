@@ -21,8 +21,14 @@ public sealed class CardPrivilegeModel
 
     /// <summary>
     /// Optional explicit door index (1-4). If not supplied, the door index is resolved from DoorId.
+    /// Deprecated in favor of DoorIndexes for multi-door support.
     /// </summary>
     public int? DoorIndex { get; set; }
+
+    /// <summary>
+    /// List of door indexes (1-4) allowed for this card on this controller.
+    /// </summary>
+    public List<int> DoorIndexes { get; set; } = new();
 
     public long CardNumber { get; set; }
 

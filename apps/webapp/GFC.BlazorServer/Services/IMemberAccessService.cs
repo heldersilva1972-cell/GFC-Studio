@@ -13,4 +13,5 @@ public interface IMemberAccessService
     Task SyncMemberPrivilegesAsync(int memberId, CancellationToken cancellationToken = default);
     Task RemoveCardAsync(int memberId, string cardNumber, string? performedByUserName = null, int? performedByUserId = null, CancellationToken cancellationToken = default);
     Task ClearAllPrivilegesAsync(int controllerId, CancellationToken cancellationToken = default);
+    Task GrantDefaultAccessAsync(int memberId, string cardNumber, CancellationToken cancellationToken = default);
 }

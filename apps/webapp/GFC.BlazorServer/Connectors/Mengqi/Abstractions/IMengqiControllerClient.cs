@@ -119,13 +119,15 @@ public interface IMengqiControllerClient
     Task<DiscoveryResult?> GetHardwareInfoAsync(uint controllerSn, CancellationToken cancellationToken = default);
 
     /// <summary>
-    ///     Performs a 'Deep Reset' by clearing ghost records (0x10), resetting privilege counter (0x11),
-    ///     and initializing doors based on the configured door count.
+    ///     Performs a 'Deep Reset' by clearing all privileges (0x54), synchronizing time (0x30),
+    ///     and initializing doors based on database configuration or door count.
     /// </summary>
     /// <param name="controllerSn">Controller serial number</param>
     /// <param name="doorCount">Number of active doors (1-4). Unused doors will be disabled.</param>
+    /// <param name="doorConfigs">Optional list of specific door settings to apply. If null, defaults are used.</param>
+    /// <param name="primaryCard">Optional card to re-add immediately after reset (Step 5).</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    Task ResetControllerAsync(uint controllerSn, int doorCount = 4, CancellationToken cancellationToken = default);
+    Task ResetControllerAsync(uint controllerSn, int doorCount = 4, IEnumerable<DoorHardwareConfig>? doorConfigs = null, CardPrivilegeModel? primaryCard = null, CancellationToken cancellationToken = default);
 }
 
 

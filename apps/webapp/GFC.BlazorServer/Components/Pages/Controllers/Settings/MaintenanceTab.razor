@@ -40,11 +40,11 @@
 
                     <div class="row g-4">
                          <!-- Clear Privileges Card -->
-                         <div class="col-md-6">
+                         <div class="col-md-4">
                             <div class="danger-panel p-4 rounded-3 border border-danger border-opacity-25 h-100">
                                 <h5 class="text-danger fw-bold"><i class="bi bi-trash me-2"></i>Clear All Privileges</h5>
                                 <p class="small text-muted mb-3">
-                                    Permanently wipes **ALL** card access rights from the controller's memory. Users will be locked out until re-uploaded.
+                                    Wipes **ALL** card rights. Users will be locked out until re-uploaded.
                                 </p>
                                 
                                 <div class="alert alert-warning py-2 px-3 small mb-4">
@@ -61,13 +61,41 @@
                             </div>
                          </div>
                          
-                         <!-- Deep Reset / Recovery -->
-                         <div class="col-md-6">
+                         <!-- Synchronize Clock Card -->
+                         <div class="col-md-4">
                             <div class="bg-surface-subtle p-4 rounded-3 border border-glass h-100">
-                                <h5 class="text-primary fw-bold"><i class="bi bi-arrow-counterclockwise me-2"></i>Deep Reset & Recovery</h5>
+                                <h5 class="text-success fw-bold"><i class="bi bi-clock-history me-2"></i>Synchronize Clock</h5>
                                 <p class="small text-muted mb-3">
-                                    Resets internal privilege counters, wipes ghost records (0x10), and re-initializes door modes. Use this if database stats show millions of records.
+                                    Updates the internal RTC to <strong>@DateTime.Now.ToString("yyyy-MM-dd HH:mm")</strong>.
                                 </p>
+                                
+                                <div class="alert alert-info py-2 px-3 small mb-4">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Auto-sync runs every 30s.
+                                </div>
+
+                                <button class="btn btn-outline-success w-100" 
+                                        @onclick="ExecuteSyncTime"
+                                        disabled="@(_isSyncingTime || !Controller.IsEnabled)">
+                                    @if (_isSyncingTime) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                    Sync Time Now
+                                </button>
+                            </div>
+                         </div>
+
+                         <!-- Deep Reset / Recovery Project -->
+                         <div class="col-md-4">
+                            <div class="bg-surface-subtle p-4 rounded-3 border border-glass h-100">
+                                <h5 class="text-primary fw-bold"><i class="bi bi-arrow-counterclockwise me-2"></i>Deep Reset</h5>
+                                <p class="small text-muted mb-3">
+                                    Full recovery: 0x54, 0x30, 0x8E, 0x50. Wipes ghost data residue.
+                                </p>
+
+                                <div class="alert alert-primary py-2 px-3 small mb-4">
+                                    <i class="bi bi-shield-check me-1"></i>
+                                    Full Hardware Recovery
+                                </div>
+
                                 <button class="btn btn-outline-primary w-100" 
                                         @onclick="ShowResetModal"
                                         disabled="@(_isResetting || !Controller.IsEnabled)">
@@ -131,12 +159,14 @@
             </div>
             <div class="modal-body-modern">
                 <div class="alert alert-info">
-                   This process will:
-                   <ul class="mb-0 ps-3">
-                       <li>Wipe all records (0x10) - Ghost records removal</li>
-                       <li>Reset internal counter (0x11)</li>
-                       <li>Force Doors 1-4 to Controlled Mode (0x8E)</li>
-                   </ul>
+                   The Deep Reset process follows this exact sequence:
+                   <ol class="mb-0 ps-3">
+                       <li><strong>0x54:</strong> Clear all card privileges (Set count to 0)</li>
+                       <li><strong>0x30:</strong> Synchronize internal clock (Corrects timestamps)</li>
+                       <li><strong>0x8E:</strong> Initialize Door 1 & 2 (Enable physical hardware)</li>
+                       <li><strong>0x8E:</strong> Wipe Ghost Data on Unused Doors (Doors 3 & 4)</li>
+                       <li><strong>0x50:</strong> Re-Add Primary Card (Ensures system is functional)</li>
+                   </ol>
                 </div>
                 <p class="mb-2">Are you sure you want to proceed?</p>
             </div>
@@ -179,6 +209,7 @@
     private bool _showClearAllModal = false;
     private bool _showResetModal = false;
     private bool _isResetting = false;
+    private bool _isSyncingTime = false;
     private string _clearAllConfirmText = string.Empty;
 
     private int _lastControllerId;
@@ -215,9 +246,9 @@
          _errorMessage = null; _successMessage = null;
          try
          {
+             await ControllerClient.ResetControllerAsync(Controller.Id);
              var doorCount = Controller.DoorCount > 0 ? Controller.DoorCount : 4;
-             await ((GFC.BlazorServer.Services.Controllers.RealControllerClient)ControllerClient).ResetControllerAsync(Controller.SerialNumberDisplay, doorCount);
-             _successMessage = $"Deep reset completed. Initialized {doorCount} doors, disabled {4 - doorCount} unused doors.";
+             _successMessage = $"Deep reset completed. Clock and doors have been re-calibrated.";
              await LogCommand("DeepReset", true);
              CloseResetModal();
          }
@@ -228,6 +259,26 @@
              await LogCommand("DeepReset", false, ex.Message);
          }
          finally { _isResetting = false; }
+    }
+
+    private async Task ExecuteSyncTime()
+    {
+        if (Controller == null) return;
+        _isSyncingTime = true;
+        _errorMessage = null; _successMessage = null;
+        try
+        {
+            await ControllerClient.SyncTimeAsync(Controller.Id, CancellationToken.None);
+            _successMessage = $"Hardware clock successfully updated to {DateTime.Now:yyyy-MM-dd HH:mm:ss}.";
+            await LogCommand("SyncTime", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to sync time");
+            _errorMessage = "Sync failed: " + ex.Message;
+            await LogCommand("SyncTime", false, ex.Message);
+        }
+        finally { _isSyncingTime = false; }
     }
 
     private async Task ExecuteClearAll()
