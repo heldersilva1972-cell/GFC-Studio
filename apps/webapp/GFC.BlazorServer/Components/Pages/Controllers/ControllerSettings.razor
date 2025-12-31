@@ -1,4 +1,5 @@
 @page "/controllers"
+@implements IDisposable
 @attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Services
@@ -135,7 +136,7 @@
                     @switch (_activeTab)
                     {
                         case "overview":
-                            <OverviewTab Controller="_selectedController" />
+                            <OverviewTab Controller="_selectedController" IsOnline="_isOnline" />
                             break;
                         case "card-reader":
                             <CardReaderTab Controller="_selectedController" />
@@ -286,6 +287,8 @@
     private string _activeTab = "overview"; 
     private bool _isOnline = false;
     private bool _isCheckingStatus = false;
+    private PeriodicTimer? _statusCheckTimer;
+    private CancellationTokenSource? _cts;
 
     protected override async Task OnInitializedAsync()
     {
@@ -312,13 +315,46 @@
                 }
                 
                 _selectedController = _controllers.First(c => c.Id == _selectedControllerId);
-                _ = CheckStatusAsync(); // Fire and forget status check
+                
+                // Start periodic status checking
+                StartStatusPolling();
             }
         }
         finally 
         { 
             _isLoading = false; 
         }
+    }
+
+    private void StartStatusPolling()
+    {
+        // Cancel any existing timer
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _statusCheckTimer?.Dispose();
+
+        // Create new timer that checks every 3 seconds
+        _cts = new CancellationTokenSource();
+        _statusCheckTimer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        
+        _ = Task.Run(async () =>
+        {
+            // Initial check
+            await CheckStatusAsync();
+            
+            // Then periodic checks
+            try
+            {
+                while (await _statusCheckTimer.WaitForNextTickAsync(_cts.Token))
+                {
+                    await CheckStatusAsync();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Timer was cancelled, this is expected
+            }
+        }, _cts.Token);
     }
 
     private async Task CheckStatusAsync()
@@ -338,7 +374,7 @@
         finally
         {
             _isCheckingStatus = false;
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -349,7 +385,9 @@
             _selectedControllerId = newId;
             _selectedController = _controllers.FirstOrDefault(c => c.Id == newId);
             _isOnline = false; // Reset status while checking
-            _ = CheckStatusAsync();
+            
+            // Restart polling for the new controller
+            StartStatusPolling();
         }
     }
 
@@ -372,5 +410,12 @@
             }
         }
         catch { /* ignore refresh errors */ }
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _statusCheckTimer?.Dispose();
     }
 }
