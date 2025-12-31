@@ -56,13 +56,14 @@ internal sealed class UdpControllerTransport : IControllerTransport, IDisposable
         try
         {
             var receiveResult = await _socket.ReceiveFromAsync(
-                new ArraySegment<byte>(buffer),
+                new Memory<byte>(buffer),
                 SocketFlags.None,
-                remoteEndPoint).ConfigureAwait(false);
+                remoteEndPoint,
+                cts.Token).ConfigureAwait(false);
 
             return buffer.AsSpan(0, receiveResult.ReceivedBytes).ToArray();
         }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             throw new TimeoutException($"No response from {target} within {timeout.TotalSeconds}s");
         }

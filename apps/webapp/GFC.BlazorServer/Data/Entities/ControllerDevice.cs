@@ -20,11 +20,11 @@ public class ControllerDevice
 
     [Required, MaxLength(100)]
     public string IpAddress { get; set; } = string.Empty;
+    public int DoorCount { get; set; } = 4; // Default to 4 doors
 
     public int Port { get; set; } = 60000;
     
-    [Range(1, 4)]
-    public int DoorCount { get; set; } = 4;
+
 
     public bool IsEnabled { get; set; } = true;
 

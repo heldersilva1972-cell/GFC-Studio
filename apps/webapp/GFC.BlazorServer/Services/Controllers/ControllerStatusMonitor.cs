@@ -110,8 +110,8 @@ public class ControllerStatusMonitor : IDisposable
                 using var scope = _serviceProvider.CreateScope();
                 var controllerClient = scope.ServiceProvider.GetRequiredService<IControllerClient>();
                 
-                var status = await controllerClient.GetRunStatusAsync(controller.SerialNumber.ToString());
-                var isOnline = status != null;
+                var status = await controllerClient.GetRunStatusAsync(controller.Id, CancellationToken.None);
+                var isOnline = status != null && status.IsOnline;
                 
                 _controllerStatuses[controller.Id] = isOnline;
                 _lastChecked[controller.Id] = DateTime.UtcNow;

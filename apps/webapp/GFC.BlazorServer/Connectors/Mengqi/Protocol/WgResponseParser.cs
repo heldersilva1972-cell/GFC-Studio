@@ -59,9 +59,10 @@ internal static class WgResponseParser
             RelayStates = Array.Empty<bool>(),
             IsFireAlarmActive = payload.Length >= 8 && (payload[7] & 0x01) != 0,
             IsTamperActive = payload.Length >= 8 && (payload[7] & 0x02) != 0,
-            // User script: Total Cards (bytes 8-11 -> payload 4-7), Total Events (bytes 12-15 -> payload 8-11)
-            TotalCards = payload.Length >= 8 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]) : 0,
-            TotalEvents = payload.Length >= 12 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[8..12]) : 0
+            // User script: Total Cards and Events logic conflicts with Door Status bitmasks at the same offsets.
+            // Disabling to restore Door Status visibility until correct offsets are verified.
+            TotalCards = 0, // payload.Length >= 8 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]) : 0,
+            TotalEvents = 0 // payload.Length >= 12 ? BinaryPrimitives.ReadUInt32LittleEndian(payload[8..12]) : 0
         };
     }
 

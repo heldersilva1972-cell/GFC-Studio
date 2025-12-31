@@ -64,7 +64,11 @@ public class ControllerRegistryService
         {
             controller.Name = name;
             controller.SerialNumber = serialNumber;
-            controller.IpAddress = ipAddress;
+            // Ensure we don't accidentally blank out the IP if an empty string is passed (defense in depth)
+            if (!string.IsNullOrEmpty(ipAddress)) 
+            {
+                controller.IpAddress = ipAddress;
+            }
             controller.DoorCount = doorCount;
             await dbContext.SaveChangesAsync(cancellationToken);
         }

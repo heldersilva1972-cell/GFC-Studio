@@ -68,6 +68,12 @@ internal sealed class WgCommandDispatcher
             {
                 using (await _sendLock.LockAsync(cancellationToken).ConfigureAwait(false))
                 {
+                    // Log intention if this is the first attempt
+                    if (attempt == 0)
+                    {
+                        // Optional: Could log "Sending..." here, but we usually wait for result.
+                    }
+
                     var response = await _transport
                         .SendAsync(endpoint, request, _options.ReceiveTimeout, cancellationToken)
                         .ConfigureAwait(false);
@@ -91,12 +97,25 @@ internal sealed class WgCommandDispatcher
             catch (Exception ex) when (attempt < _options.MaxRetries && !cancellationToken.IsCancellationRequested)
             {
                 lastError = ex;
+                // Log the intermediate failure so the user sees *something* is happening/failing
+                var retryEntry = new CommunicationLogEntry 
+                {
+                    Timestamp = DateTime.Now,
+                    ControllerSn = controllerSn,
+                    Operation = profile.Name,
+                    RequestPacket = request.ToArray(),
+                    IsError = true,
+                    ErrorMessage = $"Attempt {attempt + 1} Failed: {ex.Message}",
+                    Description = "Retrying..."
+                };
+                _logService?.Log(retryEntry);
+                
                 attempt++;
             }
         }
 
         entry.IsError = true;
-        entry.ErrorMessage = lastError?.Message ?? "Timeout";
+        entry.ErrorMessage = lastError?.Message ?? "Timeout - No Response";
         _logService?.Log(entry);
 
         throw lastError ?? new TimeoutException($"Controller SN {controllerSn} did not respond after {_options.MaxRetries + 1} attempts.");
