@@ -271,9 +271,13 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         // Register ControllerNetworkConfigService AFTER IControllerClient is registered
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.ControllerNetworkConfigService>();
         
+        // Register centralized controller status monitor (singleton - shared across all components)
+        builder.Services.AddSingleton<ControllerStatusMonitor>();
+        
         builder.Services.AddScoped<ControllerTestService>();
 
         builder.Services.AddHostedService<DirectorAccessExpiryWorker>();
+        builder.Services.AddHostedService<ControllerStatusMonitorService>();
 
         var app = builder.Build();
 

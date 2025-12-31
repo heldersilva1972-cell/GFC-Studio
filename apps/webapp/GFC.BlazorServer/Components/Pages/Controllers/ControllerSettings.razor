@@ -286,9 +286,8 @@
     private bool _isLoading = true;
     private string _activeTab = "overview"; 
     private bool _isOnline = false;
-    private bool _isCheckingStatus = false;
-    private PeriodicTimer? _statusCheckTimer;
-    private CancellationTokenSource? _cts;
+
+    [Inject] private ControllerStatusMonitor StatusMonitor { get; set; } = default!;
 
     protected override async Task OnInitializedAsync()
     {
@@ -316,8 +315,12 @@
                 
                 _selectedController = _controllers.First(c => c.Id == _selectedControllerId);
                 
-                // Start periodic status checking
-                StartStatusPolling();
+                // Subscribe to status changes from the centralized monitor
+                StatusMonitor.StatusChanged += OnControllerStatusChanged;
+                StatusMonitor.StatusesRefreshed += OnStatusesRefreshed;
+                
+                // Get initial status
+                _isOnline = StatusMonitor.GetStatus(_selectedControllerId);
             }
         }
         finally 
@@ -326,55 +329,23 @@
         }
     }
 
-    private void StartStatusPolling()
+    private void OnControllerStatusChanged(int controllerId, bool isOnline)
     {
-        // Cancel any existing timer
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _statusCheckTimer?.Dispose();
-
-        // Create new timer that checks every 3 seconds
-        _cts = new CancellationTokenSource();
-        _statusCheckTimer = new PeriodicTimer(TimeSpan.FromSeconds(3));
-        
-        _ = Task.Run(async () =>
+        // Only update if it's the currently selected controller
+        if (controllerId == _selectedControllerId)
         {
-            // Initial check
-            await CheckStatusAsync();
-            
-            // Then periodic checks
-            try
-            {
-                while (await _statusCheckTimer.WaitForNextTickAsync(_cts.Token))
-                {
-                    await CheckStatusAsync();
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Timer was cancelled, this is expected
-            }
-        }, _cts.Token);
+            _isOnline = isOnline;
+            InvokeAsync(StateHasChanged);
+        }
     }
 
-    private async Task CheckStatusAsync()
+    private void OnStatusesRefreshed()
     {
-        if (_selectedController == null) return;
-        
-        _isCheckingStatus = true;
-        try
+        // Refresh the status for the selected controller
+        if (_selectedController != null)
         {
-            var status = await ControllerClient.GetRunStatusAsync(_selectedController.SerialNumber.ToString());
-            _isOnline = status != null;
-        }
-        catch
-        {
-            _isOnline = false;
-        }
-        finally
-        {
-            _isCheckingStatus = false;
-            await InvokeAsync(StateHasChanged);
+            _isOnline = StatusMonitor.GetStatus(_selectedControllerId);
+            InvokeAsync(StateHasChanged);
         }
     }
 
@@ -384,10 +355,10 @@
         {
             _selectedControllerId = newId;
             _selectedController = _controllers.FirstOrDefault(c => c.Id == newId);
-            _isOnline = false; // Reset status while checking
             
-            // Restart polling for the new controller
-            StartStatusPolling();
+            // Get status from the centralized monitor
+            _isOnline = StatusMonitor.GetStatus(newId);
+            StateHasChanged();
         }
     }
 
@@ -414,8 +385,11 @@
 
     public void Dispose()
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _statusCheckTimer?.Dispose();
+        // Unsubscribe from events
+        if (StatusMonitor != null)
+        {
+            StatusMonitor.StatusChanged -= OnControllerStatusChanged;
+            StatusMonitor.StatusesRefreshed -= OnStatusesRefreshed;
+        }
     }
 }
