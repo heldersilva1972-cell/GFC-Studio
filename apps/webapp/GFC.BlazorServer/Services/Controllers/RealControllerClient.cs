@@ -135,18 +135,26 @@ public class RealControllerClient : IControllerClient
         var status = await GetRunStatusAsync(controller.SerialNumberDisplay, ct);
         if (status == null) return new RunStatusModel { IsOnline = false };
 
-        return new RunStatusModel
-        {
-            IsOnline = true,
-            TotalCards = status.TotalCards,
-            TotalEvents = status.TotalEvents,
-            Doors = status.Doors.Select(d => new RunStatusModel.DoorStatus
+        // Filter doors based on configured door count to eliminate ghost data
+        // On 2-door controllers, bytes 56-60 in the 0x20 response contain uninitialized RAM
+        // values from unmapped hardware registers (Doors 3 & 4 don't physically exist)
+        var doorCount = controller.DoorCount > 0 ? controller.DoorCount : 4;
+        var filteredDoors = status.Doors
+            .Where(d => d.DoorNumber <= doorCount)
+            .Select(d => new RunStatusModel.DoorStatus
             {
                 DoorIndex = d.DoorNumber,
                 IsDoorOpen = d.IsDoorOpen,
                 IsRelayOn = d.IsRelayOn,
                 IsSensorActive = d.IsSensorActive
-            }).ToList()
+            }).ToList();
+
+        return new RunStatusModel
+        {
+            IsOnline = true,
+            TotalCards = status.TotalCards,
+            TotalEvents = status.TotalEvents,
+            Doors = filteredDoors
         };
     }
     
@@ -412,10 +420,10 @@ public class RealControllerClient : IControllerClient
         await _mengqiClient.RebootControllerAsync(sn, cancellationToken);
     }
     
-    public async Task ResetControllerAsync(string controllerSn, CancellationToken cancellationToken = default)
+    public async Task ResetControllerAsync(string controllerSn, int doorCount = 4, CancellationToken cancellationToken = default)
     {
         if (!uint.TryParse(controllerSn, out var sn)) return;
-        await _mengqiClient.ResetControllerAsync(sn, cancellationToken);
+        await _mengqiClient.ResetControllerAsync(sn, doorCount, cancellationToken);
     }
 
     public async Task SetDoorConfigAsync(string controllerSn, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock, CancellationToken cancellationToken = default)

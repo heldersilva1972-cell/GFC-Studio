@@ -181,23 +181,44 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         await SendAndExpectAck(controllerSn, _commands.Reboot, payload, cancellationToken).ConfigureAwait(false);
     }
     
-    public async Task ResetControllerAsync(uint controllerSn, CancellationToken cancellationToken = default)
+    public async Task ResetControllerAsync(uint controllerSn, int doorCount = 4, CancellationToken cancellationToken = default)
     {
-        // 1. Wipe Ghost Records (0x10)
-        await SendAndExpectAck(controllerSn, _commands.ResetPrivileges, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
-        _logger?.LogInformation("Cleared privileges for controller {Sn}", controllerSn);
+        // Note: Skipping 0x10 (Reset Privileges) and 0x11 (Reset Index) as they may not be supported
+        // or may cause the controller to become unresponsive. Focusing on door configuration instead.
         
-        // 2. Reset Counter (0x11)
-        await SendAndExpectAck(controllerSn, _commands.ResetPrivilegeIndex, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
-        _logger?.LogInformation("Reset privilege index for controller {Sn}", controllerSn);
-        
-        // 3. Initialize Doors (1-4)
-        for (int i = 1; i <= 4; i++)
+        // 1. Sync Time (0x30) - Critical for Mode 3 (Controlled) access logic
+        try
         {
-             // Force to Controlled Mode (3) with 5s delay as per recovery script
-             await SetDoorConfigAsync(controllerSn, i, 0x03, 0x05, 0, 0, cancellationToken);
+            await SyncTimeAsync(controllerSn, DateTime.Now, cancellationToken).ConfigureAwait(false);
+            _logger?.LogInformation("Synchronized time for controller {Sn}", controllerSn);
+            await Task.Delay(300, cancellationToken);
         }
-        _logger?.LogInformation("Initialized all doors for controller {Sn}", controllerSn);
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Time sync failed for controller {Sn}, continuing with door config", controllerSn);
+        }
+        
+        // 2. Initialize Doors based on configured door count
+        // Active doors (1 to doorCount): Set to Controlled Mode (3)
+        for (int i = 1; i <= doorCount && i <= 4; i++)
+        {
+             // Force to Controlled Mode (3) with 5s delay
+             await SetDoorConfigAsync(controllerSn, i, 0x03, 0x05, 0, 0, cancellationToken);
+             _logger?.LogInformation("Configured Door {DoorIndex} to Mode 3 (Controlled) for controller {Sn}", i, controllerSn);
+             await Task.Delay(200, cancellationToken);
+        }
+        
+        // Unused doors (doorCount+1 to 4): Set to Disabled Mode (0)
+        for (int i = doorCount + 1; i <= 4; i++)
+        {
+             // Set to Not Configured/Disabled Mode (0) to prevent ghost data
+             await SetDoorConfigAsync(controllerSn, i, 0x00, 0x00, 0, 0, cancellationToken);
+             _logger?.LogInformation("Disabled Door {DoorIndex} (Mode 0) for controller {Sn}", i, controllerSn);
+             await Task.Delay(200, cancellationToken);
+        }
+        
+        _logger?.LogInformation("Deep Reset complete: Initialized {ActiveDoors} active doors and disabled {DisabledDoors} unused doors for controller {Sn}", 
+            doorCount, 4 - doorCount, controllerSn);
     }
 
     public async Task<IEnumerable<DiscoveryResult>> DiscoverControllersAsync(CancellationToken cancellationToken = default)

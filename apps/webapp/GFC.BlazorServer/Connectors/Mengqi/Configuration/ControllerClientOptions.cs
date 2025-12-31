@@ -8,9 +8,9 @@ namespace GFC.BlazorServer.Connectors.Mengqi.Configuration;
 /// </summary>
 public sealed class ControllerClientOptions
 {
-    public TimeSpan SendTimeout { get; set; } = TimeSpan.FromSeconds(2.5);
+    public TimeSpan SendTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
-    public TimeSpan ReceiveTimeout { get; set; } = TimeSpan.FromSeconds(2.5);
+    public TimeSpan ReceiveTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
     public int MaxRetries { get; set; } = 2;
 
