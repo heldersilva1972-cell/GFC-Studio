@@ -1,4 +1,5 @@
 using GFC.BlazorServer.Services.Controllers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace GFC.BlazorServer.Services;
@@ -8,7 +9,7 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class ControllerHealthService
 {
-    private readonly IControllerClient _controllerClient;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ControllerHealthService> _logger;
     private bool _isOnline = false;
     private DateTime? _lastSuccessfulPing;
@@ -16,10 +17,10 @@ public class ControllerHealthService
     private int _consecutiveFailures = 0;
 
     public ControllerHealthService(
-        IControllerClient controllerClient,
+        IServiceScopeFactory scopeFactory,
         ILogger<ControllerHealthService> logger)
     {
-        _controllerClient = controllerClient;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -50,8 +51,11 @@ public class ControllerHealthService
     {
         try
         {
+            using var scope = _scopeFactory.CreateScope();
+            var controllerClient = scope.ServiceProvider.GetRequiredService<IControllerClient>();
+            
             // Try to ping controller - this is a lightweight operation
-            var success = await _controllerClient.PingAsync(ct);
+            var success = await controllerClient.PingAsync(ct);
             
             if (success)
             {

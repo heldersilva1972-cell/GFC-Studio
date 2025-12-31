@@ -9,29 +9,31 @@ namespace GFC.BlazorServer.Services;
 
 public class ScheduleService : IScheduleService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<ScheduleService> _logger;
     private readonly IControllerClient _controllerClient;
     private const int MaxTimeZones = 64; // Controller firmware limit
     private const int MaxHolidays = 64; // Controller firmware limit
 
-    public ScheduleService(GfcDbContext dbContext, ILogger<ScheduleService> logger, IControllerClient controllerClient)
+    public ScheduleService(IDbContextFactory<GfcDbContext> contextFactory, ILogger<ScheduleService> logger, IControllerClient controllerClient)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
     }
 
     public async Task<List<Holiday>> GetHolidaysAsync(CancellationToken cancellationToken = default)
     {
-        return await _dbContext.Holidays
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.Holidays
             .OrderBy(h => h.Date)
             .ToListAsync(cancellationToken);
     }
 
     public async Task<Holiday?> GetHolidayAsync(int id, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.Holidays
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.Holidays
             .FirstOrDefaultAsync(h => h.Id == id, cancellationToken);
     }
 
@@ -45,8 +47,9 @@ public class ScheduleService : IScheduleService
         
         holiday.Name = holiday.Name.Trim();
         
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         // Check for duplicates
-        var duplicate = await _dbContext.Holidays
+        var duplicate = await dbContext.Holidays
             .FirstOrDefaultAsync(h => h.Name == holiday.Name && 
                                       h.Date == holiday.Date && 
                                       h.IsRecurring == holiday.IsRecurring, 
@@ -56,30 +59,33 @@ public class ScheduleService : IScheduleService
             throw new InvalidOperationException("A holiday with the same name, date, and recurring setting already exists.");
         }
         
-        _dbContext.Holidays.Add(holiday);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.Holidays.Add(holiday);
+        await dbContext.SaveChangesAsync(cancellationToken);
         return holiday.Id;
     }
 
     public async Task UpdateHolidayAsync(Holiday holiday, CancellationToken cancellationToken = default)
     {
-        _dbContext.Holidays.Update(holiday);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        dbContext.Holidays.Update(holiday);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task DeleteHolidayAsync(int id, CancellationToken cancellationToken = default)
     {
-        var holiday = await _dbContext.Holidays.FindAsync(new object[] { id }, cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var holiday = await dbContext.Holidays.FindAsync(new object[] { id }, cancellationToken);
         if (holiday != null)
         {
-            _dbContext.Holidays.Remove(holiday);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.Holidays.Remove(holiday);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 
     public async Task<List<SpecialEvent>> GetSpecialEventsAsync(CancellationToken cancellationToken = default)
     {
-        return await _dbContext.SpecialEvents
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.SpecialEvents
             .Include(e => e.TimeProfile)
             .OrderBy(e => e.Date)
             .ToListAsync(cancellationToken);
@@ -87,37 +93,42 @@ public class ScheduleService : IScheduleService
 
     public async Task<SpecialEvent?> GetSpecialEventAsync(int id, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.SpecialEvents
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.SpecialEvents
             .Include(e => e.TimeProfile)
             .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
     }
 
     public async Task<int> AddSpecialEventAsync(SpecialEvent specialEvent, CancellationToken cancellationToken = default)
     {
-        _dbContext.SpecialEvents.Add(specialEvent);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        dbContext.SpecialEvents.Add(specialEvent);
+        await dbContext.SaveChangesAsync(cancellationToken);
         return specialEvent.Id;
     }
 
     public async Task UpdateSpecialEventAsync(SpecialEvent specialEvent, CancellationToken cancellationToken = default)
     {
-        _dbContext.SpecialEvents.Update(specialEvent);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        dbContext.SpecialEvents.Update(specialEvent);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task DeleteSpecialEventAsync(int id, CancellationToken cancellationToken = default)
     {
-        var specialEvent = await _dbContext.SpecialEvents.FindAsync(new object[] { id }, cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var specialEvent = await dbContext.SpecialEvents.FindAsync(new object[] { id }, cancellationToken);
         if (specialEvent != null)
         {
-            _dbContext.SpecialEvents.Remove(specialEvent);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.SpecialEvents.Remove(specialEvent);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 
     public async Task<List<TimeProfile>> GetProfilesAsync(bool activeOnly = true, CancellationToken cancellationToken = default)
     {
-        var query = _dbContext.TimeProfiles
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var query = dbContext.TimeProfiles
             .Include(p => p.Intervals)
             .AsQueryable();
         
@@ -131,14 +142,16 @@ public class ScheduleService : IScheduleService
 
     public async Task<TimeProfile?> GetProfileAsync(int id, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.TimeProfiles
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.TimeProfiles
             .Include(p => p.Intervals)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
     }
 
     public async Task<List<TimeProfileInterval>> GetIntervalsAsync(int profileId, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.TimeProfileIntervals
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.TimeProfileIntervals
             .Where(i => i.TimeProfileId == profileId)
             .OrderBy(i => i.DayOfWeek)
             .ThenBy(i => i.Order)
@@ -155,8 +168,9 @@ public class ScheduleService : IScheduleService
         
         profile.Name = profile.Name.Trim();
         
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         // Check for name uniqueness (case-insensitive)
-        var existingWithName = await _dbContext.TimeProfiles
+        var existingWithName = await dbContext.TimeProfiles
             .FirstOrDefaultAsync(p => p.Name.ToLower() == profile.Name.ToLower() && p.Id != profile.Id, cancellationToken);
         if (existingWithName != null)
         {
@@ -191,20 +205,20 @@ public class ScheduleService : IScheduleService
             // New profile - set TimeProfileId on intervals after adding
             var intervals = profile.Intervals.ToList();
             profile.Intervals.Clear();
-            _dbContext.TimeProfiles.Add(profile);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.TimeProfiles.Add(profile);
+            await dbContext.SaveChangesAsync(cancellationToken);
             
             // Now add intervals with the correct TimeProfileId
             foreach (var interval in intervals)
             {
                 interval.TimeProfileId = profile.Id;
-                _dbContext.TimeProfileIntervals.Add(interval);
+                dbContext.TimeProfileIntervals.Add(interval);
             }
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
         else
         {
-            var existing = await _dbContext.TimeProfiles
+            var existing = await dbContext.TimeProfiles
                 .Include(p => p.Intervals)
                 .FirstOrDefaultAsync(p => p.Id == profile.Id, cancellationToken);
 
@@ -218,7 +232,7 @@ public class ScheduleService : IScheduleService
                 var toRemove = existing.Intervals.Where(i => !existingIds.Contains(i.Id)).ToList();
                 foreach (var interval in toRemove)
                 {
-                    _dbContext.TimeProfileIntervals.Remove(interval);
+                    dbContext.TimeProfileIntervals.Remove(interval);
                 }
 
                 // Update or add intervals
@@ -241,7 +255,7 @@ public class ScheduleService : IScheduleService
                         existing.Intervals.Add(interval);
                     }
                 }
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                await dbContext.SaveChangesAsync(cancellationToken);
             }
         }
 
@@ -250,20 +264,22 @@ public class ScheduleService : IScheduleService
 
     public async Task DeleteProfileAsync(int id, CancellationToken cancellationToken = default)
     {
-        var profile = await _dbContext.TimeProfiles
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var profile = await dbContext.TimeProfiles
             .Include(p => p.Intervals)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
         if (profile != null)
         {
-            _dbContext.TimeProfiles.Remove(profile);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.TimeProfiles.Remove(profile);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 
     public async Task<List<ControllerTimeProfileLink>> GetControllerLinksAsync(int controllerId, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.ControllerTimeProfileLinks
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.ControllerTimeProfileLinks
             .Include(l => l.TimeProfile)
             .Where(l => l.ControllerId == controllerId)
             .ToListAsync(cancellationToken);
@@ -278,8 +294,9 @@ public class ScheduleService : IScheduleService
             throw new ArgumentException($"Controller profile index must be between 0 and {MaxProfileIndex}.", nameof(controllerProfileIndex));
         }
 
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         // Check if index is already used by another link
-        var existingWithIndex = await _dbContext.ControllerTimeProfileLinks
+        var existingWithIndex = await dbContext.ControllerTimeProfileLinks
             .FirstOrDefaultAsync(l => l.ControllerId == controllerId && 
                                       l.ControllerProfileIndex == controllerProfileIndex && 
                                       l.TimeProfileId != profileId, 
@@ -290,7 +307,7 @@ public class ScheduleService : IScheduleService
         }
 
         // Verify profile exists and is active
-        var profile = await _dbContext.TimeProfiles.FindAsync(new object[] { profileId }, cancellationToken);
+        var profile = await dbContext.TimeProfiles.FindAsync(new object[] { profileId }, cancellationToken);
         if (profile == null)
         {
             throw new InvalidOperationException($"Time profile with ID {profileId} does not exist.");
@@ -301,7 +318,7 @@ public class ScheduleService : IScheduleService
         }
 
         // Find existing link for this profile
-        var existing = await _dbContext.ControllerTimeProfileLinks
+        var existing = await dbContext.ControllerTimeProfileLinks
             .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == profileId, cancellationToken);
 
         if (existing != null)
@@ -311,7 +328,7 @@ public class ScheduleService : IScheduleService
         }
         else
         {
-            _dbContext.ControllerTimeProfileLinks.Add(new ControllerTimeProfileLink
+            dbContext.ControllerTimeProfileLinks.Add(new ControllerTimeProfileLink
             {
                 ControllerId = controllerId,
                 TimeProfileId = profileId,
@@ -320,7 +337,7 @@ public class ScheduleService : IScheduleService
             });
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task SaveLinksAsync(int controllerId, List<ControllerTimeProfileLink> links, CancellationToken cancellationToken = default)
@@ -346,9 +363,10 @@ public class ScheduleService : IScheduleService
             }
         }
         
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         // Verify all referenced profiles exist and are active
         var profileIds = links.Select(l => l.TimeProfileId).Distinct().ToList();
-        var profiles = await _dbContext.TimeProfiles
+        var profiles = await dbContext.TimeProfiles
             .Where(p => profileIds.Contains(p.Id))
             .ToListAsync(cancellationToken);
         
@@ -365,23 +383,24 @@ public class ScheduleService : IScheduleService
             }
         }
         
-        var existing = await _dbContext.ControllerTimeProfileLinks
+        var existing = await dbContext.ControllerTimeProfileLinks
             .Where(l => l.ControllerId == controllerId)
             .ToListAsync(cancellationToken);
 
-        _dbContext.ControllerTimeProfileLinks.RemoveRange(existing);
+        dbContext.ControllerTimeProfileLinks.RemoveRange(existing);
 
         foreach (var link in links)
         {
             link.ControllerId = controllerId;
-            _dbContext.ControllerTimeProfileLinks.Add(link);
+            dbContext.ControllerTimeProfileLinks.Add(link);
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<TimeScheduleCompiledDto> CompileForControllerAsync(int controllerId, CancellationToken cancellationToken = default)
     {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var links = await GetControllerLinksAsync(controllerId, cancellationToken);
         var holidays = await GetHolidaysAsync(cancellationToken);
         var specialEvents = await GetSpecialEventsAsync(cancellationToken);
@@ -389,7 +408,7 @@ public class ScheduleService : IScheduleService
         // Only include enabled links with active profiles
         var enabledLinks = links.Where(l => l.IsEnabled).ToList();
         var profileIds = enabledLinks.Select(l => l.TimeProfileId).ToList();
-        var profiles = await _dbContext.TimeProfiles
+        var profiles = await dbContext.TimeProfiles
             .Include(p => p.Intervals)
             .Where(p => profileIds.Contains(p.Id) && p.IsActive)
             .ToListAsync(cancellationToken);
@@ -458,7 +477,7 @@ public class ScheduleService : IScheduleService
         }
 
         // Include tasks if enabled
-        var tasks = await _dbContext.Set<TaskEntry>()
+        var tasks = await dbContext.Set<TaskEntry>()
             .Where(t => t.ControllerId == controllerId && t.Enabled)
             .OrderBy(t => t.Time)
             .ToListAsync(cancellationToken);

@@ -15,7 +15,7 @@ public class ControllerFullSyncService
     private readonly IKeyCardRepository _keyCardRepository;
     private readonly IControllerClient _controllerClient;
     private readonly IControllerSyncQueueRepository _syncQueueRepository;
-    private readonly GFC.BlazorServer.Data.GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ControllerRegistryService _controllerRegistry;
     private readonly ILogger<ControllerFullSyncService> _logger;
 
@@ -23,14 +23,14 @@ public class ControllerFullSyncService
         IKeyCardRepository keyCardRepository,
         IControllerClient controllerClient,
         IControllerSyncQueueRepository syncQueueRepository,
-        GFC.BlazorServer.Data.GfcDbContext dbContext,
+        IDbContextFactory<GfcDbContext> contextFactory,
         ControllerRegistryService controllerRegistry,
         ILogger<ControllerFullSyncService> logger)
     {
         _keyCardRepository = keyCardRepository;
         _controllerClient = controllerClient;
         _syncQueueRepository = syncQueueRepository;
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
         _controllerRegistry = controllerRegistry;
         _logger = logger;
     }
@@ -72,24 +72,7 @@ public class ControllerFullSyncService
             }
 
             // Step 3: Sync each active card
-            // Note: AddOrUpdateCardAsync requires controller serial number. 
-            // We need to fetch controllers or iterate them.
-            // For now, let's assume we sync to ALL enabled controllers? Or a specific one?
-            // The previous logic was:
-            // await _controllerClient.AddOrUpdatePrivilegeAsync(privilege, ct);
-            // This method is part of ISimModeControllerClient... wait.
-            // The IControllerClient has TWO sets of methods.
-            // One for "SimMode" (int controllerId) and one for "Real" (string controllerSn).
-            
-            // Assuming this is for the real system update, we should check which method to use.
-            // If the user wants to sync to *active* controllers.
-            // But ControllerFullSyncService doesn't know about controllers unless we inject ControllerRegistryService.
-            
-            // Let's stick to the previous implementation attempt but fix the call.
-            // The previous code called `AddOrUpdatePrivilegeAsync(privilege, ct)`. 
-            // In IControllerClient, that method exists: `Task AddOrUpdatePrivilegeAsync(CardPrivilegeModel model, CancellationToken ct);`
-            // So we are good, assuming CardPrivilegeModel is available.
-            
+            await using var dbContext = await _contextFactory.CreateDbContextAsync(ct);
             foreach (var card in activeCards)
             {
                 if (ct.IsCancellationRequested)
@@ -101,7 +84,7 @@ public class ControllerFullSyncService
                 try
                 {
                     // Get door permissions for this card
-                    var permissions = await _dbContext.MemberDoorAccesses
+                    var permissions = await dbContext.MemberDoorAccesses
                         .Include(a => a.Door)
                         .Where(a => a.CardNumber == card.CardNumber && a.IsEnabled)
                         .ToListAsync(ct);
@@ -118,7 +101,7 @@ public class ControllerFullSyncService
                             var controllerId = perm.Door?.ControllerId ?? 0;
                             if (controllerId == 0)
                             {
-                                var door = await _dbContext.Doors.FindAsync(new object[] { perm.DoorId }, ct);
+                                var door = await dbContext.Doors.FindAsync(new object[] { perm.DoorId }, ct);
                                 if (door != null) controllerId = door.ControllerId;
                             }
 
@@ -128,7 +111,7 @@ public class ControllerFullSyncService
                             int? timeProfileIndex = null;
                             if (perm.TimeProfileId.HasValue)
                             {
-                                var link = await _dbContext.ControllerTimeProfileLinks
+                                var link = await dbContext.ControllerTimeProfileLinks
                                     .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == perm.TimeProfileId.Value, ct);
                                 timeProfileIndex = link?.ControllerProfileIndex;
                             }

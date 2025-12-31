@@ -9,16 +9,17 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class CommandInfoService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
 
-    public CommandInfoService(GfcDbContext dbContext)
+    public CommandInfoService(IDbContextFactory<GfcDbContext> contextFactory)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
     }
 
     public async Task<IReadOnlyList<ControllerCommandInfo>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        return await _dbContext.ControllerCommandInfos
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.ControllerCommandInfos
             .AsNoTracking()
             .Where(c => c.Enabled)
             .OrderBy(c => c.Category)
@@ -26,14 +27,15 @@ public class CommandInfoService
             .ToListAsync(cancellationToken);
     }
 
-    public Task<ControllerCommandInfo?> GetByKeyAsync(string key, CancellationToken cancellationToken = default)
+    public async Task<ControllerCommandInfo?> GetByKeyAsync(string key, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(key))
         {
             throw new ArgumentException("Key is required.", nameof(key));
         }
 
-        return _dbContext.ControllerCommandInfos
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.ControllerCommandInfos
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.Key == key, cancellationToken);
     }

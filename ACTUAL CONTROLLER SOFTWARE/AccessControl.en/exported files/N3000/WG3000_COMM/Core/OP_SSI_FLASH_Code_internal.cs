@@ -1,0 +1,35 @@
+﻿using System;
+
+namespace WG3000_COMM.Core
+{
+	// Token: 0x020001E2 RID: 482
+	internal enum OP_SSI_FLASH_Code_internal : byte
+	{
+		// Token: 0x040019DF RID: 6623
+		OP_END = 255,
+		// Token: 0x040019E0 RID: 6624
+		OP_READ = 16,
+		// Token: 0x040019E1 RID: 6625
+		OP_READ_FAIL = 18,
+		// Token: 0x040019E2 RID: 6626
+		OP_READ_OK = 17,
+		// Token: 0x040019E3 RID: 6627
+		OP_WRITE = 32,
+		// Token: 0x040019E4 RID: 6628
+		OP_WRITE_FAIL = 34,
+		// Token: 0x040019E5 RID: 6629
+		OP_WRITE_OK = 33,
+		// Token: 0x040019E6 RID: 6630
+		OP_WRITE_PARAM = 48,
+		// Token: 0x040019E7 RID: 6631
+		OP_WRITE_PARAM_FAIL = 50,
+		// Token: 0x040019E8 RID: 6632
+		OP_WRITE_PARAM_OK = 49,
+		// Token: 0x040019E9 RID: 6633
+		OP_WRITE_WITH_USERNAME = 64,
+		// Token: 0x040019EA RID: 6634
+		OP_WRITE_WITH_USERNAME_FAIL = 66,
+		// Token: 0x040019EB RID: 6635
+		OP_WRITE_WITH_USERNAME_OK = 65
+	}
+}

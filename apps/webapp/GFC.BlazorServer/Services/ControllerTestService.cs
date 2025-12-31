@@ -8,17 +8,14 @@ namespace GFC.BlazorServer.Services;
 
 public class ControllerTestService
 {
-    private readonly GfcDbContext _dbContext;
-    private readonly IMengqiControllerClient _mengqiClient;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<ControllerTestService> _logger;
 
     public ControllerTestService(
-        GfcDbContext dbContext,
-        IMengqiControllerClient mengqiClient,
+        IDbContextFactory<GfcDbContext> contextFactory,
         ILogger<ControllerTestService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
-        _mengqiClient = mengqiClient ?? throw new ArgumentNullException(nameof(mengqiClient));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -26,6 +23,7 @@ public class ControllerTestService
     {
         try
         {
+            await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
             var log = new ControllerCommandLog
             {
                 ControllerId = controllerId,
@@ -36,8 +34,8 @@ public class ControllerTestService
                 TimestampUtc = DateTime.UtcNow
             };
 
-            _dbContext.ControllerCommandLogs.Add(log);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.ControllerCommandLogs.Add(log);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
         {

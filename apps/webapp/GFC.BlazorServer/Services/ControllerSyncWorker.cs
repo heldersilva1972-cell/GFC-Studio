@@ -62,6 +62,8 @@ public class ControllerSyncWorker : BackgroundService
                     {
                         // Mark as processing
                         await syncQueue.UpdateStatusAsync(item.QueueId, "PROCESSING");
+                        _logger.LogInformation("Processing sync item {QueueId} (Card: {CardNumber}, Action: {Action})", 
+                            item.QueueId, item.CardNumber, item.Action);
 
                         // Attempt sync to controller
                         if (item.Action == "ACTIVATE")
@@ -75,42 +77,47 @@ public class ControllerSyncWorker : BackgroundService
 
                             if (!permissions.Any())
                             {
-                                _logger.LogWarning("No door permissions found for card {CardNumber} - deactivating instead", item.CardNumber);
-                                await controllerClient.DeletePrivilegeAsync(long.Parse(item.CardNumber), stoppingToken);
+                                // If NO permissions exist, we shouldn't necessarily delete it if it was just assigned.
+                                // It's better to log this as a pending state or skip it till permissions are added.
+                                _logger.LogWarning("No door permissions found for card {CardNumber}. Skipping activation until permissions are assigned.", item.CardNumber);
+                                await syncQueue.UpdateStatusAsync(item.QueueId, "PENDING"); // Put back in pending but skip for now
+                                continue;
                             }
-                            else
+                            
+                            foreach (var perm in permissions)
                             {
-                                foreach (var perm in permissions)
+                                var controllerId = perm.Door?.ControllerId ?? 0;
+                                if (controllerId == 0)
                                 {
-                                    var controllerId = perm.Door?.ControllerId ?? 0;
-                                    if (controllerId == 0)
-                                    {
-                                        var door = await dbContext.Doors.FindAsync(new object[] { perm.DoorId }, stoppingToken);
-                                        if (door != null) controllerId = door.ControllerId;
-                                    }
-
-                                    if (controllerId == 0) continue;
-
-                                    // Resolve time profile index
-                                    int? timeProfileIndex = null;
-                                    if (perm.TimeProfileId.HasValue)
-                                    {
-                                        var link = await dbContext.ControllerTimeProfileLinks
-                                            .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == perm.TimeProfileId.Value, stoppingToken);
-                                        timeProfileIndex = link?.ControllerProfileIndex;
-                                    }
-
-                                    var privilege = new CardPrivilegeModel
-                                    {
-                                        ControllerId = controllerId,
-                                        DoorId = perm.DoorId,
-                                        CardNumber = long.Parse(item.CardNumber),
-                                        TimeProfileIndex = timeProfileIndex,
-                                        Enabled = true
-                                    };
-
-                                    await controllerClient.AddOrUpdatePrivilegeAsync(privilege, stoppingToken);
+                                    var door = await dbContext.Doors.FindAsync(new object[] { perm.DoorId }, stoppingToken);
+                                    if (door != null) controllerId = door.ControllerId;
                                 }
+
+                                if (controllerId == 0)
+                                {
+                                    _logger.LogWarning("Could not resolve Controller ID for door {DoorId}", perm.DoorId);
+                                    continue;
+                                }
+
+                                // Resolve time profile index
+                                int? timeProfileIndex = null;
+                                if (perm.TimeProfileId.HasValue)
+                                {
+                                    var link = await dbContext.ControllerTimeProfileLinks
+                                        .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == perm.TimeProfileId.Value, stoppingToken);
+                                    timeProfileIndex = link?.ControllerProfileIndex;
+                                }
+
+                                var privilege = new CardPrivilegeModel
+                                {
+                                    ControllerId = controllerId,
+                                    DoorId = perm.DoorId,
+                                    CardNumber = long.Parse(item.CardNumber),
+                                    TimeProfileIndex = timeProfileIndex ?? 1, // Default to Always if not specified
+                                    Enabled = true
+                                };
+
+                                await controllerClient.AddOrUpdatePrivilegeAsync(privilege, stoppingToken);
                             }
                         }
                         else
@@ -140,8 +147,8 @@ public class ControllerSyncWorker : BackgroundService
                 _logger.LogError(ex, "Error in controller sync worker");
             }
 
-            // Run every 5 minutes to check for items ready to retry
-            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+            // Run every 30 seconds to check for items ready to retry
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
 
         _logger.LogInformation("Controller Sync Worker stopped");
@@ -157,9 +164,9 @@ public class ControllerSyncWorker : BackgroundService
         TimeSpan delay = attemptCount switch
         {
             0 => TimeSpan.Zero,              // Immediate
-            1 => TimeSpan.FromMinutes(5),    // 5 minutes
-            2 => TimeSpan.FromMinutes(15),   // 15 minutes
-            _ => TimeSpan.FromMinutes(30)    // 30 minutes forever
+            1 => TimeSpan.FromSeconds(30),   // 30 seconds
+            2 => TimeSpan.FromMinutes(1),    // 1 minute
+            _ => TimeSpan.FromMinutes(2)     // 2 minutes maximum retry wait for local hardware
         };
 
         return lastAttemptDate.Value.Add(delay);

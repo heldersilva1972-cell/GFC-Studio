@@ -55,5 +55,18 @@ public class ControllerRegistryService
             .Include(c => c.Doors)
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
     }
+
+    public async Task UpdateControllerAsync(int controllerId, string name, uint serialNumber, string ipAddress, CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers.FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
+        if (controller != null)
+        {
+            controller.Name = name;
+            controller.SerialNumber = serialNumber;
+            controller.IpAddress = ipAddress;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
 }
 

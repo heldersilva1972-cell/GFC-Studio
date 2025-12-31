@@ -8,8 +8,9 @@
 @inject CommandInfoService CommandInfoService
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject ILogger<NetworkTab> Logger
+@inject ControllerRegistryService RegistryService
 
-<div class="settings-tab-content fadeIn">
+<div class="settings-tab-content fadeIn pb-5">
     @if (_initError != null)
     {
         <div class="alert alert-danger mb-4">
@@ -20,7 +21,7 @@
     <div class="row g-4 d-flex align-items-stretch">
         <!-- Main Configuration -->
         <div class="col-lg-8 d-flex flex-column">
-            <div class="glass-panel h-100 d-flex flex-column">
+            <div class="glass-panel d-flex flex-column">
                 <div class="panel-header mb-4">
                     <div class="d-flex align-items-center justify-content-between">
                         <div class="d-flex align-items-center gap-2">
@@ -29,6 +30,9 @@
                         </div>
                         
                         <div class="d-flex gap-2">
+                             <button class="btn btn-sm btn-outline-primary" @onclick="DiscoverOnNetwork" disabled="@(_isLoading || _isSyncing || _isDiscovering)">
+                                <i class="bi bi-search me-1"></i> @(_isDiscovering ? "Searching..." : "Discover")
+                            </button>
                              <button class="btn btn-sm btn-outline-secondary" @onclick="ReadFromController" disabled="@(_isLoading || _isSyncing)">
                                 <i class="bi bi-broadcast-pin me-1"></i> Read
                             </button>
@@ -88,10 +92,39 @@
                     </div>
                 </EditForm>
             </div>
+
         </div>
 
         <!-- Sidebar Info / Actions -->
         <div class="col-lg-4 d-flex flex-column gap-3">
+            <!-- Hardware Identity Panel -->
+            <div class="glass-panel">
+                <div class="panel-header mb-4">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-tag text-primary fs-4"></i>
+                            <h5 class="mb-0">Hardware Identity</h5>
+                        </div>
+                    </div>
+                    <p class="text-muted small mb-0 mt-1">Update ID details below.</p>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Controller Name</label>
+                    <input type="text" class="modern-input form-control-sm" @bind="_deviceName" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Serial Number</label>
+                    <input type="number" class="modern-input form-control-sm" @bind="_deviceSn" />
+                    <div class="form-label-desc small">9-digit number.</div>
+                </div>
+
+                <button class="btn btn-sm btn-primary w-100" @onclick="UpdateIdentity" disabled="@_isSavingIdentity">
+                    <i class="bi bi-check-lg me-1"></i> @(_isSavingIdentity ? "Updating..." : "Update Identity")
+                </button>
+            </div>
+
              <!-- Status Card -->
             <div class="glass-panel">
                 <h4 class="mb-3">Sync Status</h4>
@@ -162,21 +195,82 @@
     </div>
 }
 
+@if (_showDiscoveryResults)
+{
+    <div class="modal-backdrop fade show" @onclick="CloseDiscovery"></div>
+    <div class="modern-modal-container">
+        <div class="modern-modal fadeIn" style="max-width: 600px;">
+            <div class="modal-header-modern primary">
+                <div class="header-icon"><i class="bi bi-search"></i></div>
+                <h2>Discovered Controllers</h2>
+                <button class="btn-close-modern" @onclick="CloseDiscovery"><i class="bi bi-x"></i></button>
+            </div>
+            <div class="modal-body-modern">
+                @if (_discoveryResults.Any())
+                {
+                    <div class="list-group">
+                        @foreach (var res in _discoveryResults)
+                        {
+                            <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" 
+                                    @onclick="() => SelectDiscovered(res)">
+                                <div>
+                                    <div class="fw-bold">SN: @res.SerialNumber</div>
+                                    <small class="text-muted">IP: @res.IpAddress | MAC: @res.MacAddress</small>
+                                </div>
+                                <i class="bi bi-chevron-right text-primary"></i>
+                            </button>
+                        }
+                    </div>
+                }
+                else if (_isDiscovering)
+                {
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary mb-3"></div>
+                        <p>Scanning network for controllers...</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info">
+                        No controllers found on the subnet. Ensure the controller is powered and on the same network.
+                    </div>
+                }
+            </div>
+            <div class="modal-footer-modern">
+                <button class="btn-modern btn-outline-modern" @onclick="CloseDiscovery">Close</button>
+                <button class="btn-modern btn-primary" @onclick="DiscoverOnNetwork">Scan Again</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public ControllerDevice? Controller { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public EventCallback OnSynced { get; set; }
 
     private ControllerNetworkConfig _config = new();
     private bool _isLoading = false;
     private bool _isSaving = false;
     private bool _isSyncing = false;
+    private bool _isDiscovering = false;
+    private bool _showDiscoveryResults = false;
+    private List<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult> _discoveryResults = new();
     private string? _initError;
     private bool _showSyncConfirmation = false;
     private string? _newPassword; // Kept for logic compatibility
+
+    // Hardware identity fields
+    private string _deviceName = string.Empty;
+    private uint _deviceSn = 123456789;
+    private bool _isSavingIdentity = false;
 
     protected override async Task OnParametersSetAsync()
     {
         if (Controller != null)
         {
+            _deviceName = Controller.Name;
+            _deviceSn = Controller.SerialNumber;
             await LoadNetworkConfig();
         }
     }
@@ -209,7 +303,7 @@
         {
             _config.ControllerId = Controller.Id;
             await NetworkConfigService.SaveToDbAsync(_config);
-            // Ideally notify parent to show toast
+            await OnSaved.InvokeAsync();
         }
         catch (Exception ex)
         {
@@ -248,11 +342,69 @@
         {
             await NetworkConfigService.SyncToControllerAsync(Controller.SerialNumber, _config, null);
             await LoadNetworkConfig();
+            await OnSynced.InvokeAsync();
         }
         catch (Exception ex)
         {
             _initError = "Sync failed: " + ex.Message;
         }
         finally { _isSyncing = false; }
+    }
+
+    private async Task DiscoverOnNetwork()
+    {
+        _isDiscovering = true;
+        _showDiscoveryResults = true;
+        _discoveryResults.Clear();
+        try
+        {
+            var results = await NetworkConfigService.DiscoverControllersAsync();
+            _discoveryResults = results.ToList();
+        }
+        catch (Exception ex)
+        {
+            _initError = "Discovery failed: " + ex.Message;
+        }
+        finally
+        {
+            _isDiscovering = false;
+        }
+    }
+
+    private void CloseDiscovery() => _showDiscoveryResults = false;
+
+    private void SelectDiscovered(GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult result)
+    {
+        _config.IpAddress = result.IpAddress;
+        _config.Gateway = result.Gateway;
+        _config.SubnetMask = result.SubnetMask;
+        
+        // If the serial number is different, we notify the user they might need to update general settings
+        if (Controller != null && Controller.SerialNumber != result.SerialNumber)
+        {
+            _initError = $"Warning: Discovered SN ({result.SerialNumber}) doesn't match current SN ({Controller.SerialNumber}). Please update the Serial Number in General settings.";
+        }
+        
+        CloseDiscovery();
+    }
+
+    private async Task UpdateIdentity()
+    {
+        if (Controller == null) return;
+        _isSavingIdentity = true;
+        try
+        {
+            await RegistryService.UpdateControllerAsync(Controller.Id, _deviceName, _deviceSn, _config.IpAddress ?? Controller.IpAddress);
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to update identity");
+            _initError = "Update identity failed: " + ex.Message;
+        }
+        finally
+        {
+            _isSavingIdentity = false;
+        }
     }
 }

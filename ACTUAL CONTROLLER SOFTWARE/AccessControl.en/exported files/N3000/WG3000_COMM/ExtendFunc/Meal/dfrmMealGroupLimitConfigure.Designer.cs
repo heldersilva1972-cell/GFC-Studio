@@ -1,0 +1,180 @@
+﻿namespace WG3000_COMM.ExtendFunc.Meal
+{
+	// Token: 0x020002F7 RID: 759
+	public partial class dfrmMealGroupLimitConfigure : global::WG3000_COMM.Core.frmN3000
+	{
+		// Token: 0x0600161D RID: 5661 RVA: 0x001BF0C5 File Offset: 0x001BE0C5
+		protected override void Dispose(bool disposing)
+		{
+			if (disposing && this.components != null)
+			{
+				this.components.Dispose();
+			}
+			base.Dispose(disposing);
+		}
+
+		// Token: 0x0600161E RID: 5662 RVA: 0x001BF0E4 File Offset: 0x001BE0E4
+		private void InitializeComponent()
+		{
+			this.components = new global::System.ComponentModel.Container();
+			global::System.ComponentModel.ComponentResourceManager componentResourceManager = new global::System.ComponentModel.ComponentResourceManager(typeof(global::WG3000_COMM.ExtendFunc.Meal.dfrmMealGroupLimitConfigure));
+			global::System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle = new global::System.Windows.Forms.DataGridViewCellStyle();
+			global::System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle2 = new global::System.Windows.Forms.DataGridViewCellStyle();
+			global::System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle3 = new global::System.Windows.Forms.DataGridViewCellStyle();
+			this.toolTip1 = new global::System.Windows.Forms.ToolTip(this.components);
+			this.btnCancel = new global::System.Windows.Forms.Button();
+			this.btnOK = new global::System.Windows.Forms.Button();
+			this.btnEdit = new global::System.Windows.Forms.Button();
+			this.dgvGroups = new global::System.Windows.Forms.DataGridView();
+			this.f_GroupID = new global::System.Windows.Forms.DataGridViewTextBoxColumn();
+			this.GroupName = new global::System.Windows.Forms.DataGridViewTextBoxColumn();
+			this.Enable = new global::System.Windows.Forms.DataGridViewCheckBoxColumn();
+			this.MoreCards = new global::System.Windows.Forms.DataGridViewTextBoxColumn();
+			this.f_SoundFile = new global::System.Windows.Forms.DataGridViewTextBoxColumn();
+			this.Evening = new global::System.Windows.Forms.DataGridViewTextBoxColumn();
+			this.Other = new global::System.Windows.Forms.DataGridViewTextBoxColumn();
+			((global::System.ComponentModel.ISupportInitialize)this.dgvGroups).BeginInit();
+			base.SuspendLayout();
+			componentResourceManager.ApplyResources(this.btnCancel, "btnCancel");
+			this.btnCancel.BackColor = global::System.Drawing.Color.Transparent;
+			this.btnCancel.BackgroundImage = global::WG3000_COMM.Properties.Resources.pMain_button_normal;
+			this.btnCancel.DialogResult = global::System.Windows.Forms.DialogResult.Cancel;
+			this.btnCancel.ForeColor = global::System.Drawing.Color.White;
+			this.btnCancel.Name = "btnCancel";
+			this.toolTip1.SetToolTip(this.btnCancel, componentResourceManager.GetString("btnCancel.ToolTip"));
+			this.btnCancel.UseVisualStyleBackColor = false;
+			this.btnCancel.Click += new global::System.EventHandler(this.btnCancel_Click);
+			componentResourceManager.ApplyResources(this.btnOK, "btnOK");
+			this.btnOK.BackColor = global::System.Drawing.Color.Transparent;
+			this.btnOK.BackgroundImage = global::WG3000_COMM.Properties.Resources.pMain_button_normal;
+			this.btnOK.ForeColor = global::System.Drawing.Color.White;
+			this.btnOK.Name = "btnOK";
+			this.toolTip1.SetToolTip(this.btnOK, componentResourceManager.GetString("btnOK.ToolTip"));
+			this.btnOK.UseVisualStyleBackColor = false;
+			this.btnOK.Click += new global::System.EventHandler(this.btnOK_Click);
+			componentResourceManager.ApplyResources(this.btnEdit, "btnEdit");
+			this.btnEdit.BackColor = global::System.Drawing.Color.Transparent;
+			this.btnEdit.BackgroundImage = global::WG3000_COMM.Properties.Resources.pMain_button_normal;
+			this.btnEdit.ForeColor = global::System.Drawing.Color.White;
+			this.btnEdit.Name = "btnEdit";
+			this.toolTip1.SetToolTip(this.btnEdit, componentResourceManager.GetString("btnEdit.ToolTip"));
+			this.btnEdit.UseVisualStyleBackColor = false;
+			this.btnEdit.Click += new global::System.EventHandler(this.btnEdit_Click);
+			componentResourceManager.ApplyResources(this.dgvGroups, "dgvGroups");
+			this.dgvGroups.AllowUserToAddRows = false;
+			this.dgvGroups.AllowUserToDeleteRows = false;
+			this.dgvGroups.AllowUserToOrderColumns = true;
+			this.dgvGroups.BackgroundColor = global::System.Drawing.Color.White;
+			dataGridViewCellStyle.Alignment = global::System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+			dataGridViewCellStyle.BackColor = global::System.Drawing.Color.FromArgb(124, 125, 156);
+			dataGridViewCellStyle.Font = new global::System.Drawing.Font("宋体", 9f, global::System.Drawing.FontStyle.Regular, global::System.Drawing.GraphicsUnit.Point, 134);
+			dataGridViewCellStyle.ForeColor = global::System.Drawing.Color.White;
+			dataGridViewCellStyle.SelectionBackColor = global::System.Drawing.SystemColors.Highlight;
+			dataGridViewCellStyle.SelectionForeColor = global::System.Drawing.SystemColors.HighlightText;
+			dataGridViewCellStyle.WrapMode = global::System.Windows.Forms.DataGridViewTriState.True;
+			this.dgvGroups.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle;
+			this.dgvGroups.ColumnHeadersHeightSizeMode = global::System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+			this.dgvGroups.Columns.AddRange(new global::System.Windows.Forms.DataGridViewColumn[] { this.f_GroupID, this.GroupName, this.Enable, this.MoreCards, this.f_SoundFile, this.Evening, this.Other });
+			dataGridViewCellStyle2.Alignment = global::System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+			dataGridViewCellStyle2.BackColor = global::System.Drawing.SystemColors.Window;
+			dataGridViewCellStyle2.Font = new global::System.Drawing.Font("宋体", 9f, global::System.Drawing.FontStyle.Regular, global::System.Drawing.GraphicsUnit.Point, 134);
+			dataGridViewCellStyle2.ForeColor = global::System.Drawing.Color.White;
+			dataGridViewCellStyle2.SelectionBackColor = global::System.Drawing.SystemColors.Highlight;
+			dataGridViewCellStyle2.SelectionForeColor = global::System.Drawing.SystemColors.HighlightText;
+			dataGridViewCellStyle2.WrapMode = global::System.Windows.Forms.DataGridViewTriState.False;
+			this.dgvGroups.DefaultCellStyle = dataGridViewCellStyle2;
+			this.dgvGroups.EnableHeadersVisualStyles = false;
+			this.dgvGroups.Name = "dgvGroups";
+			this.dgvGroups.ReadOnly = true;
+			dataGridViewCellStyle3.Alignment = global::System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+			dataGridViewCellStyle3.BackColor = global::System.Drawing.SystemColors.Control;
+			dataGridViewCellStyle3.Font = new global::System.Drawing.Font("宋体", 9f, global::System.Drawing.FontStyle.Regular, global::System.Drawing.GraphicsUnit.Point, 134);
+			dataGridViewCellStyle3.ForeColor = global::System.Drawing.SystemColors.ControlText;
+			dataGridViewCellStyle3.SelectionBackColor = global::System.Drawing.SystemColors.Highlight;
+			dataGridViewCellStyle3.SelectionForeColor = global::System.Drawing.SystemColors.HighlightText;
+			dataGridViewCellStyle3.WrapMode = global::System.Windows.Forms.DataGridViewTriState.True;
+			this.dgvGroups.RowHeadersDefaultCellStyle = dataGridViewCellStyle3;
+			this.dgvGroups.RowTemplate.Height = 23;
+			this.dgvGroups.SelectionMode = global::System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
+			this.toolTip1.SetToolTip(this.dgvGroups, componentResourceManager.GetString("dgvGroups.ToolTip"));
+			this.dgvGroups.DoubleClick += new global::System.EventHandler(this.dgvGroups_DoubleClick);
+			componentResourceManager.ApplyResources(this.f_GroupID, "f_GroupID");
+			this.f_GroupID.Name = "f_GroupID";
+			this.f_GroupID.ReadOnly = true;
+			componentResourceManager.ApplyResources(this.GroupName, "GroupName");
+			this.GroupName.Name = "GroupName";
+			this.GroupName.ReadOnly = true;
+			componentResourceManager.ApplyResources(this.Enable, "Enable");
+			this.Enable.Name = "Enable";
+			this.Enable.ReadOnly = true;
+			this.Enable.Resizable = global::System.Windows.Forms.DataGridViewTriState.True;
+			this.Enable.SortMode = global::System.Windows.Forms.DataGridViewColumnSortMode.Automatic;
+			componentResourceManager.ApplyResources(this.MoreCards, "MoreCards");
+			this.MoreCards.Name = "MoreCards";
+			this.MoreCards.ReadOnly = true;
+			componentResourceManager.ApplyResources(this.f_SoundFile, "f_SoundFile");
+			this.f_SoundFile.Name = "f_SoundFile";
+			this.f_SoundFile.ReadOnly = true;
+			componentResourceManager.ApplyResources(this.Evening, "Evening");
+			this.Evening.Name = "Evening";
+			this.Evening.ReadOnly = true;
+			this.Other.AutoSizeMode = global::System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
+			componentResourceManager.ApplyResources(this.Other, "Other");
+			this.Other.Name = "Other";
+			this.Other.ReadOnly = true;
+			componentResourceManager.ApplyResources(this, "$this");
+			base.CancelButton = this.btnCancel;
+			base.Controls.Add(this.btnCancel);
+			base.Controls.Add(this.btnOK);
+			base.Controls.Add(this.btnEdit);
+			base.Controls.Add(this.dgvGroups);
+			base.FormBorderStyle = global::System.Windows.Forms.FormBorderStyle.Fixed3D;
+			base.MaximizeBox = false;
+			base.MinimizeBox = false;
+			base.Name = "dfrmMealGroupLimitConfigure";
+			this.toolTip1.SetToolTip(this, componentResourceManager.GetString("$this.ToolTip"));
+			base.Load += new global::System.EventHandler(this.dfrmCheckAccessSetup_Load);
+			((global::System.ComponentModel.ISupportInitialize)this.dgvGroups).EndInit();
+			base.ResumeLayout(false);
+		}
+
+		// Token: 0x04002DD2 RID: 11730
+		private global::System.ComponentModel.IContainer components;
+
+		// Token: 0x04002DD3 RID: 11731
+		private global::System.Windows.Forms.Button btnCancel;
+
+		// Token: 0x04002DD4 RID: 11732
+		private global::System.Windows.Forms.Button btnEdit;
+
+		// Token: 0x04002DD5 RID: 11733
+		private global::System.Windows.Forms.Button btnOK;
+
+		// Token: 0x04002DD6 RID: 11734
+		private global::System.Windows.Forms.DataGridView dgvGroups;
+
+		// Token: 0x04002DD8 RID: 11736
+		private global::System.Windows.Forms.DataGridViewCheckBoxColumn Enable;
+
+		// Token: 0x04002DD9 RID: 11737
+		private global::System.Windows.Forms.DataGridViewTextBoxColumn Evening;
+
+		// Token: 0x04002DDA RID: 11738
+		private global::System.Windows.Forms.DataGridViewTextBoxColumn f_GroupID;
+
+		// Token: 0x04002DDB RID: 11739
+		private global::System.Windows.Forms.DataGridViewTextBoxColumn f_SoundFile;
+
+		// Token: 0x04002DDC RID: 11740
+		private global::System.Windows.Forms.DataGridViewTextBoxColumn GroupName;
+
+		// Token: 0x04002DDD RID: 11741
+		private global::System.Windows.Forms.DataGridViewTextBoxColumn MoreCards;
+
+		// Token: 0x04002DDE RID: 11742
+		private global::System.Windows.Forms.DataGridViewTextBoxColumn Other;
+
+		// Token: 0x04002DDF RID: 11743
+		private global::System.Windows.Forms.ToolTip toolTip1;
+	}
+}

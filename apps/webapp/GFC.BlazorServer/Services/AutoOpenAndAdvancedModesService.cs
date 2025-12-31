@@ -10,17 +10,17 @@ namespace GFC.BlazorServer.Services;
 
 public class AutoOpenAndAdvancedModesService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly IScheduleService _scheduleService;
     private readonly ILogger<AutoOpenAndAdvancedModesService> _logger;
 
 
     public AutoOpenAndAdvancedModesService(
-        GfcDbContext dbContext,
+        IDbContextFactory<GfcDbContext> contextFactory,
         IScheduleService scheduleService,
         ILogger<AutoOpenAndAdvancedModesService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _scheduleService = scheduleService ?? throw new ArgumentNullException(nameof(scheduleService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -28,13 +28,14 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task<List<DoorAutoOpenViewModel>> GetDoorAutoOpenForControllerAsync(int controllerId, CancellationToken cancellationToken = default)
     {
-        var doors = await _dbContext.Doors
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var doors = await dbContext.Doors
             .Include(d => d.Controller)
             .Where(d => d.ControllerId == controllerId)
             .OrderBy(d => d.DoorIndex)
             .ToListAsync(cancellationToken);
 
-        var schedules = await _dbContext.DoorAutoOpenSchedules
+        var schedules = await dbContext.DoorAutoOpenSchedules
             .Include(s => s.TimeProfile)
             .Where(s => doors.Select(d => d.Id).Contains(s.DoorId))
             .ToListAsync(cancellationToken);
@@ -68,15 +69,16 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task SaveDoorAutoOpenAsync(int controllerId, IEnumerable<DoorAutoOpenViewModel> models, CancellationToken cancellationToken = default)
     {
-        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            var doors = await _dbContext.Doors
+            var doors = await dbContext.Doors
                 .Where(d => d.ControllerId == controllerId)
                 .ToListAsync(cancellationToken);
 
             var doorIds = doors.Select(d => d.Id).ToList();
-            var existingSchedules = await _dbContext.DoorAutoOpenSchedules
+            var existingSchedules = await dbContext.DoorAutoOpenSchedules
                 .Where(s => doorIds.Contains(s.DoorId))
                 .ToListAsync(cancellationToken);
 
@@ -99,11 +101,11 @@ public class AutoOpenAndAdvancedModesService
                         IsActive = model.IsActive,
                         CreatedUtc = DateTime.UtcNow
                     };
-                    _dbContext.DoorAutoOpenSchedules.Add(newSchedule);
+                    dbContext.DoorAutoOpenSchedules.Add(newSchedule);
                 }
             }
 
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         catch
@@ -115,13 +117,14 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task<List<DoorAdvancedModeViewModel>> GetDoorAdvancedModesForControllerAsync(int controllerId, CancellationToken cancellationToken = default)
     {
-        var doors = await _dbContext.Doors
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var doors = await dbContext.Doors
             .Include(d => d.Controller)
             .Where(d => d.ControllerId == controllerId)
             .OrderBy(d => d.DoorIndex)
             .ToListAsync(cancellationToken);
 
-        var options = await _dbContext.DoorBehaviorOptions
+        var options = await dbContext.DoorBehaviorOptions
             .Where(o => doors.Select(d => d.Id).Contains(o.DoorId))
             .ToListAsync(cancellationToken);
 
@@ -148,15 +151,16 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task SaveDoorAdvancedModesAsync(int controllerId, IEnumerable<DoorAdvancedModeViewModel> models, CancellationToken cancellationToken = default)
     {
-        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            var doors = await _dbContext.Doors
+            var doors = await dbContext.Doors
                 .Where(d => d.ControllerId == controllerId)
                 .ToListAsync(cancellationToken);
 
             var doorIds = doors.Select(d => d.Id).ToList();
-            var existingOptions = await _dbContext.DoorBehaviorOptions
+            var existingOptions = await dbContext.DoorBehaviorOptions
                 .Where(o => doorIds.Contains(o.DoorId))
                 .ToListAsync(cancellationToken);
 
@@ -182,11 +186,11 @@ public class AutoOpenAndAdvancedModesService
                         Invalid3CardsWarnEnabled = model.Invalid3CardsWarnEnabled,
                         CreatedUtc = DateTime.UtcNow
                     };
-                    _dbContext.DoorBehaviorOptions.Add(newOption);
+                    dbContext.DoorBehaviorOptions.Add(newOption);
                 }
             }
 
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         catch
@@ -198,12 +202,13 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task<ControllerBehaviorViewModel?> GetControllerBehaviorAsync(int controllerId, CancellationToken cancellationToken = default)
     {
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null) return null;
 
-        var options = await _dbContext.ControllerBehaviorOptions
+        var options = await dbContext.ControllerBehaviorOptions
             .FirstOrDefaultAsync(o => o.ControllerId == controllerId, cancellationToken);
 
         return new ControllerBehaviorViewModel
@@ -218,7 +223,8 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task SaveControllerBehaviorAsync(ControllerBehaviorViewModel model, CancellationToken cancellationToken = default)
     {
-        var existing = await _dbContext.ControllerBehaviorOptions
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var existing = await dbContext.ControllerBehaviorOptions
             .FirstOrDefaultAsync(o => o.ControllerId == model.ControllerId, cancellationToken);
 
         if (existing != null)
@@ -234,10 +240,10 @@ public class AutoOpenAndAdvancedModesService
                 ValidSwipeGapSeconds = model.ValidSwipeGapSeconds,
                 CreatedUtc = DateTime.UtcNow
             };
-            _dbContext.ControllerBehaviorOptions.Add(newOption);
+            dbContext.ControllerBehaviorOptions.Add(newOption);
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public AutoOpenConfigDto BuildAutoOpenConfigDto(int controllerId, List<DoorAutoOpenViewModel> models, List<ControllerTimeProfileLink> links)
@@ -288,7 +294,8 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task<SyncStatusReport> RefreshFromControllerAsync(int controllerId, GFC.BlazorServer.Services.Controllers.IControllerClient controllerClient, CancellationToken cancellationToken = default)
     {
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)
@@ -309,7 +316,7 @@ public class AutoOpenAndAdvancedModesService
             var autoOpenDto = await controllerClient.GetAutoOpenAsync(controller.SerialNumberDisplay, cancellationToken);
             if (autoOpenDto != null)
             {
-                var doors = await _dbContext.Doors
+                var doors = await dbContext.Doors
                     .Where(d => d.ControllerId == controllerId)
                     .ToListAsync(cancellationToken);
 
@@ -322,7 +329,7 @@ public class AutoOpenAndAdvancedModesService
                         var links = await _scheduleService.GetControllerLinksAsync(controllerId, cancellationToken);
                         var link = links.FirstOrDefault(l => l.ControllerProfileIndex == task.TimeZoneIndex && l.IsEnabled);
                         
-                        var existing = await _dbContext.DoorAutoOpenSchedules
+                        var existing = await dbContext.DoorAutoOpenSchedules
                             .FirstOrDefaultAsync(s => s.DoorId == door.Id, cancellationToken);
 
                         if (existing != null)
@@ -333,7 +340,7 @@ public class AutoOpenAndAdvancedModesService
                         }
                         else
                         {
-                            _dbContext.DoorAutoOpenSchedules.Add(new DoorAutoOpenSchedule
+                            dbContext.DoorAutoOpenSchedules.Add(new DoorAutoOpenSchedule
                             {
                                 DoorId = door.Id,
                                 TimeProfileId = link?.TimeProfileId,
@@ -350,7 +357,7 @@ public class AutoOpenAndAdvancedModesService
             var advancedModesDto = await controllerClient.GetAdvancedDoorModesAsync(controller.SerialNumberDisplay, cancellationToken);
             if (advancedModesDto != null)
             {
-                var doors = await _dbContext.Doors
+                var doors = await dbContext.Doors
                     .Where(d => d.ControllerId == controllerId)
                     .ToListAsync(cancellationToken);
 
@@ -359,7 +366,7 @@ public class AutoOpenAndAdvancedModesService
                     var door = doors.FirstOrDefault(d => d.DoorIndex == doorMode.DoorNumber);
                     if (door != null)
                     {
-                        var existing = await _dbContext.DoorBehaviorOptions
+                        var existing = await dbContext.DoorBehaviorOptions
                             .FirstOrDefaultAsync(o => o.DoorId == door.Id, cancellationToken);
 
                         if (existing != null)
@@ -372,7 +379,7 @@ public class AutoOpenAndAdvancedModesService
                         }
                         else
                         {
-                            _dbContext.DoorBehaviorOptions.Add(new DoorBehaviorOptions
+                            dbContext.DoorBehaviorOptions.Add(new DoorBehaviorOptions
                             {
                                 DoorId = door.Id,
                                 FirstCardOpenEnabled = doorMode.FirstCardOpenEnabled,
@@ -388,7 +395,7 @@ public class AutoOpenAndAdvancedModesService
                 // Refresh Controller Behavior Options
                 if (advancedModesDto.ControllerOptions != null)
                 {
-                    var existing = await _dbContext.ControllerBehaviorOptions
+                    var existing = await dbContext.ControllerBehaviorOptions
                         .FirstOrDefaultAsync(o => o.ControllerId == controllerId, cancellationToken);
 
                     if (existing != null)
@@ -398,7 +405,7 @@ public class AutoOpenAndAdvancedModesService
                     }
                     else
                     {
-                        _dbContext.ControllerBehaviorOptions.Add(new ControllerBehaviorOptions
+                        dbContext.ControllerBehaviorOptions.Add(new ControllerBehaviorOptions
                         {
                             ControllerId = controllerId,
                             ValidSwipeGapSeconds = advancedModesDto.ControllerOptions.ValidSwipeGapSeconds,
@@ -410,7 +417,7 @@ public class AutoOpenAndAdvancedModesService
                 report.CommandKeys.Add("SyncAdvancedDoorModes");
             }
 
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
             report.Success = true;
             report.Message = "Configuration refreshed from controller";
         }
@@ -426,7 +433,8 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task<SyncStatusReport> SyncAutoOpenToControllerAsync(int controllerId, GFC.BlazorServer.Services.Controllers.IControllerClient controllerClient, CancellationToken cancellationToken = default)
     {
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)
@@ -476,7 +484,8 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task<SyncStatusReport> SyncAdvancedModesToControllerAsync(int controllerId, GFC.BlazorServer.Services.Controllers.IControllerClient controllerClient, CancellationToken cancellationToken = default)
     {
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)
@@ -526,7 +535,8 @@ public class AutoOpenAndAdvancedModesService
 
     public async Task<SyncStatusReport> SyncDbToControllerAsync(int controllerId, GFC.BlazorServer.Services.Controllers.IControllerClient controllerClient, CancellationToken cancellationToken = default)
     {
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.Id == controllerId, cancellationToken);
 
         if (controller == null)

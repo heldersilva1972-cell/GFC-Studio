@@ -169,7 +169,7 @@ public class Program
         builder.Services.AddHostedService<CardLifecycleBackgroundService>();
         
         // Controller Health & Full Sync
-        builder.Services.AddScoped<ControllerHealthService>();
+        builder.Services.AddSingleton<ControllerHealthService>();
         builder.Services.AddScoped<ControllerFullSyncService>();
         builder.Services.AddHostedService<ControllerHealthMonitor>();
         
@@ -186,7 +186,7 @@ public class Program
         builder.Services.AddScoped<IPerformanceHistoryService, PerformanceHistoryService>();
         builder.Services.AddScoped<IAlertManagementService, AlertManagementService>();
         builder.Services.AddHostedService<DiagnosticsBackgroundService>();
-        builder.Services.AddScoped<ControllerRegistryService>();
+        builder.Services.AddSingleton<ControllerRegistryService>();
         builder.Services.AddScoped<ControllerEventService>();
         builder.Services.AddScoped<CommandInfoService>();
         builder.Services.AddScoped<IScheduleService, ScheduleService>();
@@ -244,17 +244,29 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IProjectFileService, ProjectFileService>();
         
         // Controller Client Wiring
+        // Register the endpoint resolver that uses AgentApiOptions
+        builder.Services.AddSingleton<GFC.BlazorServer.Connectors.Mengqi.Abstractions.IControllerEndpointResolver, GFC.BlazorServer.Services.Controllers.BlazorControllerEndpointResolver>();
         
+        // Register ControllerClientOptions
+        builder.Services.AddSingleton<GFC.BlazorServer.Connectors.Mengqi.Configuration.ControllerClientOptions>(sp => {
+             var config = sp.GetRequiredService<IConfiguration>();
+             return new GFC.BlazorServer.Connectors.Mengqi.Configuration.ControllerClientOptions 
+             {
+                 CommandProfiles = GFC.BlazorServer.Services.Controllers.CommandProfileFactory.CreateDefaults()
+             };
+        });
+
+        // Register the ACTUAL hardware client library (local copy)
+        builder.Services.AddSingleton<GFC.BlazorServer.Connectors.Mengqi.MengqiControllerClient>();
+
         // Register concrete controller clients. The `RealControllerClient` in the `Services` namespace
-        // is the one that implements the `IMengqiControllerClient` for test tooling. The one
-        // in `Services/Controllers` implements `IControllerClient` for the main application.
+        // is a legacy test stub that is no longer used. The one in `Services/Controllers` implements
+        // `IControllerClient` for the main application and delegates to MengqiControllerClient.
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.RealControllerClient>();
-        builder.Services.AddScoped<GFC.BlazorServer.Services.RealControllerClient>();
 
         // Register the IControllerClient to always use the RealControllerClient.
         // The DynamicControllerClient that switched between real and simulation has been removed.
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.IControllerClient, GFC.BlazorServer.Services.Controllers.RealControllerClient>();
-        builder.Services.AddScoped<IMengqiControllerClient, GFC.BlazorServer.Services.RealControllerClient>();
         
         // Register ControllerNetworkConfigService AFTER IControllerClient is registered
         builder.Services.AddScoped<GFC.BlazorServer.Services.Controllers.ControllerNetworkConfigService>();

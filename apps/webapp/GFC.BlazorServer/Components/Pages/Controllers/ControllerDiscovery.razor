@@ -1,0 +1,182 @@
+@page "/controllers/discovery"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Connectors.Mengqi.Models
+@using GFC.BlazorServer.Services.Controllers
+@inject IControllerClient ControllerClient
+@inject ControllerRegistryService RegistryService
+@inject NavigationManager Navigation
+@inject ILogger<ControllerDiscovery> Logger
+
+<PageTitle>Search Controller - GFC Controllers</PageTitle>
+
+<div class="page-header mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+        <h1>Search Controller</h1>
+        <div class="d-flex gap-2">
+            <button class="btn btn-secondary" @onclick='() => Navigation.NavigateTo("/controllers/test")'>Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="data-card mb-4">
+    <div class="d-flex gap-3 align-items-center mb-3">
+        <button class="btn btn-primary px-4" @onclick="SearchDevices" disabled="@_isSearching">
+            @if (_isSearching)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                <span>Searching...</span>
+            }
+            else
+            {
+                <span>Search</span>
+            }
+        </button>
+        
+        <button class="btn btn-outline-primary" @onclick="AddToDatabase" disabled="@(_selectedResult == null)">
+            Add Found To Database
+        </button>
+        
+        <button class="btn btn-outline-secondary" @onclick="ConfigureDevice" disabled="@(_selectedResult == null)">
+            Configure
+        </button>
+
+        <div class="form-check ms-3">
+            <input class="form-check-input" type="checkbox" id="searchAgain" @bind="_searchAgainAfterConfigure">
+            <label class="form-check-label" for="searchAgain">
+                Search Again After Configure
+            </label>
+        </div>
+    </div>
+
+    <div class="table-responsive" style="min-height: 300px; border: 1px solid #dee2e6; border-radius: 4px;">
+        <table class="table table-hover table-sm mb-0">
+            <thead class="bg-light">
+                <tr>
+                    <th style="width: 60px;">ID</th>
+                    <th>SN</th>
+                    <th>IP</th>
+                    <th>Mask</th>
+                    <th>Gateway</th>
+                    <th>PORT</th>
+                    <th>MACAddr</th>
+                    <th>PC IPAddress</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!_results.Any() && !_isSearching)
+                {
+                    <tr>
+                        <td colspan="9" class="text-center py-5 text-muted">
+                            <i class="bi bi-search d-block mb-2" style="font-size: 2rem;"></i>
+                            No controllers found. Click Search to begin.
+                        </td>
+                    </tr>
+                }
+                @foreach (var (result, index) in _results.Select((r, i) => (r, i)))
+                {
+                    <tr @onclick="() => SelectResult(result)" 
+                        class="@(result == _selectedResult ? "table-primary" : "")" 
+                        style="cursor: pointer;">
+                        <td>@((index + 1).ToString("D4"))</td>
+                        <td>@result.SerialNumber</td>
+                        <td>@result.IpAddress</td>
+                        <td>@result.SubnetMask</td>
+                        <td>@result.Gateway</td>
+                        <td>@result.Port</td>
+                        <td>@result.MacAddress</td>
+                        <td>@result.AllowedPcIp</td>
+                        <td>
+                            @if (string.IsNullOrEmpty(result.AllowedPcIp) || result.AllowedPcIp == "0.0.0.0")
+                            {
+                                <span class="badge bg-warning text-dark">#01,WEB Disabled</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (_successMessage != null)
+{
+    <div class="alert alert-success mt-3">@_successMessage</div>
+}
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger mt-3">@_errorMessage</div>
+}
+
+@code {
+    private List<DiscoveryResult> _results = new();
+    private DiscoveryResult? _selectedResult;
+    private bool _isSearching;
+    private bool _searchAgainAfterConfigure = true;
+    private string? _errorMessage;
+
+    private string? _successMessage;
+
+    private async Task SearchDevices()
+    {
+        _isSearching = true;
+        _errorMessage = null;
+        _successMessage = null;
+        _selectedResult = null;
+        _results.Clear();
+
+        try
+        {
+            var found = await ControllerClient.DiscoverAsync(CancellationToken.None);
+            _results = found.ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Discovery failed: " + ex.Message;
+            Logger.LogError(ex, "Discovery failed");
+        }
+        finally
+        {
+            _isSearching = false;
+        }
+    }
+
+    private void SelectResult(DiscoveryResult result)
+    {
+        _selectedResult = result;
+    }
+
+    private async Task AddToDatabase()
+    {
+        if (_selectedResult == null) return;
+        
+        _errorMessage = null;
+        _successMessage = null;
+
+        try
+        {
+            // Use RegistryService to update/add
+            var existing = await RegistryService.GetControllerBySerialNumberAsync(_selectedResult.SerialNumber);
+            if (existing != null)
+            {
+                await RegistryService.UpdateControllerAsync(existing.Id, existing.Name, _selectedResult.SerialNumber, _selectedResult.IpAddress);
+                _successMessage = $"Updated controller '{existing.Name}' (SN: {existing.SerialNumber}) with IP {_selectedResult.IpAddress}";
+            }
+            else
+            {
+                _errorMessage = "Automatic adding of NEW controllers is not yet implemented. Please create the controller entry first, then use Search to sync the IP.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Failed to add to database: " + ex.Message;
+        }
+    }
+
+    private void ConfigureDevice()
+    {
+        if (_selectedResult == null) return;
+        // Navigation.NavigateTo($"/controllers/configure/{_selectedResult.SerialNumber}");
+    }
+}

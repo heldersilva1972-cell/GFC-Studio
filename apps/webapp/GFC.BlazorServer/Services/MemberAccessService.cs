@@ -19,7 +19,7 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class MemberAccessService : IMemberAccessService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly IMemberRepository _memberRepository;
     private readonly IKeyCardRepository _keyCardRepository;
     private readonly IMemberKeycardRepository _memberKeycardRepository;
@@ -35,7 +35,7 @@ public class MemberAccessService : IMemberAccessService
     private readonly IAuditLogger _auditLogger;
 
     public MemberAccessService(
-        GfcDbContext dbContext,
+        IDbContextFactory<GfcDbContext> contextFactory,
         IMemberRepository memberRepository,
         IKeyCardRepository keyCardRepository,
         IMemberKeycardRepository memberKeycardRepository,
@@ -44,13 +44,11 @@ public class MemberAccessService : IMemberAccessService
         IScheduleService scheduleService,
         CommandInfoService commandInfoService,
         IControllerClient controllerClient,
-
         IMemberHistoryService historyService,
         ILogger<MemberAccessService> logger,
-
         IAuditLogger auditLogger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _keyCardRepository = keyCardRepository ?? throw new ArgumentNullException(nameof(keyCardRepository));
         _memberKeycardRepository = memberKeycardRepository ?? throw new ArgumentNullException(nameof(memberKeycardRepository));
@@ -78,7 +76,8 @@ public class MemberAccessService : IMemberAccessService
         var eligibility = _keyCardService.GetKeyCardEligibility(memberId, currentYear);
         var isEligible = eligibility.Eligible;
 
-        var accessRecords = await _dbContext.MemberDoorAccesses
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var accessRecords = await dbContext.MemberDoorAccesses
             .Include(m => m.Door)
                 .ThenInclude(d => d!.Controller)
             .Include(m => m.TimeProfile)
@@ -143,7 +142,8 @@ public class MemberAccessService : IMemberAccessService
         var updatesList = updates.ToList();
         var doorIds = updatesList.Select(u => u.DoorId).Distinct().ToList();
 
-        var existingAccess = await _dbContext.MemberDoorAccesses
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var existingAccess = await dbContext.MemberDoorAccesses
             .Where(m => m.MemberId == memberId && doorIds.Contains(m.DoorId))
             .ToListAsync(cancellationToken);
 
@@ -175,11 +175,11 @@ public class MemberAccessService : IMemberAccessService
                     IsEnabled = update.IsEnabled,
                     TimeProfileId = update.TimeProfileId
                 };
-                _dbContext.MemberDoorAccesses.Add(newAccess);
+                dbContext.MemberDoorAccesses.Add(newAccess);
             }
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Updated door access permissions for member {MemberId} across {Count} doors", memberId, updatesList.Count);
     }
 
@@ -201,8 +201,9 @@ public class MemberAccessService : IMemberAccessService
             return;
         }
 
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var cardNumber = cardAssignment.KeyCard.CardNumber;
-        var accessRecords = await _dbContext.MemberDoorAccesses
+        var accessRecords = await dbContext.MemberDoorAccesses
             .Include(m => m.Door)
                 .ThenInclude(d => d!.Controller)
             .Where(m => m.MemberId == memberId)
@@ -251,13 +252,14 @@ public class MemberAccessService : IMemberAccessService
             }
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Sync results for member {MemberId}: {Results}", memberId, string.Join("; ", syncResults));
     }
 
     public async Task RemoveCardAsync(int memberId, string cardNumber, string? performedByUserName = null, int? performedByUserId = null, CancellationToken cancellationToken = default)
     {
-        var accessRecords = await _dbContext.MemberDoorAccesses
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var accessRecords = await dbContext.MemberDoorAccesses
             .Include(m => m.Door)
                 .ThenInclude(d => d!.Controller)
             .Where(m => m.MemberId == memberId && m.CardNumber == cardNumber)
@@ -284,7 +286,7 @@ public class MemberAccessService : IMemberAccessService
             access.LastSyncResult = "Removed";
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
         
         var performedBy = performedByUserName ?? "System";
         _historyService.LogChange(memberId, "DoorAccess", null, $"Removed card {cardNumber} from controllers", performedBy);
@@ -352,7 +354,8 @@ public class MemberAccessService : IMemberAccessService
             return null;
         }
 
-        var link = await _dbContext.ControllerTimeProfileLinks
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var link = await dbContext.ControllerTimeProfileLinks
             .FirstOrDefaultAsync(l => l.ControllerId == controllerId && l.TimeProfileId == timeProfileId.Value, cancellationToken);
 
         return link?.ControllerProfileIndex;
@@ -360,6 +363,7 @@ public class MemberAccessService : IMemberAccessService
 
     public async Task<EffectiveAccessResult> ComputeEffectiveAccessAsync(int memberId, CancellationToken cancellationToken = default)
     {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var member = _memberRepository.GetMemberById(memberId);
         if (member == null)
         {
@@ -371,7 +375,7 @@ public class MemberAccessService : IMemberAccessService
         var cardNumber = cardAssignment?.KeyCard?.CardNumber;
         var hasActiveCard = !string.IsNullOrWhiteSpace(cardNumber);
 
-        var accessRecords = await _dbContext.MemberDoorAccesses
+        var accessRecords = await dbContext.MemberDoorAccesses
             .Include(m => m.Door)
                 .ThenInclude(d => d!.Controller)
             .Include(m => m.TimeProfile)

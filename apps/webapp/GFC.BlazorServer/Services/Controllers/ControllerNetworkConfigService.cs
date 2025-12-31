@@ -14,35 +14,32 @@ namespace GFC.BlazorServer.Services.Controllers;
 /// </summary>
 public class ControllerNetworkConfigService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly IControllerClient _controllerClient;
-
     private readonly ILogger<ControllerNetworkConfigService> _logger;
 
-
     public ControllerNetworkConfigService(
-        GfcDbContext dbContext,
+        IDbContextFactory<GfcDbContext> contextFactory,
         IControllerClient controllerClient,
-
         ILogger<ControllerNetworkConfigService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
-
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
     }
 
     public async Task<ControllerNetworkConfig?> GetFromDbAsync(int controllerId, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.ControllerNetworkConfigs
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.ControllerNetworkConfigs
             .Include(c => c.Controller)
             .FirstOrDefaultAsync(c => c.ControllerId == controllerId, cancellationToken);
     }
 
     public async Task SaveToDbAsync(ControllerNetworkConfig config, CancellationToken cancellationToken = default)
     {
-        var existing = await _dbContext.ControllerNetworkConfigs
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var existing = await dbContext.ControllerNetworkConfigs
             .FirstOrDefaultAsync(c => c.ControllerId == config.ControllerId, cancellationToken);
 
         if (existing != null)
@@ -59,15 +56,23 @@ public class ControllerNetworkConfigService
         else
         {
             config.CreatedUtc = DateTime.UtcNow;
-            _dbContext.ControllerNetworkConfigs.Add(config);
+            dbContext.ControllerNetworkConfigs.Add(config);
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        // Synchronize the IP address back to the main ControllerDevice entity for UI consistency
+        var controller = await dbContext.Controllers.FindAsync(new object[] { config.ControllerId }, cancellationToken);
+        if (controller != null && !string.IsNullOrWhiteSpace(config.IpAddress))
+        {
+            controller.IpAddress = config.IpAddress;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<ControllerNetworkConfig?> ReadFromControllerAsync(uint controllerSerialNumber, CancellationToken cancellationToken = default)
     {
-        var controller = await _dbContext.Controllers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.SerialNumber == controllerSerialNumber, cancellationToken);
 
         if (controller == null)
@@ -139,8 +144,9 @@ public class ControllerNetworkConfigService
 
     public async Task SyncToControllerAsync(uint controllerSerialNumber, ControllerNetworkConfig config, string? newPassword = null, CancellationToken cancellationToken = default)
     {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var isSimulated = controllerSerialNumber == ControllerDevice.GetSimulatedSerialValue();
-        var controller = await _dbContext.Controllers
+        var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.SerialNumber == controllerSerialNumber, cancellationToken);
 
         if (controller == null)
@@ -204,6 +210,19 @@ public class ControllerNetworkConfigService
         {
             _logger.LogError(ex, "Failed to sync network config to controller {Sn}", controllerSerialNumber);
             throw;
+        }
+    }
+
+    public async Task<IEnumerable<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult>> DiscoverControllersAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _controllerClient.DiscoverAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Discovery failed in service layer");
+            return Array.Empty<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult>();
         }
     }
 }

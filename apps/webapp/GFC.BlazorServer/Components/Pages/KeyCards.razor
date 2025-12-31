@@ -1,4 +1,5 @@
 @page "/keycards"
+@implements IDisposable
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @using GFC.Core.Interfaces
@@ -973,6 +974,7 @@
     {
         await LoadMembersAsync();
         await LoadGracePeriodAndSyncStatusAsync();
+        _ = StartStatusRefresh();
     }
     
     private async Task LoadGracePeriodAndSyncStatusAsync()
@@ -1808,6 +1810,43 @@
         if (!_allMembers.Any()) await LoadMembersAsync();
         var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
         return member != null ? $"{member.FirstName} {member.LastName}" : $"Member #{memberId}";
+    }
+
+    // Auto-refresh logic
+    private CancellationTokenSource? _refreshCts;
+
+    private async Task StartStatusRefresh()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts = new CancellationTokenSource();
+        var token = _refreshCts.Token;
+
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(5000, token); // Refresh every 5s
+                
+                var oldOnline = _controllerOnline;
+                var oldPending = _pendingSyncCount;
+                
+                await LoadGracePeriodAndSyncStatusAsync();
+                
+                // Only trigger UI update if status actually changed to reduce flicker
+                if (oldOnline != _controllerOnline || oldPending != _pendingSyncCount)
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    public void Dispose()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
+        _scanCts?.Cancel();
     }
 }
 

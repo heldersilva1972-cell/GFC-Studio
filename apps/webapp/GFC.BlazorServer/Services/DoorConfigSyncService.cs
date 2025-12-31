@@ -12,29 +12,21 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class DoorConfigSyncService
 {
-    private readonly GfcDbContext _dbContext;
     private readonly IDoorConfigService _doorConfigService;
     private readonly ControllerRegistryService _controllerRegistryService;
     private readonly IControllerClient _controllerClient;
-
     private readonly ILogger<DoorConfigSyncService> _logger;
 
-
     public DoorConfigSyncService(
-        GfcDbContext dbContext,
         IDoorConfigService doorConfigService,
         ControllerRegistryService controllerRegistryService,
         IControllerClient controllerClient,
-
         ILogger<DoorConfigSyncService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _doorConfigService = doorConfigService ?? throw new ArgumentNullException(nameof(doorConfigService));
         _controllerRegistryService = controllerRegistryService ?? throw new ArgumentNullException(nameof(controllerRegistryService));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
-
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
     }
 
     /// <summary>

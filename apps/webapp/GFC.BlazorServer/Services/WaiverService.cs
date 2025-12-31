@@ -8,31 +8,33 @@ namespace GFC.BlazorServer.Services;
 
 public class WaiverService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<WaiverService> _logger;
     private readonly IAuditLogger _auditLogger;
 
-    public WaiverService(GfcDbContext dbContext, ILogger<WaiverService> logger, IAuditLogger auditLogger)
+    public WaiverService(IDbContextFactory<GfcDbContext> contextFactory, ILogger<WaiverService> logger, IAuditLogger auditLogger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
     }
 
     public async Task<bool> IsWaivedAsync(int memberId, int year, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.Waivers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.Waivers
             .AnyAsync(w => w.MemberId == memberId && w.Year == year, cancellationToken);
     }
 
     public async Task AddWaiverAsync(int memberId, int year, string reason, string? notes, int? performedByUserId = null, CancellationToken cancellationToken = default)
     {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(reason))
         {
             throw new ArgumentException("Reason is required.", nameof(reason));
         }
 
-        var existing = await _dbContext.Waivers
+        var existing = await dbContext.Waivers
             .AsNoTracking()
             .FirstOrDefaultAsync(w => w.MemberId == memberId && w.Year == year, cancellationToken);
 
@@ -46,13 +48,13 @@ public class WaiverService
 
         var tracked = existing == null
             ? null
-            : await _dbContext.Waivers.FirstOrDefaultAsync(w => w.Id == existing.Id, cancellationToken);
+            : await dbContext.Waivers.FirstOrDefaultAsync(w => w.Id == existing.Id, cancellationToken);
 
         if (existing != null)
         {
             tracked!.Reason = reason.Trim();
             tracked.Notes = notes;
-            _dbContext.Waivers.Update(tracked);
+            dbContext.Waivers.Update(tracked);
         }
         else
         {
@@ -63,10 +65,10 @@ public class WaiverService
                 Reason = reason.Trim(),
                 Notes = notes
             };
-            _dbContext.Waivers.Add(waiver);
+            dbContext.Waivers.Add(waiver);
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         var previousSummary = previous == null
             ? "no previous waiver"
@@ -81,7 +83,8 @@ public class WaiverService
 
     public async Task<List<Waiver>> GetWaiversForMemberAsync(int memberId, CancellationToken cancellationToken = default)
     {
-        return await _dbContext.Waivers
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.Waivers
             .Where(w => w.MemberId == memberId)
             .OrderByDescending(w => w.Year)
             .ToListAsync(cancellationToken);

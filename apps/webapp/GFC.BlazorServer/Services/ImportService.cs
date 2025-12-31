@@ -14,6 +14,7 @@ using AngleSharp.Html.Parser;
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 // Note: This service has a dependency on the HtmlSanitizer library.
 using Ganss.Xss;
@@ -22,7 +23,7 @@ namespace GFC.BlazorServer.Services
 {
     public class ImportService : IImportService
     {
-        private readonly GfcDbContext _dbContext;
+        private readonly IDbContextFactory<GfcDbContext> _contextFactory;
         private readonly HttpClient _httpClient;
         private readonly IStudioService _studioService;
         private readonly HtmlSanitizer _htmlSanitizer;
@@ -35,9 +36,9 @@ namespace GFC.BlazorServer.Services
             ".woff", ".woff2", ".ttf", ".otf", ".eot"
         };
 
-        public ImportService(GfcDbContext dbContext, IStudioService studioService, HttpClient httpClient, IWebHostEnvironment webHostEnvironment, DomAnalysisService domAnalysisService)
+        public ImportService(IDbContextFactory<GfcDbContext> contextFactory, IStudioService studioService, HttpClient httpClient, IWebHostEnvironment webHostEnvironment, DomAnalysisService domAnalysisService)
         {
-            _dbContext = dbContext;
+            _contextFactory = contextFactory;
             _httpClient = httpClient;
             _studioService = studioService;
             _htmlSanitizer = new HtmlSanitizer();
@@ -70,8 +71,9 @@ namespace GFC.BlazorServer.Services
                     Sections = studioSections
                 };
 
-                _dbContext.StudioPages.Add(newPage);
-                await _dbContext.SaveChangesAsync();
+                await using var dbContext = await _contextFactory.CreateDbContextAsync();
+                dbContext.StudioPages.Add(newPage);
+                await dbContext.SaveChangesAsync();
 
                 onLog($"Successfully imported page from {url} into StudioPage with ID {newPage.Id}");
             }

@@ -11,20 +11,20 @@ namespace GFC.BlazorServer.Services.Maintenance;
 
 public class MaintenanceService : IMaintenanceService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ControllerRegistryService _controllerRegistry;
     private readonly IControllerClient _controllerClient; // Use for GetRunStatusAsync
     private readonly IMemberRepository _memberRepository;
     private readonly ILogger<MaintenanceService> _logger;
 
     public MaintenanceService(
-        GfcDbContext dbContext,
+        IDbContextFactory<GfcDbContext> contextFactory,
         ControllerRegistryService controllerRegistry,
         IControllerClient controllerClient,
         IMemberRepository memberRepository,
         ILogger<MaintenanceService> logger)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _controllerRegistry = controllerRegistry ?? throw new ArgumentNullException(nameof(controllerRegistry));
         _controllerClient = controllerClient ?? throw new ArgumentNullException(nameof(controllerClient));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
@@ -50,7 +50,10 @@ public class MaintenanceService : IMaintenanceService
     {
         try
         {
-            var migrations = _dbContext.Database.GetAppliedMigrations().ToList();
+            // Note: GetDbMigrationStatus is synchronous in interface but we can use Task.Run for isolated context if needed.
+            // Since it's a diagnostic method, we'll try to use a temporary context.
+            using var dbContext = _contextFactory.CreateDbContext();
+            var migrations = dbContext.Database.GetAppliedMigrations().ToList();
             return migrations;
         }
         catch (Exception ex)
@@ -82,8 +85,10 @@ public class MaintenanceService : IMaintenanceService
                     return 0;
                 }
             }, cancellationToken);
-            var reimbursements = await _dbContext.ReimbursementRequests.CountAsync(cancellationToken);
-            var events = await _dbContext.ControllerEvents.CountAsync(cancellationToken);
+
+            await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            var reimbursements = await dbContext.ReimbursementRequests.CountAsync(cancellationToken);
+            var events = await dbContext.ControllerEvents.CountAsync(cancellationToken);
 
             return new MaintenanceCountsDto
             {

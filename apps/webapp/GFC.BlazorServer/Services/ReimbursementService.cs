@@ -8,18 +8,18 @@ namespace GFC.BlazorServer.Services;
 
 public class ReimbursementService
 {
-    private readonly GfcDbContext _dbContext;
+    private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<ReimbursementService> _logger;
     private readonly ReceiptStorageService _receiptStorage;
     private readonly IMemberRepository _memberRepository;
 
     public ReimbursementService(
-        GfcDbContext dbContext,
+        IDbContextFactory<GfcDbContext> contextFactory,
         ILogger<ReimbursementService> logger,
         ReceiptStorageService receiptStorage,
         IMemberRepository memberRepository)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _receiptStorage = receiptStorage ?? throw new ArgumentNullException(nameof(receiptStorage));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
@@ -40,8 +40,9 @@ public class ReimbursementService
             EditedFlag = false
         };
 
-        _dbContext.ReimbursementRequests.Add(request);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        dbContext.ReimbursementRequests.Add(request);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Created draft reimbursement request {RequestId} for member {MemberId}", request.Id, memberId);
 
@@ -62,7 +63,8 @@ public class ReimbursementService
             throw new ArgumentException("ExpenseDate is required.", nameof(itemDto));
         }
 
-        var request = await _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var request = await dbContext.ReimbursementRequests
             .Include(r => r.Items)
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
@@ -76,7 +78,7 @@ public class ReimbursementService
             throw new InvalidOperationException("Cannot add items to a request that is not in Draft status.");
         }
 
-        var category = await _dbContext.ReimbursementCategories
+        var category = await dbContext.ReimbursementCategories
             .FirstOrDefaultAsync(c => c.Id == itemDto.CategoryId && c.IsActive, cancellationToken);
 
         if (category == null)
@@ -94,13 +96,13 @@ public class ReimbursementService
             Notes = itemDto.Notes
         };
 
-        _dbContext.ReimbursementItems.Add(item);
+        dbContext.ReimbursementItems.Add(item);
         
         // Update total amount
         request.TotalAmount = request.Items.Sum(i => i.Amount) + item.Amount;
         request.UpdatedUtc = DateTime.UtcNow;
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Added item {ItemId} to request {RequestId}", item.Id, requestId);
 
@@ -111,7 +113,8 @@ public class ReimbursementService
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var item = await _dbContext.ReimbursementItems
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var item = await dbContext.ReimbursementItems
             .FirstOrDefaultAsync(i => i.Id == itemId, cancellationToken);
 
         if (item == null)
@@ -128,8 +131,8 @@ public class ReimbursementService
             UploadedByMemberId = uploaderId
         };
 
-        _dbContext.ReceiptFiles.Add(receiptFile);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.ReceiptFiles.Add(receiptFile);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Added receipt file {ReceiptId} to item {ItemId}", receiptFile.Id, itemId);
 
@@ -140,7 +143,8 @@ public class ReimbursementService
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var request = await _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var request = await dbContext.ReimbursementRequests
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
         if (request == null)
@@ -157,7 +161,7 @@ public class ReimbursementService
         request.UpdatedUtc = DateTime.UtcNow;
         request.EditedFlag = true;
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Updated draft request {RequestId}", requestId);
     }
@@ -166,7 +170,8 @@ public class ReimbursementService
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var request = await _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var request = await dbContext.ReimbursementRequests
             .Include(r => r.Items)
             .ThenInclude(i => i.ReceiptFiles)
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
@@ -209,17 +214,17 @@ public class ReimbursementService
 
         await LogChangeAsync(requestId, request.RequestorMemberId, "Status", oldStatus, "Submitted", cancellationToken);
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         // Reload request with items for notification
-        request = await _dbContext.ReimbursementRequests
+        request = await dbContext.ReimbursementRequests
             .Include(r => r.Items)
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
         // Send notification
         if (request != null)
         {
-            await ReimbursementNotificationService.SendOnSubmittedAsync(request, _memberRepository, _dbContext, _logger, cancellationToken);
+            await ReimbursementNotificationService.SendOnSubmittedAsync(request, _memberRepository, dbContext, _logger, cancellationToken);
         }
 
         _logger.LogInformation("Submitted reimbursement request {RequestId}", requestId);
@@ -229,7 +234,8 @@ public class ReimbursementService
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var request = await _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var request = await dbContext.ReimbursementRequests
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
         if (request == null)
@@ -250,10 +256,10 @@ public class ReimbursementService
 
         await LogChangeAsync(requestId, approverId, "Status", oldStatus, "Approved", cancellationToken);
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         // Reload request with items for notification
-        request = await _dbContext.ReimbursementRequests
+        request = await dbContext.ReimbursementRequests
             .Include(r => r.Items)
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
@@ -275,7 +281,8 @@ public class ReimbursementService
             throw new ArgumentException("Rejection reason is required.", nameof(reason));
         }
 
-        var request = await _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var request = await dbContext.ReimbursementRequests
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
         if (request == null)
@@ -298,10 +305,10 @@ public class ReimbursementService
         await LogChangeAsync(requestId, approverId, "Status", oldStatus, "Rejected", cancellationToken);
         await LogChangeAsync(requestId, approverId, "RejectReason", null, reason.Trim(), cancellationToken);
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         // Reload request with items for notification
-        request = await _dbContext.ReimbursementRequests
+        request = await dbContext.ReimbursementRequests
             .Include(r => r.Items)
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
@@ -318,7 +325,8 @@ public class ReimbursementService
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var request = await _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var request = await dbContext.ReimbursementRequests
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
         if (request == null)
@@ -339,10 +347,10 @@ public class ReimbursementService
 
         await LogChangeAsync(requestId, approverId, "Status", oldStatus, "Paid", cancellationToken);
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         // Reload request with items for notification
-        request = await _dbContext.ReimbursementRequests
+        request = await dbContext.ReimbursementRequests
             .Include(r => r.Items)
             .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
 
@@ -359,6 +367,7 @@ public class ReimbursementService
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var log = new ReimbursementChangeLog
         {
             RequestId = requestId,
@@ -369,15 +378,16 @@ public class ReimbursementService
             NewValue = newValue
         };
 
-        _dbContext.ReimbursementChangeLogs.Add(log);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.ReimbursementChangeLogs.Add(log);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<List<ReimbursementChangeLog>> GetHistoryAsync(int requestId, CancellationToken cancellationToken = default)
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        return await _dbContext.ReimbursementChangeLogs
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.ReimbursementChangeLogs
             .Where(c => c.RequestId == requestId)
             .OrderByDescending(c => c.ChangeUtc)
             .ToListAsync(cancellationToken);
@@ -467,14 +477,16 @@ BEGIN
     VALUES (0, NULL);
 END
 ";
-        await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
     }
 
     public async Task<ReimbursementSettings> GetSettingsAsync(CancellationToken cancellationToken = default)
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var settings = await _dbContext.ReimbursementSettings
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var settings = await dbContext.ReimbursementSettings
             .FirstOrDefaultAsync(cancellationToken);
 
         if (settings == null)
@@ -485,8 +497,8 @@ END
                 NotificationRecipients = null
             };
 
-            _dbContext.ReimbursementSettings.Add(settings);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.ReimbursementSettings.Add(settings);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
 
         return settings;
@@ -496,12 +508,13 @@ END
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var existing = await _dbContext.ReimbursementSettings
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var existing = await dbContext.ReimbursementSettings
             .FirstOrDefaultAsync(cancellationToken);
 
         if (existing == null)
         {
-            _dbContext.ReimbursementSettings.Add(settings);
+            dbContext.ReimbursementSettings.Add(settings);
         }
         else
         {
@@ -509,7 +522,7 @@ END
             existing.NotificationRecipients = settings.NotificationRecipients;
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<List<ReimbursementRequest>> GetRequestsAsync(
@@ -521,7 +534,8 @@ END
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var query = _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var query = dbContext.ReimbursementRequests
             .Include(r => r.Items)
                 .ThenInclude(i => i.Category)
             .Include(r => r.Items)
@@ -580,7 +594,8 @@ END
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        return await _dbContext.ReimbursementRequests
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.ReimbursementRequests
             .Include(r => r.Items)
                 .ThenInclude(i => i.Category)
             .Include(r => r.Items)
@@ -593,7 +608,8 @@ END
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        return await _dbContext.ReimbursementCategories
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        return await dbContext.ReimbursementCategories
             .Where(c => c.IsActive)
             .OrderBy(c => c.Name)
             .ToListAsync(cancellationToken);
@@ -603,7 +619,8 @@ END
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        var item = await _dbContext.ReimbursementItems
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var item = await dbContext.ReimbursementItems
             .Include(i => i.Request)
             .Include(i => i.ReceiptFiles)
             .FirstOrDefaultAsync(i => i.Id == itemId, cancellationToken);
@@ -639,8 +656,8 @@ END
         item.Request.TotalAmount = item.Request.Items.Where(i => i.Id != itemId).Sum(i => i.Amount);
         item.Request.UpdatedUtc = DateTime.UtcNow;
 
-        _dbContext.ReimbursementItems.Remove(item);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.ReimbursementItems.Remove(item);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Deleted item {ItemId} from request {RequestId}", itemId, item.RequestId);
     }
