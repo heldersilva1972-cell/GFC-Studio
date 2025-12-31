@@ -49,8 +49,16 @@ internal sealed class WgPacketBuilder
         }
 
         // 4. Checksum
-        // Compute CRC over the entire 64-byte frame and write to offset 2-3
-        WriteCrc(span);
+        // If targeting the "Unlock" Wildcard SN (0x00118000), use Summation Checksum. Otherwise use CRC16-IBM.
+        const uint WildcardSn = 0x00118000; // 00 80 11 00 (Little Endian)
+        if (targetControllerSn == WildcardSn || profile.CommandCode == 0x24) // 0x24 is Broadcast Search
+        {
+            WriteSummationChecksum(span);
+        }
+        else
+        {
+            WriteCrc(span);
+        }
 
         return buffer;
     }
@@ -59,6 +67,21 @@ internal sealed class WgPacketBuilder
     {
         var crc = Crc16Ibm.Compute(packet);
         BinaryPrimitives.WriteUInt16LittleEndian(packet[2..4], crc);
+    }
+    
+    internal static void WriteSummationChecksum(Span<byte> packet)
+    {
+        // The checksum is the sum of all bytes in the 64-byte packet
+        // excluding the checksum positions at index 2 and 3.
+        long sum = 0;
+        for (int i = 0; i < packet.Length; i++)
+        {
+            if (i == 2 || i == 3) continue; 
+            sum += packet[i];
+        }
+        // Low byte first, then high byte (Little Endian)
+        packet[2] = (byte)(sum & 0xFF);
+        packet[3] = (byte)((sum >> 8) & 0xFF);
     }
 }
 

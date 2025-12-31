@@ -99,17 +99,15 @@ public class ControllerSyncService : IControllerSyncService
 
                     _logger.LogInformation("Performing Robust Step-by-Step Sync for controller {Id}...", controllerId);
 
-                    // 1. Stop the Engine (0x54) - Clear all privileges to unlock RTC
-                    await _controllerClient.ClearAllCardsAsync(controllerId, ct).ConfigureAwait(false);
-                    
-                    // 2. Cold Wait (500ms) - Allow EEPROM to commit the empty state
-                    await Task.Delay(500, ct);
+                    _logger.LogInformation("Performing Triple-Handshake Sync (Reset & Unlock) for controller {Id}...", controllerId);
 
-                    // 3. Force Clock (0x30) - Set verified BCD time
-                    await _controllerClient.SyncTimeAsync(controllerId, ct).ConfigureAwait(false);
+                    // 1-3. Execute Deep Reset Sequence (Broadcast Search -> Clear -> Sync Time -> Verify)
+                    // This now handles the "Month 26" lock recovery automatically.
+                    await _controllerClient.ResetControllerAsync(controllerId, ct: ct);
                     
-                    // 4. Verify Clock (0x20) - Ensure year is matches 2025
+                    // 4. Verify Clock (already done inside ResetControllerAsync, but getting status for logging)
                     var status = await _controllerClient.GetRunStatusAsync(controllerId, ct).ConfigureAwait(false);
+
                     if (!status.ControllerTimeUtc.HasValue || status.ControllerTimeUtc.Value.Year < 2025)
                     {
                         var currentYear = status.ControllerTimeUtc?.Year.ToString() ?? "Unknown";

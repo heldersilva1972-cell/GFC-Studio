@@ -101,7 +101,19 @@ internal static class WgPayloadFactory
     public static byte ToBcd(int value)
     {
         // Example: 31 becomes 0x31 (Binary: 0011 0001)
+        // Matches byte.Parse(dt.ToString("yy"), NumberStyles.AllowHexSpecifier) logic requested by user
         return (byte)((value / 10 << 4) | (value % 10));
+    }
+
+    public static ushort CalculateRescueSum(byte[] packet)
+    {
+        int sum = 0;
+        for (int i = 0; i < packet.Length; i++)
+        {
+            if (i == 2 || i == 3) continue; // Skip checksum slots
+            sum += packet[i];
+        }
+        return (ushort)sum; 
     }
 
     public static byte[] BuildFlashReadPayload(WgCommandProfile profile, FlashArea area, int start, int length)

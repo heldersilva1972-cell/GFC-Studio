@@ -36,7 +36,12 @@ internal sealed class WgCommandDispatcher
 
     public async Task<byte[]> SendAsync(uint controllerSn, WgCommandProfile profile, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
-        var endpoint = _endpointResolver.Resolve(controllerSn);
+        const uint WildcardSn = 0x00118000;
+        // If targeting Wildcard SN, use broadcast endpoint; otherwise resolve normally
+        var endpoint = (controllerSn == WildcardSn) 
+            ? new ControllerEndpoint(System.Net.IPAddress.Broadcast, 60000, 0, null)
+            : _endpointResolver.Resolve(controllerSn);
+
         var request = _packetBuilder.Build(controllerSn, NextXid(), profile, payload.Span);
         var span = request.AsSpan();
 

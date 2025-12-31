@@ -183,36 +183,62 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
     
     public async Task ResetControllerAsync(uint controllerSn, int doorCount = 4, IEnumerable<DoorHardwareConfig>? doorConfigs = null, MengqiModels.CardPrivilegeModel? primaryCard = null, CancellationToken cancellationToken = default)
     {
-        // 1. Clear All Privileges (0x54) - Set Card Count to 0
+        const uint WildcardSn = 0x00118000; // 00 80 11 00 (Little Endian)
+        
+        // 1. Triple-Handshake Sync (Broadcast Unlock Sequence)
         try
         {
-            await ClearAllCardsAsync(controllerSn, cancellationToken).ConfigureAwait(false);
-            _logger?.LogInformation("Wiped privilege database (0x54) for controller {Sn}", controllerSn);
+            _logger?.LogInformation("Starting Triple-Handshake Sync for {Sn} using Wildcard ID...", controllerSn);
+
+            // Step 0: Broadcast Search (0x24) - Wake up Maintenance Listener
+            // This is critical to ensure the controller is listening for the subsequent "Unlock" commands.
+            // We use the dispatcher's specialized BroadcastAsync method which uses IP broadcast.
+            await _dispatcher.BroadcastAsync(_commands.Search, Array.Empty<byte>(), cancellationToken)
+                             .GetAsyncEnumerator(cancellationToken)
+                             .MoveNextAsync(); 
+            _logger?.LogInformation("Sent Wake-up Broadcast (0x24)");
+            await Task.Delay(100, cancellationToken); // Short pause after wake-up
+
+            // Step 1: Clear Task Queue (0x54) via Wildcard SN to stop CPU reconciliation
+            // Sent to the specific controller IP but with the "Unlock" Wildcard SN.
+            // Payload is explicitly empty to ensure bytes 8-63 are 0x00.
+            var clearPayload = Array.Empty<byte>();
+            await SendAndExpectAck(WildcardSn, _commands.ClearAllCards, clearPayload, cancellationToken).ConfigureAwait(false);
+            _logger?.LogInformation("Sent Unlock Clear (0x54) to Wildcard SN");
             
-            // Step 1.5: Cold Wait (500ms) - Essential for EEPROM commit
+            // Step 2: Cold Wait
             await Task.Delay(500, cancellationToken);
+            
+            // Step 3: Force Time Sync (0x30) via Wildcard SN
+            var timePayload = WgPayloadFactory.BuildSyncTimePayload(_commands.SyncTime, DateTime.Now);
+            await SendAndExpectAck(WildcardSn, _commands.SyncTime, timePayload, cancellationToken).ConfigureAwait(false);
+            _logger?.LogInformation("Sent Unlock Time Sync (0x30) to Wildcard SN");
+             
+             await Task.Delay(500, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to wipe privileges for {Sn}, continuing", controllerSn);
+             _logger?.LogWarning(ex, "Broadcast/Unlock sequence failed. Falling back to Unicast...");
+             // Fallback to standard unicast logic if broadcast fails
+             await ClearAllCardsAsync(controllerSn, cancellationToken).ConfigureAwait(false);
+             await Task.Delay(300, cancellationToken);
+             await SyncTimeAsync(controllerSn, DateTime.Now, cancellationToken).ConfigureAwait(false);
         }
 
-        // 2. Adjust Time (0x30) - Fix the "Month 26" error to correct local time
+        // 4. Verification & Re-Add (Standard Unicast)
         try
         {
-            await SyncTimeAsync(controllerSn, DateTime.Now, cancellationToken).ConfigureAwait(false);
-            _logger?.LogInformation("Synchronized time (0x30) for controller {Sn}", controllerSn);
-            await Task.Delay(300, cancellationToken);
-
-            // Step 2.5: Verify Clock (0x20) - Ensure year matches 2025
+            // Verify Clock (0x20) - Ensure year matches 2025 using REAL SN
             var status = await GetRunStatusAsync(controllerSn, cancellationToken).ConfigureAwait(false);
             if (!status.ControllerTime.HasValue || status.ControllerTime.Value.Year < 2025)
             {
                 var currentYear = status.ControllerTime?.Year.ToString() ?? "Unknown";
-                var errorMsg = $"[Hardware Clock Lock] Controller {controllerSn} rejected time sync. Year is still {currentYear}. Clear All (0x54) might have failed to unlock RTC.";
+                var errorMsg = $"[Hardware Clock Lock] Controller {controllerSn} rejected time sync. Year is still {currentYear}. Unlock sequence failed.";
                 _logger?.LogError(errorMsg);
                 throw new InvalidOperationException(errorMsg);
             }
+            _logger?.LogInformation("Verification Successful: Year is {Year}", status.ControllerTime.Value.Year);
+
         }
         catch (Exception ex)
         {
