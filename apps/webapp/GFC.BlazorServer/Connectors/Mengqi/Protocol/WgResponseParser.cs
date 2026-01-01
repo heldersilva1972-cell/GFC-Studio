@@ -46,7 +46,11 @@ internal static class WgResponseParser
             // 1. Parse BCD Time (data[0..6])
             int? parsedYear = null;
             try {
-                parsedYear = 2000 + BcdToInt(data[1]);
+                // Correct BCD Parsing: Byte 0 is Century, Byte 1 is Year
+                int century = BcdToInt(data[0]);
+                int yearPart = BcdToInt(data[1]);
+                parsedYear = (century * 100) + yearPart;
+
                 int month = BcdToInt(data[2]);
                 int day = BcdToInt(data[3]);
                 int hour = BcdToInt(data[4]);
@@ -56,7 +60,7 @@ internal static class WgResponseParser
             } catch { 
                 // If full date is invalid (corrupt hardware state), fallback to just reporting the year if possible
                 if (parsedYear.HasValue) {
-                    controllerTime = new DateTime(parsedYear.Value, 1, 1); 
+                     try { controllerTime = new DateTime(parsedYear.Value, 1, 1); } catch {}
                 }
             }
 

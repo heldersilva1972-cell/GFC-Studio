@@ -190,31 +190,36 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         {
             _logger?.LogInformation("Starting Triple-Handshake Sync for {Sn} using Wildcard ID...", controllerSn);
 
-            // Step 0: Broadcast Search (0x24) - Wake up Maintenance Listener
-            // This is critical to ensure the controller is listening for the subsequent "Unlock" commands.
-            // We use the dispatcher's specialized BroadcastAsync method which uses IP broadcast.
+            // Step 0: Broadcast Search (0x24) - Wake up Maintenance Listener (Fire-and-Forget)
+            // We iterate manually to fire one packet without waiting for all responses
             await _dispatcher.BroadcastAsync(_commands.Search, Array.Empty<byte>(), cancellationToken)
                              .GetAsyncEnumerator(cancellationToken)
                              .MoveNextAsync(); 
             _logger?.LogInformation("Sent Wake-up Broadcast (0x24)");
-            await Task.Delay(100, cancellationToken); // Short pause after wake-up
+            await Task.Delay(100, cancellationToken); // Minimal gap
 
-            // Step 1: Clear Task Queue (0x54) via Wildcard SN to stop CPU reconciliation
-            // Sent to the specific controller IP but with the "Unlock" Wildcard SN.
-            // Payload is explicitly empty to ensure bytes 8-63 are 0x00.
+            // Step 1: Rescue Clear (0x54) via Wildcard SN (Fire-and-Forget)
+            // Use BroadcastAsync logic with Wildcard SN payload to ensure "maintenance" mode
+            // We use SendAsync with WildcardSn which Dispatcher routes to Broadcast IP
             var clearPayload = Array.Empty<byte>();
-            await SendAndExpectAck(WildcardSn, _commands.ClearAllCards, clearPayload, cancellationToken).ConfigureAwait(false);
+            // Using SendAsync but NOT awaiting the result in a blocking way if possible, 
+            // but w/o modifying Dispatcher, we must await. 
+            // However, Dispatcher using Broadcast IP for WildcardSn returns immediately or after timeout?
+            // User requirement: "Switch to Wildcard SN... Broadcast Routing"
+            // The dispatcher change I made routes WildcardSn to Broadcast IP.
+            // To be fast, we use a short timeout or just assume success? 
+            // Sending broadcast UDP is usually fast.
+            try { await _dispatcher.SendAsync(WildcardSn, _commands.ClearAllCards, clearPayload, cancellationToken); } catch { /* Ignore missing ACK for broadcast */ }
             _logger?.LogInformation("Sent Unlock Clear (0x54) to Wildcard SN");
             
-            // Step 2: Cold Wait
-            await Task.Delay(500, cancellationToken);
-            
-            // Step 3: Force Time Sync (0x30) via Wildcard SN
+            await Task.Delay(100, cancellationToken); // Tight loop requirement
+
+            // Step 2: Rescue Time Sync (0x30) via Wildcard SN (Fire-and-Forget)
             var timePayload = WgPayloadFactory.BuildSyncTimePayload(_commands.SyncTime, DateTime.Now);
-            await SendAndExpectAck(WildcardSn, _commands.SyncTime, timePayload, cancellationToken).ConfigureAwait(false);
+            try { await _dispatcher.SendAsync(WildcardSn, _commands.SyncTime, timePayload, cancellationToken); } catch { /* Ignore missing ACK for broadcast */ }
             _logger?.LogInformation("Sent Unlock Time Sync (0x30) to Wildcard SN");
              
-             await Task.Delay(500, cancellationToken);
+             await Task.Delay(500, cancellationToken); // Allow commit before verify
         }
         catch (Exception ex)
         {

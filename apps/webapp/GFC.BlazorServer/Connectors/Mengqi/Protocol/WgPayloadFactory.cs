@@ -34,8 +34,14 @@ internal static class WgPayloadFactory
         // Offset 6: Second (BCD)
         // Offset 7: 0x00
         
-        payload[0] = 0x20; // Century (20)
-        payload[1] = ToBcd(now.Year % 100);
+        Guard.AgainstOutOfRange(now.Month, 1, 12, "Month");
+        Guard.AgainstOutOfRange(now.Day, 1, 31, "Day");
+        Guard.AgainstOutOfRange(now.Hour, 0, 23, "Hour");
+        Guard.AgainstOutOfRange(now.Minute, 0, 59, "Minute");
+        Guard.AgainstOutOfRange(now.Second, 0, 59, "Second");
+
+        payload[0] = ToBcd(now.Year / 100); // Century (e.g. 20)
+        payload[1] = ToBcd(now.Year % 100); // Year (e.g. 25)
         payload[2] = ToBcd(now.Month);
         payload[3] = ToBcd(now.Day);
         payload[4] = ToBcd(now.Hour);
@@ -102,18 +108,8 @@ internal static class WgPayloadFactory
     {
         // Example: 31 becomes 0x31 (Binary: 0011 0001)
         // Matches byte.Parse(dt.ToString("yy"), NumberStyles.AllowHexSpecifier) logic requested by user
+        if (value > 99) throw new ArgumentOutOfRangeException(nameof(value), "BCD value cannot exceed 99");
         return (byte)((value / 10 << 4) | (value % 10));
-    }
-
-    public static ushort CalculateRescueSum(byte[] packet)
-    {
-        int sum = 0;
-        for (int i = 0; i < packet.Length; i++)
-        {
-            if (i == 2 || i == 3) continue; // Skip checksum slots
-            sum += packet[i];
-        }
-        return (ushort)sum; 
     }
 
     public static byte[] BuildFlashReadPayload(WgCommandProfile profile, FlashArea area, int start, int length)
@@ -182,5 +178,3 @@ internal static class WgPayloadFactory
         return (y << 16) | (m << 8) | d;
     }
 }
-
-
