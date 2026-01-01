@@ -1,4 +1,5 @@
 @using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Models
 @using Microsoft.EntityFrameworkCore
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
@@ -14,6 +15,8 @@
 @inject ILogger<CardAssignmentsTab> Logger
 @inject IJSRuntime JSRuntime
 @inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavManager
+@inject IMemberAccessService MemberAccessService
 
 <div class="assignments-container">
     <!-- Summary Metrics -->
@@ -221,6 +224,9 @@
                             <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewCard(card.CardId)">
                                 <i class="bi bi-clock-history"></i> Card Activity
                             </button>
+                            <button class="btn btn-sm btn-outline-info" @onclick="() => ConfigureAccess(card.MemberId)">
+                                <i class="bi bi-door-open"></i> Access Rights
+                            </button>
                             @if (card.IsActive)
                             {
                                 <button class="btn btn-sm btn-outline-warning" @onclick="() => DeactivateCard(card.CardId)">
@@ -237,6 +243,93 @@
                                 <i class="bi bi-arrow-repeat"></i> Replace
                             </button>
                         </div>
+
+
+                        @* Expandable Access Rights Section *@
+                        @* Debug: Selected Member ID: @_selectedMemberIdForAccess, Card Member ID: @card.MemberId *@
+                        @if (_selectedMemberIdForAccess == card.MemberId)
+                        {
+                            <div class="access-rights-panel">
+                                <div class="access-rights-header">
+                                    <h6 class="mb-0">
+                                        <i class="bi bi-door-open text-info me-2"></i>
+                                        Configure Access Rights
+                                    </h6>
+                                    <button class="btn btn-sm btn-link text-muted p-0" @onclick="CloseAccessPanel">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+
+                                <div class="access-rights-body">
+                                    @if (_loadingAccess)
+                                    {
+                                        <div class="text-center py-3">
+                                            <div class="spinner-border spinner-border-sm text-info"></div>
+                                            <p class="text-muted small mt-2 mb-0">Loading doors...</p>
+                                        </div>
+                                    }
+                                    else if (!string.IsNullOrEmpty(_accessError))
+                                    {
+                                        <div class="alert alert-danger alert-sm mb-0">
+                                            <i class="bi bi-exclamation-triangle me-1"></i>
+                                            @_accessError
+                                        </div>
+                                    }
+                                    else if (!_memberAccessData.Any())
+                                    {
+                                        <div class="alert alert-warning alert-sm mb-0">
+                                            <i class="bi bi-info-circle me-1"></i>
+                                            No doors available
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="door-access-list">
+                                            @foreach (var access in _memberAccessData)
+                                            {
+                                                <div class="door-access-item">
+                                                    <div class="door-info">
+                                                        <i class="bi bi-door-open text-muted me-2"></i>
+                                                        <div>
+                                                            <div class="door-name">@access.DoorName</div>
+                                                            <small class="text-muted">@access.ControllerName</small>
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-check form-switch mb-0">
+                                                        <input class="form-check-input" 
+                                                               type="checkbox" 
+                                                               id="door_@(card.CardId)_@access.DoorId"
+                                                               checked="@access.IsEnabled"
+                                                               @onchange="@(e => ToggleDoorAccess(access.DoorId, (bool)e.Value!))" />
+                                                        <label class="form-check-label small" for="door_@(card.CardId)_@access.DoorId">
+                                                            @(access.IsEnabled ? "Enabled" : "Disabled")
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <div class="access-rights-footer">
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="CloseAccessPanel">
+                                                Cancel
+                                            </button>
+                                            <button class="btn btn-sm btn-primary" @onclick="SaveAccessChanges" disabled="@_savingAccess">
+                                                @if (_savingAccess)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                                    <span>Saving...</span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-check-circle me-1"></i>
+                                                    <span>Save & Sync</span>
+                                                }
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -293,6 +386,9 @@
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-outline-primary" @onclick="() => ViewCard(card.CardId)" title="View Card Activity">
                                             <i class="bi bi-clock-history"></i>
+                                        </button>
+                                        <button class="btn btn-outline-info" @onclick="() => ConfigureAccess(card.MemberId)" title="Configure Access Rights">
+                                            <i class="bi bi-door-open"></i>
                                         </button>
                                         @if (card.IsActive)
                                         {
@@ -689,9 +785,99 @@
         opacity: 0.8;
     }
 
+
     .entry-deactivation .deactivation-time { color: #be123c; }
     .entry-activation .deactivation-time { color: #15803d; }
 
+    /* Access Rights Floating Card */
+    .access-rights-panel {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 0.5rem;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        z-index: 100;
+        animation: slideDown 0.2s ease-out;
+    }
+
+    .access-rights-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem;
+        border-bottom: 1px solid #e2e8f0;
+        background: linear-gradient(to bottom, #f8fafc, white);
+        border-radius: 12px 12px 0 0;
+    }
+
+    .access-rights-header h6 {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #334155;
+    }
+
+    .access-rights-body {
+        padding: 1rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .door-access-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .door-access-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        transition: all 0.2s;
+    }
+
+    .door-access-item:hover {
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+
+    .door-info {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex: 1;
+    }
+
+    .door-name {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: #334155;
+    }
+
+    .access-rights-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        padding: 1rem;
+        border-top: 1px solid #e2e8f0;
+        background: #f8fafc;
+        border-radius: 0 0 12px 12px;
+    }
+
+    .card-item {
+        position: relative;
+    }
+
+
+
+    @@keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @@keyframes slideUp { from { opacity: 0; transform: translate(-50%, -45%); } to { opacity: 1; transform: translate(-50%, -50%); } }
 </style>
@@ -729,6 +915,14 @@
     private List<CardAccessEvent> _cardAccessHistory = new();
     private int _totalScans = 0;
     private bool _showDetailModal;
+
+    // Access Rights Modal State
+    private int _selectedMemberIdForAccess = 0;
+    private string _selectedMemberForAccess = string.Empty;
+    private bool _loadingAccess = false;
+    private bool _savingAccess = false;
+    private string _accessError = string.Empty;
+    private List<MemberDoorAccessDto> _memberAccessData = new();
 
     private void SetViewMode(string mode)
     {
@@ -1039,6 +1233,128 @@
         }
     }
     
+    
+    private void ConfigureAccess(int memberId)
+    {
+        try
+        {
+            Logger.LogInformation("ConfigureAccess called for member {MemberId}", memberId);
+            
+            _selectedMemberIdForAccess = memberId;
+            var card = _allCards.FirstOrDefault(c => c.MemberId == memberId);
+            _selectedMemberForAccess = card?.MemberName ?? $"Member #{memberId}";
+            
+            _loadingAccess = true;
+            _accessError = string.Empty;
+            _memberAccessData.Clear();
+            
+            Logger.LogInformation("Panel should now be visible for member {MemberId}", memberId);
+            
+            // Load data asynchronously without blocking
+            _ = LoadAccessDataAsync(memberId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in ConfigureAccess for member {MemberId}", memberId);
+        }
+    }
+
+    private async Task LoadAccessDataAsync(int memberId)
+    {
+        try
+        {
+            var response = await MemberAccessService.GetMemberDoorAccessAsync(memberId);
+            _memberAccessData = response.Access.ToList();
+            Logger.LogInformation("Loaded {Count} doors for member {MemberId}", _memberAccessData.Count, memberId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load door access for member {MemberId}", memberId);
+            _accessError = "Failed to load door access. Please try again.";
+        }
+        finally
+        {
+            _loadingAccess = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseAccessPanel()
+    {
+        _selectedMemberIdForAccess = 0;
+        _selectedMemberForAccess = string.Empty;
+        _memberAccessData.Clear();
+        _accessError = string.Empty;
+    }
+
+    private void ToggleDoorAccess(int doorId, bool isEnabled)
+    {
+        var access = _memberAccessData.FirstOrDefault(a => a.DoorId == doorId);
+        if (access != null)
+        {
+            access.IsEnabled = isEnabled;
+        }
+    }
+
+    private async Task SaveAccessChanges()
+    {
+        _savingAccess = true;
+        _accessError = string.Empty;
+        
+        try
+        {
+            Logger.LogInformation("SaveAccessChanges started for member {MemberId}", _selectedMemberIdForAccess);
+            
+            // Get the member's active card number
+            var memberCard = _allCards.FirstOrDefault(c => c.MemberId == _selectedMemberIdForAccess && c.IsActive);
+            if (memberCard == null)
+            {
+                _accessError = "No active card found for this member.";
+                Logger.LogWarning("No active card found for member {MemberId}", _selectedMemberIdForAccess);
+                return;
+            }
+
+            // Check if member is eligible
+            if (!memberCard.IsEligible)
+            {
+                _accessError = "This member is not eligible for door access. Please check membership status and dues payment.";
+                Logger.LogWarning("Member {MemberId} is not eligible for door access", _selectedMemberIdForAccess);
+                return;
+            }
+
+            Logger.LogInformation("Found active card {CardNumber} for member {MemberId}", memberCard.CardNumber, _selectedMemberIdForAccess);
+
+            var updates = _memberAccessData.Select(a => new MemberDoorAccessUpdateDto
+            {
+                DoorId = a.DoorId,
+                CardNumber = memberCard.CardNumber,
+                IsEnabled = a.IsEnabled,
+                TimeProfileId = a.TimeProfileId
+            }).ToList();
+
+            Logger.LogInformation("Updating {Count} door access entries", updates.Count);
+
+            await MemberAccessService.UpdateMemberDoorAccessAsync(_selectedMemberIdForAccess, updates);
+            Logger.LogInformation("UpdateMemberDoorAccessAsync completed");
+            
+            await MemberAccessService.SyncMemberPrivilegesAsync(_selectedMemberIdForAccess);
+            Logger.LogInformation("SyncMemberPrivilegesAsync completed");
+            
+            Logger.LogInformation("Successfully updated door access for member {MemberId}", _selectedMemberIdForAccess);
+            CloseAccessPanel();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save door access for member {MemberId}. Error: {Message}", _selectedMemberIdForAccess, ex.Message);
+            _accessError = $"Failed to save changes: {ex.Message}";
+        }
+        finally
+        {
+            _savingAccess = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task ExportCards()
     {
         try 
