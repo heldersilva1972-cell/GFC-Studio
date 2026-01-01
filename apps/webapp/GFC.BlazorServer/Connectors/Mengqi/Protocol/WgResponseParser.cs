@@ -145,7 +145,7 @@ internal static class WgResponseParser
         }
     }
 
-    public static (IReadOnlyList<ControllerEvent> Events, uint LastIndex) ParseEvents(ReadOnlySpan<byte> packet)
+    public static (List<ControllerEvent> Events, uint ControllerLastIndex) ParseEvents(ReadOnlySpan<byte> packet, uint requestedIndex = 0)
     {
         var payload = GetPayload(packet);
         var events = new List<ControllerEvent>();
@@ -161,7 +161,7 @@ internal static class WgResponseParser
         if (payload.Length < 28) return (events, 0); // Need at least 8 header + 20 event bytes
         
         // Extract last index from payload bytes 4-7 (packet bytes 8-11)
-        uint lastIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
+        uint ControllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
         
         // Single event record starts at payload byte 8 (packet byte 12)
         var eventData = payload.Slice(8, 20);
@@ -170,91 +170,55 @@ internal static class WgResponseParser
         var hexDump = string.Join(" ", eventData.ToArray().Select(b => b.ToString("X2")));
         System.Diagnostics.Debug.WriteLine($"Event Record: {hexDump}");
         
-        // N3000 Event Log Record Layout (20 bytes):
-        // [0..3]   Index (uint32, little-endian)
-        // [4..7]   Card Number (uint32, little-endian)  
-        // [8]      Century (BCD)
-        // [9]      Year (BCD)
-        // [10]     Month (BCD)
-        // [11]     Day (BCD)
-        // [12]     Hour (BCD, 24h format)
-        // [13]     Minute (BCD)
-        // [14]     Second (BCD)
-        // [15]     Door Number
-        // [16]     Event Type (0=?, 1=Granted, 2=Denied, etc.)
-        // [17]     Reason/Direction Code
-        // [18..19] Reserved/Padding
+        // N3000 Event Log Record Layout (20 bytes) - Verified by USER:
+        // [0]      Event Category (0x01 = Swipe, 0x03 = System/Sensor) - Packet Index 12
+        // [1..3]   Padding/Misc
+        // [4..7]   Card Number (uint32, little-endian) - Packet Index 16-19
+        // [8..14]  Timestamp (7 bytes BCD: Century, Year, Month, Day, Hour, Min, Sec) - Packet Index 20-26
+        // [15]     Result / Reason Code (0x01=Allowed, 0x1C=Closed, etc.) - Packet Index 27
+        // [16]     Door Number (1, 2, 3, or 4) - Packet Index 28
+        // [17..19] Reserved
 
-        var index = BinaryPrimitives.ReadUInt32LittleEndian(eventData[0..4]);
+        var category = eventData[0];
         var card = BinaryPrimitives.ReadUInt32LittleEndian(eventData[4..8]);
         
         DateTime timestamp = DateTime.MinValue;
         try
         {
             // Read BCD timestamp from bytes 8-14
-            var centuryBcd = eventData[8];
-            var yearBcd = eventData[9];
-            var monthBcd = eventData[10];
-            var dayBcd = eventData[11];
-            var hourBcd = eventData[12];
-            var minuteBcd = eventData[13];
-            var secondBcd = eventData[14];
+            var century = DecodeBcd(eventData[8]);
+            var year = DecodeBcd(eventData[9]);
+            var month = DecodeBcd(eventData[10]);
+            var day = DecodeBcd(eventData[11]);
+            var hour = DecodeBcd(eventData[12]);
+            var minute = DecodeBcd(eventData[13]);
+            var second = DecodeBcd(eventData[14]);
             
-            var century = DecodeBcd(centuryBcd);
-            var year = DecodeBcd(yearBcd);
-            var month = DecodeBcd(monthBcd);
-            var day = DecodeBcd(dayBcd);
-            var hour = DecodeBcd(hourBcd);
-            var minute = DecodeBcd(minuteBcd);
-            var second = DecodeBcd(secondBcd);
-            
-            System.Diagnostics.Debug.WriteLine($"  Raw BCD bytes: {centuryBcd:X2} {yearBcd:X2} {monthBcd:X2} {dayBcd:X2} {hourBcd:X2} {minuteBcd:X2} {secondBcd:X2}");
-            System.Diagnostics.Debug.WriteLine($"  Decoded: Century={century} Year={year} Month={month} Day={day} Hour={hour} Min={minute} Sec={second}");
-            
-            // Validate before creating DateTime
-            if (month > 0 && month <= 12 && day > 0 && day <= 31 && hour >= 0 && hour < 24 && minute >= 0 && minute < 60 && second >= 0 && second < 60)
+            if (month > 0 && month <= 12 && day > 0 && day <= 31)
             {
                 var fullYear = (century * 100) + year;
-                if (fullYear >= 1 && fullYear <= 9999)
-                {
-                    timestamp = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Utc);
-                    System.Diagnostics.Debug.WriteLine($"  ✓ Parsed DateTime: {timestamp:yyyy-MM-dd HH:mm:ss}");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine($"  ✗ Invalid year: {fullYear}");
-                }
+                timestamp = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Utc);
             }
-            else
+        }
+        catch { /* Fallback to MinValue on parse error */ }
+
+        var resultReason = eventData[15];
+        var door = eventData[16];
+        
+        // Map Category to EventType and Result to ReasonCode
+        // Category 1 = Swipe, Category 3 = System/Sensor
+        return (new List<ControllerEvent> 
+        { 
+            new ControllerEvent
             {
-                System.Diagnostics.Debug.WriteLine($"  ✗ Invalid timestamp component values");
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"  ✗ Exception parsing timestamp: {ex.Message}");
-        }
-
-        var door = eventData[15];
-        var eventTypeByte = eventData[16];
-        var reasonCodeByte = eventData[17];
-        
-        System.Diagnostics.Debug.WriteLine($"  Door={door}, EventType={eventTypeByte}, ReasonCode={reasonCodeByte}, Card={card}, Index={index}");
-        
-        // EventType mapping
-        var eventType = (ControllerEventType)eventTypeByte; 
-        
-        events.Add(new ControllerEvent
-        {
-            CardNumber = card,
-            DoorOrReader = door,
-            EventType = eventType,
-            ReasonCode = reasonCodeByte,
-            TimestampUtc = timestamp,
-            RawIndex = index
-        });
-
-        return (events, lastIndex);
+                CardNumber = (category == 1 && card > 0) ? (long)card : 0, 
+                DoorOrReader = door,
+                EventType = (ControllerEventType)category, 
+                ReasonCode = resultReason,
+                TimestampUtc = timestamp,
+                RawIndex = requestedIndex // Use the index we requested
+            } 
+        }, ControllerLastIndex);
     }
 
     public static DiscoveryResult ParseDiscovery(ReadOnlySpan<byte> packet)

@@ -121,7 +121,7 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         BitConverter.GetBytes(startIndex).CopyTo(payload, 0);
         var response = await _dispatcher.SendAsync(controllerSn, _commands.GetEvents, payload, cancellationToken).ConfigureAwait(false);
         WgResponseParser.EnsureAck(response, _commands.GetEvents);
-        return WgResponseParser.ParseEvents(response);
+        return WgResponseParser.ParseEvents(response, startIndex);
     }
     
     public async Task AcknowledgeEventsAsync(uint controllerSn, uint eventsReadIndex, CancellationToken cancellationToken = default)

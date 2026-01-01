@@ -1,4 +1,5 @@
 @using GFC.BlazorServer.Data.Entities
+@implements IDisposable
 @using GFC.BlazorServer.Data
 @using GFC.Core.Interfaces
 @using GFC.BlazorServer.Services.Controllers
@@ -11,15 +12,13 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<DoorActivityTab> Logger
 
-<!-- UI REMAINS THE SAME -->
-
 <div class="activity-container">
     <!-- Time Range Filters -->
     <div class="activity-filters slide-in-up">
         <div class="filter-row">
             <div class="filter-group">
                 <label class="filter-label">Time Range</label>
-                <select class="form-select" @bind="_timeRange" @bind:after="LoadActivityAsync">
+                <select class="form-select" @bind="_timeRange" @bind:after="() => LoadActivityAsync(true)">
                     <option value="all">All Time</option>
                     <option value="24h">Last 24 Hours</option>
                     <option value="today">Today</option>
@@ -33,17 +32,17 @@
             {
                 <div class="filter-group">
                     <label class="filter-label">From</label>
-                    <input type="datetime-local" class="form-control" @bind="_fromDate" @bind:after="LoadActivityAsync" />
+                    <input type="datetime-local" class="form-control" @bind="_fromDate" @bind:after="() => LoadActivityAsync(true)" />
                 </div>
                 <div class="filter-group">
                     <label class="filter-label">To</label>
-                    <input type="datetime-local" class="form-control" @bind="_toDate" @bind:after="LoadActivityAsync" />
+                    <input type="datetime-local" class="form-control" @bind="_toDate" @bind:after="() => LoadActivityAsync(true)" />
                 </div>
             }
             
             <div class="filter-group">
                 <label class="filter-label">Controller</label>
-                <select class="form-select" @bind="_selectedControllerId" @bind:after="LoadActivityAsync">
+                <select class="form-select" @bind="_selectedControllerId" @bind:after="() => LoadActivityAsync(true)">
                     <option value="0">All Controllers</option>
                     @foreach (var controller in _controllers)
                     {
@@ -54,7 +53,7 @@
             
             <div class="filter-group">
                 <label class="filter-label">Door</label>
-                <select class="form-select" @bind="_selectedDoorId" @bind:after="LoadActivityAsync">
+                <select class="form-select" @bind="_selectedDoorId" @bind:after="() => LoadActivityAsync(true)">
                     <option value="0">All Doors</option>
                     @foreach (var door in _filteredDoors)
                     {
@@ -64,10 +63,17 @@
             </div>
             
             <div class="filter-group align-end">
-                <button class="btn btn-primary" @onclick="LoadActivityAsync" disabled="@_loading">
+                <button class="btn btn-primary" @onclick="() => LoadActivityAsync(true)" disabled="@_loading">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
             </div>
+            
+            @if (_lastRefreshTime.HasValue)
+            {
+                <div class="filter-group align-end ms-auto">
+                    <span class="text-muted small">Last updated: @_lastRefreshTime.Value.ToString("HH:mm:ss")</span>
+                </div>
+            }
         </div>
     </div>
 
@@ -216,9 +222,9 @@
                                         }
                                     </td>
                                     <td>
-                                        <span class="event-badge event-@GetEventClass(activity.EventType)">
-                                            <i class="bi bi-@GetEventIcon(activity.EventType)"></i>
-                                            @GetEventName(activity.EventType)
+                                        <span class="event-badge event-@GetEventClass(activity.EventType, activity.ReasonCode)">
+                                            <i class="bi bi-@GetEventIcon(activity.EventType, activity.ReasonCode)"></i>
+                                            @GetEventName(activity.EventType, activity.ReasonCode)
                                         </span>
                                     </td>
                                     <td>
@@ -263,40 +269,43 @@
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
-                <div class="modal-body-modern">
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <label>Timestamp</label>
-                            <div>@_selectedActivity.TimestampUtc.ToLocalTime().ToString("MM/dd/yyyy HH:mm:ss")</div>
+                <div class="modal-body p-4">
+                    <div class="row g-4">
+                        <div class="col-6">
+                            <label class="text-muted small d-block mb-1">Controller / Door</label>
+                            <div class="fw-bold">@_selectedActivity.ControllerName / @_selectedActivity.DoorName</div>
                         </div>
-                        <div class="detail-item">
-                            <label>Controller</label>
-                            <div>@_selectedActivity.ControllerName</div>
+                        <div class="col-6">
+                            <label class="text-muted small d-block mb-1">Time (Local)</label>
+                            <div class="fw-bold">@_selectedActivity.TimestampUtc.ToLocalTime().ToString("G")</div>
                         </div>
-                        <div class="detail-item">
-                            <label>Door</label>
-                            <div>@_selectedActivity.DoorName</div>
+                        
+                        <hr class="my-2" />
+                        
+                        <!-- Technical Diagnostics -->
+                        <div class="col-6">
+                            <label class="text-muted small d-block mb-1">Controller Index</label>
+                            <div class="badge bg-secondary">#@_activities.FirstOrDefault(a => a.Id == _selectedActivity.Id)?.RawIndex</div>
                         </div>
-                        <div class="detail-item">
-                            <label>Member</label>
-                            <div>@(_selectedActivity.MemberName ?? "Unknown")</div>
+                        <div class="col-6">
+                            <label class="text-muted small d-block mb-1">Reason / Code</label>
+                            <div>@(_selectedActivity.ReasonCode ?? 0)</div>
                         </div>
-                        <div class="detail-item">
-                            <label>Card Number</label>
-                            <div>#@(_selectedActivity.CardNumber?.ToString() ?? "-")</div>
+                        
+                        <div class="col-12">
+                            <label class="text-muted small d-block mb-1">Member / Card</label>
+                            <div class="fw-bold">@(_selectedActivity.MemberName ?? "Unknown Member") <span class="text-muted ms-2">#@_selectedActivity.CardNumber</span></div>
                         </div>
-                        <div class="detail-item">
-                            <label>Event Type</label>
-                            <div>
-                                <span class="badge bg-@GetEventClass(_selectedActivity.EventType)">
-                                    @GetEventName(_selectedActivity.EventType)
-                                </span>
+
+                        @if (!string.IsNullOrEmpty(_activities.FirstOrDefault(a => a.Id == _selectedActivity.Id)?.RawData))
+                        {
+                            <div class="col-12">
+                                <label class="text-muted small d-block mb-1">Raw Payload (Hex)</label>
+                                <div class="bg-light p-2 rounded selectable-text" style="font-family: monospace; font-size: 0.75rem; word-break: break-all;">
+                                    @_activities.FirstOrDefault(a => a.Id == _selectedActivity.Id)?.RawData
+                                </div>
                             </div>
-                        </div>
-                        <div class="detail-item">
-                            <label>Reason Code</label>
-                            <div>@(_selectedActivity.ReasonCode?.ToString() ?? "None")</div>
-                        </div>
+                        }
                     </div>
                 </div>
                 <div class="modal-footer-modern">
@@ -334,10 +343,32 @@
     private bool _showDebugPanel = false;
     private List<DebugInfo> _debugInfo = new();
     
+    private DateTime? _lastRefreshTime;
+    private System.Threading.Timer? _autoRefreshTimer;
+    private bool _autoRefreshEnabled = true;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadControllersAndDoorsAsync();
         await LoadActivityAsync();
+        
+        // Start auto-refresh timer (every 60 seconds)
+        _autoRefreshTimer = new System.Threading.Timer(async _ => 
+        {
+            if (_autoRefreshEnabled && !_loading && !_loadingMore)
+            {
+                await InvokeAsync(async () => 
+                {
+                    await LoadActivityAsync();
+                    StateHasChanged();
+                });
+            }
+        }, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    public void Dispose()
+    {
+        _autoRefreshTimer?.Dispose();
     }
     
     private async Task LoadControllersAndDoorsAsync()
@@ -355,9 +386,11 @@
         }
     }
     
-    private async Task LoadActivityAsync()
+    private async Task LoadActivityAsync(bool reset = false)
     {
-        _currentPage = 0;
+        _errorMessage = null;
+        if (reset)
+            _currentPage = 0;
         _activities.Clear();
         _errorMessage = string.Empty;
         
@@ -470,34 +503,52 @@
                     int savedCount = 0;
                     int skippedCount = 0;
                     
-                    // Fetch events from LastReadIndex+1 to CurrentIndex
-                    for (uint index = lastReadIndex + 1; index <= currentIndex; index++)
+                    // CRITICAL FIX: Handle index reset. If currentIndex < lastReadIndex, the controller was reset.
+                    uint startSyncIndex = lastReadIndex + 1;
+                    if (currentIndex < lastReadIndex)
                     {
-                        try
+                        Logger.LogWarning("Controller {ControllerName} index reset detected! (Current: {Current}, LastRead: {LastRead}). Restarting sync from 0.", 
+                            controller.Name, currentIndex, lastReadIndex);
+                        startSyncIndex = 0;
+                    }
+
+                    // Fetch events from startSyncIndex to CurrentIndex
+                    if (currentIndex > 0)
+                    {
+                        for (uint index = Math.Max(1, startSyncIndex); index <= currentIndex; index++)
                         {
-                            // Fetch single event at this index
-                            var result = await ControllerClient.GetNewEventsAsync(
-                                controller.SerialNumber.ToString(),
-                                index - 1, // The API expects "last known index", so we pass index-1 to get index
-                                CancellationToken.None);
+                            try
+                            {
+                                // Fetch single event at this index
+                                var result = await ControllerClient.GetNewEventsAsync(
+                                    controller.SerialNumber.ToString(),
+                                    index - 1, // index is 1-based in our loop, 0-based in hardware query
+                                    CancellationToken.None);
                             
                             if (result?.Events != null && result.Events.Any())
                             {
                                 downloadedCount += result.Events.Count;
                                 
-                                // Process each event (should be just 1 per request)
+                                // Step 4: Process downloaded events
                                 foreach (var evt in result.Events)
                                 {
-                                    // Check if already exists
+                                    // Check if already exists in database
                                     var exists = await context.ControllerEvents
                                         .AnyAsync(e => e.ControllerId == controller.Id && e.RawIndex == evt.RawIndex);
                                     
                                     if (!exists)
                                     {
-                                        // Find the door
+                                        // Find the door record
                                         var door = await context.Doors
                                             .FirstOrDefaultAsync(d => d.ControllerId == controller.Id && d.DoorIndex == evt.DoorNumber);
                                         
+                                        // Prepare hex dump for diagnostics modal
+                                        var hexDump = evt.RawData ?? string.Empty;
+                                        if (string.IsNullOrEmpty(hexDump))
+                                        {
+                                            hexDump = $"TYPE:{(int)evt.EventType}, CARD:{evt.CardNumber}, DOOR:{evt.DoorNumber}";
+                                        }
+
                                         var controllerEvent = new Data.Entities.ControllerEvent
                                         {
                                             ControllerId = controller.Id,
@@ -506,9 +557,10 @@
                                             CardNumber = evt.CardNumber,
                                             EventType = (int)evt.EventType,
                                             ReasonCode = (int)evt.ReasonCode,
-                                            IsByCard = evt.IsByCard,
+                                            IsByCard = evt.IsByCard || (evt.CardNumber > 0),
                                             IsByButton = evt.IsByButton,
                                             RawIndex = (int)evt.RawIndex,
+                                            RawData = hexDump,
                                             CreatedUtc = DateTime.UtcNow
                                         };
                                         
@@ -522,22 +574,16 @@
                                     else
                                     {
                                         skippedCount++;
-                                        Logger.LogDebug("Skipped duplicate event at index {Index}", evt.RawIndex);
                                     }
                                 }
-                                
-                                // Step 4: Send acknowledgment (0xB2) for this index
-                                // Note: We acknowledge after saving to DB to ensure we don't lose events
-                                // The acknowledgment tells the controller we've processed up to this index
-                                // This is already done inside GetNewEventsAsync via InternalGetNewEventsAsync
                             }
                         }
                         catch (Exception ex)
                         {
                             Logger.LogError(ex, "Failed to fetch event at index {Index} from controller {ControllerName}", 
                                 index, controller.Name);
-                            // Continue with next index even if one fails
                         }
+                    }
                     }
                     
                     debugEntry.EventsDownloaded = downloadedCount;
@@ -597,7 +643,7 @@
                         ControllerId = controllerId,
                         DoorId = door?.Id,
                         TimestampUtc = evt.TimestampUtc,
-                        CardNumber = evt.CardNumber,
+                        CardNumber = (evt.CardNumber > 0) ? evt.CardNumber : null,
                         EventType = evt.EventType,
                         ReasonCode = evt.ReasonCode,
                         IsByCard = evt.IsByCard,
@@ -695,16 +741,24 @@
             
             var allCards = await Task.Run(() => KeyCardRepository.GetAll());
             var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+
+            // Optimization: Use Dictionaries for O(1) lookups instead of O(N) FirstOrDefault in a loop
+            var cardsByNumber = allCards
+                .GroupBy(c => c.CardNumber.TrimStart('0'))
+                .ToDictionary(g => g.Key, g => g.First());
+            
+            var membersById = allMembers.ToDictionary(m => m.MemberID);
             
             var newActivities = events.Select(e => {
                 string? memberName = null;
-                if (e.CardNumber.HasValue)
+                if (e.CardNumber.HasValue && e.CardNumber.Value > 0)
                 {
-                    var card = allCards.FirstOrDefault(c => c.CardNumber == e.CardNumber.ToString());
-                    if (card != null)
+                    // Normalize the scanned card number (remove leading zeros)
+                    var normalizedScanned = e.CardNumber.Value.ToString().TrimStart('0');
+                    
+                    if (!string.IsNullOrEmpty(normalizedScanned) && cardsByNumber.TryGetValue(normalizedScanned, out var card))
                     {
-                        var member = allMembers.FirstOrDefault(m => m.MemberID == card.MemberId);
-                        if (member != null)
+                        if (membersById.TryGetValue(card.MemberId, out var member))
                         {
                             memberName = $"{member.FirstName} {member.LastName}";
                         }
@@ -716,11 +770,13 @@
                     Id = e.Id,
                     TimestampUtc = e.TimestampUtc,
                     ControllerName = e.Controller?.Name ?? "Unknown",
-                    DoorName = e.Door?.Name ?? "Unknown",
+                    DoorName = e.Door?.Name ?? "Unknown", // Revert to only using mapped Door navigation property
                     CardNumber = e.CardNumber,
                     MemberName = memberName,
                     EventType = e.EventType,
-                    ReasonCode = e.ReasonCode
+                    ReasonCode = e.ReasonCode,
+                    RawIndex = e.RawIndex,
+                    RawData = e.RawData
                 };
             }).ToList();
             
@@ -728,6 +784,7 @@
             _hasMore = newActivities.Count == PageSize;
             _currentPage++;
             _totalCount = _activities.Count; // Approximate
+            _lastRefreshTime = DateTime.Now;
         }
         catch (Exception ex)
         {
@@ -743,16 +800,19 @@
     
     private (DateTime from, DateTime to) GetDateRange()
     {
-        var now = DateTime.UtcNow;
+        // Use Local Time for "Today" and "Yesterday" filtering to match user perspective
+        var localNow = DateTime.Now;
+        var nowUtc = DateTime.UtcNow;
+        
         return _timeRange switch
         {
-            "all" => (DateTime.MinValue, DateTime.MaxValue), // Show all events including those with MinValue timestamps
-            "24h" => (now.AddHours(-24), now),
-            "today" => (now.Date.ToUniversalTime(), now),
-            "week" => (now.AddDays(-7), now),
-            "month" => (now.AddMonths(-1), now),
-            "custom" => (_fromDate?.ToUniversalTime() ?? now.AddHours(-24), _toDate?.ToUniversalTime() ?? now),
-            _ => (now.AddHours(-24), now)
+            "all" => (DateTime.MinValue, DateTime.MaxValue),
+            "24h" => (nowUtc.AddHours(-24), nowUtc),
+            "today" => (localNow.Date.ToUniversalTime(), nowUtc),
+            "week" => (localNow.Date.AddDays(-(int)localNow.DayOfWeek).ToUniversalTime(), nowUtc),
+            "month" => (new DateTime(localNow.Year, localNow.Month, 1).ToUniversalTime(), nowUtc),
+            "custom" => (_fromDate?.ToUniversalTime() ?? nowUtc.AddHours(-24), _toDate?.ToUniversalTime() ?? nowUtc),
+            _ => (nowUtc.AddHours(-24), nowUtc)
         };
     }
     
@@ -765,7 +825,7 @@
             
             foreach (var a in _activities)
             {
-                csv.AppendLine($"{a.TimestampUtc},{a.ControllerName},{a.DoorName},{a.CardNumber},{a.MemberName},{GetEventName(a.EventType)},{a.ReasonCode}");
+                csv.AppendLine($"{a.TimestampUtc},{a.ControllerName},{a.DoorName},{a.CardNumber},{a.MemberName},{GetEventName(a.EventType, a.ReasonCode)},{a.ReasonCode}");
             }
             
             var fileName = $"door_activity_export_{DateTime.Now:yyyyMMdd}.csv";
@@ -788,41 +848,70 @@
     
     private string GetRowClass(ActivityItem activity)
     {
-        return activity.EventType switch
+        if (activity.EventType == 1) // Category 1 = Swipe
         {
-            1 => "event-success", // Access granted
-            2 => "event-danger",  // Access denied
-            _ => ""
-        };
+            return activity.ReasonCode == 0x01 ? "event-success" : "event-danger";
+        }
+        
+        return activity.ReasonCode == 0x25 ? "event-success" : ""; // Remote Open is also success
     }
     
-    private string GetEventClass(int eventType)
+    private string GetEventClass(int eventType, int? reasonCode)
     {
-        return eventType switch
+        // Category 1 = Swipe, Category 3 = System/Sensor
+        if (eventType == 1) // Swipe
         {
-            1 => "success",
-            2 => "danger",
+            return reasonCode == 1 ? "success" : "danger";
+        }
+        
+        return reasonCode switch
+        {
+            0x1C => "info",    // Door Closed
+            0x1D => "warning", // Door Opened
+            0x25 => "success", // Remote Open
             _ => "secondary"
         };
     }
     
-    private string GetEventIcon(int eventType)
+    private string GetEventIcon(int eventType, int? reasonCode)
     {
-        return eventType switch
+        if (eventType == 1) // Swipe
         {
-            1 => "check-circle-fill",
-            2 => "x-circle-fill",
+            return reasonCode == 1 ? "check-circle-fill" : "x-circle-fill";
+        }
+        
+        return reasonCode switch
+        {
+            0x1C => "shield-check",
+            0x1D => "shield-exclamation",
+            0x25 => "cloud-upload-fill",
             _ => "circle-fill"
         };
     }
     
-    private string GetEventName(int eventType)
+    private string GetEventName(int eventType, int? reasonCode)
     {
-        return eventType switch
+        if (eventType == 1) // Swipe
         {
-            1 => "Access Granted",
-            2 => "Access Denied",
-            _ => "Unknown"
+            return reasonCode switch
+            {
+                0x01 => "Access Granted",
+                0x05 => "Denied: Not Found",
+                0x06 => "Denied: Timezone",
+                0x07 => "Denied: Password",
+                0x08 => "Denied: Anti-Passback",
+                0x09 => "Denied: Expired",
+                0x0F => "Denied: Door Locked",
+                _ => "Access Denied"
+            };
+        }
+        
+        return reasonCode switch
+        {
+            0x1C => "Door Closed",
+            0x1D => "Door Opened",
+            0x25 => "Remote Opened",
+            _ => "System Event"
         };
     }
     
@@ -836,6 +925,8 @@
         public string? MemberName { get; set; }
         public int EventType { get; set; }
         public int? ReasonCode { get; set; }
+        public int RawIndex { get; set; }
+        public string? RawData { get; set; }
     }
     
     private class DebugInfo

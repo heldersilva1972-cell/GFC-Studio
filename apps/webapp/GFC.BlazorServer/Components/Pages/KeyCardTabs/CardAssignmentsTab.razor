@@ -1,6 +1,9 @@
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using GFC.Core.Services
+@inject IDbContextFactory<GfcDbContext> DbContextFactory
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
 @inject IBoardRepository BoardRepository
@@ -357,7 +360,7 @@
                     </div>
                     <div class="stat-content">
                         <div class="stat-label">Total Scans</div>
-                        <div class="stat-value">@(_cardAccessHistory?.Count ?? 0)</div>
+                        <div class="stat-value">@_totalScans</div>
                     </div>
                 </div>
                 <div class="stat-card">
@@ -403,7 +406,7 @@
                             </div>
                             <div class="access-details">
                                 <div class="access-location">@access.ControllerName</div>
-                                <div class="access-time">@access.EventTime.ToString("MMM dd, yyyy h:mm:ss tt")</div>
+                                <div class="access-time">@access.EventTime.ToLocalTime().ToString("MMM dd, yyyy h:mm:ss tt")</div>
                             </div>
                             <div class="access-status">
                                 <span class="badge @(access.AccessGranted ? "bg-success" : "bg-danger")">
@@ -705,6 +708,7 @@
     private CardListItem? _selectedCard;
     private List<CardDeactivationLog> _cardHistory = new();
     private List<CardAccessEvent> _cardAccessHistory = new();
+    private int _totalScans = 0;
     private bool _showDetailModal;
 
     private void SetViewMode(string mode)
@@ -739,9 +743,21 @@
             var processingSyncs = await SyncQueueRepository.GetByStatusAsync("PROCESSING");
             var pendingCardIds = pendingSyncs.Concat(processingSyncs).Select(x => x.KeyCardId).ToHashSet();
 
+            // Fetch last used dates from ControllerEvents
+            using var db = await DbContextFactory.CreateDbContextAsync();
+            var lastUsedMap = await db.ControllerEvents
+                .Where(e => e.CardNumber != null)
+                .GroupBy(e => e.CardNumber)
+                .Select(g => new { CardNumber = g.Key, LastUsed = g.Max(e => e.TimestampUtc) })
+                .ToDictionaryAsync(x => x.CardNumber!.Value, x => x.LastUsed);
+
             _allCards = cards.Select(c => {
                 var member = members.FirstOrDefault(m => m.MemberID == c.MemberId);
                 var isDirector = boardMemberIds.Contains(c.MemberId);
+                
+                long? cardNumberLong = long.TryParse(c.CardNumber, out long val) ? val : null;
+                DateTime? lastUsed = (cardNumberLong.HasValue && lastUsedMap.TryGetValue(cardNumberLong.Value, out var lu)) ? lu : null;
+
                 var status = member?.Status ?? string.Empty;
                 var isLife = status.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
                 var isReg = status.Equals("REGULAR", StringComparison.OrdinalIgnoreCase) || 
@@ -762,7 +778,7 @@
                     MemberName = member != null ? $"{member.FirstName} {member.LastName}" : "Unknown",
                     IsActive = c.IsActive,
                     IssuedDate = c.CreatedDate == DateTime.MinValue ? null : c.CreatedDate,
-                    LastUsed = null,
+                    LastUsed = lastUsed,
                     CardType = c.CardType ?? "Card",
                     IsEligible = isEligible,
                     IsDirector = isDirector,
@@ -909,9 +925,28 @@
             // Load deactivation history
             _cardHistory = await Task.Run(() => DeactivationLogRepository.GetByCardIdAsync(cardId));
             
-            // Load access history (mock data for now - replace with actual service call)
+            // Load access history from ControllerEvent table
             _cardAccessHistory = new List<CardAccessEvent>();
-            // TODO: Load from ControllerEventService when available
+            _totalScans = 0;
+            using var db = await DbContextFactory.CreateDbContextAsync();
+            if (long.TryParse(card.CardNumber, out long cardNumberLong))
+            {
+                 var query = db.ControllerEvents.Where(e => e.CardNumber == cardNumberLong);
+                 _totalScans = await query.CountAsync();
+
+                 var events = await query
+                    .OrderByDescending(e => e.TimestampUtc)
+                    .Take(20)
+                    .Include(e => e.Controller)
+                    .ToListAsync();
+
+                 _cardAccessHistory = events.Select(e => new CardAccessEvent
+                 {
+                     EventTime = e.TimestampUtc, 
+                     ControllerName = e.Controller?.Name ?? "Unknown Door",
+                     AccessGranted = e.EventType == 1 // 1 = Granted, 2 = Denied (from ControllerEventType)
+                 }).ToList();
+            }
             
             _showDetailModal = true;
             StateHasChanged();

@@ -369,16 +369,16 @@ public class RealControllerClient : IControllerClient
             var (events, newLastIndex) = await _mengqiClient.GetNewEventsAsync(sn, lastIndex, ct);
             // Map events
              var resultEvents = events.Select((e, i) => new ControllerEventDto 
-             {
-                 RawIndex = lastIndex + (uint)i + 1, // Infer index based on offset from lastIndex
-                 DoorNumber = e.DoorOrReader,
-                 TimestampUtc = e.TimestampUtc,
-                 CardNumber = e.CardNumber,
-                 EventType = (int)e.EventType,
-                 ReasonCode = (int)e.ReasonCode,
-                 IsByCard = e.IsByCard,
-                 IsByButton = e.IsByExitButton
-             }).ToList();
+              {
+                  RawIndex = lastIndex + (uint)i + 1, 
+                  DoorNumber = e.DoorOrReader,
+                  TimestampUtc = e.TimestampUtc,
+                  CardNumber = e.CardNumber > 0 ? e.CardNumber : (long?)null,
+                  EventType = (int)e.EventType,
+                  ReasonCode = (int)e.ReasonCode,
+                  IsByCard = e.IsByCard,
+                  IsByButton = e.IsByExitButton
+              }).ToList();
              
              // User Requirement: "Occasionally send the 0xB2 (Acknowledgment) command with your LastReadIndex"
              if (newLastIndex > lastIndex && events.Any())

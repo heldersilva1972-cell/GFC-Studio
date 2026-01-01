@@ -39,29 +39,88 @@ The protocol utilizes a fixed-length **64-byte binary packet** for both requests
 The controller employs a specific **CRC-16** implementation to validate packet integrity. Packets with incorrect CRCs are discarded without a response.
 
 * **Polynomial**: `0xA001`.
-* **Initial Value**: `0x0000`.
-* **Calculation Scope**: The CRC must be calculated over the entire 64-byte frame.
-* **Important**: During calculation, the CRC bytes (index 2 and 3) must be set to `0x00` so they do not interfere with the mathematical result.
+*   **Polynomial**: `0xA001`.
+*   **Initial Value**: `0x0000`.
+*   **Calculation Scope**: The CRC must be calculated over the entire 64-byte frame.
+*   **Important**: During calculation, the CRC bytes (index 2 and 3) must be set to `0x00` so they do not interfere with the mathematical result.
 
 ### 4. Communication Workflows
 
-#### A. Device Discovery (The "Search" Command)
+#### A. Device Discovery (The "Search" Command: 0x94)
 
-1. Initialize a 64-byte array with `0x17` at index 0 and `0x94` at index 1.
-2. Set the target Serial Number (bytes 4-7). If unknown, use `0x00` for a general search.
-3. Calculate the CRC-16 and place it at index 2 and 3.
-4. Send the UDP packet to the broadcast address `255.255.255.255` or the specific IP on port 60000.
-5. The controller will return its full 64-byte configuration block.
+1.  Initialize a 64-byte array with `0x17` at index 0 and `0x94` at index 1.
+2.  Set the target Serial Number (bytes 4-7). If unknown, use `0x00` for a general search.
+3.  Calculate the CRC-16 and place it at index 2 and 3.
+4.  Send the UDP packet to the broadcast address `255.255.255.255` or the specific IP on port 60000.
+5.  The controller will return its full 64-byte configuration block.
 
-#### B. Remote Configuration (The "Write" Command)
+#### B. Event Log Retrieval (The "Get Log" Command: 0xB0)
 
-1. Construct the 64-byte array using Header `0x17` and Function Code `0x96`.
-2. Provide the exact Serial Number of the target controller in bytes 4-7.
-3. Populate the desired new IP, Mask, and Gateway in their respective offsets (8 through 19).
-4. Recalculate the CRC-16 and transmit to the controller's current IP on port 60000.
+To retrieve events, the system polls the controller using the `0xB0` command. The controller stores events in a rolling circular buffer.
 
-### 5. Troubleshooting Guidelines
+1.  **Request**:
+    *   Byte 1: `0xB0`
+    *   Bytes 8-11: **Last Known Index + 1** (The index you want to start reading from).
+2.  **Response**:
+    *   A 64-byte packet containing a single **20-byte Event Record** starting at payload offset 8 (Packet Byte 12).
+    *   Packet Bytes 8-11: The **Current Memory Index** (Total events stored).
 
-* **Timeout Errors**: Usually caused by port conflicts (another app using port 60000) or the Windows Firewall blocking the response.
-* **Incorrect Data**: Verify the byte order. Serial Numbers and IP addresses are transmitted in **Little Endian** (Least Significant Byte first).
-* **Silent Controller**: If the controller receives the packet (verified via Wireshark) but does not reply, the CRC-16 calculation is likely incorrect or the Serial Number provided does not match the hardware.
+#### C. Run Status Monitoring (The "Heartbeat" Command: 0x20)
+
+Used to check real-time status (Door state, Relay state) and the latest event index without downloading the full log.
+
+1.  **Request**: Byte 1: `0x20`.
+2.  **Response**: Contains the current relay status, sensor status (opened/closed), and importantly, the **Current Memory Index** in bytes 8-11.
+
+#### D. Remote Configuration (The "Write" Command)
+
+1.  Construct the 64-byte array using Header `0x17` and Function Code `0x96`.
+2.  Provide the exact Serial Number of the target controller in bytes 4-7.
+3.  Populate the desired new IP, Mask, and Gateway in their respective offsets (8 through 19).
+4.  Recalculate the CRC-16 and transmit to the controller's current IP on port 60000.
+
+---
+
+### 5. Verified Event Record Layout (20-Byte Payload)
+
+Based on verified HEX analysis, the 20-byte record returned in the `0xB0` response follows this exact structure:
+
+| Offset | Field | Description / Logic |
+| --- | --- | --- |
+| **0** | **Event Category** | `0x01`: Card Swipe; `0x03`: System/Sensor Event. |
+| **1 – 3** | **Reserved** | Padding or Internal use. |
+| **4 – 7** | **Card Number** | 4-byte ID (Little Endian). If Category=0x03, this is usually 0. |
+| **8 – 14** | **Timestamp** | 7-byte **BCD** format: Century, Year, Month, Day, Hour, Min, Sec. |
+| **15** | **Result / Reason** | **CRITICAL**: Defines the outcome of the event (Allowed, Denied, etc.). |
+| **16** | **Door Number** | `1`, `2`, `3`, or `4`. |
+| **17 – 19** | **Reserved** | Padding. |
+
+---
+
+### 6. Event Result Codes (Byte 15 Analysis)
+
+The byte at offset 15 (Packet Byte 27) is the primary indicator of what occurred:
+
+| Code (Hex) | Meaning | Logical Interpretation |
+| --- | --- | --- |
+| **0x01** | **Allowed** | Card recognized, relay triggered. |
+| **0x05** | **Denied: Not Found** | Card read, but not in the authorized database. |
+| **0x06** | **Denied: Timezone** | Valid card, but swiped outside allowed hours. |
+| **0x07** | **Denied: Password** | Incorrect PIN entered on keypad. |
+| **0x08** | **Denied: Anti-Passback** | User tried to "Enter" without previously "Exiting". |
+| **0x09** | **Denied: Expired** | Card is valid, but Expiry Date has passed. |
+| **0x0F** | **Denied: Locked** | Door is in "Emergency Lock" or "Force Locked" mode. |
+| **0x1C** | **Door Closed** | Physical door sensor changed to Closed (Category 0x03). |
+| **0x1D** | **Door Opened** | Physical door sensor changed to Opened (Category 0x03). |
+| **0x25** | **Remote Open** | Door was opened via software command (0x40). |
+
+---
+
+### 7. Troubleshooting Guidelines
+
+*   **Timeout Errors**: Usually caused by port conflicts (another app using port 60000) or the Windows Firewall blocking the response.
+*   **Incorrect Data**: Verify the byte order. Serial Numbers and IP addresses are transmitted in **Little Endian** (Least Significant Byte first).
+*   **Silent Controller**: If the controller receives the packet (verified via Wireshark) but does not reply, the CRC-16 calculation is likely incorrect or the Serial Number provided does not match the hardware.
+*   **Unknown Status**: If the UI shows "Unknown," check the **Event Category**. System events (Category 3) like Door Status updates should not be treated as Card Swipes.
+*   **Date Range Issues**: The controller records events in UTC. Ensure the application converts to Local Time for UI display.
+*   **Card Number Normalization**: Scanned card numbers may be shorter than the value stored in the DB. Always normalize by trimming leading zeros before comparison.
