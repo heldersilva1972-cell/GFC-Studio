@@ -33,7 +33,7 @@ public class DuesInsightService : IDuesInsightService
         await Task.WhenAll(membersTask, duesTask);
 
         var members = membersTask.Result
-            .Where(m => MemberFilters.IsActiveForDuesYear(m, year))
+            .Where(m => MemberFilters.IsActiveForDuesYear(m, year) || MemberStatusHelper.IsLifeStatus(m.Status))
             .Where(m => !string.Equals(m.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase)
                      && !string.Equals(m.Status, "DECEASED", StringComparison.OrdinalIgnoreCase))
             .ToList();

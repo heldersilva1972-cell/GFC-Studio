@@ -335,10 +335,23 @@
 </div>
 
 @* Card Activity Modal Overlay *@
-@if (_showDetailModal && _selectedCard != null)
+    @if (_showDetailModal && _selectedCard != null)
 {
+    @* NUCLEAR CSS FIX: Hide overlapping parent elements and reset stacking contexts *@
+    <style>
+        .tab-navigation-modern, .page-header-modern, .info-card-modern, .communication-alert-banner, .filters-section {
+            opacity: 0.1 !important; 
+            pointer-events: none !important;
+            transition: none !important;
+        }
+        .tab-content-modern, .tab-pane {
+            transform: none !important;
+            animation: none !important;
+            z-index: auto !important;
+        }
+    </style>
     <div class="activity-modal-backdrop" @onclick="CloseDetailModal"></div>
-    <div class="activity-modal">
+    <div class="activity-modal" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 800px; max-height: 85vh; background-color: #ffffff !important; opacity: 1 !important; z-index: 2147483647 !important; box-shadow: 0 0 50px rgba(0,0,0,0.5); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;">
         <div class="activity-modal-header">
             <div>
                 <h4 class="mb-1">
@@ -351,9 +364,9 @@
             </button>
         </div>
         
-        <div class="activity-modal-body">
-            @* Usage Statistics *@
-            <div class="stats-grid mb-4">
+        @* Fixed Stats Header *@
+        <div class="activity-modal-stats" style="padding: 1rem 1.5rem; background-color: #ffffff; border-bottom: 1px solid #e2e8f0; flex-shrink: 0;">
+             <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-icon bg-primary">
                         <i class="bi bi-upc-scan"></i>
@@ -382,6 +395,11 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <div class="activity-modal-body" style="background-color: #ffffff !important; flex: 1; overflow-y: auto;">
+            @* Usage Statistics *@
+            @* Usage Statistics MOVED UP - REMOVED FROM HERE *@
 
             @* Access History *@
             <div class="section-header mb-3">
@@ -405,8 +423,11 @@
                                 <i class="bi bi-door-open-fill"></i>
                             </div>
                             <div class="access-details">
-                                <div class="access-location">@access.ControllerName</div>
-                                <div class="access-time">@access.EventTime.ToLocalTime().ToString("MMM dd, yyyy h:mm:ss tt")</div>
+                                <div class="access-location">
+                                    <span class="fw-bold">@access.DoorName</span>
+                                    <small class="text-muted d-block" style="font-size: 0.75rem;">@access.ControllerName</small>
+                                </div>
+                                <div class="access-time">@access.EventTime.ToString("MMM dd, yyyy h:mm:ss tt")</div>
                             </div>
                             <div class="access-status">
                                 <span class="badge @(access.AccessGranted ? "bg-success" : "bg-danger")">
@@ -460,7 +481,7 @@
         width: 100vw;
         background: rgba(0, 0, 0, 0.6);
         backdrop-filter: blur(4px);
-        z-index: 3000;
+        z-index: 10000;
         animation: fadeIn 0.2s ease;
     }
 
@@ -472,10 +493,11 @@
         width: 90%;
         max-width: 800px;
         max-height: 85vh;
-        background: white;
+        background: #ffffff !important;
+        opacity: 1 !important;
         border-radius: 12px;
         box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
-        z-index: 3010;
+        z-index: 10010;
         display: flex;
         flex-direction: column;
         animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -520,9 +542,6 @@
     .btn-close-modal:hover {
         background: #e2e8f0;
         color: #0f172a;
-        transform: scale(1.05);
-    }
-        border-color: white;
         transform: scale(1.05);
     }
 
@@ -938,12 +957,14 @@
                     .OrderByDescending(e => e.TimestampUtc)
                     .Take(20)
                     .Include(e => e.Controller)
+                    .Include(e => e.Door) // Added Include
                     .ToListAsync();
 
                  _cardAccessHistory = events.Select(e => new CardAccessEvent
                  {
                      EventTime = e.TimestampUtc, 
-                     ControllerName = e.Controller?.Name ?? "Unknown Door",
+                     ControllerName = e.Controller?.Name ?? "Unknown Controller",
+                     DoorName = e.Door?.Name ?? (e.RawData != null && e.RawData.Contains("DOOR:0") ? "Main Entry (Door 1)" : "Unknown Door"),
                      AccessGranted = e.EventType == 1 // 1 = Granted, 2 = Denied (from ControllerEventType)
                  }).ToList();
             }
@@ -1071,6 +1092,7 @@
     {
         public DateTime EventTime { get; set; }
         public string ControllerName { get; set; } = string.Empty;
+        public string DoorName { get; set; } = string.Empty; // Added
         public bool AccessGranted { get; set; }
     }
 }

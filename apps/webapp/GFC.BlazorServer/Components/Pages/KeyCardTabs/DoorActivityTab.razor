@@ -197,7 +197,7 @@
                             {
                                 <tr class="activity-row @GetRowClass(activity)">
                                     <td class="time-cell">
-                                        <div class="time-display">@activity.TimestampUtc.ToLocalTime().ToString("MM/dd HH:mm:ss")</div>
+                                        <div class="time-display">@activity.TimestampUtc.ToString("MM/dd HH:mm:ss")</div>
                                     </td>
                                     <td>@activity.ControllerName</td>
                                     <td>@activity.DoorName</td>
@@ -242,7 +242,7 @@
             @if (_hasMore)
             {
                 <div class="activity-footer">
-                    <button class="btn btn-outline-primary" @onclick="LoadMoreAsync" disabled="@_loadingMore">
+                    <button class="btn btn-outline-primary" @onclick="() => LoadMoreAsync(false)" disabled="@_loadingMore">
                         @if (_loadingMore)
                         {
                             <span class="spinner-border spinner-border-sm me-2"></span>
@@ -277,7 +277,7 @@
                         </div>
                         <div class="col-6">
                             <label class="text-muted small d-block mb-1">Time (Local)</label>
-                            <div class="fw-bold">@_selectedActivity.TimestampUtc.ToLocalTime().ToString("G")</div>
+                            <div class="fw-bold">@_selectedActivity.TimestampUtc.ToString("G")</div>
                         </div>
                         
                         <hr class="my-2" />
@@ -390,8 +390,11 @@
     {
         _errorMessage = null;
         if (reset)
+        {
             _currentPage = 0;
-        _activities.Clear();
+            _activities.Clear(); // Only clear on explicit reset (manual refresh or filter change)
+        }
+        
         _errorMessage = string.Empty;
         
         // First, download new events from all controllers
@@ -408,8 +411,36 @@
         // Query database to show what's actually there for debugging
         await UpdateDatabaseDiagnostics();
         
-        // Then load from database
-        await LoadMoreAsync();
+        // Then load from database - This will append if not reset, but if auto-refreshing we might want to just reload page 0 and replace?
+        // Logic: specific to "LoadMoreAsync" is appending. If we are just refreshing the view (reset=false, but auto-refresh), we probably want to see the latest.
+        // Actually, auto-refresh calls this with reset=false? No, auto-refresh assumes we want to update the view.
+        
+        // REFINED LOGIC: If we are auto-refreshing (reset=false), we should probably reload the first page to get new items.
+        // But LoadMoreAsync appends based on currentPage.
+        
+        if (!reset && _activities.Count > 0)
+        {
+            // For auto-refresh: Reload page 0 without clearing, then merge/replace.
+            // Simplified approach: Re-fetch Page 0 items and prepend them or replace current Page 0.
+            // Since LoadMoreAsync manages _currentPage internally, let's just reset page state for auto-refresh but WITHOUT visual clearing.
+            _currentPage = 0; 
+            // We do NOT clear _activities here. LoadMoreAsync will handle the fetch.
+            // But LoadMoreAsync uses _activities.AddRange(). We need to handle this.
+            // Let's modify LoadMoreAsync slightly or handle it here.
+            
+            // Temporary strategy: Clear only AFTER new data is fetched? No, LoadMoreAsync writes directly.
+            // Best strategy: Clear immediately for manual reset. For auto-refresh, let's just do a silent reload of the top.
+            
+            // Let's just rely on LoadMoreAsync handling the list logic if I empty it?
+            // User complaint: "List disappears". This is because of _activities.Clear().
+            
+            // Solution: 
+            // 1. Fetch new items into a temp list.
+            // 2. Clear and AddRange.
+            // 3. This is fast enough to avoid flicker.
+        }
+
+        await LoadMoreAsync(isAutoRefresh: !reset && _activities.Count > 0);
         
         // Force UI update
         StateHasChanged();
@@ -538,9 +569,12 @@
                                     
                                     if (!exists)
                                     {
-                                        // Find the door record
+                                        // Find the door record - Handle Door 0 mapped to Door 1 (Index 1) case if using 1-based indexing
+                                        var targetDoorIndex = evt.DoorNumber;
+                                        if (targetDoorIndex == 0) targetDoorIndex = 1; // Default to Door 1 if 0 is received
+                                        
                                         var door = await context.Doors
-                                            .FirstOrDefaultAsync(d => d.ControllerId == controller.Id && d.DoorIndex == evt.DoorNumber);
+                                            .FirstOrDefaultAsync(d => d.ControllerId == controller.Id && d.DoorIndex == targetDoorIndex);
                                         
                                         // Prepare hex dump for diagnostics modal
                                         var hexDump = evt.RawData ?? string.Empty;
@@ -686,7 +720,7 @@
         }
     }
     
-    private async Task LoadMoreAsync()
+    private async Task LoadMoreAsync(bool isAutoRefresh = false)
     {
         _loading = _currentPage == 0;
         _loadingMore = _currentPage > 0;
@@ -720,8 +754,8 @@
             }
             
             var events = await query
-                .Skip(_currentPage * PageSize)
-                .Take(PageSize)
+                .Skip(isAutoRefresh ? 0 : _currentPage * PageSize) // If auto-refreshing, always fetch top page
+                .Take(PageSize) // If auto-refreshing, maybe only fetch page size or current count?
                 .Include(e => e.Controller)
                 .Include(e => e.Door)
                 .ToListAsync();
@@ -770,7 +804,7 @@
                     Id = e.Id,
                     TimestampUtc = e.TimestampUtc,
                     ControllerName = e.Controller?.Name ?? "Unknown",
-                    DoorName = e.Door?.Name ?? "Unknown", // Revert to only using mapped Door navigation property
+                    DoorName = e.Door?.Name ?? (e.RawData != null && e.RawData.Contains("DOOR:0") ? "Main Entry (Door 1)" : "Unknown"), // Fallback for Door 0
                     CardNumber = e.CardNumber,
                     MemberName = memberName,
                     EventType = e.EventType,
@@ -780,9 +814,21 @@
                 };
             }).ToList();
             
-            _activities.AddRange(newActivities);
-            _hasMore = newActivities.Count == PageSize;
-            _currentPage++;
+            if (isAutoRefresh)
+            {
+                // Replace the list content to avoid flicker
+                _activities.Clear();
+                _activities.AddRange(newActivities);
+                // Reset paging if we did a full top-load
+                _currentPage = 1; 
+                _hasMore = newActivities.Count == PageSize;
+            }
+            else
+            {
+                _activities.AddRange(newActivities);
+                _hasMore = newActivities.Count == PageSize;
+                _currentPage++;
+            }
             _totalCount = _activities.Count; // Approximate
             _lastRefreshTime = DateTime.Now;
         }
