@@ -150,70 +150,109 @@ internal static class WgResponseParser
         var payload = GetPayload(packet);
         var events = new List<ControllerEvent>();
         
-        // N3000 Bulk Log (0xB0-0xB4) Verified Record Length: 20 Bytes
-        const int recordLength = 20;
+        // N3000 Standard Mode (0xB0) Response Structure (64 bytes total):
+        // Packet[0..1]:    Type (0x17) + Command (0xB0)
+        // Packet[2..7]:    Header data
+        // Packet[8..11]:   Last Index (4 bytes, little-endian) - this is at payload[4..7]
+        // Packet[12..31]:  Single 20-byte event record - this is at payload[8..27]
+        // Packet[32..62]:  Padding (zeros)
+        // Packet[63]:      Checksum
         
-        // Skip 4-byte SN + 4-byte Unknown/Count at start of payload (Offset 0-7)?
-        // User instructions say: "buffer contains multiple event logs... loop through this buffer".
-        // Usually N3000 packet starts with SN (4 bytes).
-        // Let's assume payload[4..] is where the list starts.
-        if (payload.Length < 4) return (events, 0);
-        var data = payload[4..];
+        if (payload.Length < 28) return (events, 0); // Need at least 8 header + 20 event bytes
+        
+        // Extract last index from payload bytes 4-7 (packet bytes 8-11)
+        uint lastIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
+        
+        // Single event record starts at payload byte 8 (packet byte 12)
+        var eventData = payload.Slice(8, 20);
+        
+        // Log the raw 20-byte record for debugging
+        var hexDump = string.Join(" ", eventData.ToArray().Select(b => b.ToString("X2")));
+        System.Diagnostics.Debug.WriteLine($"Event Record: {hexDump}");
+        
+        // N3000 Event Log Record Layout (20 bytes):
+        // [0..3]   Index (uint32, little-endian)
+        // [4..7]   Card Number (uint32, little-endian)  
+        // [8]      Century (BCD)
+        // [9]      Year (BCD)
+        // [10]     Month (BCD)
+        // [11]     Day (BCD)
+        // [12]     Hour (BCD, 24h format)
+        // [13]     Minute (BCD)
+        // [14]     Second (BCD)
+        // [15]     Door Number
+        // [16]     Event Type (0=?, 1=Granted, 2=Denied, etc.)
+        // [17]     Reason/Direction Code
+        // [18..19] Reserved/Padding
 
-        for (var offset = 0; offset + recordLength <= data.Length; offset += recordLength)
+        var index = BinaryPrimitives.ReadUInt32LittleEndian(eventData[0..4]);
+        var card = BinaryPrimitives.ReadUInt32LittleEndian(eventData[4..8]);
+        
+        DateTime timestamp = DateTime.MinValue;
+        try
         {
-            var slice = data.Slice(offset, recordLength);
+            // Read BCD timestamp from bytes 8-14
+            var centuryBcd = eventData[8];
+            var yearBcd = eventData[9];
+            var monthBcd = eventData[10];
+            var dayBcd = eventData[11];
+            var hourBcd = eventData[12];
+            var minuteBcd = eventData[13];
+            var secondBcd = eventData[14];
             
-            // Layout:
-            // [0..3] Index (uint)
-            // [4..7] Card Number (uint)
-            // [8..14] Timestamp (BCD 7 bytes)
-            // [15] Door Number
-            // [16] Event Type
-            // [17] Direction (0=In, 1=Out)
-            // [18..19] Padding
-
-            var index = BinaryPrimitives.ReadUInt32LittleEndian(slice[0..4]);
-            var card = BinaryPrimitives.ReadUInt32LittleEndian(slice[4..8]);
+            var century = DecodeBcd(centuryBcd);
+            var year = DecodeBcd(yearBcd);
+            var month = DecodeBcd(monthBcd);
+            var day = DecodeBcd(dayBcd);
+            var hour = DecodeBcd(hourBcd);
+            var minute = DecodeBcd(minuteBcd);
+            var second = DecodeBcd(secondBcd);
             
-            DateTime timestamp = DateTime.MinValue;
-            try
+            System.Diagnostics.Debug.WriteLine($"  Raw BCD bytes: {centuryBcd:X2} {yearBcd:X2} {monthBcd:X2} {dayBcd:X2} {hourBcd:X2} {minuteBcd:X2} {secondBcd:X2}");
+            System.Diagnostics.Debug.WriteLine($"  Decoded: Century={century} Year={year} Month={month} Day={day} Hour={hour} Min={minute} Sec={second}");
+            
+            // Validate before creating DateTime
+            if (month > 0 && month <= 12 && day > 0 && day <= 31 && hour >= 0 && hour < 24 && minute >= 0 && minute < 60 && second >= 0 && second < 60)
             {
-                var century = DecodeBcd(slice[8]);
-                var year = DecodeBcd(slice[9]);
-                var month = DecodeBcd(slice[10]);
-                var day = DecodeBcd(slice[11]);
-                var hour = DecodeBcd(slice[12]);
-                var minute = DecodeBcd(slice[13]);
-                var second = DecodeBcd(slice[14]);
-                timestamp = new DateTime((century * 100) + year, month, day, hour, minute, second);
+                var fullYear = (century * 100) + year;
+                if (fullYear >= 1 && fullYear <= 9999)
+                {
+                    timestamp = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Utc);
+                    System.Diagnostics.Debug.WriteLine($"  ✓ Parsed DateTime: {timestamp:yyyy-MM-dd HH:mm:ss}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"  ✗ Invalid year: {fullYear}");
+                }
             }
-            catch { /* corrupt time in log */ }
-
-            var door = slice[15];
-            var eventTypeByte = slice[16];
-            // EventType mapping might need adjustment if hardware codes differ from standard enum
-            var eventType = (ControllerEventType)eventTypeByte; 
-            
-            events.Add(new ControllerEvent
+            else
             {
-                CardNumber = card,
-                DoorOrReader = door,
-                EventType = eventType,
-                ReasonCode = index, // Using ReasonCode property to store the Log Index for tracking
-                TimestampUtc = timestamp
-            });
+                System.Diagnostics.Debug.WriteLine($"  ✗ Invalid timestamp component values");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"  ✗ Exception parsing timestamp: {ex.Message}");
         }
 
-        // The LastIndex is traditionally the index of the last record found.
-        // Since we are reading the index from the record itself (slice[0..4]), 
-        // we can take the index of the *last successfully processed event*.
-        uint lastIndex = 0;
-        if (events.Count > 0)
+        var door = eventData[15];
+        var eventTypeByte = eventData[16];
+        var reasonCodeByte = eventData[17];
+        
+        System.Diagnostics.Debug.WriteLine($"  Door={door}, EventType={eventTypeByte}, ReasonCode={reasonCodeByte}, Card={card}, Index={index}");
+        
+        // EventType mapping
+        var eventType = (ControllerEventType)eventTypeByte; 
+        
+        events.Add(new ControllerEvent
         {
-            // Cast strictly to uint as ReasonCode is technically nullable/uint variant in some contexts
-            lastIndex = (uint)events[^1].ReasonCode; 
-        }
+            CardNumber = card,
+            DoorOrReader = door,
+            EventType = eventType,
+            ReasonCode = reasonCodeByte,
+            TimestampUtc = timestamp,
+            RawIndex = index
+        });
 
         return (events, lastIndex);
     }

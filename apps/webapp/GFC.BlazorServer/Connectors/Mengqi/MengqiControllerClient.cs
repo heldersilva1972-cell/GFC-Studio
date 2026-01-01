@@ -103,7 +103,7 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
 
     public async Task ClearAllCardsAsync(uint controllerSn, CancellationToken cancellationToken = default)
     {
-        var payload = Array.Empty<byte>();
+        var payload = WgPayloadFactory.BuildClearAllCardsPayload(_commands.ClearAllCards);
         await SendAndExpectAck(controllerSn, _commands.ClearAllCards, payload, cancellationToken).ConfigureAwait(false);
     }
 

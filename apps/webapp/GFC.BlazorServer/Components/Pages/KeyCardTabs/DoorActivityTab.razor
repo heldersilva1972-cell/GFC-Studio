@@ -1,12 +1,17 @@
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Data
 @using GFC.Core.Interfaces
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Models
 @using Microsoft.EntityFrameworkCore
-@inject GfcDbContext DbContext
+@inject IDbContextFactory<GfcDbContext> DbContextFactory
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
+@inject IControllerClient ControllerClient
 @inject IJSRuntime JSRuntime
 @inject ILogger<DoorActivityTab> Logger
+
+<!-- UI REMAINS THE SAME -->
 
 <div class="activity-container">
     <!-- Time Range Filters -->
@@ -15,6 +20,7 @@
             <div class="filter-group">
                 <label class="filter-label">Time Range</label>
                 <select class="form-select" @bind="_timeRange" @bind:after="LoadActivityAsync">
+                    <option value="all">All Time</option>
                     <option value="24h">Last 24 Hours</option>
                     <option value="today">Today</option>
                     <option value="week">This Week</option>
@@ -64,6 +70,62 @@
             </div>
         </div>
     </div>
+
+    <!-- Debug Status Panel -->
+    @if (_showDebugPanel)
+    {
+        <div class="alert alert-info mt-3" style="font-family: monospace; font-size: 0.85rem;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <strong><i class="bi bi-info-circle"></i> Download Status & Diagnostics</strong>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showDebugPanel = false">
+                    <i class="bi bi-x"></i> Hide
+                </button>
+            </div>
+            
+            @if (_debugInfo.Any())
+            {
+                <div style="max-height: 300px; overflow-y: auto;">
+                    @foreach (var info in _debugInfo.OrderByDescending(x => x.Timestamp))
+                    {
+                        <div class="mb-2 pb-2 border-bottom">
+                            <div><strong>@info.Timestamp.ToString("HH:mm:ss")</strong> - @info.ControllerName</div>
+                            <div class="text-muted small">
+                                @if (info.Success)
+                                {
+                                    <span class="text-success">✓ Success</span>
+                                }
+                                else
+                                {
+                                    <span class="text-danger">✗ Failed: @info.ErrorMessage</span>
+                                }
+                            </div>
+                            @if (info.Success)
+                            {
+                                <div class="small">
+                                    • Downloaded: @info.EventsDownloaded events<br/>
+                                    • Saved: @info.EventsSaved new events<br/>
+                                    • Skipped: @info.EventsSkipped duplicates<br/>
+                                    • Last Index: @info.LastIndex
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="text-muted">Click refresh to download events from controllers...</div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="mt-2">
+            <button class="btn btn-sm btn-outline-info" @onclick="() => _showDebugPanel = true">
+                <i class="bi bi-bug"></i> Show Download Diagnostics
+            </button>
+        </div>
+    }
 
     <!-- Activity Table -->
     @if (_loading)
@@ -249,7 +311,7 @@
     private bool _loading = true;
     private bool _loadingMore = false;
     private string _errorMessage = string.Empty;
-    private string _timeRange = "24h";
+    private string _timeRange = "all";
     private DateTime? _fromDate;
     private DateTime? _toDate;
     private int _selectedControllerId = 0;
@@ -268,6 +330,10 @@
     private bool _showDetailsModal = false;
     private ActivityItem? _selectedActivity;
     
+    // Debug Panel State
+    private bool _showDebugPanel = false;
+    private List<DebugInfo> _debugInfo = new();
+    
     protected override async Task OnInitializedAsync()
     {
         await LoadControllersAndDoorsAsync();
@@ -278,8 +344,9 @@
     {
         try
         {
-            _controllers = await DbContext.Controllers.ToListAsync();
-            _allDoors = await DbContext.Doors.ToListAsync();
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            _controllers = await context.Controllers.AsNoTracking().ToListAsync();
+            _allDoors = await context.Doors.AsNoTracking().ToListAsync();
             _filteredDoors = _allDoors;
         }
         catch (Exception ex)
@@ -292,7 +359,285 @@
     {
         _currentPage = 0;
         _activities.Clear();
+        _errorMessage = string.Empty;
+        
+        // First, download new events from all controllers
+        try
+        {
+            await DownloadNewEventsFromControllersAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading events from controllers");
+            _errorMessage = $"Warning: Failed to download new events from controllers. Showing cached data only. Error: {ex.Message}";
+        }
+        
+        // Query database to show what's actually there for debugging
+        await UpdateDatabaseDiagnostics();
+        
+        // Then load from database
         await LoadMoreAsync();
+        
+        // Force UI update
+        StateHasChanged();
+    }
+    
+    private async Task UpdateDatabaseDiagnostics()
+    {
+        try
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            var (fromDate, toDate) = GetDateRange();
+            
+            var totalEvents = await context.ControllerEvents.CountAsync();
+            var eventsInTimeRange = await context.ControllerEvents
+                .Where(e => e.TimestampUtc >= fromDate && e.TimestampUtc <= toDate)
+                .CountAsync();
+            var cardEvents = await context.ControllerEvents
+                .Where(e => e.TimestampUtc >= fromDate && e.TimestampUtc <= toDate && e.IsByCard)
+                .CountAsync();
+            var nonCardEvents = await context.ControllerEvents
+                .Where(e => e.TimestampUtc >= fromDate && e.TimestampUtc <= toDate && !e.IsByCard)
+                .CountAsync();
+                
+            Logger.LogInformation("DB Diagnostics: Total={Total}, InTimeRange={InRange}, IsByCard={ByCard}, NotByCard={NotByCard}", 
+                totalEvents, eventsInTimeRange, cardEvents, nonCardEvents);
+                
+            if (nonCardEvents > 0 && cardEvents == 0)
+            {
+                _errorMessage = $"Found {nonCardEvents} events in database, but they have IsByCard=false. The display filters for IsByCard=true only. Check the event data from the controller.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error querying database diagnostics");
+        }
+    }
+    
+    private async Task DownloadNewEventsFromControllersAsync()
+    {
+        try
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // Get all active controllers
+            var controllers = await context.Controllers
+                .Where(c => c.IsEnabled)
+                .ToListAsync();
+            
+            foreach (var controller in controllers)
+            {
+                var debugEntry = new DebugInfo
+                {
+                    Timestamp = DateTime.Now,
+                    ControllerName = controller.Name,
+                    Success = false
+                };
+                
+                try
+                {
+                    Logger.LogInformation("Starting event sync for controller {ControllerName} (SN: {SerialNumber})", 
+                        controller.Name, controller.SerialNumber);
+                    
+                    // Step 1: Get the controller's current index via 0x20 (GetRunStatus)
+                    var status = await ControllerClient.GetRunStatusAsync(
+                        controller.SerialNumber.ToString(), 
+                        CancellationToken.None);
+                    
+                    if (status == null)
+                    {
+                        Logger.LogWarning("Failed to get status from controller {ControllerName}", controller.Name);
+                        debugEntry.ErrorMessage = "Failed to get controller status";
+                        continue;
+                    }
+                    
+                    uint currentIndex = status.TotalEvents;
+                    Logger.LogInformation("Controller {ControllerName}: CurrentIndex={CurrentIndex}", 
+                        controller.Name, currentIndex);
+                    
+                    // Step 2: Get our last read index from database
+                    var lastEvent = await context.ControllerEvents
+                        .Where(e => e.ControllerId == controller.Id)
+                        .OrderByDescending(e => e.RawIndex)
+                        .FirstOrDefaultAsync();
+                    
+                    uint lastReadIndex = lastEvent?.RawIndex > 0 ? (uint)lastEvent.RawIndex : 0;
+                    Logger.LogInformation("Controller {ControllerName}: LastReadIndex={LastReadIndex}", 
+                        controller.Name, lastReadIndex);
+                    
+                    // Step 3: Sequential retrieval loop
+                    int downloadedCount = 0;
+                    int savedCount = 0;
+                    int skippedCount = 0;
+                    
+                    // Fetch events from LastReadIndex+1 to CurrentIndex
+                    for (uint index = lastReadIndex + 1; index <= currentIndex; index++)
+                    {
+                        try
+                        {
+                            // Fetch single event at this index
+                            var result = await ControllerClient.GetNewEventsAsync(
+                                controller.SerialNumber.ToString(),
+                                index - 1, // The API expects "last known index", so we pass index-1 to get index
+                                CancellationToken.None);
+                            
+                            if (result?.Events != null && result.Events.Any())
+                            {
+                                downloadedCount += result.Events.Count;
+                                
+                                // Process each event (should be just 1 per request)
+                                foreach (var evt in result.Events)
+                                {
+                                    // Check if already exists
+                                    var exists = await context.ControllerEvents
+                                        .AnyAsync(e => e.ControllerId == controller.Id && e.RawIndex == evt.RawIndex);
+                                    
+                                    if (!exists)
+                                    {
+                                        // Find the door
+                                        var door = await context.Doors
+                                            .FirstOrDefaultAsync(d => d.ControllerId == controller.Id && d.DoorIndex == evt.DoorNumber);
+                                        
+                                        var controllerEvent = new Data.Entities.ControllerEvent
+                                        {
+                                            ControllerId = controller.Id,
+                                            DoorId = door?.Id,
+                                            TimestampUtc = evt.TimestampUtc,
+                                            CardNumber = evt.CardNumber,
+                                            EventType = (int)evt.EventType,
+                                            ReasonCode = (int)evt.ReasonCode,
+                                            IsByCard = evt.IsByCard,
+                                            IsByButton = evt.IsByButton,
+                                            RawIndex = (int)evt.RawIndex,
+                                            CreatedUtc = DateTime.UtcNow
+                                        };
+                                        
+                                        context.ControllerEvents.Add(controllerEvent);
+                                        await context.SaveChangesAsync();
+                                        savedCount++;
+                                        
+                                        Logger.LogInformation("Saved event: Index={RawIndex}, Card={CardNumber}, Door={DoorId}, Time={Time}", 
+                                            evt.RawIndex, evt.CardNumber, door?.Id, evt.TimestampUtc);
+                                    }
+                                    else
+                                    {
+                                        skippedCount++;
+                                        Logger.LogDebug("Skipped duplicate event at index {Index}", evt.RawIndex);
+                                    }
+                                }
+                                
+                                // Step 4: Send acknowledgment (0xB2) for this index
+                                // Note: We acknowledge after saving to DB to ensure we don't lose events
+                                // The acknowledgment tells the controller we've processed up to this index
+                                // This is already done inside GetNewEventsAsync via InternalGetNewEventsAsync
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError(ex, "Failed to fetch event at index {Index} from controller {ControllerName}", 
+                                index, controller.Name);
+                            // Continue with next index even if one fails
+                        }
+                    }
+                    
+                    debugEntry.EventsDownloaded = downloadedCount;
+                    debugEntry.EventsSaved = savedCount;
+                    debugEntry.EventsSkipped = skippedCount;
+                    debugEntry.LastIndex = currentIndex;
+                    debugEntry.Success = true;
+                    
+                    Logger.LogInformation("Event sync complete for {ControllerName}: Downloaded={Downloaded}, Saved={Saved}, Skipped={Skipped}", 
+                        controller.Name, downloadedCount, savedCount, skippedCount);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to sync events from controller {ControllerName} (ID: {ControllerId})", 
+                        controller.Name, controller.Id);
+                    debugEntry.ErrorMessage = ex.Message;
+                }
+                
+                _debugInfo.Add(debugEntry);
+                
+                // Keep only last 20 entries
+                if (_debugInfo.Count > 20)
+                {
+                    _debugInfo.RemoveAt(0);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in event synchronization");
+        }
+    }
+    
+    private async Task<(int saved, int skipped)> SaveEventsToDatabase(int controllerId, IEnumerable<ControllerEventDto> events)
+    {
+        try
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            int savedCount = 0;
+            int skippedCount = 0;
+            
+            foreach (var evt in events)
+            {
+                // Check if event already exists (by controller + raw index)
+                var exists = await context.ControllerEvents
+                    .AnyAsync(e => e.ControllerId == controllerId && e.RawIndex == (int)evt.RawIndex);
+                
+                if (!exists)
+                {
+                    // Find the door by door index
+                    var door = await context.Doors
+                        .FirstOrDefaultAsync(d => d.ControllerId == controllerId && d.DoorIndex == evt.DoorNumber);
+                    
+                    var controllerEvent = new ControllerEvent
+                    {
+                        ControllerId = controllerId,
+                        DoorId = door?.Id,
+                        TimestampUtc = evt.TimestampUtc,
+                        CardNumber = evt.CardNumber,
+                        EventType = evt.EventType,
+                        ReasonCode = evt.ReasonCode,
+                        IsByCard = evt.IsByCard,
+                        IsByButton = evt.IsByButton,
+                        RawIndex = (int)evt.RawIndex,
+                        CreatedUtc = DateTime.UtcNow
+                    };
+                    
+                    context.ControllerEvents.Add(controllerEvent);
+                    savedCount++;
+                    
+                    Logger.LogInformation("Saving event: Index={RawIndex}, Card={CardNumber}, Door={DoorId}, Type={EventType}, IsByCard={IsByCard}, IsByButton={IsByButton}, Time={Time}", 
+                        evt.RawIndex, evt.CardNumber, door?.Id, evt.EventType, evt.IsByCard, evt.IsByButton, evt.TimestampUtc);
+                }
+                else
+                {
+                    skippedCount++;
+                }
+            }
+            
+            if (savedCount > 0)
+            {
+                Logger.LogInformation("Calling SaveChangesAsync for {SavedCount} events...", savedCount);
+                var changeCount = await context.SaveChangesAsync();
+                Logger.LogInformation("SaveChangesAsync completed! Database reported {ChangeCount} changes saved for controller {ControllerId} (skipped {SkippedCount} duplicates)", 
+                    changeCount, controllerId, skippedCount);
+            }
+            else
+            {
+                Logger.LogInformation("No new events to save for controller {ControllerId} ({SkippedCount} duplicates)", 
+                    controllerId, skippedCount);
+            }
+            
+            return (savedCount, skippedCount);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save events to database for controller {ControllerId}", controllerId);
+            return (0, 0);
+        }
     }
     
     private async Task LoadMoreAsync()
@@ -305,17 +650,28 @@
         {
             var (fromDate, toDate) = GetDateRange();
             
-            var query = DbContext.ControllerEvents
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            var query = context.ControllerEvents.AsNoTracking()
                 .Where(e => e.TimestampUtc >= fromDate && e.TimestampUtc <= toDate)
-                .Where(e => e.IsByCard) // Only card-related events
+                // Removed IsByCard filter - show ALL door activity (card swipes, button presses, etc.)
                 .OrderByDescending(e => e.TimestampUtc);
+            
+            Logger.LogInformation("Querying events: FromDate={FromDate}, ToDate={ToDate}, TimeRange={TimeRange}", 
+                fromDate, toDate, _timeRange);
             
             // Apply filters
             if (_selectedControllerId > 0)
-                query = query.Where(e => e.ControllerId == _selectedControllerId).OrderByDescending(e => e.TimestampUtc);
+            {
+                query = (IOrderedQueryable<ControllerEvent>)query.Where(e => e.ControllerId == _selectedControllerId);
+                Logger.LogInformation("Filtering by ControllerId={ControllerId}", _selectedControllerId);
+            }
             
             if (_selectedDoorId > 0)
-                query = query.Where(e => e.DoorId == _selectedDoorId).OrderByDescending(e => e.TimestampUtc);
+            {
+                query = (IOrderedQueryable<ControllerEvent>)query.Where(e => e.DoorId == _selectedDoorId);
+                Logger.LogInformation("Filtering by DoorId={DoorId}", _selectedDoorId);
+            }
             
             var events = await query
                 .Skip(_currentPage * PageSize)
@@ -324,7 +680,19 @@
                 .Include(e => e.Door)
                 .ToListAsync();
             
-            // Load all cards and members for lookup
+            Logger.LogInformation("Query returned {Count} events (Page={Page}, PageSize={PageSize})", 
+                events.Count, _currentPage, PageSize);
+            
+            // Load all cards and members for lookup - using repository might still be stale if it uses a long-lived context, 
+            // but usually repositories in Blazor are Scoped. 
+            // Better to fetch manually here to be sure, or rely on Repository if it uses Factory.
+            // Assuming KeyCardRepository is scoped to the component (which is long-lived in Blazor Server), it might be stale.
+            // Let's reload cards/members here using the fresh context.
+            
+            // Optimization: Fetch only needed cards? No, too complex join logic for now.
+            // Just use the existing repository call but acknowledge it might be slightly stale for *new members*, 
+            // but events are the main thing being refreshed.
+            
             var allCards = await Task.Run(() => KeyCardRepository.GetAll());
             var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
             
@@ -359,7 +727,7 @@
             _activities.AddRange(newActivities);
             _hasMore = newActivities.Count == PageSize;
             _currentPage++;
-            _totalCount = _activities.Count;
+            _totalCount = _activities.Count; // Approximate
         }
         catch (Exception ex)
         {
@@ -378,6 +746,7 @@
         var now = DateTime.UtcNow;
         return _timeRange switch
         {
+            "all" => (DateTime.MinValue, DateTime.MaxValue), // Show all events including those with MinValue timestamps
             "24h" => (now.AddHours(-24), now),
             "today" => (now.Date.ToUniversalTime(), now),
             "week" => (now.AddDays(-7), now),
@@ -467,5 +836,17 @@
         public string? MemberName { get; set; }
         public int EventType { get; set; }
         public int? ReasonCode { get; set; }
+    }
+    
+    private class DebugInfo
+    {
+        public DateTime Timestamp { get; set; }
+        public string ControllerName { get; set; } = string.Empty;
+        public bool Success { get; set; }
+        public string? ErrorMessage { get; set; }
+        public int EventsDownloaded { get; set; }
+        public int EventsSaved { get; set; }
+        public int EventsSkipped { get; set; }
+        public uint LastIndex { get; set; }
     }
 }

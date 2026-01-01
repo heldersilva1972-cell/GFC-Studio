@@ -13,6 +13,8 @@ public sealed class ControllerEvent
     public ControllerEventType EventType { get; init; }
 
     public uint ReasonCode { get; init; }
+    
+    public uint RawIndex { get; init; }
 
     public bool IsByCard => EventType == ControllerEventType.Granted || EventType == ControllerEventType.Denied;
 

@@ -19,6 +19,17 @@ internal static class WgPayloadFactory
         return payload;
     }
 
+    public static byte[] BuildClearAllCardsPayload(WgCommandProfile profile)
+    {
+        // Safety Password: The sequence 55 AA 55 AA starting at Byte 8 (Payload Offset 0) is mandatory.
+        var payload = Allocate(profile, 56);
+        payload[0] = 0x55;
+        payload[1] = 0xAA;
+        payload[2] = 0x55;
+        payload[3] = 0xAA;
+        return payload;
+    }
+
     public static byte[] BuildSyncTimePayload(WgCommandProfile profile, DateTime utcTime)
     {
         var payload = Allocate(profile, 8);
