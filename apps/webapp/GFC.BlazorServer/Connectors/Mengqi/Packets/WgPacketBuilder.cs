@@ -55,14 +55,20 @@ internal sealed class WgPacketBuilder
         {
             WriteSummationChecksum(span);
         }
+        else if (profile.CommandCode == 0x5A) // 0x5A GetDoorParams uses Tail Sum, so skip CRC (leave 00 00)
+        {
+            // Do nothing here. Bytes 2-3 remain 00 00.
+            // User confirmed: "In this protocol, Bytes 2 and 3 are reserved and should almost always be 00 00... clear out those noise bytes."
+        }
         else
         {
             WriteCrc(span);
         }
 
-        // 5. Special Integrity Check for Privilege Upload (0x50) and Clear (0x54)
+        // 5. Special Integrity Check for Privilege Upload (0x50), Clear (0x54), and GetDoorParams (0x5A)
         // User Requirement: "Byte 63 (the final byte) must contain a 1-byte summation checksum of all preceding 63 bytes."
-        if (profile.CommandCode == 0x50 || profile.CommandCode == 0x54)
+        // Also user Hex Dump for 0x5A showed 00 00 at standard CRC pos and a tail checksum.
+        if (profile.CommandCode == 0x50 || profile.CommandCode == 0x54 || profile.CommandCode == 0x5A)
         {
             long fullSum = 0;
             for (int i = 0; i < 63; i++)

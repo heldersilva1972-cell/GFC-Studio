@@ -482,10 +482,10 @@ public class RealControllerClient : IControllerClient
             return new GFC.BlazorServer.Connectors.Mengqi.Models.DoorHardwareConfig
             {
                 DoorIndex = d.DoorIndex,
-                ControlMode = cfg?.ControlMode ?? 3,
-                RelayDelay = (byte)(cfg?.OpenTimeSeconds ?? 5),
+                ControlMode = (GFC.BlazorServer.Connectors.Mengqi.Models.DoorControlMode)(cfg?.ControlMode ?? 3),
+                UnlockDuration = (byte)(cfg?.OpenTimeSeconds ?? 5),
                 SensorType = cfg?.SensorType ?? 0,
-                Interlock = cfg?.Interlock ?? 0
+                Interlock = (GFC.BlazorServer.Connectors.Mengqi.Models.DoorInterlockMode)(cfg?.Interlock ?? 0)
             };
         });
 

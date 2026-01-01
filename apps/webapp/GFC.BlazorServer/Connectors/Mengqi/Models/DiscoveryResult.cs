@@ -15,4 +15,7 @@ public sealed class DiscoveryResult
     public string AllowedPcIp { get; init; } = string.Empty;
     public byte[] DoorModes { get; init; } = new byte[4];
     public byte[] DoorDelays { get; init; } = new byte[4];
+    public byte[] Interlocks { get; init; } = new byte[4];
+    public byte[] DoorAjarTimeouts { get; init; } = new byte[4];
+    public byte[] Verifications { get; init; } = new byte[4];
 }

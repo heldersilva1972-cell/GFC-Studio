@@ -66,19 +66,92 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
 
     public async Task<DiscoveryResult?> GetHardwareInfoAsync(uint controllerSn, CancellationToken cancellationToken = default)
     {
-        // Use 0x94 (Search) targeted at a specific SN
+        // 1. Basic Discovery (0x94) - Gets generic Modes/Delays (may be summary data)
         var response = await _dispatcher.SendAsync(controllerSn, _commands.Search, Array.Empty<byte>(), cancellationToken).ConfigureAwait(false);
         if (response.Length < 64) return null;
         
+        DiscoveryResult? info = null;
         try 
         {
-            return WgResponseParser.ParseDiscovery(response);
+            info = WgResponseParser.ParseDiscovery(response);
         }
         catch (Exception ex)
         {
-            _logger?.LogDebug(ex, "Failed to parse hardware info response for {Sn}", controllerSn);
+            _logger?.LogDebug(ex, "Failed to parse discovery response for {Sn}", controllerSn);
             return null;
         }
+
+            // 2. Fetch Detailed Door Params (0x5A) for each door to be precise
+        // Request: 17 5A ... [DoorIndex] ...
+        // Response: [ControlMode] [Delay] [Interlock] ...
+        
+        try
+        {
+            // Start with what we found in discovery (Search 0x94) as a baseline
+            var collectedModes = info.DoorModes ?? new byte[4];
+            var collectedDelays = info.DoorDelays ?? new byte[4];
+            var collectedInterlocks = new byte[4];
+            var collectedAjars = new byte[4];
+            var collectedVerifications = new byte[4];
+            
+            for (int i = 1; i <= 4; i++)
+            {
+                try
+                {
+                    var paramsPayload = WgPayloadFactory.BuildGetDoorParamsPayload(_commands.GetDoorParams, i);
+                    var paramsResp = await _dispatcher.SendAsync(controllerSn, _commands.GetDoorParams, paramsPayload, cancellationToken).ConfigureAwait(false);
+                    
+                    // If we get a valid ACK/Response
+                    if (paramsResp.Length >= 64)
+                    {
+                        var hex = BitConverter.ToString(paramsResp.ToArray());
+                        _logger?.LogInformation("Door {I} Raw 0x5A Response: {Hex}", i, hex);
+
+                        var doorConfig = WgResponseParser.ParseDoorParams(paramsResp, i);
+                        
+                        // Unconditionally trust the 0x5A response as it is a specific hardware query.
+                        collectedModes[i - 1] = (byte)doorConfig.ControlMode;
+                        collectedDelays[i - 1] = doorConfig.UnlockDuration;
+                        collectedInterlocks[i - 1] = (byte)doorConfig.Interlock;
+                        collectedAjars[i - 1] = doorConfig.DoorAjarTimeout;
+                        collectedVerifications[i - 1] = (byte)doorConfig.Verification;
+                        
+                        _logger?.LogDebug("Door {I} 0x5A Params: Mode={M}, Delay={D}", i, doorConfig.ControlMode, doorConfig.UnlockDuration);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning("Door {I} 0x5A fetch failed: {Message}", i, ex.Message);
+                    // Continue to next door
+                }
+            }
+            
+            // Update info with merged data
+            info = new DiscoveryResult
+            {
+                SerialNumber = info.SerialNumber,
+                IpAddress = info.IpAddress,
+                SubnetMask = info.SubnetMask,
+                Gateway = info.Gateway,
+                MacAddress = info.MacAddress,
+                FirmwareVersion = info.FirmwareVersion,
+                ControllerDate = info.ControllerDate,
+                Port = info.Port,
+                AllowedPcIp = info.AllowedPcIp,
+                DoorModes = collectedModes,
+                DoorDelays = collectedDelays,
+                Interlocks = collectedInterlocks,
+                DoorAjarTimeouts = collectedAjars,
+                Verifications = collectedVerifications
+            };
+        }
+        catch (Exception ex)
+        {
+             _logger?.LogWarning("Detailed door param fetch (0x5A) failed or partial: {Message}. Falling back to discovery summary.", ex.Message);
+             // Return 'info' as-is from initial discovery if detailed fetch fails
+        }
+        
+        return info;
     }
 
     public async Task DeleteCardAsync(uint controllerSn, long cardNumber, CancellationToken cancellationToken = default)
@@ -274,10 +347,10 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
                 // Active Door (Step 3) - Enable physical doors
                 var config = configList.FirstOrDefault(c => c.DoorIndex == i);
                 
-                byte mode = config?.ControlMode ?? 0x03;
-                byte delay = config?.RelayDelay ?? 0x05;
-                byte sensor = config?.SensorType ?? 0x00;
-                byte interlock = config?.Interlock ?? 0x00;
+                byte mode = config != null ? (byte)config.ControlMode : (byte)0x03;
+                byte delay = config?.UnlockDuration ?? 0x05;
+                byte sensor = config?.SensorType ?? 0x00; 
+                byte interlock = config != null ? (byte)config.Interlock : (byte)0x00;
 
                 await SetDoorConfigAsync(controllerSn, i, mode, delay, sensor, interlock, cancellationToken);
                 _logger?.LogInformation("Configured Door {DoorIndex} (Mode={Mode}, Delay={Delay}s) for controller {Sn}", i, mode, delay, controllerSn);

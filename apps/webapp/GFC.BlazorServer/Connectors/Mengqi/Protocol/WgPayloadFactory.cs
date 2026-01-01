@@ -167,6 +167,25 @@ internal static class WgPayloadFactory
         return payload;
     }
 
+    public static byte[] BuildGetDoorParamsPayload(WgCommandProfile profile, int doorIndex)
+    {
+        // 0x5A Request: 
+        // Byte 8: Door Index (Payload[0])
+        // Bytes 9-12: Safety Password (55 AA 55 AA) (Payload[1-4])
+        // Validated by USER: "Put the Password 55 AA 55 AA at Bytes 9, 10, 11, and 12."
+        
+        var payload = Allocate(profile, 5); 
+        payload[0] = (byte)doorIndex; 
+        
+        // Safety Password
+        payload[1] = 0x55;
+        payload[2] = 0xAA;
+        payload[3] = 0x55;
+        payload[4] = 0xAA;
+        
+        return payload;
+    }
+
     private static byte[] Allocate(WgCommandProfile profile, int minimumLength)
     {
         var length = profile.RequestPayloadLength > 0 ? profile.RequestPayloadLength : minimumLength;

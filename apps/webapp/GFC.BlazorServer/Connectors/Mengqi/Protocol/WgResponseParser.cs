@@ -269,6 +269,40 @@ internal static class WgResponseParser
         };
     }
 
+    /// <summary>
+    /// Parses the response from command 0x5A "Get Door Parameters"
+    /// Request: 17 5A ... 01 ... (Door Index)
+    /// Response: Byte 8=ControlMode, 9=Delay, 10=Interlock, 12=Timeout, 13=Verify
+    /// </summary>
+    public static DoorHardwareConfig ParseDoorParams(ReadOnlySpan<byte> packet, int doorIndex)
+    {
+        var payload = GetPayload(packet); 
+        // GetPayload returns packet[4..]. 
+        // Packet Byte 8  => Payload[4] (Control Mode)
+        // Packet Byte 9  => Payload[5] (Unlock Duration)
+        // Packet Byte 10 => Payload[6] (Interlock)
+        // Packet Byte 11 => Payload[7] (Unused/Reserved)
+        // Packet Byte 12 => Payload[8] (Door Ajar Timeout)
+        // Packet Byte 13 => Payload[9] (Verification)
+
+        if (payload.Length < 10) // Need at least up to Payload[9]
+        {
+             // Fallback or empty if too short
+             return new DoorHardwareConfig { DoorIndex = doorIndex };
+        }
+
+        return new DoorHardwareConfig
+        {
+            DoorIndex = doorIndex,
+            ControlMode = (DoorControlMode)payload[4],
+            UnlockDuration = payload[5], 
+            Interlock = (DoorInterlockMode)payload[6],
+            SensorType = payload[7], // Byte 11, presumed Sensor Type
+            DoorAjarTimeout = payload[8],
+            Verification = (DoorVerificationMode)payload[9]
+        };
+    }
+
     private static int BcdToInt(byte bcd) => DecodeBcd(bcd);
 
     public static int DecodeBcd(byte bcd)
