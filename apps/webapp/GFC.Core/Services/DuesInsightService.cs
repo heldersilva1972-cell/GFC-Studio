@@ -46,8 +46,12 @@ public class DuesInsightService : IDuesInsightService
 
             duesLookup.TryGetValue(member.MemberID, out var record);
             var status = MapStatus(member.Status);
-            var isWaived = record != null && string.Equals(record.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
-            var isPaid = record != null && (record.PaidDate.HasValue || isWaived);
+            var isBoardMember = _boardRepository.IsBoardMemberForYear(member.MemberID, year);
+            var isLife = status == MemberStatus.Life;
+
+            var recordIsWaived = record != null && string.Equals(record.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
+            var isWaived = recordIsWaived || isLife || isBoardMember;
+            var isPaid = (record != null && record.PaidDate.HasValue) || isWaived;
 
             if (paidTab && !isPaid)
             {
@@ -68,8 +72,6 @@ public class DuesInsightService : IDuesInsightService
                     overdueMonths = overdueResult.MonthsOverdue;
                 }
             }
-
-            var isBoardMember = _boardRepository.IsBoardMemberForYear(member.MemberID, year);
 
             list.Add(new DuesListItemDto(
                 member.MemberID,
