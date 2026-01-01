@@ -140,17 +140,66 @@
                                 <div class="bg-surface-subtle rounded-3 p-3 border border-glass h-100">
                                     <div class="d-flex justify-content-between align-items-center mb-3">
                                         <h5 class="section-title mb-0 text-primary"><i class="bi bi-stopwatch me-2"></i>Hardware Timers</h5>
-                                        @if (_hwDiscovery != null && _selectedDoor != null)
+                                        @* Check Hardware Button (always visible if controller is online) *@
+                                        @if (Controller?.IsEnabled == true)
                                         {
-                                            var hwMode = _hwDiscovery.DoorModes[_selectedDoor.DoorIndex - 1];
-                                            var isInSync = hwMode == _doorConfig?.ControlMode;
-                                            <span class="badge @(isInSync ? "bg-success" : "bg-warning") cursor-pointer" title="Hardware Sync Status - Click to Verify Mode (0x94)" @onclick="RefreshHardwareInfo">
-                                                <i class="bi @(isInSync ? "bi-cpu-fill" : "bi-exclamation-circle") me-1"></i>
-                                                HW Mode: @GetHwModeText(hwMode)
-                                                <i class="bi bi-arrow-clockwise ms-2 opacity-50"></i>
-                                            </span>
+                                             <button class="btn btn-sm btn-link text-decoration-none p-0" @onclick="RefreshHardwareInfo" disabled="@_isCheckingHardware">
+                                                <i class="bi bi-arrow-clockwise @(_isCheckingHardware ? "spin" : "")"></i> 
+                                                @(_isCheckingHardware ? "Verifying..." : "Check Status")
+                                            </button>
                                         }
                                     </div>
+
+                                    @if (_selectedDoor != null && _doorConfig != null)
+                                    {
+                                        // Verification Logic variables
+                                        bool hasRunCheck = _hwDiscovery != null;
+                                        byte? hwMode = null;
+                                        int? hwTimer = null;
+                                        bool isModeSynced = false;
+                                        bool isTimerSynced = false;
+
+                                        if (_hwDiscovery != null && _hwDiscovery.DoorModes.Length >= _selectedDoor.DoorIndex)
+                                        {
+                                            hwMode = _hwDiscovery.DoorModes[_selectedDoor.DoorIndex - 1];
+                                            isModeSynced = hwMode == _doorConfig.ControlMode;
+                                        }
+
+                                        if (_hwDiscovery != null && _hwDiscovery.DoorDelays != null && _hwDiscovery.DoorDelays.Length >= _selectedDoor.DoorIndex)
+                                        {
+                                                hwTimer = _hwDiscovery.DoorDelays[_selectedDoor.DoorIndex - 1];
+                                                isTimerSynced = hwTimer == _doorConfig.OpenTimeSeconds;
+                                        }
+
+                                        <div class="hardware-status-row mb-4">
+                                            @if (!hasRunCheck)
+                                            {
+                                                <div class="status-item status-neutral">
+                                                    <i class="bi bi-question-circle"></i> Status Unknown
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <!-- Mode Status -->
+                                                <div class="status-item @(isModeSynced ? "status-success" : "status-danger")" title="@(isModeSynced ? "Matches Database" : $"Hardware is set to {GetHwModeText(hwMode ?? 0)}")">
+                                                    <i class="bi @(isModeSynced ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                                    <span>Config: @(isModeSynced ? "Synced" : "Mismatch")</span>
+                                                </div>
+
+                                                <!-- Timer Status -->
+                                                <div class="status-item @((hwTimer.HasValue && !isTimerSynced) ? "status-danger" : (isTimerSynced ? "status-success" : "status-neutral"))">
+                                                    @if (hwTimer.HasValue && !isTimerSynced)
+                                                    {
+                                                        <i class="bi bi-hourglass-split"></i> <span>Timer: HW @hwTimer s</span>
+                                                    }
+                                                    else if (isTimerSynced)
+                                                    {
+                                                        <i class="bi bi-check-circle-fill"></i> <span>Timer: Synced</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
                                     
                                     @if (_doorConfig != null)
                                     {
@@ -248,34 +297,7 @@
     </div>
 </div>
 
-<style>
-    .door-list-item {
-        padding: 1rem;
-        border-bottom: 1px solid var(--glass-border);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        transition: all 0.2s;
-    }
-    .door-list-item:hover { background: rgba(var(--accent-primary-rgb), 0.05); }
-    .door-list-item.active { 
-        background: rgba(var(--accent-primary-rgb), 0.1); 
-        border-left: 3px solid var(--accent-primary);
-    }
-    .door-icon-small {
-        width: 32px; height: 32px;
-        background: var(--bg-surface);
-        border: 1px solid var(--glass-border);
-        border-radius: 8px;
-        display: flex; align-items: center; justify-content: center;
-        font-weight: bold; font-size: 0.8rem;
-        color: var(--accent-primary);
-    }
-    .text-xs { font-size: 0.75rem; }
-    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 3px; }
-</style>
+
 
 @code {
     [Parameter] public ControllerDevice? Controller { get; set; }
@@ -304,14 +326,27 @@
         }
     }
 
+    private bool _isCheckingHardware = false;
+
     private async Task RefreshHardwareInfo()
     {
         if (Controller == null || !Controller.IsEnabled) return;
+        _isCheckingHardware = true; 
         try 
         {
+            // 1. Get Hardware Info (Contains both Door Modes and Timers)
             _hwDiscovery = await ControllerClient.GetHardwareInfoAsync(Controller.SerialNumberDisplay);
+            
+            // ToastService.ShowInfo("Status updated."); // Optional: noisy if auto-refreshing
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Failed to verify hardware info: {Message}", ex.Message);
+        }
+        finally 
+        {
+            _isCheckingHardware = false;
+        }
     }
 
     private async Task LoadDoors()
