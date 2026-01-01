@@ -12,17 +12,20 @@ public class DuesInsightService : IDuesInsightService
     private readonly IMemberRepository _memberRepository;
     private readonly OverdueCalculationService _overdueService;
     private readonly IBoardRepository _boardRepository;
+    private readonly IDuesWaiverRepository _waiverRepository;
 
     public DuesInsightService(
         IDuesRepository duesRepository,
         IMemberRepository memberRepository,
         OverdueCalculationService overdueService,
-        IBoardRepository boardRepository)
+        IBoardRepository boardRepository,
+        IDuesWaiverRepository waiverRepository)
     {
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _overdueService = overdueService ?? throw new ArgumentNullException(nameof(overdueService));
         _boardRepository = boardRepository ?? throw new ArgumentNullException(nameof(boardRepository));
+        _waiverRepository = waiverRepository ?? throw new ArgumentNullException(nameof(waiverRepository));
     }
 
     public async Task<IReadOnlyList<DuesListItemDto>> GetDuesAsync(int year, bool paidTab, CancellationToken cancellationToken = default)
@@ -38,6 +41,10 @@ public class DuesInsightService : IDuesInsightService
                      && !string.Equals(m.Status, "DECEASED", StringComparison.OrdinalIgnoreCase))
             .ToList();
         var duesLookup = duesTask.Result.ToDictionary(d => d.MemberID, d => d);
+
+        // Fetch all waivers for this year
+        var allWaivers = await Task.Run(() => _waiverRepository.GetWaiversForYear(year), cancellationToken);
+        var waiverLookup = allWaivers.ToDictionary(w => w.MemberId, w => w);
 
         var list = new List<DuesListItemDto>();
         foreach (var member in members)
@@ -73,6 +80,28 @@ public class DuesInsightService : IDuesInsightService
                 }
             }
 
+            // Determine waiver reason
+            string? waiverReason = null;
+            if (isWaived)
+            {
+                if (isLife)
+                {
+                    waiverReason = "Life Member";
+                }
+                else if (isBoardMember)
+                {
+                    waiverReason = "Board Member";
+                }
+                else if (waiverLookup.TryGetValue(member.MemberID, out var waiver))
+                {
+                    waiverReason = waiver.Reason;
+                }
+                else if (recordIsWaived)
+                {
+                    waiverReason = record?.Notes ?? "Waived";
+                }
+            }
+
             list.Add(new DuesListItemDto(
                 member.MemberID,
                 FormatMemberName(member),
@@ -83,6 +112,7 @@ public class DuesInsightService : IDuesInsightService
                 record?.PaymentType ?? string.Empty,
                 overdueMonths,
                 isWaived,
+                waiverReason,
                 record?.Notes ?? string.Empty,
                 isBoardMember));
         }

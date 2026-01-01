@@ -8,6 +8,7 @@ namespace GFC.Core.Interfaces;
 public interface IDuesWaiverRepository
 {
     List<DuesWaiverPeriod> GetWaiversForMember(int memberId);
+    List<DuesWaiverPeriod> GetWaiversForYear(int year);
     void AddWaiver(DuesWaiverPeriod waiver);
     void DeleteWaiver(int waiverId);
 }

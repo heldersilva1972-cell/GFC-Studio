@@ -12,6 +12,7 @@ public record DuesListItemDto(
     string PaymentType,
     int MonthsOverdue,
     bool IsWaived,
+    string? WaiverReason,
     string Notes,
     bool IsBoardMember);
 
