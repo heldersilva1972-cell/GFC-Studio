@@ -34,9 +34,11 @@ public class ControllerStatusMonitorService : IHostedService
             
             if (controllers.Any())
             {
-                // Start monitoring with 3-second intervals
-                _statusMonitor.StartMonitoring(controllers, TimeSpan.FromSeconds(3));
-                _logger.LogInformation("Controller Status Monitor started for {Count} controllers", controllers.Count());
+                // Start monitoring with 60-second intervals to reduce traffic (Heartbeat only)
+                // "Run only when something happens" -> We can't be purely event-driven with UDP, 
+                // but 60s is much less aggressive than 3s.
+                _statusMonitor.StartMonitoring(controllers, TimeSpan.FromSeconds(60));
+                _logger.LogInformation("Controller Status Monitor started for {Count} controllers (Interval: 60s)", controllers.Count());
             }
             else
             {

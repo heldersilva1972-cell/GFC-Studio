@@ -80,16 +80,26 @@ internal static class WgPayloadFactory
         // 3. End Date (4 bytes: Cent, Year, Month, Day)
         WriteDate(span[8..12], model.ValidTo ?? new DateTime(2029, 12, 31));
 
-        // 4. Door Control (Offsets 12-15)
-        // Even if DoorMask is provided, we prefer DoorList if available for clarity
+        // 4. Door Control (Offset 12 / Packet Byte 20)
+        // User request: "Accept a byte mask for Byte 20 (0x01 for Door 1, 0x02 for Door 2, 0x03 for both)."
+        // Previous logic spread this across 4 bytes. We now write the mask to a single byte.
         byte mask = model.DoorMask != 0 ? model.DoorMask : BuildDoorMask(model.DoorList);
-        span[12] = (byte)((mask & 0x01) > 0 ? 1 : 0); // Door 1
-        span[13] = (byte)((mask & 0x02) > 0 ? 1 : 0); // Door 2
-        span[14] = (byte)((mask & 0x04) > 0 ? 1 : 0); // Door 3 (Disabled)
-        span[15] = (byte)((mask & 0x08) > 0 ? 1 : 0); // Door 4 (Disabled)
+        span[12] = mask; 
+        span[13] = 0; // Reserved/Padding
+        span[14] = 0; // Reserved/Padding
+        span[15] = 0; // Reserved/Padding
 
-        // The user's verified hex shows the rest of the 56-byte payload (Packet Offset 24-63) is 0.
-        // Allocate(profile, 56) already zero-initializes.
+        // 5. Payload Checksum (Byte 63 / Payload Offset 55)
+        // User request: "Calculate a 1-byte summation checksum for the final byte (Byte 63)."
+        // We sum bytes 0-54 of the payload and store the result in byte 55.
+        // Packet length 64 bytes. Header 8 bytes. Payload 56 bytes.
+        // Payload[55] IS Packet[63].
+        int sum = 0;
+        for (int i = 0; i < 55; i++)
+        {
+            sum += span[i];
+        }
+        span[55] = (byte)(sum & 0xFF);
 
         return payload;
     }

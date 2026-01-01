@@ -60,6 +60,18 @@ internal sealed class WgPacketBuilder
             WriteCrc(span);
         }
 
+        // 5. Special Integrity Check for Privilege Upload (0x50)
+        // User Requirement: "Byte 63 (the final byte) must contain a 1-byte summation checksum of all preceding 63 bytes."
+        if (profile.CommandCode == 0x50)
+        {
+            long fullSum = 0;
+            for (int i = 0; i < 63; i++)
+            {
+                fullSum += span[i];
+            }
+            span[63] = (byte)(fullSum & 0xFF);
+        }
+
         return buffer;
     }
 

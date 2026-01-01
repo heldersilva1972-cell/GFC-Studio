@@ -112,11 +112,24 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         uint lastKnownIndex,
         CancellationToken cancellationToken = default)
     {
+        // User Requirement: "When you send the next 0xB0 (Get Log) command, place LastIndex + 1 into the payload"
+        // We assume lastKnownIndex is the index of the *last record we have*.
+        // Therefore, we request starting from lastKnownIndex + 1.
+        uint startIndex = lastKnownIndex + 1;
+                         
         var payload = new byte[4];
-        BitConverter.GetBytes(lastKnownIndex).CopyTo(payload, 0);
+        BitConverter.GetBytes(startIndex).CopyTo(payload, 0);
         var response = await _dispatcher.SendAsync(controllerSn, _commands.GetEvents, payload, cancellationToken).ConfigureAwait(false);
         WgResponseParser.EnsureAck(response, _commands.GetEvents);
         return WgResponseParser.ParseEvents(response);
+    }
+    
+    public async Task AcknowledgeEventsAsync(uint controllerSn, uint eventsReadIndex, CancellationToken cancellationToken = default)
+    {
+        // User Requirement: "Occasionally send the 0xB2 (Acknowledgment) command with your LastReadIndex"
+        var payload = new byte[4];
+        BitConverter.GetBytes(eventsReadIndex).CopyTo(payload, 0);
+        await SendAndExpectAck(controllerSn, _commands.AckEvents, payload, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<MengqiModels.RunStatusModel> GetRunStatusAsync(uint controllerSn, CancellationToken cancellationToken = default)

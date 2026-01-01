@@ -185,7 +185,7 @@ public class RealControllerClient : IControllerClient
                  TimestampUtc = e.TimestampUtc,
                  CardNumber = e.CardNumber,
                  EventType = (int)e.EventType,
-                 ReasonCode = e.ReasonCode,
+                 ReasonCode = (int)e.ReasonCode,
                  IsByCard = e.IsByCard,
                  IsByButton = e.IsByExitButton
              }).ToList();
@@ -366,7 +366,6 @@ public class RealControllerClient : IControllerClient
         try {
             var (events, newLastIndex) = await _mengqiClient.GetNewEventsAsync(sn, lastIndex, ct);
             // Map events
-             // Map events
              var resultEvents = events.Select((e, i) => new ControllerEventDto 
              {
                  RawIndex = lastIndex + (uint)i + 1, // Infer index based on offset from lastIndex
@@ -374,11 +373,24 @@ public class RealControllerClient : IControllerClient
                  TimestampUtc = e.TimestampUtc,
                  CardNumber = e.CardNumber,
                  EventType = (int)e.EventType,
-                 ReasonCode = e.ReasonCode,
+                 ReasonCode = (int)e.ReasonCode,
                  IsByCard = e.IsByCard,
                  IsByButton = e.IsByExitButton
              }).ToList();
              
+             // User Requirement: "Occasionally send the 0xB2 (Acknowledgment) command with your LastReadIndex"
+             if (newLastIndex > lastIndex && events.Any())
+             {
+                 try 
+                 {
+                     await _mengqiClient.AcknowledgeEventsAsync(sn, newLastIndex, ct);
+                 }
+                 catch (Exception ex)
+                 {
+                     _logger.LogWarning(ex, "Failed to send Event Acknowledgment (0xB2) to controller {Sn}", sn);
+                 }
+             }
+
              return new ControllerEventsResultDto { 
                  LastIndex = newLastIndex,
                  Events = resultEvents

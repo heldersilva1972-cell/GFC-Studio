@@ -49,6 +49,12 @@ public interface IMengqiControllerClient
     Task<(IReadOnlyList<ControllerEvent> Events, uint ControllerLastIndex)> GetNewEventsAsync(uint controllerSn, uint lastKnownIndex, CancellationToken cancellationToken = default);
 
     /// <summary>
+    ///     Sends an acknowledgement to the controller indicating which event index has been successfully processed.
+    ///     This allows the controller to overwrite old events in its buffer.
+    /// </summary>
+    Task AcknowledgeEventsAsync(uint controllerSn, uint eventsReadIndex, CancellationToken cancellationToken = default);
+
+    /// <summary>
     ///     Retrieves the current run/status block (doors, relays, sensors) from the controller.
     /// </summary>
     Task<RunStatusModel> GetRunStatusAsync(uint controllerSn, CancellationToken cancellationToken = default);

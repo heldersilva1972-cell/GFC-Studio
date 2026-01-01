@@ -44,6 +44,7 @@ public sealed class ControllerCommandProfiles
     public WgCommandProfile Reboot { get; set; } = WgCommandProfile.Unconfigured(nameof(Reboot));
     public WgCommandProfile Search { get; set; } = WgCommandProfile.Unconfigured(nameof(Search));
     public WgCommandProfile SetDoorConfig { get; set; } = WgCommandProfile.Unconfigured(nameof(SetDoorConfig));
+    public WgCommandProfile AckEvents { get; set; } = WgCommandProfile.Unconfigured(nameof(AckEvents));
     
     public WgCommandProfile ResetPrivileges { get; set; } = WgCommandProfile.Unconfigured(nameof(ResetPrivileges));
     public WgCommandProfile ResetPrivilegeIndex { get; set; } = WgCommandProfile.Unconfigured(nameof(ResetPrivilegeIndex));
