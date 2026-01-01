@@ -263,22 +263,24 @@ public class RealControllerClient : IControllerClient
 
              _logger.LogInformation("Controller {Sn} is ONLINE.", sn);
 
-             // Automatic Time Sync Logic (Step-by-step per user request)
+             // Automatic Time Sync Logic
+             // User Requirement: "only synchronize the clock once every 24 hours or upon system reboot."
+             // efficient check: If year < 2025, it's likely a reboot/loss of power (defaulting to 2000).
              if (status.ControllerTime.HasValue)
              {
-                 var drift = Math.Abs((DateTime.Now - status.ControllerTime.Value).TotalSeconds);
-                 if (drift > 5) 
+                 if (status.ControllerTime.Value.Year < 2025)
                  {
-                     _logger.LogInformation("Controller {Sn} time drift detected ({Drift:F1}s). Syncing automatically...", sn, drift);
+                     _logger.LogWarning("Controller {Sn} date invalid ({Date}). Triggering Reboot Recovery Time Sync...", sn, status.ControllerTime.Value);
                      try 
                      {
                          await _mengqiClient.SyncTimeAsync(sn, DateTime.Now, cancellationToken).ConfigureAwait(false);
                      }
                      catch (Exception ex)
                      {
-                         _logger.LogWarning(ex, "Automatic time sync failed for controller {Sn}", sn);
+                         _logger.LogWarning(ex, "Recovery time sync failed for controller {Sn}", sn);
                      }
                  }
+                 // Note: Daily 24h sync should be handled by a scheduled task, not this polling loop.
              }
 
              return new AgentRunStatusDto 
