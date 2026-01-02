@@ -1850,11 +1850,18 @@
     {
         try
         {
+            // Clear previous identification first
+            _identifyError = string.Empty;
+            _identifiedCard = null;
+            _identifiedMemberName = string.Empty;
+            _identifiedMemberId = 0;
+            
             // 1. Find card
             var card = await Task.Run(() => KeyCardRepository.GetByCardNumber(cardNumber));
             if (card == null)
             {
                 _identifyError = "Card not found in system.";
+                StateHasChanged();
                 return;
             }
 
@@ -1862,11 +1869,16 @@
             if (!_allMembers.Any()) await LoadMembersAsync();
             var member = _allMembers.FirstOrDefault(m => m.MemberID == card.MemberId);
             
+            if (member == null)
+            {
+                _identifyError = $"Card #{cardNumber} is not assigned to any member.";
+                StateHasChanged();
+                return;
+            }
+            
             _identifiedCard = card;
             _identifiedMemberId = card.MemberId;
-            _identifiedMemberName = member != null 
-                ? $"{member.FirstName} {member.LastName}" 
-                : "Unknown Member";
+            _identifiedMemberName = $"{member.FirstName} {member.LastName}";
 
             StateHasChanged();
         }
@@ -1874,6 +1886,11 @@
         {
             Logger.LogError(ex, "Error identifying card {CardNumber}", cardNumber);
             _identifyError = "Error identifying card. Please try again.";
+            // Clear any partial data on error
+            _identifiedCard = null;
+            _identifiedMemberName = string.Empty;
+            _identifiedMemberId = 0;
+            StateHasChanged();
         }
     }
 
