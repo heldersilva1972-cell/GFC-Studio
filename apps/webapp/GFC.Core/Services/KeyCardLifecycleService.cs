@@ -11,7 +11,7 @@ public class KeyCardLifecycleService
 {
     private readonly IKeyCardRepository _keyCardRepository;
     private readonly IMemberRepository _memberRepository;
-    private readonly IControllerSyncQueueRepository _syncQueueRepository;
+    private readonly IImmediateSyncDispatcher _syncDispatcher;
     private readonly ICardDeactivationLogRepository _deactivationLogRepository;
     private readonly IDuesRepository _duesRepository;
     private readonly IDuesYearSettingsRepository _settingsRepository;
@@ -22,7 +22,7 @@ public class KeyCardLifecycleService
     public KeyCardLifecycleService(
         IKeyCardRepository keyCardRepository,
         IMemberRepository memberRepository,
-        IControllerSyncQueueRepository syncQueueRepository,
+        IImmediateSyncDispatcher syncDispatcher,
         ICardDeactivationLogRepository deactivationLogRepository,
         IDuesRepository duesRepository,
         IDuesYearSettingsRepository settingsRepository,
@@ -32,7 +32,7 @@ public class KeyCardLifecycleService
     {
         _keyCardRepository = keyCardRepository;
         _memberRepository = memberRepository;
-        _syncQueueRepository = syncQueueRepository;
+        _syncDispatcher = syncDispatcher;
         _deactivationLogRepository = deactivationLogRepository;
         _duesRepository = duesRepository;
         _settingsRepository = settingsRepository;
@@ -177,38 +177,29 @@ public class KeyCardLifecycleService
 
         try
         {
-            // Mark as out of sync since we are about to queue a change
+            // Mark as out of sync since we are about to trigger a change
             if (card.IsControllerSynced)
             {
                 card.IsControllerSynced = false;
                 _keyCardRepository.Update(card);
             }
 
-            // Queue for background processing
-            await QueueSyncAsync(keyCardId, card.CardNumber, activate, null);
+            // Dispatch immediate sync (internally handles queuing)
+            await _syncDispatcher.DispatchSyncAsync(keyCardId, activate, ct);
             
-            _logger.LogInformation("Queued card {CardNumber} for {Action}", 
+            _logger.LogInformation("Dispatched sync for card {CardNumber} ({Action})", 
                 card.CardNumber, activate ? "ACTIVATE" : "DEACTIVATE");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to queue card {CardNumber} for sync", card.CardNumber);
-            await QueueSyncAsync(keyCardId, card.CardNumber, activate, ex.Message);
+            _logger.LogError(ex, "Failed to dispatch card {CardNumber} for sync", card.CardNumber);
         }
     }
 
-    private async Task QueueSyncAsync(int keyCardId, string cardNumber, bool activate, string? error)
+    private Task QueueSyncAsync(int keyCardId, string cardNumber, bool activate, string? error)
     {
-        await _syncQueueRepository.AddAsync(new ControllerSyncQueueItem
-        {
-            KeyCardId = keyCardId,
-            CardNumber = cardNumber,
-            Action = activate ? "ACTIVATE" : "DEACTIVATE",
-            QueuedDate = DateTime.Now,
-            LastError = error,
-            Status = "PENDING",
-            AttemptCount = 0
-        });
+        // Redirecting historically queued calls to dispatcher too if any exist
+        return _syncDispatcher.DispatchSyncAsync(keyCardId, activate);
     }
 
     /// <summary>

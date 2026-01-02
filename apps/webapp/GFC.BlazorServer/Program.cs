@@ -164,6 +164,7 @@ public class Program
         // Key Card Lifecycle & Sync Services
         builder.Services.AddScoped<IControllerSyncQueueRepository, ControllerSyncQueueRepository>();
         builder.Services.AddScoped<ICardDeactivationLogRepository, CardDeactivationLogRepository>();
+        builder.Services.AddScoped<IImmediateSyncDispatcher, ImmediateSyncDispatcher>();
         builder.Services.AddScoped<KeyCardLifecycleService>();
         builder.Services.AddHostedService<ControllerSyncWorker>();
         builder.Services.AddHostedService<CardLifecycleBackgroundService>();

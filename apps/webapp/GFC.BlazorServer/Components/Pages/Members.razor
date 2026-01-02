@@ -13,6 +13,10 @@
 @inject ILogger<Members> Logger
 @inject NavigationManager NavManager
 @inject IKeyCardRepository KeyCardRepository
+@inject IDuesRepository DuesRepository
+@inject IBoardRepository BoardRepository
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject KeyCardService CardService
 @implements IDisposable
 
 <div class="page-header align-items-center mb-4">
@@ -798,15 +802,31 @@ else
 
         try
         {
+            var year = DateTime.Today.Year;
             var listTask = MemberQueryService.GetMembersAsync(new MemberFilterOptions());
             var detailsTask = Task.Run(() => MemberRepository.GetAllMembers());
             var cardsTask = Task.Run(() => KeyCardRepository.GetAll());
+            var duesCurrentTask = Task.Run(() => DuesRepository.GetDuesForYear(year));
+            var duesPrevTask = Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
+            var boardCurrentTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
+            var boardPrevTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
 
-            await Task.WhenAll(listTask, detailsTask, cardsTask);
+            await Task.WhenAll(
+                listTask, detailsTask, cardsTask, 
+                duesCurrentTask, duesPrevTask, 
+                boardCurrentTask, boardPrevTask, settingsTask
+            );
 
             var list = listTask.Result;
             var detailsLookup = detailsTask.Result.ToDictionary(m => m.MemberID);
             var allCards = cardsTask.Result;
+            
+            var duesCurrent = duesCurrentTask.Result.ToDictionary(d => d.MemberID);
+            var duesPrev = duesPrevTask.Result.ToDictionary(d => d.MemberID);
+            var boardCurrent = boardCurrentTask.Result.Select(a => a.MemberID).ToHashSet();
+            var boardPrev = boardPrevTask.Result.Select(a => a.MemberID).ToHashSet();
+            var settings = settingsTask.Result;
 
             var activeCardByMember = allCards
                 .Where(c => c.IsActive)
@@ -824,16 +844,37 @@ else
                     detailsLookup.TryGetValue(item.MemberId, out var detail);
                     var status = item.Status;
                     var normalized = MemberStatusHelper.NormalizeStatus(detail?.Status ?? status.ToString());
-                    var duesStatus = status switch
-                    {
-                        MemberStatus.Life => "Life",
-                        MemberStatus.Inactive => "None",
-                        _ => "Paid"
-                    };
+                    var isLife = status == MemberStatus.Life;
+                    var isBoard = boardCurrent.Contains(item.MemberId);
+                    
+                    // Determine Dues Status logic (matching KeyCardService rules)
+                    bool currentPaid = isBoard || isLife || (duesCurrent.TryGetValue(item.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                    bool prevPaid = isBoard || isLife || (duesPrev.TryGetValue(item.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                    
+                    if (detail == null) return null;
+                    var eligibility = CardService.GetEligibilityBulk(detail, year, settings, currentPaid, prevPaid);
 
-                    // Check for actual past due status
-                    // NOTE: If we want real dues check, we should query DuesRepository here
-                    // For now, let's keep it simple but separated.
+                    string duesStatus = "Paid";
+                    if (status == MemberStatus.Inactive)
+                    {
+                        duesStatus = "None";
+                    }
+                    else if (isLife)
+                    {
+                        duesStatus = "Life";
+                    }
+                    else if (isBoard)
+                    {
+                        duesStatus = "Paid"; // Board members have paid status by privilege
+                    }
+                    else if (!eligibility.Eligible && !eligibility.GracePeriodActive)
+                    {
+                        duesStatus = "Past Due";
+                    }
+                    else if (eligibility.GracePeriodActive && !eligibility.CurrentYearSatisfied)
+                    {
+                        duesStatus = "In Grace Period";
+                    }
 
                     // Enrich with card details
                     string? cardNumber = null;
@@ -866,11 +907,14 @@ else
                         HasKeyCard = !string.IsNullOrEmpty(cardNumber),
                         InactiveDate = item.InactiveDate,
                         DuesStatus = duesStatus,
+                        IsBoardMember = isBoard,
                         NormalizedStatus = normalized,
                         CardNumber = cardNumber,
                         CardIsActive = cardActive
                     };
                 })
+                .Where(m => m != null)
+                .Cast<MemberCardModel>()
                 .ToList();
 
             ApplyFilters();
@@ -1125,6 +1169,7 @@ else
         public bool HasKeyCard { get; set; }
         public DateTime? InactiveDate { get; set; }
         public string DuesStatus { get; set; } = "Paid";
+        public bool IsBoardMember { get; set; }
         public string? CardNumber { get; set; }
         public bool? CardIsActive { get; set; }
     }

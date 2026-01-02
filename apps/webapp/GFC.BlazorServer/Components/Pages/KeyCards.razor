@@ -1715,42 +1715,16 @@
                 }
 
                 // Sync Privileges (which pushes to controller)
-                // If this fails, we catch it and only rollback if it's a security/eligibility issue.
-                // Communication timeouts should remain in the DB as "Pending Sync".
-                await MemberAccessService.SyncMemberPrivilegesAsync(_selectedMemberId);
+                // Use the lifecycle service which now handles immediate sync + automatic queuing fallback
+                await KeyCardLifecycleService.SyncCardToControllerAsync(newCard.KeyCardId, true);
                 
-                // Do NOT set newCard.IsControllerSynced = true here. 
-                // The sync service or worker will update the status when hardware actually confirms the write.
-                // This prevents 'false positives' in sync status.
+                Logger.LogInformation("Dispatched sync for new card {CardNumber} to member {MemberId}", _scannedCardNumber, _selectedMemberId);
             }
             catch (Exception syncEx)
             {
-                // Check if the error is purely communication/offline
-                bool isNetworkError = syncEx is TaskCanceledException || 
-                                     syncEx.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase) || 
-                                     syncEx.Message.Contains("unreachable", StringComparison.OrdinalIgnoreCase) ||
-                                     syncEx.Message.Contains("Offline", StringComparison.OrdinalIgnoreCase);
-
-                if (isNetworkError)
-                {
-                    Logger.LogWarning("Real-time sync failed (Offline/Timeout), but card assignment is preserved in DB for future auto-sync.");
-                    // No rollback. We successfully saved to DB, so we can finish.
-                    _assignStep = 5; 
-                    StateHasChanged();
-                    return;
-                }
-
                 // CRITICAL ROLLBACK: For Business Rule or Validation failures
-                Logger.LogError(syncEx, "Sync failed for card {CardNumber}. Rolling back DB record.", _scannedCardNumber);
-                await Task.Run(() => {
-                    var cardToCleanup = KeyCardRepository.GetByCardNumber(_scannedCardNumber);
-                    if (cardToCleanup != null)
-                    {
-                        cardToCleanup.IsActive = false;
-                        cardToCleanup.Notes = $"[SYNC FAILED] {cardToCleanup.Notes} - {syncEx.Message}";
-                        KeyCardRepository.Update(cardToCleanup);
-                    }
-                });
+                // Note: Communication timeouts are handled by the dispatcher (stays in PENDING queue)
+                Logger.LogError(syncEx, "Sync failed for card {CardNumber}. Rolling back DB record if it was a data error.", _scannedCardNumber);
                 throw; // Rethrow to show UI error
             }
 
