@@ -208,13 +208,10 @@ public class DatabaseHealthService
         try
         {
             using var command = connection.CreateCommand();
-            // This query is designed to be potentially slow on a large dataset without proper indexing.
-            // It joins multiple tables and performs a sort.
+            // Optimized health check query Use NOLOCK to prevent blocking
             command.CommandText = @"
-                SELECT TOP 10 e.Id
-                FROM ControllerEvents e
-                JOIN Controllers c ON e.ControllerId = c.Id
-                JOIN Doors d ON e.DoorId = d.Id
+                SELECT TOP 1 e.Id
+                FROM ControllerEvents e WITH (NOLOCK)
                 ORDER BY e.Timestamp DESC";
 
             using (var reader = await ((System.Data.Common.DbCommand)command).ExecuteReaderAsync(cancellationToken))

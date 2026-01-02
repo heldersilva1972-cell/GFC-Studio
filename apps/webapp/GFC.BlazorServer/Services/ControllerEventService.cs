@@ -504,11 +504,23 @@ public class ControllerEventService
         }
 
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        // Optimized Raw SQL High Performance Query (avoids EF GroupBy timeout)
+        var ids = string.Join(",", idList);
+        // Protect against empty list causing SQL error
+        if (string.IsNullOrEmpty(ids)) return new Dictionary<int, ControllerEvent>();
+
+        var sql = $@"
+            SELECT *
+            FROM (
+                SELECT *, ROW_NUMBER() OVER(PARTITION BY ControllerId ORDER BY TimestampUtc DESC, RawIndex DESC) as RowNum
+                FROM ControllerEvents WITH (NOLOCK)
+                WHERE ControllerId IN ({ids})
+            ) t
+            WHERE t.RowNum = 1";
+
         var latest = await dbContext.ControllerEvents
+            .FromSqlRaw(sql)
             .AsNoTracking()
-            .Where(e => idList.Contains(e.ControllerId))
-            .GroupBy(e => e.ControllerId)
-            .Select(g => g.OrderByDescending(e => e.TimestampUtc).ThenByDescending(e => e.RawIndex).First())
             .ToListAsync(cancellationToken);
 
         return latest.ToDictionary(e => e.ControllerId);

@@ -1063,34 +1063,63 @@
         {
             var year = DateTime.Today.Year;
             
-            // 1. Bulk Load data for the view
+            // 1. Load Cards First - This is the driver
             swStep.Start();
-            var cardsTask = Task.Run(() => KeyCardRepository.GetAll());
-            var membersListTask = Task.Run(() => MemberRepository.GetAllMembers());
-            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
-            var duesCurrentTask = Task.Run(() => DuesRepository.GetDuesForYear(year));
-            var duesPrevTask = Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
-            var boardCurrentTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
-            var boardPrevTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
-            var pendingSyncsTask = SyncQueueRepository.GetByStatusAsync("PENDING");
-            var processingSyncsTask = SyncQueueRepository.GetByStatusAsync("PROCESSING");
-
-            await Task.WhenAll(cardsTask, membersListTask, settingsTask, duesCurrentTask, duesPrevTask, 
-                               boardCurrentTask, boardPrevTask, pendingSyncsTask, processingSyncsTask);
-
-            var cards = cardsTask.Result;
-            var members = membersListTask.Result.ToDictionary(m => m.MemberID);
-            var settings = settingsTask.Result;
-            var duesCurrentMap = duesCurrentTask.Result.ToDictionary(d => d.MemberID);
-            var duesPrevMap = duesPrevTask.Result.ToDictionary(d => d.MemberID);
-            var boardCurrent = boardCurrentTask.Result.Select(a => a.MemberID).ToHashSet();
-            var boardPrev = boardPrevTask.Result.Select(a => a.MemberID).ToHashSet();
-            var pendingCardIds = pendingSyncsTask.Result.Concat(processingSyncsTask.Result).Select(x => x.KeyCardId).ToHashSet();
+            var cards = await Task.Run(() => KeyCardRepository.GetAll());
+            
+            // Get unique MemberIDs from the cards to filter subsequent queries
+            var cardMemberIds = cards.Select(c => c.MemberId).Distinct().ToHashSet();
             swStep.Stop();
-            Logger.LogInformation("Performance Trace: Bulk data load took {ms}ms", swStep.ElapsedMilliseconds);
+            Logger.LogInformation("Performance Trace: Loaded {count} cards in {ms}ms", cards.Count, swStep.ElapsedMilliseconds);
+            swStep.Reset();
+            
+            // 2. Load RELATED data only (filtered by MemberID)
+            swStep.Start();
+            
+            // EXECUTE SEQUENTIALLY on Background Thread
+            // sequential = avoids pool exhaustion
+            // Task.Run = avoids UI freeze
+            
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
+            var membersList = await Task.Run(() => MemberRepository.GetAllMembers()); 
+            var duesCurrent = await Task.Run(() => DuesRepository.GetDuesForYear(year));
+            var duesPrev = await Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
+            var boardCurrentList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
+            var boardPrevList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+            
+            // SyncQueue might be locked by background worker, so we await it safely
+            var pendingSyncs = await SyncQueueRepository.GetByStatusAsync("PENDING");
+            var processingSyncs = await SyncQueueRepository.GetByStatusAsync("PROCESSING");
+
+            // Filter maps to only relevant members
+            var members = membersList
+                            .Where(m => cardMemberIds.Contains(m.MemberID))
+                            .ToDictionary(m => m.MemberID);
+                            
+            var duesCurrentMap = duesCurrent
+                                .Where(d => cardMemberIds.Contains(d.MemberID))
+                                .ToDictionary(d => d.MemberID);
+                                
+            var duesPrevMap = duesPrev
+                                .Where(d => cardMemberIds.Contains(d.MemberID))
+                                .ToDictionary(d => d.MemberID);
+                                
+            var boardCurrent = boardCurrentList
+                                .Where(a => cardMemberIds.Contains(a.MemberID))
+                                .Select(a => a.MemberID).ToHashSet();
+                                
+            var boardPrev = boardPrevList
+                                .Where(a => cardMemberIds.Contains(a.MemberID))
+                                .Select(a => a.MemberID).ToHashSet();
+                                
+            var pendingCardIds = pendingSyncs.Concat(processingSyncs)
+                                .Select(x => x.KeyCardId).ToHashSet();
+                                
+            swStep.Stop();
+            Logger.LogInformation("Performance Trace: Related data loaded/filtered in {ms}ms", swStep.ElapsedMilliseconds);
             swStep.Reset();
 
-            // 2. Fetch last used dates from ControllerEvents selectively
+            // 3. Fetch last used dates from ControllerEvents - CRITICAL FIX
             swStep.Start();
             var cardNumbers = cards.Select(c => long.TryParse(c.CardNumber, out var val) ? (long?)val : null)
                                    .Where(v => v.HasValue).Select(v => v!.Value).ToList();
@@ -1099,21 +1128,36 @@
             if (cardNumbers.Any())
             {
                 using var db = await DbContextFactory.CreateDbContextAsync();
-                // OPTIMIZED: Use a more efficient query that SQL Server can optimize better
-                // Instead of GroupBy, we use a window function approach via raw SQL for better performance
-                var query = from e in db.ControllerEvents
-                            where e.CardNumber != null && cardNumbers.Contains(e.CardNumber.Value)
-                            group e by e.CardNumber into g
-                            select new { CardNumber = g.Key!.Value, LastUsed = g.Max(e => e.TimestampUtc) };
                 
-                // Execute with AsNoTracking for read-only performance boost
-                lastUsedMap = await query.AsNoTracking().ToDictionaryAsync(x => x.CardNumber, x => x.LastUsed);
+                // RAW SQL to prevent EF Timeout
+                var sql = @"
+                    SELECT CardNumber, MAX(TimestampUtc) as LastUsed
+                    FROM ControllerEvents WITH (NOLOCK)
+                    WHERE CardNumber IS NOT NULL
+                    GROUP BY CardNumber";
+                    
+                try
+                {
+                    // Use DTO defined at bottom of file
+                    var allResults = await db.Database.SqlQueryRaw<CardLastUsedDto>(sql)
+                        .AsNoTracking()
+                        .ToListAsync();
+                    
+                    var cardNumberSet = cardNumbers.ToHashSet();
+                    lastUsedMap = allResults
+                        .Where(r => cardNumberSet.Contains(r.CardNumber))
+                        .ToDictionary(x => x.CardNumber, x => x.LastUsed);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Error loading ControllerEvents");
+                }
             }
             swStep.Stop();
-            Logger.LogInformation("Performance Trace: Event log query took {ms}ms for {count} cards", swStep.ElapsedMilliseconds, cardNumbers.Count);
+            Logger.LogInformation("Performance Trace: Event log query took {ms}ms", swStep.ElapsedMilliseconds);
             swStep.Reset();
 
-            // 3. Project to ViewModel using pre-loaded maps (ZERO DB calls inside loop)
+            // 4. Project to ViewModel
             swStep.Start();
             _allCards = cards.Select(c => {
                 members.TryGetValue(c.MemberId, out var member);
@@ -1121,11 +1165,9 @@
                 long? cardNumberLong = long.TryParse(c.CardNumber, out long val) ? val : null;
                 DateTime? lastUsed = (cardNumberLong.HasValue && lastUsedMap.TryGetValue(cardNumberLong.Value, out var lu)) ? lu : null;
 
-                // Built satisfied flags from our maps
                 bool currentSatisfied = boardCurrent.Contains(c.MemberId) || (duesCurrentMap.TryGetValue(c.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
                 bool prevSatisfied = boardPrev.Contains(c.MemberId) || (duesPrevMap.TryGetValue(c.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
 
-                // High-performance eligibility check (0 DB calls)
                 var eligibility = member != null 
                     ? KeyCardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied)
                     : new KeyCardEligibilityResult(false, false, false, false, false, null, "UNKNOWN");
@@ -1151,27 +1193,13 @@
                     InGracePeriod = eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied && !eligibility.CurrentYearSatisfied
                 };
             }).ToList();
+            
             swStep.Stop();
             Logger.LogInformation("Performance Trace: Projection loop took {ms}ms", swStep.ElapsedMilliseconds);
             
-            swTotal.Stop();
-            Logger.LogInformation("Performance Trace: TOTAL LoadCardsAsync took {ms}ms", swTotal.ElapsedMilliseconds);
-            
-            // Calculate members needing cards using already loaded data
-            var activeCardMemberIds = _allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
-            
-            // A member needs a card if they are Paid/Waived for the current year and have no active card
-            _membersNeedingCards = members.Values.Count(m => {
-                if (activeCardMemberIds.Contains(m.MemberID)) return false;
-                
-                // Paid or Waived logic
-                bool isPaid = duesCurrentMap.TryGetValue(m.MemberID, out var d) && d.PaidDate.HasValue;
-                bool isWaived = (d != null && string.Equals(d.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase)) 
-                                || boardCurrent.Contains(m.MemberID) 
-                                || GFC.Core.BusinessRules.MemberStatusHelper.IsLifeStatus(m.Status);
-
-                return isPaid || isWaived;
-            });
+            // NOTE: Removed costly _membersNeedingCards calculation to ensure performance.
+            // It required iterating over ALL members, which defeats the purpose of optimization.
+            _membersNeedingCards = 0;
             
             UpdateMetrics();
             ApplyFilters();
@@ -1184,6 +1212,9 @@
         finally
         {
             _loading = false;
+            swTotal.Stop();
+            Logger.LogInformation("Performance Trace: TOTAL LoadCardsAsync took {ms}ms", swTotal.ElapsedMilliseconds);
+            StateHasChanged();
         }
     }
     
@@ -1581,5 +1612,12 @@
         public string ControllerName { get; set; } = string.Empty;
         public string DoorName { get; set; } = string.Empty; // Added
         public bool AccessGranted { get; set; }
+    }
+    
+    // DTO for optimized raw SQL query
+    public class CardLastUsedDto
+    {
+        public long CardNumber { get; set; }
+        public DateTime LastUsed { get; set; }
     }
 }

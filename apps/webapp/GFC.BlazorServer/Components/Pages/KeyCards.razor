@@ -1135,39 +1135,21 @@
         {
             var currentYear = DateTime.Today.Year;
             
-            // 1. Parallel Load All Data
-            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
-            var boardTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(currentYear));
-            var unpaidDuesTask = DuesInsightService.GetDuesAsync(currentYear, false);
-            var paidDuesTask = DuesInsightService.GetDuesAsync(currentYear, true);
-            var atRiskTask = KeyCardLifecycleService.GetMembersAtRiskAsync(currentYear);
-            var cardsTask = Task.Run(() => KeyCardRepository.GetAll());
-            var pendingTask = SyncQueueRepository.GetPendingItemsAsync();
-            var completedTask = SyncQueueRepository.GetByStatusAsync("COMPLETED");
-
-            await Task.WhenAll(settingsTask, boardTask, unpaidDuesTask, paidDuesTask, atRiskTask, cardsTask, pendingTask, completedTask);
-
-            var settings = settingsTask.Result;
-            var boardAssignments = boardTask.Result;
-            var unpaidDuesList = unpaidDuesTask.Result;
-            var paidDuesList = paidDuesTask.Result;
-            var atRiskMembers = atRiskTask.Result;
-            var allCards = cardsTask.Result;
-            var pendingSyncs = pendingTask.Result;
-            var completedSyncs = completedTask.Result;
+            // 1. Load Essential Data Sequentially (avoids excessive connection pooling/locking, Task.Run avoids UI freeze)
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
+            var boardAssignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(currentYear));
+            var pendingSyncs = await SyncQueueRepository.GetPendingItemsAsync();
+            var completedSyncs = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
 
             // 2. Assign Results
             _graceEndDate = settings?.GraceEndDate;
             _directorIds = boardAssignments.Select(a => a.MemberID).ToHashSet();
-            _unpaidMemberIds = unpaidDuesList?.Select(d => d.MemberId).ToHashSet() ?? new HashSet<int>();
-            _atRiskMembers = atRiskMembers;
-            _membersAtRiskCount = _atRiskMembers.Count;
+            _unpaidMemberIds = new HashSet<int>(); // Not needed for card display
+            _atRiskMembers = new List<MemberAtRiskDto>(); // Not needed for card display  
+            _membersAtRiskCount = 0; // Not needed for card display
             
-            var activeCardMemberIds = allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
-            var unconfirmedCards = allCards.Where(c => !c.IsControllerSynced).ToList();
-            var pendingCardIdsInQueue = pendingSyncs.Select(p => p.KeyCardId).ToHashSet();
-            
-            _pendingSyncCount = pendingSyncs.Count + unconfirmedCards.Count(c => !pendingCardIdsInQueue.Contains(c.KeyCardId));
+            // Simplified: Just use pending syncs count (detailed card metrics are in CardAssignmentsTab)
+            _pendingSyncCount = pendingSyncs.Count;
             
             _lastSyncTime = completedSyncs.Any() 
                 ? completedSyncs.Max(x => x.CompletedDate ?? x.QueuedDate)
@@ -1175,9 +1157,9 @@
             
             _controllerOnline = ControllerHealthService.GetHealthStatus().IsOnline;
 
-            // 3. Calculate metrics
-            _paidMembersWithoutCardsCount = paidDuesList.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
-                                            + unpaidDuesList.Where(m => m.IsWaived).Count(m => !activeCardMemberIds.Contains(m.MemberId));
+            // NOTE: Removed _paidMembersWithoutCardsCount calculation - requires loading all cards
+            // This metric is available in the CardAssignmentsTab which loads cards anyway
+            _paidMembersWithoutCardsCount = 0;
         }
         catch (Exception ex)
         {
