@@ -6,6 +6,11 @@
 @inject IDuesInsightService DuesInsightService
 @inject NavigationManager NavManager
 @inject ILogger<MembersNeedingCardsTab> Logger
+@using GFC.Core.Services
+@inject IDuesRepository DuesRepository
+@inject IBoardRepository BoardRepository
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject KeyCardService KeyCardService
 
 <div class="pending-assignments-container">
     <div class="d-flex align-items-center justify-content-between mb-4">
@@ -160,44 +165,88 @@
         await LoadDataAsync();
     }
 
+
     private async Task LoadDataAsync()
     {
         _loading = true;
         try
         {
             var year = DateTime.Today.Year;
-            // 1. Get all paid members
-            var paidMembers = await DuesInsightService.GetDuesAsync(year, true);
-            // 2. Get waived members (Exempt/Life/Board)
-            var waivedMembers = await DuesInsightService.GetDuesAsync(year, false);
-            var exemptMembers = waivedMembers.Where(m => m.IsWaived).ToList();
+            
+            // Parallel Load for Performance (same as CardAssignmentsTab)
+            var tasks = new List<Task>();
+            
+            var t1 = Task.Run(() => MemberRepository.GetAllMembers());
+            var t2 = Task.Run(() => KeyCardRepository.GetAll());
+            var t3 = Task.Run(() => DuesRepository.GetDuesForYear(year));
+            var t4 = Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
+            var t5 = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
+            var t6 = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+            var t7 = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
 
-            // 3. Get all active cards
-            var activeCards = (await Task.Run(() => KeyCardRepository.GetAll()))
-                                .Where(c => c.IsActive)
-                                .Select(c => c.MemberId)
-                                .ToHashSet();
+            // Wait for all data
+            await Task.WhenAll(t1, t2, t3, t4, t5, t6, t7);
 
-            // 4. Combine Paid, Exempt, and Directors (ensure no duplicates)
-            var eligibleMembersList = paidMembers
-                                        .Concat(waivedMembers.Where(m => m.IsWaived || m.IsBoardMember))
-                                        .ToList();
+            var membersList = t1.Result;
+            var allCards = t2.Result;
+            var duesCurrent = t3.Result;
+            var duesPrev = t4.Result;
+            var boardCurrent = t5.Result.Select(a => a.MemberID).ToHashSet();
+            var boardPrev = t6.Result.Select(a => a.MemberID).ToHashSet();
+            var settings = t7.Result;
+
+            // Create Maps
+            var duesCurrentMap = duesCurrent.ToDictionary(d => d.MemberID);
+            var duesPrevMap = duesPrev.ToDictionary(d => d.MemberID);
+            var cardMemberIds = allCards.Select(c => c.MemberId).ToHashSet();
+
+            _membersNeedingCards = new List<int>();
             _memberLookup = new Dictionary<int, DuesListItemDto>();
-            foreach (var m in eligibleMembersList)
+
+            foreach (var member in membersList)
             {
-                // Ensure directors take precedence if they show up in multiple lists
-                if (!_memberLookup.ContainsKey(m.MemberId) || m.IsBoardMember)
+                // Skip if they already have a card
+                if (cardMemberIds.Contains(member.MemberID)) continue;
+
+                // Check Eligibility
+                bool currentSatisfied = boardCurrent.Contains(member.MemberID) || (duesCurrentMap.TryGetValue(member.MemberID, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                bool prevSatisfied = boardPrev.Contains(member.MemberID) || (duesPrevMap.TryGetValue(member.MemberID, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                
+                var eligibility = KeyCardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied);
+
+                if (eligibility.Eligible)
                 {
-                    _memberLookup[m.MemberId] = m;
+                    _membersNeedingCards.Add(member.MemberID);
+                    
+                    // Parse Enum safely
+                    GFC.Core.Enums.MemberStatus memberStatusEnum = GFC.Core.Enums.MemberStatus.Unknown;
+                    if (Enum.TryParse<GFC.Core.Enums.MemberStatus>(member.Status, true, out var parsed))
+                    {
+                        memberStatusEnum = parsed;
+                    }
+                    
+                    // Determine Waiver Status
+                    duesCurrentMap.TryGetValue(member.MemberID, out var duesCurrentRecord);
+                    bool isWaived = duesCurrentRecord != null && string.Equals(duesCurrentRecord.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
+                    string? waiverReason = isWaived ? duesCurrentRecord?.Notes : null;
+
+                    // Construct DuesListItemDto (Positional Record)
+                    _memberLookup[member.MemberID] = new DuesListItemDto(
+                        member.MemberID,
+                        $"{member.LastName}, {member.FirstName}", // FullName
+                        memberStatusEnum,                         // Status
+                        year,                                     // Year
+                        null,                                     // Amount
+                        null,                                     // PaidDate
+                        currentSatisfied ? "Paid" : "",           // PaymentType
+                        0,                                        // MonthsOverdue
+                        isWaived,                                 // IsWaived
+                        waiverReason,                             // WaiverReason
+                        string.Empty,                             // Notes
+                        boardCurrent.Contains(member.MemberID)    // IsBoardMember
+                    );
                 }
             }
-            
-            var uniqueEligibleIds = _memberLookup.Keys.ToList();
-
-            // 5. Filter for those without cards
-            _membersNeedingCards = uniqueEligibleIds
-                                    .Where(id => !activeCards.Contains(id))
-                                    .ToList();
         }
         catch (Exception ex)
         {

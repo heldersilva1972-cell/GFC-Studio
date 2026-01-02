@@ -1063,7 +1063,7 @@
         {
             var year = DateTime.Today.Year;
             
-            // 1. Load Cards First - This is the driver
+            // 1. Load Cards First
             swStep.Start();
             var cards = await Task.Run(() => KeyCardRepository.GetAll());
             
@@ -1073,12 +1073,10 @@
             Logger.LogInformation("Performance Trace: Loaded {count} cards in {ms}ms", cards.Count, swStep.ElapsedMilliseconds);
             swStep.Reset();
             
-            // 2. Load RELATED data only (filtered by MemberID)
+            // 2. Load ALL RELATED data (Bulk Load)
+            // We load EVERYTHING so we can calculate "Needing Cards" for members without cards too.
+            // In-memory processing of ~1000 records is nearly instant, avoiding N+1 DB calls.
             swStep.Start();
-            
-            // EXECUTE SEQUENTIALLY on Background Thread
-            // sequential = avoids pool exhaustion
-            // Task.Run = avoids UI freeze
             
             var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
             var membersList = await Task.Run(() => MemberRepository.GetAllMembers()); 
@@ -1090,33 +1088,18 @@
             // SyncQueue might be locked by background worker, so we await it safely
             var pendingSyncs = await SyncQueueRepository.GetByStatusAsync("PENDING");
             var processingSyncs = await SyncQueueRepository.GetByStatusAsync("PROCESSING");
-
-            // Filter maps to only relevant members
-            var members = membersList
-                            .Where(m => cardMemberIds.Contains(m.MemberID))
-                            .ToDictionary(m => m.MemberID);
-                            
-            var duesCurrentMap = duesCurrent
-                                .Where(d => cardMemberIds.Contains(d.MemberID))
-                                .ToDictionary(d => d.MemberID);
-                                
-            var duesPrevMap = duesPrev
-                                .Where(d => cardMemberIds.Contains(d.MemberID))
-                                .ToDictionary(d => d.MemberID);
-                                
-            var boardCurrent = boardCurrentList
-                                .Where(a => cardMemberIds.Contains(a.MemberID))
-                                .Select(a => a.MemberID).ToHashSet();
-                                
-            var boardPrev = boardPrevList
-                                .Where(a => cardMemberIds.Contains(a.MemberID))
-                                .Select(a => a.MemberID).ToHashSet();
-                                
-            var pendingCardIds = pendingSyncs.Concat(processingSyncs)
-                                .Select(x => x.KeyCardId).ToHashSet();
+            
+            // Create Lookups for O(1) Access - DO NOT FILTER THESE!
+            var membersMap = membersList.ToDictionary(m => m.MemberID);
+            var duesCurrentMap = duesCurrent.ToDictionary(d => d.MemberID);
+            var duesPrevMap = duesPrev.ToDictionary(d => d.MemberID);
+            var boardCurrent = boardCurrentList.Select(a => a.MemberID).ToHashSet();
+            var boardPrev = boardPrevList.Select(a => a.MemberID).ToHashSet();
+            
+            var pendingCardIds = pendingSyncs.Concat(processingSyncs).Select(x => x.KeyCardId).ToHashSet();
                                 
             swStep.Stop();
-            Logger.LogInformation("Performance Trace: Related data loaded/filtered in {ms}ms", swStep.ElapsedMilliseconds);
+            Logger.LogInformation("Performance Trace: All related data loaded & mapped in {ms}ms", swStep.ElapsedMilliseconds);
             swStep.Reset();
 
             // 3. Fetch last used dates from ControllerEvents - CRITICAL FIX
@@ -1157,10 +1140,10 @@
             Logger.LogInformation("Performance Trace: Event log query took {ms}ms", swStep.ElapsedMilliseconds);
             swStep.Reset();
 
-            // 4. Project to ViewModel
+            // 4. Project Card List (Members with Cards)
             swStep.Start();
             _allCards = cards.Select(c => {
-                members.TryGetValue(c.MemberId, out var member);
+                membersMap.TryGetValue(c.MemberId, out var member);
                 
                 long? cardNumberLong = long.TryParse(c.CardNumber, out long val) ? val : null;
                 DateTime? lastUsed = (cardNumberLong.HasValue && lastUsedMap.TryGetValue(cardNumberLong.Value, out var lu)) ? lu : null;
@@ -1194,12 +1177,26 @@
                 };
             }).ToList();
             
-            swStep.Stop();
-            Logger.LogInformation("Performance Trace: Projection loop took {ms}ms", swStep.ElapsedMilliseconds);
-            
-            // NOTE: Removed costly _membersNeedingCards calculation to ensure performance.
-            // It required iterating over ALL members, which defeats the purpose of optimization.
+            // 5. Calculate Members Needing Cards (In-Memory)
+            // Iterate members who are NOT in cardMemberIds
             _membersNeedingCards = 0;
+            foreach (var m in membersList)
+            {
+                if (!cardMemberIds.Contains(m.MemberID))
+                {
+                    bool currentSatisfied = boardCurrent.Contains(m.MemberID) || (duesCurrentMap.TryGetValue(m.MemberID, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                    bool prevSatisfied = boardPrev.Contains(m.MemberID) || (duesPrevMap.TryGetValue(m.MemberID, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                    
+                    var eligibility = KeyCardService.GetEligibilityBulk(m, year, settings, currentSatisfied, prevSatisfied);
+                    if (eligibility.Eligible)
+                    {
+                        _membersNeedingCards++;
+                    }
+                }
+            }
+
+            swStep.Stop();
+            Logger.LogInformation("Performance Trace: Projection & NeedingCards calc took {ms}ms", swStep.ElapsedMilliseconds);
             
             UpdateMetrics();
             ApplyFilters();
