@@ -1115,9 +1115,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadMembersAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Logger.LogInformation("KeyCards page initialization started");
+        
+        // NOTE: We don't load members here because CardAssignmentsTab loads all the data it needs
+        // Including members, cards, dues, board assignments, etc.
+        // Loading members here would be redundant and slow down the page load
+        
         await LoadGracePeriodAndSyncStatusAsync();
+        Logger.LogInformation("LoadGracePeriodAndSyncStatusAsync completed in {ms}ms", sw.ElapsedMilliseconds);
+        
         _ = StartStatusRefresh();
+        Logger.LogInformation("KeyCards page initialization completed in {ms}ms total", sw.ElapsedMilliseconds);
     }
     
     private async Task LoadGracePeriodAndSyncStatusAsync()
@@ -1228,7 +1237,9 @@
 
     private async Task HandleAssignMember(int memberId)
     {
+        // Load members on-demand when assigning a card (not on page load)
         if (!_allMembers.Any()) await LoadMembersAsync();
+        
         var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
         if (member != null && !_showAssignModal)
         {
@@ -1245,8 +1256,11 @@
         }
     }
 
-    private void OpenAssignCardModal()
+    private async Task OpenAssignCardModal()
     {
+        // Load members on-demand for the member search dropdown
+        if (!_allMembers.Any()) await LoadMembersAsync();
+        
         _showAssignModal = true;
         _assignStep = 1;
         _cardScanned = false;
@@ -1259,9 +1273,9 @@
         _assignError = string.Empty;
     }
 
-    private void OpenAssignCardModalForMember(Member member)
+    private async Task OpenAssignCardModalForMember(Member member)
     {
-        OpenAssignCardModal();
+        await OpenAssignCardModal();
         _isAutoSelectedMember = true;
         _selectedMemberId = member.MemberID;
         _selectedMemberName = $"{member.FirstName} {member.LastName}";
