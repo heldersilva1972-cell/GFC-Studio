@@ -134,13 +134,21 @@ public class ControllerEventService
 
         uint currentIndex = status.TotalEvents;
         
-        // 2. Get our last read index
-        var lastRecord = await dbContext.ControllerEvents
-            .Where(e => e.ControllerId == controller.Id)
-            .OrderByDescending(e => e.RawIndex)
-            .FirstOrDefaultAsync(cancellationToken);
+        // 2. Get our last read index from tracking table (more reliable than querying events)
+        var lastIndexRecord = await dbContext.ControllerLastIndexes
+            .FirstOrDefaultAsync(li => li.ControllerId == controller.Id, cancellationToken);
             
-        uint lastReadIndex = (uint)(lastRecord?.RawIndex ?? 0);
+        uint lastReadIndex = lastIndexRecord?.LastRecordIndex ?? 0;
+
+        // Fallback: If tracking table is empty, check events table
+        if (lastReadIndex == 0)
+        {
+            var lastRecord = await dbContext.ControllerEvents
+                .Where(e => e.ControllerId == controller.Id)
+                .OrderByDescending(e => e.RawIndex)
+                .FirstOrDefaultAsync(cancellationToken);
+            lastReadIndex = (uint)(lastRecord?.RawIndex ?? 0);
+        }
 
         if (currentIndex <= lastReadIndex) return 0;
 
@@ -150,9 +158,26 @@ public class ControllerEventService
         // Safety: If index reset (rare)
         if (currentIndex < lastReadIndex) startSyncIndex = 1;
 
+        // HUGE GAP CAPPING: If this is a new DB or very old sync, only grab the last 1000 to avoid packet storms.
+        const uint MaxGap = 1000;
+        if (currentIndex > startSyncIndex + MaxGap)
+        {
+            _logger.LogInformation("Large event gap detected ({Gap} items). Skipping to last {MaxGap} for stability.", currentIndex - startSyncIndex + 1, MaxGap);
+            startSyncIndex = currentIndex - MaxGap + 1;
+        }
+
+        // BATCHING: Only sync up to 250 items per pass to keep UI responsive
+        const uint MaxBatch = 250;
+        if (currentIndex > startSyncIndex + MaxBatch)
+        {
+            currentIndex = startSyncIndex + MaxBatch;
+            _logger.LogInformation("Processing batch of {MaxBatch} events for {Sn}. Remaining gap will be synced in next cycle.", MaxBatch, controllerSerialNumber);
+        }
+
         int totalSaved = 0;
         var batch = new List<ControllerEvent>();
         const int BatchSize = 25;
+        int itemsToSync = (int)(currentIndex - startSyncIndex + 1);
 
         for (uint i = startSyncIndex; i <= currentIndex; i++)
         {
@@ -193,14 +218,16 @@ public class ControllerEventService
                         await dbContext.SaveChangesAsync(cancellationToken);
                         totalSaved += batch.Count;
                         batch.Clear();
-                        progressCallback?.Invoke(totalSaved, (int)(currentIndex - startSyncIndex + 1));
+                        progressCallback?.Invoke(totalSaved, itemsToSync);
                     }
                 }
+                
+                // 5ms delay to prevent overwhelming hardware
+                await Task.Delay(5, cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning("Failed to fetch event at index {Index} for SN {SN}: {Msg}", i, controllerSerialNumber, ex.Message);
-                // Continue to next event
             }
         }
 
@@ -209,7 +236,35 @@ public class ControllerEventService
             await dbContext.ControllerEvents.AddRangeAsync(batch, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
             totalSaved += batch.Count;
-            progressCallback?.Invoke(totalSaved, (int)(currentIndex - startSyncIndex + 1));
+            progressCallback?.Invoke(totalSaved, itemsToSync);
+        }
+
+        // 3. Update the LastReadIndex tracker so we don't fetch these again
+        if (totalSaved > 0 || currentIndex > lastReadIndex)
+        {
+            var tracker = await dbContext.ControllerLastIndexes
+                .FirstOrDefaultAsync(li => li.ControllerId == controller.Id, cancellationToken);
+            
+            uint lastSuccessfullySavedIndex = startSyncIndex + (uint)totalSaved - 1;
+            // Always update to the latest index we actually intended to sync in this batch
+            uint newIndex = currentIndex; 
+
+            if (tracker == null)
+            {
+                tracker = new ControllerLastIndex
+                {
+                    ControllerId = controller.Id,
+                    LastRecordIndex = newIndex
+                };
+                dbContext.ControllerLastIndexes.Add(tracker);
+            }
+            else
+            {
+                tracker.LastRecordIndex = newIndex;
+            }
+            
+            await dbContext.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Updated tracker for {Sn} to index {Index} (Sync complete)", controllerSerialNumber, newIndex);
         }
 
         return totalSaved;

@@ -292,30 +292,33 @@
 
 <!-- Tab Content with Fade Transition -->
 <div class="tab-content-modern">
-    @if (_activeTab == "assignments")
-    {
-        <div class="tab-pane fade-in" key="assignments">
+    <div class="tab-pane fade-in" style="@(_activeTab == "assignments" ? "" : "display:none")">
+        @if (_assignmentsTabLoaded)
+        {
             <CardAssignmentsTab OnReplaceCard="HandleReplaceCard" OnNeedingCardsClick="@(() => SetActiveTab("pending"))" />
-        </div>
-    }
-    else if (_activeTab == "activity")
-    {
-        <div class="tab-pane fade-in" key="activity">
+        }
+    </div>
+
+    <div class="tab-pane fade-in" style="@(_activeTab == "activity" ? "" : "display:none")">
+        @if (_activityTabLoaded)
+        {
             <DoorActivityTab />
-        </div>
-    }
-    else if (_activeTab == "access")
-    {
-        <div class="tab-pane fade-in" key="access">
+        }
+    </div>
+
+    <div class="tab-pane fade-in" style="@(_activeTab == "access" ? "" : "display:none")">
+        @if (_accessTabLoaded)
+        {
             <AccessControlTab />
-        </div>
-    }
-    else if (_activeTab == "pending")
-    {
-        <div class="tab-pane fade-in" key="pending">
+        }
+    </div>
+
+    <div class="tab-pane fade-in" style="@(_activeTab == "pending" ? "" : "display:none")">
+        @if (_pendingTabLoaded)
+        {
             <MembersNeedingCardsTab @ref="_needingCardsTab" OnAssignMember="HandleAssignMember" />
-        </div>
-    }
+        }
+    </div>
 </div>
 
 <!-- Assign Card Modal -->
@@ -1047,6 +1050,21 @@
     private CancellationTokenSource? _scanCts;
     private ElementReference _cardInputRef;
     private string _keyboardInput = string.Empty;
+
+    // Tab Lazy Loading State
+    private bool _assignmentsTabLoaded = true; // Default tab
+    private bool _activityTabLoaded = false;
+    private bool _accessTabLoaded = false;
+    private bool _pendingTabLoaded = false;
+
+    private void SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+        if (tab == "assignments") _assignmentsTabLoaded = true;
+        if (tab == "activity") _activityTabLoaded = true;
+        if (tab == "access") _accessTabLoaded = true;
+        if (tab == "pending") _pendingTabLoaded = true;
+    }
     
     private GFC.BlazorServer.Components.Pages.KeyCardTabs.MembersNeedingCardsTab? _needingCardsTab;
 
@@ -1103,43 +1121,47 @@
         {
             var currentYear = DateTime.Today.Year;
             
-            // 1. Load basic settings and board IDs
-            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
+            // 1. Parallel Load All Data
+            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
+            var boardTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(currentYear));
+            var unpaidDuesTask = DuesInsightService.GetDuesAsync(currentYear, false);
+            var paidDuesTask = DuesInsightService.GetDuesAsync(currentYear, true);
+            var atRiskTask = KeyCardLifecycleService.GetMembersAtRiskAsync(currentYear);
+            var cardsTask = Task.Run(() => KeyCardRepository.GetAll());
+            var pendingTask = SyncQueueRepository.GetPendingItemsAsync();
+            var completedTask = SyncQueueRepository.GetByStatusAsync("COMPLETED");
+
+            await Task.WhenAll(settingsTask, boardTask, unpaidDuesTask, paidDuesTask, atRiskTask, cardsTask, pendingTask, completedTask);
+
+            var settings = settingsTask.Result;
+            var boardAssignments = boardTask.Result;
+            var unpaidDuesList = unpaidDuesTask.Result;
+            var paidDuesList = paidDuesTask.Result;
+            var atRiskMembers = atRiskTask.Result;
+            var allCards = cardsTask.Result;
+            var pendingSyncs = pendingTask.Result;
+            var completedSyncs = completedTask.Result;
+
+            // 2. Assign Results
             _graceEndDate = settings?.GraceEndDate;
-            
-            _directorIds = BoardRepository.GetAssignmentsByYear(currentYear)
-                            .Select(a => a.MemberID)
-                            .ToHashSet();
-            
-            // 2. Load Dues Info (Consolidated)
-            var unpaidDuesList = await DuesInsightService.GetDuesAsync(currentYear, false);
-            var paidDuesList = await DuesInsightService.GetDuesAsync(currentYear, true);
-            
+            _directorIds = boardAssignments.Select(a => a.MemberID).ToHashSet();
             _unpaidMemberIds = unpaidDuesList?.Select(d => d.MemberId).ToHashSet() ?? new HashSet<int>();
-            
-            // 3. Load Members at Risk (now optimized in the service)
-            _atRiskMembers = await KeyCardLifecycleService.GetMembersAtRiskAsync(currentYear);
+            _atRiskMembers = atRiskMembers;
             _membersAtRiskCount = _atRiskMembers.Count;
             
-            // 4. Load Cards and Sync Status
-            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
             var activeCardMemberIds = allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
-            
-            var pendingSyncs = await SyncQueueRepository.GetPendingItemsAsync();
             var unconfirmedCards = allCards.Where(c => !c.IsControllerSynced).ToList();
             var pendingCardIdsInQueue = pendingSyncs.Select(p => p.KeyCardId).ToHashSet();
             
             _pendingSyncCount = pendingSyncs.Count + unconfirmedCards.Count(c => !pendingCardIdsInQueue.Contains(c.KeyCardId));
             
-            // 5. Get last sync time
-            var completedSyncs = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
             _lastSyncTime = completedSyncs.Any() 
                 ? completedSyncs.Max(x => x.CompletedDate ?? x.QueuedDate)
                 : null;
             
             _controllerOnline = ControllerHealthService.GetHealthStatus().IsOnline;
 
-            // 6. Calculate members needing cards using pre-loaded lists
+            // 3. Calculate metrics
             _paidMembersWithoutCardsCount = paidDuesList.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
                                             + unpaidDuesList.Where(m => m.IsWaived).Count(m => !activeCardMemberIds.Contains(m.MemberId));
         }

@@ -1065,22 +1065,27 @@
             
             // 1. Bulk Load data for the view
             swStep.Start();
-            var cards = await Task.Run(() => KeyCardRepository.GetAll());
-            var membersList = await Task.Run(() => MemberRepository.GetAllMembers());
-            var members = membersList.ToDictionary(m => m.MemberID);
-            
-            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
-            
-            // Pre-load dues status for eligibility (Current and Prev)
-            var duesCurrentMap = (await Task.Run(() => DuesRepository.GetDuesForYear(year))).ToDictionary(d => d.MemberID);
-            var duesPrevMap = (await Task.Run(() => DuesRepository.GetDuesForYear(year - 1))).ToDictionary(d => d.MemberID);
-            var boardCurrent = BoardRepository.GetAssignmentsByYear(year).Select(a => a.MemberID).ToHashSet();
-            var boardPrev = BoardRepository.GetAssignmentsByYear(year - 1).Select(a => a.MemberID).ToHashSet();
+            var cardsTask = Task.Run(() => KeyCardRepository.GetAll());
+            var membersListTask = Task.Run(() => MemberRepository.GetAllMembers());
+            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
+            var duesCurrentTask = Task.Run(() => DuesRepository.GetDuesForYear(year));
+            var duesPrevTask = Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
+            var boardCurrentTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
+            var boardPrevTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+            var pendingSyncsTask = SyncQueueRepository.GetByStatusAsync("PENDING");
+            var processingSyncsTask = SyncQueueRepository.GetByStatusAsync("PROCESSING");
 
-            // Sync status check (small sets, usually fine)
-            var pendingSyncs = await SyncQueueRepository.GetByStatusAsync("PENDING");
-            var processingSyncs = await SyncQueueRepository.GetByStatusAsync("PROCESSING");
-            var pendingCardIds = pendingSyncs.Concat(processingSyncs).Select(x => x.KeyCardId).ToHashSet();
+            await Task.WhenAll(cardsTask, membersListTask, settingsTask, duesCurrentTask, duesPrevTask, 
+                               boardCurrentTask, boardPrevTask, pendingSyncsTask, processingSyncsTask);
+
+            var cards = cardsTask.Result;
+            var members = membersListTask.Result.ToDictionary(m => m.MemberID);
+            var settings = settingsTask.Result;
+            var duesCurrentMap = duesCurrentTask.Result.ToDictionary(d => d.MemberID);
+            var duesPrevMap = duesPrevTask.Result.ToDictionary(d => d.MemberID);
+            var boardCurrent = boardCurrentTask.Result.Select(a => a.MemberID).ToHashSet();
+            var boardPrev = boardPrevTask.Result.Select(a => a.MemberID).ToHashSet();
+            var pendingCardIds = pendingSyncsTask.Result.Concat(processingSyncsTask.Result).Select(x => x.KeyCardId).ToHashSet();
             swStep.Stop();
             Logger.LogInformation("Performance Trace: Bulk data load took {ms}ms", swStep.ElapsedMilliseconds);
             swStep.Reset();
@@ -1146,16 +1151,24 @@
             swStep.Stop();
             Logger.LogInformation("Performance Trace: Projection loop took {ms}ms", swStep.ElapsedMilliseconds);
             
-            await LoadMetricsAsync();
             swTotal.Stop();
             Logger.LogInformation("Performance Trace: TOTAL LoadCardsAsync took {ms}ms", swTotal.ElapsedMilliseconds);
             
-            // Calculate members needing cards
-            var paid = await DuesInsightService.GetDuesAsync(year, true);
-            var waived = await DuesInsightService.GetDuesAsync(year, false);
+            // Calculate members needing cards using already loaded data
             var activeCardMemberIds = _allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
-            _membersNeedingCards = paid.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
-                                    + waived.Count(m => (m.IsWaived || m.IsBoardMember) && !activeCardMemberIds.Contains(m.MemberId));
+            
+            // A member needs a card if they are Paid/Waived for the current year and have no active card
+            _membersNeedingCards = members.Values.Count(m => {
+                if (activeCardMemberIds.Contains(m.MemberID)) return false;
+                
+                // Paid or Waived logic
+                bool isPaid = duesCurrentMap.TryGetValue(m.MemberID, out var d) && d.PaidDate.HasValue;
+                bool isWaived = (d != null && string.Equals(d.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase)) 
+                                || boardCurrent.Contains(m.MemberID) 
+                                || GFC.Core.BusinessRules.MemberStatusHelper.IsLifeStatus(m.Status);
+
+                return isPaid || isWaived;
+            });
             
             UpdateMetrics();
             ApplyFilters();
