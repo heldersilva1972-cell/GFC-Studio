@@ -35,8 +35,20 @@ internal sealed class UdpControllerTransport : IControllerTransport, IDisposable
             // Ignore if IOControl fails - not critical
         }
         
-        _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+        // Bind to 60000 as the source port. This is CRITICAL for N3000 SSI 
+        // as the Source Port is used as the CRC salt (Byte 2-3).
+        try 
+        {
+            _socket.Bind(new IPEndPoint(IPAddress.Any, 60000));
+        }
+        catch (SocketException)
+        {
+             // Fallback to dynamic if 60000 is busy
+             _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+        }
     }
+
+    public int LocalPort => ((IPEndPoint)_socket.LocalEndPoint!).Port;
 
     public async Task<byte[]> SendAsync(
         ControllerEndpoint endpoint,

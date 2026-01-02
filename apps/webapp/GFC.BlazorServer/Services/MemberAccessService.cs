@@ -92,8 +92,8 @@ public class MemberAccessService : IMemberAccessService
         foreach (var door in allDoorsList)
         {
             var access = accessRecords.FirstOrDefault(a => a.DoorId == door.Id);
-            var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
-            var cardNumber = cardAssignment?.KeyCard?.CardNumber ?? string.Empty;
+            var activeCard = _keyCardRepository.GetActiveMemberCard(memberId);
+            var cardNumber = activeCard?.CardNumber ?? string.Empty;
 
             var dto = new MemberDoorAccessDto
             {
@@ -147,13 +147,13 @@ public class MemberAccessService : IMemberAccessService
             .Where(m => m.MemberId == memberId && doorIds.Contains(m.DoorId))
             .ToListAsync(cancellationToken);
 
-        var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
-        if (cardAssignment == null || cardAssignment.KeyCard == null)
+        var activeCard = _keyCardRepository.GetActiveMemberCard(memberId);
+        if (activeCard == null || !activeCard.IsActive)
         {
             throw new InvalidOperationException("Member does not have an active key card assignment.");
         }
-
-        var cardNumber = cardAssignment.KeyCard.CardNumber;
+ 
+        var cardNumber = activeCard.CardNumber;
 
         foreach (var update in updatesList)
         {
@@ -193,16 +193,16 @@ public class MemberAccessService : IMemberAccessService
 
         var currentYear = DateTime.Today.Year;
         var eligibility = _keyCardService.GetKeyCardEligibility(memberId, currentYear);
-        var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
+        var activeCard = _keyCardRepository.GetActiveMemberCard(memberId);
         
-        if (cardAssignment == null || cardAssignment.KeyCard == null)
+        if (activeCard == null || !activeCard.IsActive)
         {
-            _logger.LogWarning("Member {MemberId} has no active card assignment for sync", memberId);
+            _logger.LogWarning("Member {MemberId} has no active card assigned for sync", memberId);
             return;
         }
-
+ 
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
-        var cardNumber = cardAssignment.KeyCard.CardNumber;
+        var cardNumber = activeCard.CardNumber;
         var accessRecords = await dbContext.MemberDoorAccesses
             .Include(m => m.Door)
                 .ThenInclude(d => d!.Controller)
@@ -215,39 +215,78 @@ public class MemberAccessService : IMemberAccessService
         foreach (var controller in controllers)
         {
             if (!controller.IsEnabled) continue;
-
+ 
             var controllerDoors = controller.Doors.Where(d => d.IsEnabled).ToList();
+            var controllerDoorIds = controllerDoors.Select(d => d.Id).ToList();
+ 
+            // Find all access records for this member on this controller
+            var controllerAccess = accessRecords.Where(a => controllerDoorIds.Contains(a.DoorId) && a.CardNumber == cardNumber).ToList();
             
-            foreach (var door in controllerDoors)
+            // Only doors where the user is eligible AND has enabled access
+            var doorsWithAccess = controllerDoors
+                .Where(d => eligibility.Eligible && controllerAccess.Any(a => a.DoorId == d.Id && a.IsEnabled))
+                .ToList();
+ 
+            try 
             {
-                var access = accessRecords.FirstOrDefault(a => a.DoorId == door.Id && a.CardNumber == cardNumber);
-                var shouldHaveAccess = eligibility.Eligible && access?.IsEnabled == true;
-
-                if (shouldHaveAccess)
+                if (doorsWithAccess.Any())
                 {
-                    var timeProfileIndex = await GetTimeProfileIndexForController(controller.Id, access!.TimeProfileId, cancellationToken);
+                    // Use the time profile from the first door with access (or first overall if we want to be safe)
+                    // Note: N3000 typical models use one time profile index for all doors in a single 0x50 hit,
+                    // or separate bytes if we use the full MjRegisterCard layout.
+                    var firstAccess = controllerAccess.FirstOrDefault(a => a.IsEnabled) ?? controllerAccess.First();
+                    var timeProfileIndex = await GetTimeProfileIndexForController(controller.Id, firstAccess.TimeProfileId, cancellationToken);
+ 
                     var cardRequest = new AddOrUpdateCardRequestDto
                     {
                         CardNumber = cardNumber,
-                        DoorIndexes = new List<int> { door.DoorIndex },
+                        DoorIndexes = doorsWithAccess.Select(d => d.DoorIndex).ToList(),
                         TimeProfileIndex = timeProfileIndex,
                         Enabled = true
                     };
-
+ 
                     var result = await _controllerClient.AddOrUpdateCardAsync(controller.SerialNumber.ToString(), cardRequest, cancellationToken);
-                    access.LastSyncedAt = DateTime.UtcNow;
-                    access.LastSyncResult = result.Success ? "Success" : result.Message;
-                    syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Synced" : $"Failed: {result.Message}")}");
-                }
-                else
-                {
-                    var result = await _controllerClient.DeleteCardAsync(controller.SerialNumber.ToString(), cardNumber, cancellationToken);
-                    if (access != null)
+                    
+                    foreach (var access in controllerAccess)
                     {
                         access.LastSyncedAt = DateTime.UtcNow;
-                        access.LastSyncResult = result.Success ? "Removed" : result.Message;
+                        access.LastSyncResult = result.Success ? "Success" : result.Message;
                     }
-                    syncResults.Add($"{controller.Name}/{door.Name}: {(result.Success ? "Removed" : $"Failed: {result.Message}")}");
+                    
+                    var doorNames = string.Join(", ", doorsWithAccess.Select(d => d.Name));
+                    syncResults.Add($"{controller.Name}: {(result.Success ? $"✓ Activated: {doorNames}" : $"Failed: {result.Message}")}");
+                }
+                else if (controllerAccess.Any())
+                {
+                    // No enabled doors, so send update with empty door list (all doors set to 0x00)
+                    // This keeps the card in the database but with no access
+                    var cardRequest = new AddOrUpdateCardRequestDto
+                    {
+                        CardNumber = cardNumber,
+                        DoorIndexes = new List<int>(), // Empty list = all doors denied
+                        TimeProfileIndex = 1,
+                        Enabled = false
+                    };
+                    
+                    var result = await _controllerClient.AddOrUpdateCardAsync(controller.SerialNumber.ToString(), cardRequest, cancellationToken);
+                    
+                    var revokedDoorNames = string.Join(", ", controllerDoors.Select(d => d.Name));
+                    
+                    foreach (var access in controllerAccess)
+                    {
+                        access.LastSyncedAt = DateTime.UtcNow;
+                        access.LastSyncResult = result.Success ? "Access Revoked" : result.Message;
+                    }
+                    syncResults.Add($"{controller.Name}: {(result.Success ? $"✗ Revoked: {revokedDoorNames}" : $"Failed: {result.Message}")}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to sync member {MemberId} to controller {Sn}", memberId, controller.SerialNumber);
+                foreach (var access in controllerAccess)
+                {
+                    access.LastSyncedAt = DateTime.UtcNow;
+                    access.LastSyncResult = "Sync Failed: Offline or Timeout";
                 }
             }
         }
@@ -371,9 +410,9 @@ public class MemberAccessService : IMemberAccessService
         }
 
         var currentYear = DateTime.Today.Year;
-        var cardAssignment = _memberKeycardRepository.GetCurrentAssignmentForMember(memberId);
-        var cardNumber = cardAssignment?.KeyCard?.CardNumber;
-        var hasActiveCard = !string.IsNullOrWhiteSpace(cardNumber);
+        var activeCard = _keyCardRepository.GetActiveMemberCard(memberId);
+        var cardNumber = activeCard?.CardNumber;
+        var hasActiveCard = activeCard?.IsActive == true;
 
         var accessRecords = await dbContext.MemberDoorAccesses
             .Include(m => m.Door)

@@ -16,7 +16,7 @@ internal sealed class WgPacketBuilder
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public byte[] Build(uint targetControllerSn, ushort xid, WgCommandProfile profile, ReadOnlySpan<byte> payload)
+    public byte[] Build(uint targetControllerSn, ushort xid, WgCommandProfile profile, ReadOnlySpan<byte> payload, ushort localPort = 60000)
     {
         profile.EnsureConfigured();
         
@@ -27,56 +27,33 @@ internal sealed class WgPacketBuilder
         // 1. Core Header (Offsets 0-3)
         span[0] = profile.PacketType;                                           // Offset 0: Header (0x17)
         span[1] = profile.CommandCode;                                          // Offset 1: Function Code
-        BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0);                // Offset 2-3: CRC (Zero during calc)
-
-        // 2. Control Info (Offsets 4-7)
-        // For N3000, the target Serial Number always occupies bytes 4-7.
-        BinaryPrimitives.WriteUInt32LittleEndian(span[4..], targetControllerSn);
         
-        // 2b. XID (Offsets 40-43)
-        // N3000 Short Packet (0x17) originally placed sequence ID at offset 40.
-        // However, verified hardware tests show that for certain configuration commands (like 0x8E), 
-        // the controller expects these bytes to be zero (or they interfere with the payload).
-        // Removing for maximum compatibility with N3000 baseline.
-        // BinaryPrimitives.WriteUInt32LittleEndian(span[40..], (uint)xid);
-
+        // 2. Control Header (Offsets 4-7)
+        // Offset 4-7: Destination Serial Number (Target ID)
+        BinaryPrimitives.WriteUInt32LittleEndian(span[4..8], targetControllerSn);
+ 
         // 3. Command Payload (Offset 8 onwards)
         if (!payload.IsEmpty)
         {
-            var maxPayload = FullFrameLength - 8;
+            var maxPayload = FullFrameLength - 8 - 1; // -1 for tail sum
             var bytesToCopy = Math.Min(payload.Length, maxPayload);
             payload.Slice(0, bytesToCopy).CopyTo(span[8..]);
         }
 
-        // 4. Checksum
-        // If targeting the "Unlock" Wildcard SN (0x00118000), use Summation Checksum. Otherwise use CRC16-IBM.
-        const uint WildcardSn = 0x00118000; // 00 80 11 00 (Little Endian)
-        if (targetControllerSn == WildcardSn || profile.CommandCode == 0x24) // 0x24 is Broadcast Search
-        {
-            WriteSummationChecksum(span);
-        }
-        else if (profile.CommandCode == 0x5A) // 0x5A GetDoorParams uses Tail Sum, so skip CRC (leave 00 00)
-        {
-            // Do nothing here. Bytes 2-3 remain 00 00.
-            // User confirmed: "In this protocol, Bytes 2 and 3 are reserved and should almost always be 00 00... clear out those noise bytes."
-        }
-        else
-        {
-            WriteCrc(span);
-        }
+        // 4. Checksum (Salted CRC for SSI)
+        // Set salt (localPort) into CRC position for calculation
+        BinaryPrimitives.WriteUInt16LittleEndian(span[2..4], localPort); 
+        var crc = Crc16Ibm.ComputeSsi(span);
+        BinaryPrimitives.WriteUInt16LittleEndian(span[2..4], crc);
 
-        // 5. Special Integrity Check for Privilege Upload (0x50), Clear (0x54), and GetDoorParams (0x5A)
-        // User Requirement: "Byte 63 (the final byte) must contain a 1-byte summation checksum of all preceding 63 bytes."
-        // Also user Hex Dump for 0x5A showed 00 00 at standard CRC pos and a tail checksum.
-        if (profile.CommandCode == 0x50 || profile.CommandCode == 0x54 || profile.CommandCode == 0x5A)
+        // 5. Final Integrity Check (Tail Sum at Byte 63)
+        // All configuration and state packets in this version require the 1-byte summation at the end.
+        long fullSum = 0;
+        for (int i = 0; i < 63; i++)
         {
-            long fullSum = 0;
-            for (int i = 0; i < 63; i++)
-            {
-                fullSum += span[i];
-            }
-            span[63] = (byte)(fullSum & 0xFF);
+            fullSum += span[i];
         }
+        span[63] = (byte)(fullSum & 0xFF);
 
         return buffer;
     }

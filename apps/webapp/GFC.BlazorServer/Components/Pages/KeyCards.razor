@@ -533,6 +533,32 @@
                                                     {
                                                         <span class="badge bg-danger text-white ms-1" style="font-size: 0.55rem; padding: 1px 4px;">DIRECTOR</span>
                                                     }
+                                                    @if (_unpaidMemberIds.Contains(member.MemberID))
+                                                    {
+                                                        var atRisk = _atRiskMembers.FirstOrDefault(m => m.MemberId == member.MemberID);
+                                                        @if (atRisk != null && atRisk.IsDelinquent)
+                                                        {
+                                                            <span class="ms-1 badge bg-danger text-white border border-danger border-opacity-25" style="font-size: 0.55rem; padding: 1px 4px;">
+                                                                DELINQUENT (Lockout)
+                                                            </span>
+                                                        }
+                                                        else if (atRisk != null && atRisk.InGracePeriod)
+                                                        {
+                                                            <span class="ms-1 badge bg-warning-subtle text-warning-emphasis border border-warning border-opacity-25" style="font-size: 0.55rem; padding: 1px 4px;">
+                                                                GRACE PERIOD (Ends @_graceEndDate?.ToString("MM/dd"))
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="ms-1 badge bg-warning-subtle text-warning-emphasis border border-warning border-opacity-25" style="font-size: 0.55rem; padding: 1px 4px;">
+                                                                UNPAID (@_graceEndDate?.ToString("MM/dd"))
+                                                            </span>
+                                                        }
+                                                    }
+                                                    else if (member.Status != "LIFE")
+                                                    {
+                                                        <span class="ms-1 badge bg-success-subtle text-success border border-success border-opacity-25" style="font-size: 0.55rem; padding: 1px 4px;">PAID</span>
+                                                    }
                                                 </div>
                                             </div>
                                             @if (_selectedMemberId == member.MemberID)
@@ -686,6 +712,33 @@
                                                 <i class="bi bi-@(_selectedCardType == "Fob" ? "key-fill" : "credit-card-2-front") me-1"></i>
                                                 @_selectedCardType
                                             </span>
+                                        </span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span class="summary-label">Dues Status:</span>
+                                        <span class="summary-value d-flex align-items-center gap-1">
+                                            @{
+                                                var atRisk = _atRiskMembers.FirstOrDefault(m => m.MemberId == _selectedMemberId);
+                                            }
+                                            @if (atRisk != null)
+                                            {
+                                                @if (atRisk.IsDelinquent)
+                                                {
+                                                    <span class="text-danger fw-bold"><i class="bi bi-x-circle-fill me-1"></i>Delinquent (No access)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-warning fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i>Grace Period (Expires @_graceEndDate?.ToString("MMM dd"))</span>
+                                                }
+                                            }
+                                            else if (_unpaidMemberIds.Contains(_selectedMemberId))
+                                            {
+                                                <span class="text-warning fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i>Unpaid (Expires @_graceEndDate?.ToString("MMM dd"))</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i>All Dues Paid</span>
+                                            }
                                         </span>
                                     </div>
                                 </div>
@@ -987,6 +1040,8 @@
     
     private int _paidMembersWithoutCardsCount = 0;
     private HashSet<int> _directorIds = new();
+    private HashSet<int> _unpaidMemberIds = new();
+    private List<MemberAtRiskDto> _atRiskMembers = new();
     
     // Scanning state
     private CancellationTokenSource? _scanCts;
@@ -1056,21 +1111,13 @@
                             .Select(a => a.MemberID)
                             .ToHashSet();
             
-            // Calculate members at risk
-            // Members who are unpaid AND have an active card
-            var dues = await DuesInsightService.GetDuesAsync(currentYear, false); // Get unpaid
-            if (dues != null)
-            {
-                 // We need to know who has an active card. Ideally we'd map this efficiently.
-                 // For now, let's fetch all active cards.
-                 var allActiveCards = (await Task.Run(() => KeyCardRepository.GetAll()))
-                                     .Where(c => c.IsActive)
-                                     .Select(c => c.MemberId)
-                                     .Distinct()
-                                     .ToHashSet();
-                                     
-                 _membersAtRiskCount = dues.Count(d => allActiveCards.Contains(d.MemberId) && d.Amount > 0);
-            }
+            // Calculate members at risk using lifecycle service
+             _atRiskMembers = await KeyCardLifecycleService.GetMembersAtRiskAsync(currentYear);
+             _membersAtRiskCount = _atRiskMembers.Count;
+             
+             // Still keep a simple set of unpaid IDs for fast lookup in search results
+             var dues = await DuesInsightService.GetDuesAsync(currentYear, false);
+             _unpaidMemberIds = dues?.Select(d => d.MemberId).ToHashSet() ?? new HashSet<int>();
             
             // Load sync status
             var pendingSyncs = await SyncQueueRepository.GetPendingItemsAsync();
@@ -1414,63 +1461,73 @@
             var newCard = await Task.Run(() => 
                 KeyCardRepository.Create(_scannedCardNumber, _selectedMemberId, _assignNotes, _selectedCardType));
 
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = authState.User.Identity?.Name ?? "Unknown";
-            
-            // Log to KeyHistory
-            if (long.TryParse(_scannedCardNumber, out long cardNumberLong))
+            try
             {
-                await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, _assignNotes ?? "New Assignment", user, _selectedCardType);
-            }
-            
-            Logger.LogInformation("Card {CardNumber} ({CardType}) assigned to member {MemberId} in DB by {User}", _scannedCardNumber, _selectedCardType, _selectedMemberId, user);
-
-            // Grant permissions based on selection
-            if (_selectedDoorIds.Any())
-            {
-                var updates = _availableDoors.Select(d => new MemberDoorAccessUpdateDto 
-                {
-                     DoorId = d.Id,
-                     CardNumber = _scannedCardNumber,
-                     IsEnabled = _selectedDoorIds.Contains(d.Id),
-                     TimeProfileId = 1 // Default 24/7
-                }).ToList();
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User.Identity?.Name ?? "Unknown";
                 
-                await MemberAccessService.UpdateMemberDoorAccessAsync(_selectedMemberId, updates);
-                Logger.LogInformation("Updated door access for member {MemberId} with {Count} doors", _selectedMemberId, _selectedDoorIds.Count);
+                // Log to KeyHistory
+                if (long.TryParse(_scannedCardNumber, out long cardNumberLong))
+                {
+                    await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, _assignNotes ?? "New Assignment", user, _selectedCardType);
+                }
+                
+                Logger.LogInformation("Card {CardNumber} ({CardType}) assigned to member {MemberId} in DB by {User}", _scannedCardNumber, _selectedCardType, _selectedMemberId, user);
+
+                // Grant permissions based on selection
+                if (_selectedDoorIds.Any())
+                {
+                    var updates = _availableDoors.Select(d => new MemberDoorAccessUpdateDto 
+                    {
+                         DoorId = d.Id,
+                         CardNumber = _scannedCardNumber,
+                         IsEnabled = _selectedDoorIds.Contains(d.Id),
+                         TimeProfileId = 1 // Default 24/7
+                    }).ToList();
+                    
+                    await MemberAccessService.UpdateMemberDoorAccessAsync(_selectedMemberId, updates);
+                    Logger.LogInformation("Updated door access for member {MemberId} with {Count} doors", _selectedMemberId, _selectedDoorIds.Count);
+                }
+
+                // Sync Privileges (which pushes to controller)
+                // If this fails, we catch it and only rollback if it's a security/eligibility issue.
+                // Communication timeouts should remain in the DB as "Pending Sync".
+                await MemberAccessService.SyncMemberPrivilegesAsync(_selectedMemberId);
+
+                newCard.IsControllerSynced = true; 
+                newCard.LastControllerSyncDate = DateTime.Now;
+                await Task.Run(() => KeyCardRepository.Update(newCard));
             }
-            else
+            catch (Exception syncEx)
             {
-                 // Grant default permissions if nothing selected (fallback) - OR just don't grant anything?
-                 // Original code called GrantDefaultAccessAsync. Let's keep it if list is empty, OR just rely on explicit selection.
-                 // If the user explicitly deselected everything, we shouldn't grant default.
-                 // But wait, "Step 4" forces selection.
-                 // Let's assume if they skipped it somehow (which they can't easily), we do defaults. 
-                 // But correctly, we should trust the selection.
-                 // However, "GrantDefaultAccessAsync" might do more setup.
-                 // Let's rely on UpdateMemberDoorAccessAsync.
+                // Check if the error is purely communication/offline
+                bool isNetworkError = syncEx is TaskCanceledException || 
+                                     syncEx.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase) || 
+                                     syncEx.Message.Contains("unreachable", StringComparison.OrdinalIgnoreCase) ||
+                                     syncEx.Message.Contains("Offline", StringComparison.OrdinalIgnoreCase);
+
+                if (isNetworkError)
+                {
+                    Logger.LogWarning("Real-time sync failed (Offline/Timeout), but card assignment is preserved in DB for future auto-sync.");
+                    // No rollback. We successfully saved to DB, so we can finish.
+                    _assignStep = 5; 
+                    StateHasChanged();
+                    return;
+                }
+
+                // CRITICAL ROLLBACK: For Business Rule or Validation failures
+                Logger.LogError(syncEx, "Sync failed for card {CardNumber}. Rolling back DB record.", _scannedCardNumber);
+                await Task.Run(() => {
+                    var cardToCleanup = KeyCardRepository.GetByCardNumber(_scannedCardNumber);
+                    if (cardToCleanup != null)
+                    {
+                        cardToCleanup.IsActive = false;
+                        cardToCleanup.Notes = $"[SYNC FAILED] {cardToCleanup.Notes} - {syncEx.Message}";
+                        KeyCardRepository.Update(cardToCleanup);
+                    }
+                });
+                throw; // Rethrow to show UI error
             }
-
-            // Sync Privileges (which pushes to controller)
-            await MemberAccessService.SyncMemberPrivilegesAsync(_selectedMemberId);
-
-
-            // 2. Activate card on physical controllers - LEGACY/REDUNDANT?
-            // MemberAccessService.SyncMemberPrivilegesAsync should handle this now via its own logic (likely using ControllerClient).
-            // However, existing logic did manual ControllerClient.AddOrUpdateCardAsync calls.
-            // If MemberAccessService handles it, we might be double-syncing.
-            // But let's keep the existing manual sync for safety/redundancy unless we validly trust SyncMemberPrivilegesAsync does it all.
-            // Given I can't see SyncMemberPrivilegesAsync implementation fully, I'll TRUST it does the job but keep the "IsControllerSynced" flag logic.
-            
-            // Actually, SyncMemberPrivilegesAsync probably loops controllers. 
-            // The existing code manually loops controllers.
-            // I should probably remove the manual loop if SyncMemberPrivilegesAsync does it.
-            // But I'll keep the "IsControllerSynced" flag update logic.
-            
-            // Let's just flag it as synced assuming SyncMemberPrivilegesAsync works.
-            newCard.IsControllerSynced = true; 
-            newCard.LastControllerSyncDate = DateTime.Now;
-            await Task.Run(() => KeyCardRepository.Update(newCard));
 
 
             // 3. Close modal and show feedback

@@ -37,15 +37,13 @@ public class KeyCardService
         // Check if member is a board member (director) for this year
         var isBoardMember = _boardRepository.IsBoardMemberForYear(memberId, year);
 
-        var currentYearDues = _duesRepository.GetDuesForMemberYear(memberId, year);
-        var previousYearDues = _duesRepository.GetDuesForMemberYear(memberId, year - 1);
-        var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(year)?.GraceEndDate?.Date;
-
         var statusAllowed = IsStatusEligible(member.Status);
+        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(member.Status), "LIFE", StringComparison.OrdinalIgnoreCase);
+        var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(year)?.GraceEndDate?.Date;
         
-        // Directors (board members) are automatically considered as having satisfied dues
-        var currentYearSatisfied = isBoardMember || IsDuesSatisfied(currentYearDues?.PaymentType, currentYearDues?.PaidDate);
-        var previousYearSatisfied = IsDuesSatisfied(previousYearDues?.PaymentType, previousYearDues?.PaidDate);
+        // Satisfied if: Board Member, Life Member, Paid, or Waived (via record or period)
+        var currentYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year);
+        var previousYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year - 1);
 
         return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, member.Status, graceEndDate);
     }
@@ -64,16 +62,15 @@ public class KeyCardService
         
         // Check if member is a board member (director) for this year
         var isBoardMember = _boardRepository.IsBoardMemberForYear(member.MemberID, evaluationYear);
+        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(member.Status), "LIFE", StringComparison.OrdinalIgnoreCase);
         
-        var currentYearDues = _duesRepository.GetDuesForMemberYear(member.MemberID, evaluationYear);
-        var previousYearDues = _duesRepository.GetDuesForMemberYear(member.MemberID, evaluationYear - 1);
         var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(evaluationYear)?.GraceEndDate?.Date;
 
         var statusAllowed = IsStatusEligible(member.Status);
         
-        // Directors (board members) are automatically considered as having satisfied dues
-        var currentYearSatisfied = isBoardMember || IsDuesSatisfied(currentYearDues?.PaymentType, currentYearDues?.PaidDate);
-        var previousYearSatisfied = IsDuesSatisfied(previousYearDues?.PaymentType, previousYearDues?.PaidDate);
+        // Satisfied if: Board Member, Life Member, Paid, or Waived (via record or period)
+        var currentYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(member.MemberID, evaluationYear);
+        var previousYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(member.MemberID, evaluationYear - 1);
 
         return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, member.Status, graceEndDate).Eligible;
     }
@@ -81,8 +78,11 @@ public class KeyCardService
     public KeyCardEligibilityResult EvaluateEligibilityForRow(KeyCardMemberRow row, int year, DateTime? graceEndDate)
     {
         var statusAllowed = IsStatusEligible(row.MemberStatus);
-        var currentYearSatisfied = IsDuesSatisfied(row.DuesPaymentType, row.DuesPaidDate);
-        var previousYearSatisfied = IsDuesSatisfied(row.PreviousYearPaymentType, row.PreviousYearPaidDate);
+        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(row.MemberStatus), "LIFE", StringComparison.OrdinalIgnoreCase);
+        
+        var currentYearSatisfied = isLifeMember || IsDuesSatisfied(row.DuesPaymentType, row.DuesPaidDate);
+        var previousYearSatisfied = isLifeMember || IsDuesSatisfied(row.PreviousYearPaymentType, row.PreviousYearPaidDate);
+        
         return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, row.MemberStatus, graceEndDate?.Date);
     }
 

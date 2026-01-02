@@ -57,7 +57,8 @@ public class DuesInsightService : IDuesInsightService
             var isLife = status == MemberStatus.Life;
 
             var recordIsWaived = record != null && string.Equals(record.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
-            var isWaived = recordIsWaived || isLife || isBoardMember;
+            var hasManualWaiver = waiverLookup.ContainsKey(member.MemberID);
+            var isWaived = recordIsWaived || isLife || isBoardMember || hasManualWaiver;
             var isPaid = (record != null && record.PaidDate.HasValue) || isWaived;
 
             if (paidTab && !isPaid)
@@ -94,7 +95,8 @@ public class DuesInsightService : IDuesInsightService
                 }
                 else if (waiverLookup.TryGetValue(member.MemberID, out var waiver))
                 {
-                    waiverReason = waiver.Reason;
+                    var duration = waiver.EndYear >= 2099 ? "Permanent" : $"thru {waiver.EndYear}";
+                    waiverReason = $"{waiver.Reason} ({duration})";
                 }
                 else if (recordIsWaived)
                 {
@@ -157,6 +159,9 @@ public class DuesInsightService : IDuesInsightService
             .ToList();
         var duesLookup = duesTask.Result.ToDictionary(d => d.MemberID, d => d);
         var boardMemberIds = boardTask.Result;
+        // Fetch manual waivers for summary
+        var allWaivers = await Task.Run(() => _waiverRepository.GetWaiversForYear(year), cancellationToken);
+        var waiverLookup = allWaivers.Select(w => w.MemberId).ToHashSet();
 
         int paidCount = 0;
         int waivedCount = 0;
@@ -171,10 +176,11 @@ public class DuesInsightService : IDuesInsightService
             var status = MemberStatusHelper.NormalizeStatus(member.Status);
             var isLife = MemberStatusHelper.IsLifeStatus(status);
             var isBoard = boardMemberIds.Contains(member.MemberID);
+            var hasManualWaiver = waiverLookup.Contains(member.MemberID);
 
             var recordIsWaived = record is not null && IsWaived(record);
             var recordIsPaid = record is not null && record.PaidDate.HasValue && !recordIsWaived;
-            var autoWaived = isLife || isBoard;
+            var autoWaived = isLife || isBoard || hasManualWaiver;
             var isWaived = autoWaived || recordIsWaived;
 
             if (isWaived)

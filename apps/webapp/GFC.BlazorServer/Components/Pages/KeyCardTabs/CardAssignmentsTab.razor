@@ -16,7 +16,9 @@
 @inject IJSRuntime JSRuntime
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager NavManager
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
 @inject IMemberAccessService MemberAccessService
+@inject KeyCardService KeyCardService
 
 <div class="assignments-container">
     <!-- Summary Metrics -->
@@ -103,6 +105,14 @@
                 <button class="filter-pill @(_statusFilter == "inactive" ? "active" : "")" 
                         @onclick='() => SetStatusFilter("inactive")'>
                     <i class="bi bi-pause-circle"></i> Inactive Cards
+                </button>
+                <button class="filter-pill @(_statusFilter == "unpaid" ? "active" : "")" 
+                        @onclick='() => SetStatusFilter("unpaid")' title="Show active cards with unpaid dues">
+                    <i class="bi bi-clock-history"></i> At Risk
+                </button>
+                <button class="filter-pill @(_statusFilter == "delinquent" ? "active" : "")" 
+                        @onclick='() => SetStatusFilter("delinquent")' title="Show cards where previous year was also unpaid">
+                    <i class="bi bi-x-circle text-danger"></i> Delinquent
                 </button>
                 <button class="filter-pill filter-pill-danger" @onclick="HandleNeedingCardsClick">
                     <i class="bi bi-person-badge"></i> Needing Cards
@@ -218,6 +228,35 @@
                                 <i class="bi bi-clock-history"></i>
                                 <span>@(card.LastUsed.HasValue ? $"Used {GetRelativeTime(card.LastUsed.Value)}" : "Never used")</span>
                             </div>
+                            
+                            @if (card.IsDelinquent)
+                            {
+                                <div class="card-meta text-danger fw-bold">
+                                    <i class="bi bi-x-circle-fill"></i>
+                                    <span>DELINQUENT: Revoke Access</span>
+                                </div>
+                            }
+                            else if (card.InGracePeriod)
+                            {
+                                <div class="card-meta text-warning fw-bold">
+                                    <i class="bi bi-clock-history"></i>
+                                    <span>Grace Period: Ends @(card.DeactivationDate?.ToString("MMM dd") ?? "Soon")</span>
+                                </div>
+                            }
+                            else if (card.IsPaid)
+                            {
+                                <div class="card-meta text-success">
+                                    <i class="bi bi-shield-check"></i>
+                                    <span>Dues Paid for @DateTime.Today.Year</span>
+                                </div>
+                            }
+                            else if (!card.IsActive)
+                            {
+                                <div class="card-meta text-muted italic">
+                                    <i class="bi bi-pause-circle"></i>
+                                    <span>Inactive Card</span>
+                                </div>
+                            }
                         </div>
                         
                         <div class="card-item-actions">
@@ -344,6 +383,7 @@
                             <th>Member</th>
                             <th>Status</th>
                             <th>Issued</th>
+                            <th>Dues Status</th>
                             <th>Last Used</th>
                             <th class="text-end">Actions</th>
                         </tr>
@@ -379,6 +419,44 @@
                                     }
                                 </td>
                                 <td>@(card.IssuedDate?.ToString("MMM dd, yyyy") ?? "-")</td>
+                                <td>
+                                    @if (card.IsPaid)
+                                    {
+                                        <span class="badge bg-success-subtle text-success border border-success border-opacity-25 rounded-pill px-2" style="font-size: 0.7rem;">
+                                            <i class="bi bi-check-circle me-1"></i>PAID
+                                        </span>
+                                    }
+                                    else if (card.IsDelinquent)
+                                    {
+                                        <div class="d-flex flex-column">
+                                            <span class="badge bg-danger text-white border border-danger border-opacity-25 rounded-pill px-2" style="font-size: 0.7rem;" title="Unpaid for current and previous year">
+                                                <i class="bi bi-x-circle me-1"></i>DELINQUENT
+                                            </span>
+                                            <small class="text-danger mt-1" style="font-size: 0.65rem;">Lockout Pending</small>
+                                        </div>
+                                    }
+                                    else if (card.InGracePeriod)
+                                    {
+                                        <div class="d-flex flex-column">
+                                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning border-opacity-25 rounded-pill px-2" style="font-size: 0.7rem;" title='Grace period expires on @(card.DeactivationDate?.ToString("MMM dd, yyyy") ?? "soon")'>
+                                                <i class="bi bi-clock-history me-1"></i>GRACE PERIOD
+                                            </span>
+                                            <small class="text-warning mt-1" style="font-size: 0.65rem;">Ends @(card.DeactivationDate?.ToString("MM/dd") ?? "Soon")</small>
+                                        </div>
+                                    }
+                                    else if (card.IsActive)
+                                    {
+                                        <div class="d-flex flex-column">
+                                            <span class="badge bg-danger-subtle text-danger border border-danger border-opacity-25 rounded-pill px-2" style="font-size: 0.7rem;">
+                                                <i class="bi bi-exclamation-triangle me-1"></i>UNPAID
+                                            </span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">-</span>
+                                    }
+                                </td>
                                 <td class="@(card.LastUsed.HasValue ? "" : "text-muted italic")">
                                     @(card.LastUsed.HasValue ? GetRelativeTime(card.LastUsed.Value) : "Never")
                                 </td>
@@ -949,6 +1027,7 @@
             var unpaidIds = unpaid?.Select(u => u.MemberId).ToHashSet() ?? new HashSet<int>();
             
             var year = DateTime.Today.Year;
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
             var boardMemberIds = BoardRepository.GetAssignmentsByYear(year).Select(a => a.MemberID).ToHashSet();
             
             // Sync status check
@@ -978,10 +1057,10 @@
                 var isGuest = status.Equals("GUEST", StringComparison.OrdinalIgnoreCase);
                 
                 var isUnpaid = unpaidIds.Contains(c.MemberId);
+                var eligibility = KeyCardService.GetKeyCardEligibility(c.MemberId, year);
                 
-                // Eligibility rule: (Life OR Reg OR Guest) AND Paid
-                // Note: Guests who pay dues ARE eligible for cards.
-                var isEligible = (isLife || isReg || isGuest) && !isUnpaid;
+                // Eligibility rule based on service
+                var isEligible = eligibility.Eligible;
 
                 return new CardListItem
                 {
@@ -997,7 +1076,11 @@
                     IsDirector = isDirector,
                     IsSyncPending = pendingCardIds.Contains(c.KeyCardId),
                     IsControllerSynced = c.IsControllerSynced,
-                    LastControllerSyncDate = c.LastControllerSyncDate
+                    LastControllerSyncDate = c.LastControllerSyncDate,
+                    IsPaid = eligibility.CurrentYearSatisfied,
+                    DeactivationDate = eligibility.GraceEndDate,
+                    IsDelinquent = !eligibility.Eligible && !eligibility.GracePeriodActive,
+                    InGracePeriod = eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied && !eligibility.CurrentYearSatisfied
                 };
             }).ToList();
             
@@ -1049,6 +1132,8 @@
         {
             "active" => query.Where(c => c.IsActive),
             "inactive" => query.Where(c => !c.IsActive),
+            "unpaid" => query.Where(c => !c.IsPaid && c.IsActive),
+            "delinquent" => query.Where(c => c.IsDelinquent && c.IsActive),
             _ => query
         };
         
@@ -1402,6 +1487,10 @@
         public bool IsSyncPending { get; set; }
         public bool IsControllerSynced { get; set; }
         public DateTime? LastControllerSyncDate { get; set; }
+        public bool IsPaid { get; set; }
+        public DateTime? DeactivationDate { get; set; }
+        public bool IsDelinquent { get; set; }
+        public bool InGracePeriod { get; set; }
     }
     
     private class CardAccessEvent

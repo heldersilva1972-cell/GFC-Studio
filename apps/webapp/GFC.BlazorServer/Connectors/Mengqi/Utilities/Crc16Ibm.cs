@@ -8,9 +8,8 @@ internal static class Crc16Ibm
 
     public static ushort Compute(ReadOnlySpan<byte> buffer)
     {
-        // CRITICAL: Match vendor implementation for N3000/Mengqi controllers.
-        // The CRC-16 calculation range MUST EXCLUDE bytes 2 and 3 (the checksum placeholder).
-        // Processing a 0x00 byte in these positions results in a different state than skipping them.
+        // CRITICAL: Match vendor implementation for legacy N3000/Mengqi controllers.
+        // The legacy CRC-16 calculation range MUST EXCLUDE bytes 2 and 3 (the checksum placeholder).
         
         ushort crc = 0;
 
@@ -26,6 +25,20 @@ internal static class Crc16Ibm
             crc = UpdateCrc(crc, buffer[i]);
         }
 
+        return crc;
+    }
+
+    /// <summary>
+    /// Computes CRC over the entire buffer (including bytes 2 and 3). 
+    /// Used for SSI protocol where bytes 2-3 are pre-populated with salt (srcPort).
+    /// </summary>
+    public static ushort ComputeSsi(ReadOnlySpan<byte> buffer)
+    {
+        ushort crc = 0;
+        for (int i = 0; i < buffer.Length; i++)
+        {
+            crc = UpdateCrc(crc, buffer[i]);
+        }
         return crc;
     }
 

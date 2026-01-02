@@ -343,22 +343,41 @@
                                          }
                                     </td>
                                     <td class="text-end pe-4">
-                                        @if (CanRecordPayment(item))
-                                        {
-                                            <button class="btn btn-sm btn-primary px-3" @onclick="() => OpenPaymentModal(item)">
-                                                Pay
-                                            </button>
-                                        }
-                                        else if (item.MonthsOverdue >= 15 && CanSetInactive(item))
-                                        {
-                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmAndSetInactiveAsync(item)">
-                                                Deactivate
-                                            </button>
-                                        }
-                                        else if (IsPaid(item))
-                                        {
-                                            <button class="btn btn-sm btn-light text-muted" disabled>Paid</button>
-                                        }
+                                        <div class="d-flex justify-content-end gap-2">
+                                            @if (CanRecordPayment(item))
+                                            {
+                                                <button class="btn btn-sm btn-primary px-3" @onclick="() => OpenPaymentModal(item)" title="Record Payment">
+                                                    Pay
+                                                </button>
+                                            }
+                                            
+                                            @if (item.Status == MemberStatus.Life || item.IsBoardMember)
+                                            {
+                                                <button class="btn btn-sm btn-light border text-muted pe-none" disabled>
+                                                    <i class="bi bi-shield-lock"></i>
+                                                    <span class="d-none d-lg-inline ms-1">Auto-Waived</span>
+                                                </button>
+                                            }
+                                            else if (item.Status == MemberStatus.Regular || item.Status == MemberStatus.RegularNonPortuguese)
+                                            {
+                                                <button class="btn btn-sm @(item.IsWaived ? "btn-outline-info" : "btn-info text-white")" 
+                                                        @onclick="() => OpenWaiverModal(item)" 
+                                                        title="@(item.IsWaived ? "Manage Waiver" : "Apply Waiver")">
+                                                    <i class="bi @(item.IsWaived ? "bi-shield-check" : "bi-shield-plus")"></i>
+                                                    <span class="d-none d-lg-inline ms-1">@(item.IsWaived ? "Waiver" : "Waive")</span>
+                                                </button>
+                                            }
+                                            else if (item.MonthsOverdue >= 15 && CanSetInactive(item))
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmAndSetInactiveAsync(item)">
+                                                    Deactivate
+                                                </button>
+                                            }
+                                            else if (IsPaid(item))
+                                            {
+                                                <button class="btn btn-sm btn-light text-muted" disabled>Paid</button>
+                                            }
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -401,7 +420,7 @@
                             </div>
                         </div>
 
-                        <EditForm Model="_paymentForm" OnValidSubmit="SubmitPaymentAsync">
+                        <EditForm Model="_paymentForm" OnValidSubmit="PromptSubmitPayment">
                             <DataAnnotationsValidator />
                             
                             <div class="row g-3">
@@ -489,6 +508,127 @@
             </div>
         </div>
     }
+
+    <!-- Waiver Modal -->
+    @if (_showWaiverModal)
+    {
+        <div class="modal-backdrop fade show"></div>
+        <div class="modal fade show d-block" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg modal-glass">
+                    <div class="modal-header border-bottom-0">
+                        <div class="d-flex align-items-center">
+                            <div class="icon-shape bg-info-subtle text-info me-3">
+                                <i class="bi bi-shield-check"></i>
+                            </div>
+                            <div>
+                                <h5 class="modal-title fw-bold">Manage Dues Waiver</h5>
+                                <p class="text-muted small mb-0">@_waiverForm.MemberName - ID: @_waiverForm.MemberId</p>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" @onclick="CloseWaiverModal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <EditForm Model="_waiverForm" OnValidSubmit="PromptSubmitWaiver">
+                            <DataAnnotationsValidator />
+                            
+                            <div class="row g-4">
+                                <!-- Duration Selection -->
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold ls-1">Waiver Duration</label>
+                                    <div class="d-flex gap-3 mt-1">
+                                        <div class="form-check custom-radio">
+                                            <input class="form-check-input" type="radio" name="waiverType" id="typeSingle" 
+                                                   checked="@(!_waiverForm.IsPermanent)" @onclick="() => _waiverForm.IsPermanent = false">
+                                            <label class="form-check-label" for="typeSingle">Temporary</label>
+                                        </div>
+                                        <div class="form-check custom-radio">
+                                            <input class="form-check-input" type="radio" name="waiverType" id="typePerm" 
+                                                   checked="@(_waiverForm.IsPermanent)" @onclick="() => _waiverForm.IsPermanent = true">
+                                            <label class="form-check-label" for="typePerm">Permanent</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @if (!_waiverForm.IsPermanent)
+                                {
+                                    <div class="col-6">
+                                        <label class="form-label small text-muted text-uppercase fw-bold ls-1">Start Year</label>
+                                        <InputNumber class="form-control form-control-modern" @bind-Value="_waiverForm.StartYear" />
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small text-muted text-uppercase fw-bold ls-1">End Year</label>
+                                        <InputNumber class="form-control form-control-modern" @bind-Value="_waiverForm.EndYear" />
+                                        <div class="form-text x-small mt-1 text-info">
+                                            <i class="bi bi-info-circle me-1"></i>Owes dues in <strong>@(_waiverForm.EndYear + 1)</strong>
+                                        </div>
+                                    </div>
+                                }
+
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold ls-1">Reason for Waiver</label>
+                                    <InputSelect class="form-select form-control-modern" @bind-Value="_waiverForm.Reason">
+                                        <option value="">-- Select Reason --</option>
+                                        <option value="Club Maintenance & Repairs">Club Maintenance & Repairs</option>
+                                        <option value="Building/Facility Improvements">Building/Facility Improvements</option>
+                                        <option value="Technical/Professional Services">Technical/Professional Services</option>
+                                        <option value="Outstanding Service Contribution">Outstanding Service Contribution</option>
+                                        <option value="Financial Hardship">Financial Hardship</option>
+                                        <option value="Other (Specify in notes)">Other (Specify in notes)</option>
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => _waiverForm.Reason)" />
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold ls-1">Internal Notes</label>
+                                    <InputTextArea class="form-control form-control-modern" rows="3" 
+                                                   placeholder="Add details about why this waiver was granted..." 
+                                                   @bind-Value="_waiverForm.Notes" />
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center mt-5 pt-3 border-top">
+                                @if (_waiverForm.WaiverId > 0)
+                                {
+                                    <button type="button" class="btn btn-link text-danger p-0" @onclick="PromptDeleteWaiver">
+                                        <i class="bi bi-trash me-1"></i> Remove Waiver
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div></div>
+                                }
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-light px-4" @onclick="CloseWaiverModal">Cancel</button>
+                                    <button type="submit" class="btn btn-info text-white px-4 fw-bold" disabled="@_operationInProgress">
+                                        @if (_operationInProgress)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                        }
+                                        @( _waiverForm.WaiverId > 0 ? "Update Waiver" : "Grant Waiver")
+                                    </button>
+                                </div>
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Global Confirmation Modal -->
+    @if (_showConfirmModal)
+    {
+        <ConfirmActionModal 
+            Title="@_confirmTitle"
+            Message="@_confirmMessage"
+            SubMessage="@_confirmSubMessage"
+            ConfirmText="@_confirmActionText"
+            Icon="@_confirmIcon"
+            Type="@_confirmType"
+            OnConfirm="HandleConfirmedAction"
+            OnCancel="() => _showConfirmModal = false" />
+    }
 </div>
 
 @code {
@@ -547,6 +687,151 @@
     private bool _hasActiveCard;
     private DuesListItemDto? _paymentTarget;
     private PaymentFormModel _paymentForm = PaymentFormModel.CreateDefault();
+    
+    private bool _showWaiverModal;
+    private WaiverFormModel _waiverForm = new();
+
+    private async Task OpenWaiverModal(DuesListItemDto item)
+    {
+        if (item.Status == MemberStatus.Life || item.IsBoardMember) return;
+        
+        _operationInProgress = true;
+        try 
+        {
+            var existingWaivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(item.MemberId));
+            var activeWaiver = existingWaivers.FirstOrDefault(w => _selectedYear >= w.StartYear && _selectedYear <= w.EndYear);
+            
+            if (activeWaiver != null)
+            {
+                _waiverForm = new WaiverFormModel
+                {
+                    WaiverId = activeWaiver.WaiverId,
+                    MemberId = item.MemberId,
+                    MemberName = item.FullName,
+                    StartYear = activeWaiver.StartYear,
+                    EndYear = activeWaiver.EndYear,
+                    Reason = activeWaiver.Reason,
+                    IsPermanent = activeWaiver.EndYear >= 2099
+                };
+            }
+            else
+            {
+                _waiverForm = WaiverFormModel.Create(item, _selectedYear);
+            }
+            
+            _showWaiverModal = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load waiver data");
+            _operationMessage = "Could not load waiver details.";
+            _operationError = true;
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
+    }
+
+    private void CloseWaiverModal()
+    {
+        _showWaiverModal = false;
+    }
+
+    private async Task PromptSubmitWaiver()
+    {
+        _confirmTitle = _waiverForm.WaiverId > 0 ? "Update Waiver" : "Grant Waiver";
+        _confirmMessage = $"Are you sure you want to {_confirmTitle.ToLower()} for {_waiverForm.MemberName}?";
+        _confirmSubMessage = _waiverForm.IsPermanent 
+            ? "This waiver will apply permanently (thru 2099)." 
+            : $"This will cover member dues from {_waiverForm.StartYear} to {_waiverForm.EndYear}.";
+        _confirmActionText = _confirmTitle;
+        _confirmType = ConfirmActionModal.ConfirmType.Info;
+        _confirmIcon = "bi-shield-check";
+        _confirmAction = async () => await SubmitWaiverAsync();
+        _showConfirmModal = true;
+    }
+
+    private async Task SubmitWaiverAsync()
+    {
+        _showWaiverModal = false; // Close form modal before showing confirm? No, form modal is usually under.
+                                 // Let's close it so the confirm modal is the only thing.
+        _operationInProgress = true;
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var waiver = new DuesWaiverPeriod
+            {
+                WaiverId = _waiverForm.WaiverId ?? 0,
+                MemberId = _waiverForm.MemberId,
+                StartYear = _waiverForm.StartYear,
+                EndYear = _waiverForm.IsPermanent ? 2099 : _waiverForm.EndYear,
+                Reason = _waiverForm.Reason,
+                CreatedBy = currentUser?.Username ?? "System Admin",
+                CreatedDate = DateTime.Now
+            };
+
+            if (waiver.WaiverId > 0)
+            {
+                await Task.Run(() => DuesWaiverRepository.UpdateWaiver(waiver));
+            }
+            else
+            {
+                await Task.Run(() => DuesWaiverRepository.AddWaiver(waiver));
+            }
+
+            _operationMessage = $"Waiver updated for {_waiverForm.MemberName}.";
+            _operationError = false;
+            await LoadDataInternal(silent: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save waiver");
+            _operationMessage = "Error saving waiver details.";
+            _operationError = true;
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
+    }
+
+    private void PromptDeleteWaiver()
+    {
+        _confirmTitle = "Remove Waiver";
+        _confirmMessage = $"Remove the dues waiver for {_waiverForm.MemberName}?";
+        _confirmSubMessage = "This will erase the waiver record entirely. The member may immediately show as 'Unpaid' for the covered years.";
+        _confirmActionText = "Remove Record";
+        _confirmType = ConfirmActionModal.ConfirmType.Danger;
+        _confirmIcon = "bi-trash";
+        _confirmAction = async () => await DeleteWaiverAsync();
+        _showConfirmModal = true;
+    }
+
+    private async Task DeleteWaiverAsync()
+    {
+        if (_waiverForm.WaiverId == null) return;
+        
+        _showWaiverModal = false;
+        _operationInProgress = true;
+        try
+        {
+            await Task.Run(() => DuesWaiverRepository.DeleteWaiver(_waiverForm.WaiverId.Value));
+            _operationMessage = "Waiver removed successfully.";
+            _operationError = false;
+            await LoadDataInternal(silent: true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete waiver");
+            _operationMessage = "Error removing waiver.";
+            _operationError = true;
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
+    }
     private static readonly string[] PaymentMethods = { "Cash", "Check", "Card", "Online", "Other" };
     
     private DateTime? _graceEndDate;
@@ -694,9 +979,9 @@
         _operationMessage = null;
     }
 
-    private async Task LoadDataInternal()
+    private async Task LoadDataInternal(bool silent = false)
     {
-        _loading = true;
+        if (!silent) _loading = true;
         _errorMessage = null;
         try
         {
@@ -776,9 +1061,24 @@
         _paymentTarget = null;
     }
 
+    private void PromptSubmitPayment()
+    {
+        if (_paymentTarget == null) return;
+        
+        _confirmTitle = "Record Payment";
+        _confirmMessage = $"Confirm payment of {_paymentForm.Amount:C} for {_paymentTarget.FullName}?";
+        _confirmSubMessage = $"This will record a {_paymentForm.PaymentType} payment for the year {_selectedYear}.";
+        _confirmActionText = "Record Payment";
+        _confirmType = ConfirmActionModal.ConfirmType.Success;
+        _confirmIcon = "bi-cash-coin";
+        _confirmAction = async () => await SubmitPaymentAsync();
+        _showConfirmModal = true;
+    }
+
     private async Task SubmitPaymentAsync()
     {
         if (_paymentTarget is null) return;
+        _showPaymentModal = false;
         _operationInProgress = true;
         
         try
@@ -816,7 +1116,7 @@
             var amount = _paymentForm.Amount;
             
             ClosePaymentModal();
-            await LoadDataInternal();
+            await LoadDataInternal(silent: true);
 
             // Store for success modal
             _lastPaymentMember = memberName;
@@ -993,6 +1293,30 @@
         public string? Notes { get; set; }
         public static PaymentFormModel CreateDefault() => new();
     }
+
+    private sealed class WaiverFormModel
+    {
+        public int? WaiverId { get; set; }
+        public int MemberId { get; set; }
+        public string MemberName { get; set; } = string.Empty;
+        public int StartYear { get; set; }
+        public int EndYear { get; set; }
+        [Required(ErrorMessage = "Reason is required")]
+        public string Reason { get; set; } = string.Empty;
+        public string? Notes { get; set; }
+        public bool IsPermanent { get; set; }
+
+        public static WaiverFormModel Create(DuesListItemDto item, int year)
+        {
+            return new WaiverFormModel
+            {
+                MemberId = item.MemberId,
+                MemberName = item.FullName,
+                StartYear = year,
+                EndYear = year
+            };
+        }
+    }
 }
 
 <style>
@@ -1139,4 +1463,54 @@
     }
     
     @@keyframes spin { 100% { transform: rotate(360deg); } }
+
+    .modal-glass {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .icon-shape {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+    }
+
+    .form-control-modern {
+        border-radius: 10px;
+        padding: 0.625rem 1rem;
+        border: 1px solid #e5e7eb;
+        background-color: #f9fafb;
+        transition: all 0.2s;
+    }
+
+    .form-control-modern:focus {
+        background-color: #ffffff;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+    }
+
+    .ls-1 { letter-spacing: 0.05em; }
+
+    .x-small { font-size: 0.75rem; }
+
+    .custom-radio .form-check-input {
+        width: 1.25rem;
+        height: 1.25rem;
+        margin-top: 0.125rem;
+        cursor: pointer;
+    }
+
+    .custom-radio .form-check-label {
+        padding-left: 0.5rem;
+        padding-top: 0.125rem;
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
 </style>

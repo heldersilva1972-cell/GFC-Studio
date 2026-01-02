@@ -1,0 +1,62 @@
+# Re-initialize connection
+$TargetIP = "192.168.0.196"
+$ControllerSN = 223213880 
+$SrcPort = 60000
+$socket = New-Object System.Net.Sockets.UdpClient($SrcPort)
+$endpoint = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Parse($TargetIP), 60000)
+
+# Build 0x5A Request
+$packet = New-Object byte[] 64
+$packet[0] = 0x17 
+$packet[1] = 0x5A 
+$packet[17] = 0x81 # Set Driver Version bit (standard in WGPacket logic)
+
+[BitConverter]::GetBytes([uint32]0x1234).CopyTo($packet, 4)   # Unique XID
+[BitConverter]::GetBytes([uint32]$ControllerSN).CopyTo($packet, 12) 
+
+# CRC Calculation (Zeroing 2 & 3 per wgCRC logic)
+function Get-WgCrc16 {
+    param([byte[]]$buffer)
+    $calc = $buffer.Clone(); $calc[2]=0; $calc[3]=0 
+    $crc = 0x0000
+    foreach ($b in $calc) {
+        $crc = $crc -bxor $b
+        for ($i=0; $i-lt 8; $i++) {
+            if ($crc -band 1) { $crc = ($crc -shr 1) -bxor 0xA001 } else { $crc = $crc -shr 1 }
+        }
+    }
+    return $crc
+}
+[BitConverter]::GetBytes([uint16](Get-WgCrc16 $packet)).CopyTo($packet, 2)
+
+try {
+    Write-Host "Requesting Door Parameters (0x5A)..." -ForegroundColor Cyan
+    $socket.Send($packet, 64, $endpoint) | Out-Null
+    
+    # Wait up to 2 seconds for response
+    $timeout = (Get-Date).AddSeconds(2)
+    while ((Get-Date) -lt $timeout) {
+        if ($socket.Available -gt 0) {
+            $recv = $socket.Receive([ref]$endpoint)
+            Write-Host "--- PARAMETERS RECEIVED ---" -ForegroundColor Green
+            
+            # Parsing according to wgMjControllerRunInformation offsets
+            for ($d = 1; $d -le 4; $d++) {
+                $delay = $recv[19 + $d]  # Delay bytes: 20, 21, 22, 23
+                $mode  = $recv[23 + $d]  # Mode bytes: 24, 25, 26, 27
+                
+                if ($mode -gt 0) {
+                    $modeDesc = switch($mode){1{"Controlled"}; 2{"Always Open"}; 3{"Always Closed"}}
+                    Write-Host "Door $d : CONFIGURED | Delay: $delay sec | Mode: $modeDesc"
+                } else {
+                    Write-Host "Door $d : Not in use" -ForegroundColor Gray
+                }
+            }
+            return # Exit after successful read
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    Write-Host "Timeout: Controller did not respond." -ForegroundColor Red
+} finally {
+    $socket.Close()
+}

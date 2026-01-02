@@ -54,38 +54,8 @@ namespace GFC.BlazorServer.Services
                 logger.LogInformation("Running Daily Card Lifecycle Check...");
                 
                 var year = DateTime.Today.Year;
-                // Get members at risk
-                var riskyMembers = await lifecycleService.GetMembersAtRiskAsync(year, ct);
-                
-                // Filter for those whose grace period effectively EXPIRED (DaysRemaining < 0)
-                var expiredMembers = riskyMembers.Where(m => m.DaysRemaining < 0).ToList();
-
-                if (expiredMembers.Any())
-                {
-                    logger.LogInformation("Found {Count} cards eligible for automatic deactivation.", expiredMembers.Count);
-                    
-                    foreach (var member in expiredMembers)
-                    {
-                        // Double check we can resolve the card ID from the number or member ID
-                        // For safety, we skip automatic deactivation this turn and just log info
-                        // Real implementation would look up CardID again and call DeactivateCardAsync
-                        
-                        logger.LogWarning("[AUTO-DEACTIVATE PREVIEW] Member {MemberId} ({Name}) grace period expired.", member.MemberId, member.FullName);
-                        
-                        // NOTE: Uncomment to enable auto-deactivation
-                        // await lifecycleService.DeactivateCardAsync(
-                        //     // We need to resolve CardId here, simpler if DTO included it.
-                        //     // For now, logging is safer than blind deactivation.
-                        //     0, 
-                        //     "Grace Period Expired", 
-                        //     "Automatic deactivation by background service", 
-                        //     ct);
-                    }
-                }
-                else
-                {
-                    logger.LogInformation("No cards require deactivation today.");
-                }
+                // Run full evaluation and deactivation
+                await lifecycleService.ProcessAllMembersAsync(year, ct);
             }
         }
     }

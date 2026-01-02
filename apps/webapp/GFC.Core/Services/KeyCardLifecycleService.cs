@@ -202,13 +202,51 @@ public class KeyCardLifecycleService
     }
 
     /// <summary>
+    /// Evaluates all active cards and deactivates those that are no longer eligible.
+    /// This handles transitions where grace periods expire or members become delinquent.
+    /// </summary>
+    public async Task ProcessAllMembersAsync(int year, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Starting full card lifecycle evaluation for year {Year}", year);
+        
+        var activeCards = (await Task.Run(() => _keyCardRepository.GetAll(), ct))
+                         .Where(c => c.IsActive)
+                         .ToList();
+
+        int deactivations = 0;
+        foreach (var card in activeCards)
+        {
+            var member = _memberRepository.GetMemberById(card.MemberId);
+            if (member == null) continue;
+
+            var eligibility = _keyCardService.GetKeyCardEligibility(member.MemberID, year);
+            if (!eligibility.Eligible)
+            {
+                string reason = !eligibility.StatusAllowed ? "MemberStatusChanged" : 
+                               (eligibility.GracePeriodDefined && !eligibility.GracePeriodActive ? "GracePeriodExpired" : "Delinquent");
+                
+                string notes = reason switch {
+                    "GracePeriodExpired" => "Automatic deactivation: Grace period for dues collection has ended.",
+                    "Delinquent" => "Automatic deactivation: No dues payment found for current or previous year.",
+                    _ => "Automatic deactivation: Member no longer satisfies access requirements."
+                };
+
+                await DeactivateCardAsync(card.KeyCardId, reason, notes, "System", ct);
+                deactivations++;
+            }
+        }
+
+        _logger.LogInformation("Card lifecycle evaluation complete. Deactivated {Count} cards.", deactivations);
+    }
+
+    /// <summary>
     /// Get members at risk (unpaid, within grace period)
     /// </summary>
     public async Task<List<MemberAtRiskDto>> GetMembersAtRiskAsync(int year, CancellationToken ct = default)
     {
         // Get settings for grace period logic
         var settings = _settingsRepository.GetSettingsForYear(year);
-        if (settings == null || settings.GraceEndDate < DateTime.Today)
+        if (settings == null)
         {
             return new List<MemberAtRiskDto>();
         }
@@ -229,13 +267,18 @@ public class KeyCardLifecycleService
                 var member = await Task.Run(() => _memberRepository.GetMemberById(d.MemberID), ct);
                 if (member == null || member.Status == "LIFE") continue; // Life members exempt
 
+                var eligibility = _keyCardService.GetKeyCardEligibility(d.MemberID, year);
+                
                 riskList.Add(new MemberAtRiskDto
                 {
                     MemberId = d.MemberID,
+                    CardId = card.KeyCardId,
                     FullName = $"{member.FirstName} {member.LastName}",
                     CardNumber = card.CardNumber,
                     GraceEndDate = settings.GraceEndDate,
-                    DaysRemaining = (settings.GraceEndDate.Value - DateTime.Today).Days
+                    DaysRemaining = settings.GraceEndDate.HasValue ? (settings.GraceEndDate.Value - DateTime.Today).Days : 0,
+                    IsDelinquent = !eligibility.Eligible && !eligibility.GracePeriodActive,
+                    InGracePeriod = eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied && !eligibility.CurrentYearSatisfied
                 });
             }
         }
@@ -250,8 +293,11 @@ public class KeyCardLifecycleService
 public class MemberAtRiskDto
 {
     public int MemberId { get; set; }
+    public int CardId { get; set; }
     public string FullName { get; set; } = string.Empty;
     public string CardNumber { get; set; } = string.Empty;
     public DateTime? GraceEndDate { get; set; }
     public int DaysRemaining { get; set; }
+    public bool IsDelinquent { get; set; }
+    public bool InGracePeriod { get; set; }
 }

@@ -324,6 +324,7 @@ public class RealControllerClient : IControllerClient
              CardNumber = long.Parse(request.CardNumber),
              DoorList = request.DoorIndexes,
              TimeZones = new[] { tzIndex, tzIndex, tzIndex, tzIndex },
+             TimeProfileIndex = (int)tzIndex,
              Flags = flags,
              ValidFrom = null, // Valid forever (WgPayloadFactory handles defaults)
              ValidTo = null    // Valid forever
@@ -508,6 +509,7 @@ public class RealControllerClient : IControllerClient
             {
                 CardNumber = cardNo,
                 DoorList = cardDoors,
+                TimeProfileIndex = 1,
                 Flags = GFC.BlazorServer.Connectors.Mengqi.Models.CardPrivilegeFlags.Normal
             };
         }

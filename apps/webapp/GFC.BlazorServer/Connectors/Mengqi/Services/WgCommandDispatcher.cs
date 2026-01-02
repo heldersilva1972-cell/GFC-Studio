@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Threading;
 using System.Threading.Tasks;
 using GFC.BlazorServer.Connectors.Mengqi.Abstractions;
@@ -42,7 +43,8 @@ internal sealed class WgCommandDispatcher
             ? new ControllerEndpoint(System.Net.IPAddress.Broadcast, 60000, 0, null)
             : _endpointResolver.Resolve(controllerSn);
 
-        var request = _packetBuilder.Build(controllerSn, NextXid(), profile, payload.Span);
+        var localPort = (ushort)((_transport as UdpControllerTransport)?.LocalPort ?? 60000);
+        var request = _packetBuilder.Build(controllerSn, NextXid(), profile, payload.Span, localPort);
         var span = request.AsSpan();
 
         // Log request (before encryption for debuggability of the technical content if desired, 
@@ -59,9 +61,21 @@ internal sealed class WgCommandDispatcher
         // Offset 4 onwards is the payload (SN + Data) that should be encrypted
         if (!string.IsNullOrWhiteSpace(endpoint.CommPassword))
         {
-            var payloadSpan = span[4..]; 
+            // Hybrid SSI Framing: Header (0-15) MUST stay plain text so SN and XID are visible.
+            // SN is at 4-7, XID at 8-11.
+            // Only the payload (16-63) is encrypted.
+            var payloadSpan = span[16..63]; 
             N3kCommCryptoProvider.Encrypt(payloadSpan, endpoint.CommPassword!);
-            WgPacketBuilder.WriteCrc(span); // Re-calculate CRC over encrypted data
+            
+            // Re-calculate the SALTED CRC over the encrypted buffer
+            BinaryPrimitives.WriteUInt16LittleEndian(span[2..4], localPort); 
+            var crc = Crc16Ibm.ComputeSsi(span);
+            BinaryPrimitives.WriteUInt16LittleEndian(span[2..4], crc);
+            
+            // Re-calculate Tail Sum
+            long fullSum = 0;
+            for (int i = 0; i < 63; i++) fullSum += span[i];
+            span[63] = (byte)(fullSum & 0xFF);
         }
         
         var attempt = 0;
@@ -148,7 +162,8 @@ internal sealed class WgCommandDispatcher
     {
         // For broadcast, we use SN 0 and resolve IP broadcast
         var endpoint = _endpointResolver.Resolve(0);
-        var request = _packetBuilder.Build(0, NextXid(), profile, payload.Span);
+        var localPort = (ushort)((_transport as UdpControllerTransport)?.LocalPort ?? 60000);
+        var request = _packetBuilder.Build(0, NextXid(), profile, payload.Span, localPort);
         
         await foreach (var response in _transport.BroadcastAsync(endpoint, request, _options.ReceiveTimeout, cancellationToken).ConfigureAwait(false))
         {

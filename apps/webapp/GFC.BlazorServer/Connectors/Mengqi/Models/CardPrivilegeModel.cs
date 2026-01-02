@@ -22,6 +22,8 @@ public sealed class CardPrivilegeModel
 
     public CardPrivilegeFlags Flags { get; set; } = CardPrivilegeFlags.Normal;
 
+    public int? TimeProfileIndex { get; set; }
+ 
     public string? HolderName { get; set; }
 }
 

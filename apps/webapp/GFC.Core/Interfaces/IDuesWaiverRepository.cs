@@ -9,7 +9,10 @@ public interface IDuesWaiverRepository
 {
     List<DuesWaiverPeriod> GetWaiversForMember(int memberId);
     List<DuesWaiverPeriod> GetWaiversForYear(int year);
+    bool HasWaiverForYear(int memberId, int year);
     void AddWaiver(DuesWaiverPeriod waiver);
+    void UpdateWaiver(DuesWaiverPeriod waiver);
     void DeleteWaiver(int waiverId);
+    DuesWaiverPeriod? GetWaiverById(int waiverId);
 }
 

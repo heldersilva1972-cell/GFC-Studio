@@ -8,8 +8,11 @@ namespace GFC.BlazorServer.Connectors.Mengqi.Protocol;
 
 internal static class WgResponseParser
 {
-    public static ReadOnlySpan<byte> GetPayload(ReadOnlySpan<byte> packet)
-        => packet.Length <= WgPacketBuilder.HeaderLength ? ReadOnlySpan<byte>.Empty : packet[WgPacketBuilder.HeaderLength..];
+    public static ReadOnlySpan<byte> GetPayload(ReadOnlySpan<byte> data)
+    {
+        // Data follows 8-byte header
+        return data.Slice(8, 64 - 8 - 1); // -1 for tail sum
+    }
 
     public static void EnsureAck(ReadOnlySpan<byte> packet, WgCommandProfile profile)
     {
@@ -34,43 +37,35 @@ internal static class WgResponseParser
     {
         var payload = GetPayload(packet);
 
-        // N3000 Status Poll (0x20) Verified Layout:
-        // [0..3] SN (4 bytes) - Frame 4-7
-        // [4..7] Last Index (4 bytes) - Frame 8-11
-        // [8] Record Type - Frame 12
-        // [9] Access Result - Frame 13
-        // ...
-        // [15] Door Number? (Summary says Frame 19 -> Payload 11?)
-        // ...
-        // [16..22] Timestamp (7 bytes BCD) - Frame 20-26
+        // N3000 Status Poll (0x20) Response Layout:
+        // Byte 8-11:  Controller SN (Payload 0-3)
+        // Byte 12-15: Index (Payload 4-7)
+        // Byte 20-26: Timestamp (Payload 12-18)
         
         uint totalEvents = 0;
         DateTime? controllerTime = null;
 
-        if (payload.Length >= 23)
+        if (payload.Length >= 18)
         {
-            // Last Index (Bytes 8-11 -> Payload 4-7)
             totalEvents = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
 
-            // Timestamp (Bytes 20-26 -> Payload 16-22)
-            // Layout: Century, Year, Month, Day, Hour, Minute, Second
             try 
             {
-                var p = payload; // shorthand
-                int century = DecodeBcd(p[16]);
-                int yearPart = DecodeBcd(p[17]);
+                var p = payload.Slice(12); // Packet Byte 20
+                int century = DecodeBcd(p[0]);
+                int yearPart = DecodeBcd(p[1]);
                 int fullYear = (century * 100) + yearPart;
-                int month = DecodeBcd(p[18]);
-                int day = DecodeBcd(p[19]);
-                int hour = DecodeBcd(p[20]);
-                int minute = DecodeBcd(p[21]);
-                int second = DecodeBcd(p[22]);
+                int month = DecodeBcd(p[2]);
+                int day = DecodeBcd(p[3]);
+                int hour = DecodeBcd(p[4]);
+                int minute = DecodeBcd(p[5]);
+                int second = DecodeBcd(p[6]);
 
                 controllerTime = new DateTime(fullYear, month, day, hour, minute, second);
             }
             catch 
             {
-                // Fallback or ignore corrupt time
+                // Fallback
             }
         }
         
@@ -95,23 +90,20 @@ internal static class WgResponseParser
         var payload = GetPayload(packet);
         if (payload.Length < 21) throw new InvalidOperationException("Card data payload too short.");
 
-        // N3000 Card Read (0x50) Verified Layout:
-        // [4..7] Card ID (Bytes 8-11)
-        // [8..15] Dates (Bytes 12-19) -> Start (4), End (4)
-        // [16] Permission Mask (Byte 20)
+        // SSI Card Read (0x50) Verified Layout (Shifted 8 bytes from Legacy):
+        // [0..3] Card Number (Packet 16-19)
+        // [4..11] Dates (Packet 20-27) -> Start (4), End (4)
+        // [12] Permission Mask (Packet 28)
 
         // 1. Card ID
-        var cardId = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
+        var cardId = BinaryPrimitives.ReadUInt32LittleEndian(payload[0..4]);
 
         // 2. Dates (BCD)
-        // Start: Payload 8..11 (Cent, Year, Month, Day)
-        var validFrom = ParseBcdDate(payload.Slice(8, 4));
-        
-        // End: Payload 12..15 (Cent, Year, Month, Day)
-        var validTo = ParseBcdDate(payload.Slice(12, 4));
+        var validFrom = ParseBcdDate(payload.Slice(4, 4));
+        var validTo = ParseBcdDate(payload.Slice(8, 4));
 
         // 3. Permissions
-        var mask = payload[16];
+        var mask = payload[12];
         var doorList = new List<int>();
         if ((mask & 0x01) != 0) doorList.Add(1);
         if ((mask & 0x02) != 0) doorList.Add(2);
@@ -151,48 +143,35 @@ internal static class WgResponseParser
         var events = new List<ControllerEvent>();
         
         // N3000 Standard Mode (0xB0) Response Structure (64 bytes total):
-        // Packet[0..1]:    Type (0x17) + Command (0xB0)
-        // Packet[2..7]:    Header data
-        // Packet[8..11]:   Last Index (4 bytes, little-endian) - this is at payload[4..7]
-        // Packet[12..31]:  Single 20-byte event record - this is at payload[8..27]
-        // Packet[32..62]:  Padding (zeros)
-        // Packet[63]:      Checksum
+        // Packet 8-11:   Last Index (Payload 0-3)
+        // Packet 12-31:  Event record (Payload 4-23)
+        // Event data offsets (relative to Packet Offset 12):
+        // [0]            Event Type (Packet 12)
+        // [1]            Result / Reason Code (Packet 13)
+        // [2]            Door Number (Packet 14)
+        // [3]            Reader Number?
+        // [8..11]        Card ID (Packet 20-23)
+        // [12..18]       Timestamp (Packet 24-30)
+ 
+        if (payload.Length < 24) return (events, 0); 
         
-        if (payload.Length < 28) return (events, 0); // Need at least 8 header + 20 event bytes
+        uint ControllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[0..4]);
+        var eventData = payload.Slice(4, 20); // Byte 12-31
         
-        // Extract last index from payload bytes 4-7 (packet bytes 8-11)
-        uint ControllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
-        
-        // Single event record starts at payload byte 8 (packet byte 12)
-        var eventData = payload.Slice(8, 20);
-        
-        // Log the raw 20-byte record for debugging
-        var hexDump = string.Join(" ", eventData.ToArray().Select(b => b.ToString("X2")));
-        System.Diagnostics.Debug.WriteLine($"Event Record: {hexDump}");
-        
-        // N3000 Event Log Record Layout (20 bytes) - Verified by USER:
-        // [0]      Event Category (0x01 = Swipe, 0x03 = System/Sensor) - Packet Index 12
-        // [1..3]   Padding/Misc
-        // [4..7]   Card Number (uint32, little-endian) - Packet Index 16-19
-        // [8..14]  Timestamp (7 bytes BCD: Century, Year, Month, Day, Hour, Min, Sec) - Packet Index 20-26
-        // [15]     Result / Reason Code (0x01=Allowed, 0x1C=Closed, etc.) - Packet Index 27
-        // [16]     Door Number (1, 2, 3, or 4) - Packet Index 28
-        // [17..19] Reserved
-
         var category = eventData[0];
-        var card = BinaryPrimitives.ReadUInt32LittleEndian(eventData[4..8]);
+        var card = BinaryPrimitives.ReadUInt32LittleEndian(eventData[8..12]);
         
         DateTime timestamp = DateTime.MinValue;
         try
         {
-            // Read BCD timestamp from bytes 8-14
-            var century = DecodeBcd(eventData[8]);
-            var year = DecodeBcd(eventData[9]);
-            var month = DecodeBcd(eventData[10]);
-            var day = DecodeBcd(eventData[11]);
-            var hour = DecodeBcd(eventData[12]);
-            var minute = DecodeBcd(eventData[13]);
-            var second = DecodeBcd(eventData[14]);
+            // Timestamp at eventData[12..18] -> Packet 24-30
+            var century = DecodeBcd(eventData[12]);
+            var year = DecodeBcd(eventData[13]);
+            var month = DecodeBcd(eventData[14]);
+            var day = DecodeBcd(eventData[15]);
+            var hour = DecodeBcd(eventData[16]);
+            var minute = DecodeBcd(eventData[17]);
+            var second = DecodeBcd(eventData[18]);
             
             if (month > 0 && month <= 12 && day > 0 && day <= 31)
             {
@@ -200,13 +179,11 @@ internal static class WgResponseParser
                 timestamp = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Utc);
             }
         }
-        catch { /* Fallback to MinValue on parse error */ }
-
-        var resultReason = eventData[15];
-        var door = eventData[16];
+        catch { }
+ 
+        var resultReason = eventData[1];
+        var door = eventData[2];
         
-        // Map Category to EventType and Result to ReasonCode
-        // Category 1 = Swipe, Category 3 = System/Sensor
         return (new List<ControllerEvent> 
         { 
             new ControllerEvent
@@ -216,7 +193,7 @@ internal static class WgResponseParser
                 EventType = (ControllerEventType)category, 
                 ReasonCode = resultReason,
                 TimestampUtc = timestamp,
-                RawIndex = requestedIndex // Use the index we requested
+                RawIndex = requestedIndex
             } 
         }, ControllerLastIndex);
     }
@@ -224,35 +201,25 @@ internal static class WgResponseParser
     public static DiscoveryResult ParseDiscovery(ReadOnlySpan<byte> packet)
     {
         var payload = GetPayload(packet);
-        if (payload.Length < 60)
+        if (payload.Length < 50)
         {
             throw new InvalidOperationException("Discovery response payload is too short.");
         }
-
-        var sn = BinaryPrimitives.ReadUInt32LittleEndian(payload[0..4]);
-        var ip = $"{payload[4]}.{payload[5]}.{payload[6]}.{payload[7]}";
-        var mask = $"{payload[8]}.{payload[9]}.{payload[10]}.{payload[11]}";
-        var gate = $"{payload[12]}.{payload[13]}.{payload[14]}.{payload[15]}";
-        var mac = $"{payload[16]:X2}:{payload[17]:X2}:{payload[18]:X2}:{payload[19]:X2}:{payload[20]:X2}:{payload[21]:X2}";
-        var version = $"{payload[22]}.{payload[23]}";
+ 
+        // SN:   Packet 4-7
+        // IP:   Packet 20-23 (Payload 12-15)
+        // MAC:  Packet 32-37 (Payload 24-29)
         
-        var dateStr = $"20{payload[24]:D2}-{payload[25]:D2}-{payload[26]:D2}";
+        var sn = BinaryPrimitives.ReadUInt32LittleEndian(packet[4..8]);
+        var ip = $"{payload[12]}.{payload[13]}.{payload[14]}.{payload[15]}";
+        var mask = $"{payload[16]}.{payload[17]}.{payload[18]}.{payload[19]}";
+        var gate = $"{payload[20]}.{payload[21]}.{payload[22]}.{payload[23]}";
+        var mac = $"{payload[24]:X2}:{payload[25]:X2}:{payload[26]:X2}:{payload[27]:X2}:{payload[28]:X2}:{payload[29]:X2}";
+        var version = $"{payload[30]}.{payload[31]}";
+        
+        var dateStr = $"20{payload[32]:D2}-{payload[33]:D2}-{payload[34]:D2}";
         DateTime.TryParse(dateStr, out var date);
-
-        var modes = new byte[4];
-        payload[28..32].CopyTo(modes);
-
-        var port = BinaryPrimitives.ReadUInt16LittleEndian(payload[32..34]);
-        if (port == 0) port = 60000;
-
-        var allowedIp = $"{payload[34]}.{payload[35]}.{payload[36]}.{payload[37]}";
-
-        var delays = new byte[4];
-        if (payload.Length >= 36)
-        {
-            payload[32..36].CopyTo(delays);
-        }
-
+ 
         return new DiscoveryResult
         {
             SerialNumber = sn,
@@ -261,11 +228,7 @@ internal static class WgResponseParser
             Gateway = gate,
             MacAddress = mac,
             FirmwareVersion = version,
-            ControllerDate = date,
-            Port = port,
-            AllowedPcIp = allowedIp,
-            DoorModes = modes,
-            DoorDelays = delays
+            ControllerDate = date
         };
     }
 
@@ -294,12 +257,12 @@ internal static class WgResponseParser
         return new DoorHardwareConfig
         {
             DoorIndex = doorIndex,
-            ControlMode = (DoorControlMode)payload[4],
-            UnlockDuration = payload[5], 
-            Interlock = (DoorInterlockMode)payload[6],
-            SensorType = payload[7], // Byte 11, presumed Sensor Type
-            DoorAjarTimeout = payload[8],
-            Verification = (DoorVerificationMode)payload[9]
+            ControlMode = (DoorControlMode)payload[0],  // Packet 16
+            UnlockDuration = payload[1],                // Packet 17 (Verified by Test Script)
+            Interlock = (DoorInterlockMode)payload[2],  // Packet 18
+            SensorType = payload[3],                     // Packet 19
+            DoorAjarTimeout = payload[4],                // Packet 20
+            Verification = (DoorVerificationMode)payload[5] // Packet 21
         };
     }
 

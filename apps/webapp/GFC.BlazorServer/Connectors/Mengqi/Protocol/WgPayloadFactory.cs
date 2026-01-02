@@ -66,53 +66,66 @@ internal static class WgPayloadFactory
     public static byte[] BuildPrivilegePayload(WgCommandProfile profile, CardPrivilegeModel model, bool markAsDeleted)
     {
         // For N3000 "Add/Modify Privilege" (0x50) and "Delete" (0x52)
-        // User-verified structure for N3000:
-        // Offset 0-3: Card Number (4 bytes, Little Endian)
-        // Offset 4-7: Start Date (4 bytes: Century, Year, Month, Day)
-        // Offset 8-11: End Date (4 bytes: Century, Year, Month, Day)
-        // Offset 12-15: Door Control (4 bytes: 1=Allowed, 0=Denied per door)
-
-        var payload = Allocate(profile, 56);
+        // Explicit Mapping (Payload starts at Packet Offset 8):
+        // Offset 0-3:   Card Number (Packet 8-11)
+        // Offset 4-7:   Start Date (Packet 12-15) - BCD Format
+        // Offset 8-11:  Expiry Date (Packet 16-19) - BCD Format
+        // Offset 12:    Door 1 (Packet 20) - 0x01 Allowed, 0x00 Denied
+        // Offset 13:    Door 2 (Packet 21)
+        // Offset 14:    Door 3 (Packet 22)
+        // Offset 15:    Door 4 (Packet 23)
+        // Offset 16-19: Timezone Index (Packet 24-27) - 0x01 for "Always"
+ 
+        var payload = Allocate(profile, 55); // Use full payload space
         var span = payload.AsSpan();
-
-        // 1. Card Number (4 bytes)
+ 
+        // 1. Card Number (4 bytes as per specification)
         BinaryPrimitives.WriteUInt32LittleEndian(span[0..4], unchecked((uint)model.CardNumber));
-
+ 
         if (profile.CommandCode == 82 || markAsDeleted)
         {
-            // For Delete (0x52) or marked as deleted, we set dates and doors to 0
-            // Some models might just ignore the rest, but 0 is safest.
+            // For Delete (0x52) or marked as deleted, we send Card ID with no access
             return payload;
         }
-
-        // 2. Start Date (4 bytes: Cent, Year, Month, Day)
-        WriteDate(span[4..8], model.ValidFrom ?? new DateTime(2025, 1, 1));
-
-        // 3. End Date (4 bytes: Cent, Year, Month, Day)
-        WriteDate(span[8..12], model.ValidTo ?? new DateTime(2029, 12, 31));
-
-        // 4. Door Control (Offset 12 / Packet Byte 20)
-        // User request: "Accept a byte mask for Byte 20 (0x01 for Door 1, 0x02 for Door 2, 0x03 for both)."
-        // Previous logic spread this across 4 bytes. We now write the mask to a single byte.
-        byte mask = model.DoorMask != 0 ? model.DoorMask : BuildDoorMask(model.DoorList);
-        span[12] = mask; 
-        span[13] = 0; // Reserved/Padding
-        span[14] = 0; // Reserved/Padding
-        span[15] = 0; // Reserved/Padding
-
-        // 5. Payload Checksum (Byte 63 / Payload Offset 55)
-        // User request: "Calculate a 1-byte summation checksum for the final byte (Byte 63)."
-        // We sum bytes 0-54 of the payload and store the result in byte 55.
-        // Packet length 64 bytes. Header 8 bytes. Payload 56 bytes.
-        // Payload[55] IS Packet[63].
-        int sum = 0;
-        for (int i = 0; i < 55; i++)
+ 
+        // 2. Dates (BCD Format: CC YY MM DD)
+        WriteBcdDate(span[4..8], model.ValidFrom ?? new DateTime(2025, 1, 1));
+        WriteBcdDate(span[8..12], model.ValidTo ?? new DateTime(2099, 12, 31));
+ 
+        // 3. Door Access (Offsets 12-15)
+        // Each byte corresponds to a door. 0x01 = Access, 0x00 = Denied.
+        for (int i = 0; i < 4; i++)
         {
-            sum += span[i];
+            span[12 + i] = model.DoorList.Contains(i + 1) ? (byte)0x01 : (byte)0x00;
         }
-        span[55] = (byte)(sum & 0xFF);
-
+ 
+        // 4. Timezone Indices (Offsets 16-19)
+        // Controller expects one timezone index per door.
+        // Index 1 usually means "Always Allowed".
+        for (int i = 0; i < 4; i++)
+        {
+            byte tz = 1;
+            if (model.TimeZones != null && model.TimeZones.Count > i && model.TimeZones[i] > 0)
+            {
+                tz = model.TimeZones[i];
+            }
+            else if (model.TimeProfileIndex.HasValue && model.TimeProfileIndex.Value > 0)
+            {
+                tz = (byte)model.TimeProfileIndex.Value;
+            }
+            span[16 + i] = tz;
+        }
+ 
         return payload;
+    }
+ 
+    private static void WriteBcdDate(Span<byte> span, DateTime date)
+    {
+        // Format: Cent, Year, Month, Day (e.g., 20 26 01 01)
+        span[0] = ToBcd(date.Year / 100);
+        span[1] = ToBcd(date.Year % 100);
+        span[2] = ToBcd(date.Month);
+        span[3] = ToBcd(date.Day);
     }
 
     private static void WriteDate(Span<byte> span, DateTime date)
@@ -188,7 +201,13 @@ internal static class WgPayloadFactory
 
     private static byte[] Allocate(WgCommandProfile profile, int minimumLength)
     {
+        // Hybrid SSI Standard: Header 16 + TailSum 1 = 17 bytes overhead.
+        // Payload must NOT exceed 47 bytes in a 64-byte frame.
+        const int MaxSsiPayload = 47; 
+        
         var length = profile.RequestPayloadLength > 0 ? profile.RequestPayloadLength : minimumLength;
+        length = Math.Min(length, MaxSsiPayload);
+        
         return new byte[length];
     }
 
