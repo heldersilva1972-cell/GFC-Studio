@@ -10,6 +10,7 @@
 @inject ILogger<MainLayout> Logger
 @inject ThemeService ThemeService
 @inject IUserConnectionService UserConnectionService
+@inject ControllerHealthService ControllerHealthService
 
 <div class="app-shell">
     <header class="app-topbar">
@@ -94,14 +95,26 @@
     private string _connectionStatus = "Checking...";
     private GFC.Core.Interfaces.LocationType _locationType = GFC.Core.Interfaces.LocationType.Unknown;
 
+    private System.Threading.Timer? _healthTimer;
+    private bool _isControllerOnline = false;
+
     protected override async Task OnInitializedAsync()
     {
         try
         {
             await UpdateUserInfo();
-            UpdateConnectionStatus();
             
-            // Subscribe to authentication state changes to update menu visibility
+            // Initial check
+            UpdateControllerStatus();
+
+            // Start polling for controller health every 5 seconds
+            _healthTimer = new System.Threading.Timer(async _ => 
+            {
+                UpdateControllerStatus();
+                await InvokeAsync(StateHasChanged);
+            }, null, 5000, 5000);
+            
+            // Subscribe to authentication state changes
             AuthStateProvider.AuthenticationStateChanged += async (task) =>
             {
                 await UpdateUserInfo();
@@ -113,13 +126,16 @@
         }
         catch
         {
-            // Ignore errors during initialization
             _currentUsername = "Unknown";
             _isAdmin = false;
         }
     }
 
-
+    public void Dispose()
+    {
+        _healthTimer?.Dispose();
+        ThemeService.OnThemeChanged -= StateHasChanged;
+    }
 
     private async Task UpdateUserInfo()
     {
@@ -128,10 +144,7 @@
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             _currentUsername = authState.User.Identity?.Name ?? "Unknown";
             
-            // Check role from claims
             _isAdmin = authState.User.IsInRole(AppRoles.Admin);
-            
-            // Also check directly from the user object as a fallback
             if (!_isAdmin)
             {
                 var currentUser = AuthStateProvider.GetCurrentUser();
@@ -140,8 +153,6 @@
                     _isAdmin = currentUser.IsAdmin;
                 }
             }
-            
-            StateHasChanged();
         }
         catch
         {
@@ -154,14 +165,9 @@
     {
         try
         {
-            // Use JavaScript to navigate as a fallback
             Navigation.NavigateTo("/login", forceLoad: true);
         }
-        catch
-        {
-            // If navigation fails, try JavaScript
-            // This will be handled by the browser
-        }
+        catch { }
     }
 
     private async Task HandleLogout()
@@ -169,15 +175,12 @@
         try
         {
             await AuthStateProvider.LogoutAsync();
-            // Wait a moment for state to propagate
             await Task.Delay(100);
             await UpdateUserInfo();
-            // Force navigation with full page reload
             Navigation.NavigateTo("/login", forceLoad: true);
         }
-        catch (Exception)
+        catch
         {
-            // If logout fails, still try to navigate
             Navigation.NavigateTo("/login", forceLoad: true);
         }
     }
@@ -186,11 +189,7 @@
     {
         try
         {
-            // Check the cached _isAdmin first
-            if (_isAdmin)
-                return true;
-            
-            // Check directly from the current user object
+            if (_isAdmin) return true;
             var currentUser = AuthStateProvider.GetCurrentUser();
             return currentUser?.IsAdmin == true;
         }
@@ -200,43 +199,21 @@
         }
     }
 
-
-
-
-
     private string GetConnectionStatusClass()
     {
-        return _locationType switch
-        {
-            GFC.Core.Interfaces.LocationType.LAN => "status-lan",
-            GFC.Core.Interfaces.LocationType.VPN => "status-vpn",
-            GFC.Core.Interfaces.LocationType.Public => "status-public",
-            _ => "status-unknown"
-        };
+        return _isControllerOnline ? "status-lan" : "status-public";
     }
 
     private string GetConnectionStatusIcon()
     {
-        return _locationType switch
-        {
-            GFC.Core.Interfaces.LocationType.LAN => "bi-wifi",
-            GFC.Core.Interfaces.LocationType.VPN => "bi-shield-lock-fill",
-            GFC.Core.Interfaces.LocationType.Public => "bi-exclamation-triangle-fill",
-            _ => "bi-question-circle-fill"
-        };
+        return _isControllerOnline ? "bi-check-circle-fill" : "bi-x-circle-fill";
     }
 
-    private void UpdateConnectionStatus()
+    private void UpdateControllerStatus()
     {
-        _locationType = UserConnectionService.LocationType;
-        _connectionStatus = _locationType switch
-        {
-            GFC.Core.Interfaces.LocationType.LAN => "Secure: Club Network",
-            GFC.Core.Interfaces.LocationType.VPN => "Secure: Home VPN",
-            GFC.Core.Interfaces.LocationType.Public => "Insecure: Public Net",
-            _ => "Detecting Connection..."
-        };
-        StateHasChanged();
+        var status = ControllerHealthService.GetHealthStatus();
+        _isControllerOnline = status.IsOnline;
+        _connectionStatus = _isControllerOnline ? "System Online" : "System Offline";
     }
 }
 

@@ -5,6 +5,7 @@ namespace GFC.Core.Interfaces
 {
     public enum LocationType
     {
+        Local,
         LAN,
         VPN,
         Public,
