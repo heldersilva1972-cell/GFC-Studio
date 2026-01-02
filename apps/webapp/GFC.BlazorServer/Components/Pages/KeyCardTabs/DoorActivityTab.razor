@@ -662,17 +662,12 @@
             // Just use the existing repository call but acknowledge it might be slightly stale for *new members*, 
             // but events are the main thing being refreshed.
             
-            // FETCH FRESH DATA: Use the local context to get cards and members.
-            // This avoids "Stale Scope" issues where the injected Repository doesn't see updates made by other components.
-            var allCards = await context.KeyCards.AsNoTracking().ToListAsync(); 
+            // Fetch fresh data using Repositories (ADO.NET) which always open new connections
+            // This bypasses any EF Context tracking issues and ensures we get the latest data commit.
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
             
-            // For members, we need to join slightly more carefully or just fetch widely. 
-            // Since we need names, fetching the member table is acceptable for this view size.
-            // Note: Member entity name might vary based on project structure, checking imports.
-            // Converting to simple DTOs to avoid tracking overhead
-            var allMembers = await context.Set<Member>()
-                .Select(m => new { m.MemberID, m.FirstName, m.LastName })
-                .ToListAsync();
+            // Member table is not in EF Context, so we MUST use the repository
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
 
             // Optimization: Use Dictionaries for O(1) lookups instead of O(N) FirstOrDefault in a loop
             var cardsByNumber = allCards

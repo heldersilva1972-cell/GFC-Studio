@@ -150,13 +150,17 @@ public class ControllerEventService
             lastReadIndex = (uint)(lastRecord?.RawIndex ?? 0);
         }
 
-        if (currentIndex <= lastReadIndex) return 0;
+        // If we are exactly up to date, do nothing.
+        if (currentIndex == lastReadIndex) return 0;
 
-        // Start from next index
         uint startSyncIndex = lastReadIndex + 1;
         
-        // Safety: If index reset (rare)
-        if (currentIndex < lastReadIndex) startSyncIndex = 1;
+        // Safety: If index reset (rare), causing controller to report lower index than what we have saved
+        if (currentIndex < lastReadIndex) 
+        {
+            _logger.LogWarning("Controller index reset detected for SN {Sn} (Controller: {Current}, DB: {Saved}). Resyncing from 1.", controllerSerialNumber, currentIndex, lastReadIndex);
+            startSyncIndex = 1;
+        }
 
         // HUGE GAP CAPPING: If this is a new DB or very old sync, only grab the last 1000 to avoid packet storms.
         const uint MaxGap = 1000;
