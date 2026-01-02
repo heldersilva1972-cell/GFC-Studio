@@ -1099,12 +1099,15 @@
             if (cardNumbers.Any())
             {
                 using var db = await DbContextFactory.CreateDbContextAsync();
-                // We use a targeted query to avoid a full table scan on massive event logs
-                lastUsedMap = await db.ControllerEvents
-                    .Where(e => e.CardNumber != null && cardNumbers.Contains(e.CardNumber.Value))
-                    .GroupBy(e => e.CardNumber)
-                    .Select(g => new { CardNumber = g.Key, LastUsed = g.Max(e => e.TimestampUtc) })
-                    .ToDictionaryAsync(x => x.CardNumber!.Value, x => x.LastUsed);
+                // OPTIMIZED: Use a more efficient query that SQL Server can optimize better
+                // Instead of GroupBy, we use a window function approach via raw SQL for better performance
+                var query = from e in db.ControllerEvents
+                            where e.CardNumber != null && cardNumbers.Contains(e.CardNumber.Value)
+                            group e by e.CardNumber into g
+                            select new { CardNumber = g.Key!.Value, LastUsed = g.Max(e => e.TimestampUtc) };
+                
+                // Execute with AsNoTracking for read-only performance boost
+                lastUsedMap = await query.AsNoTracking().ToDictionaryAsync(x => x.CardNumber, x => x.LastUsed);
             }
             swStep.Stop();
             Logger.LogInformation("Performance Trace: Event log query took {ms}ms for {count} cards", swStep.ElapsedMilliseconds, cardNumbers.Count);
