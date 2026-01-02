@@ -4,6 +4,7 @@
 @attribute [Authorize]
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
+@using GFC.Core.Services
 @using GFC.BlazorServer.Data
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Components.Pages.KeyCardTabs
@@ -19,6 +20,7 @@
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
 @inject IBoardRepository BoardRepository
+@inject IDuesRepository DuesRepository
 @inject ControllerHealthService ControllerHealthService
 @inject ControllerFullSyncService ControllerFullSyncService
 @inject IControllerClient ControllerClient
@@ -30,6 +32,8 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IMemberAccessService MemberAccessService
 @inject ControllerRegistryService ControllerRegistryService
+@inject ICommunicationLogService LogService
+@inject KeyCardService CardService
 
 <style>
     /* Identify Modal Styles */
@@ -115,12 +119,147 @@
         height: 1px;
         pointer-events: none;
     }
+
+    /* Modern Filter Bar Styles */
+    .filter-pills {
+        display: flex;
+        align-items: center;
+        overflow-x: auto;
+        padding-bottom: 5px;
+        scrollbar-width: none;
+    }
+    .filter-pills::-webkit-scrollbar { display: none; }
+
+    .filter-pill {
+        white-space: nowrap;
+        padding: 0.6rem 1.1rem;
+        border-radius: 12px;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        color: #475569;
+        font-weight: 600;
+        font-size: 0.875rem;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .filter-pill:hover {
+        background: #e2e8f0;
+        border-color: #cbd5e1;
+        transform: translateY(-1px);
+    }
+
+    .filter-pill.active {
+        background: white;
+        border-color: #6366f1;
+        color: #6366f1;
+        box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.1), 0 2px 4px -1px rgba(99, 102, 241, 0.06);
+    }
+
+    .filter-badge {
+        background: rgba(0,0,0,0.05);
+        color: inherit;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 700;
+    }
+
+    .filter-pill.active .filter-badge {
+        background: rgba(99, 102, 241, 0.1);
+    }
+
+    .filter-divider {
+        width: 1px;
+        height: 24px;
+        background: #e2e8f0;
+        margin: 0 0.5rem;
+    }
+
+    .pill-highlight.active {
+        background: #eef2ff;
+        border-color: #6366f1;
+        color: #4f46e5;
+    }
+
+    .badge-primary {
+        background: #6366f1 !important;
+        color: white !important;
+    }
+
+    /* Header Action Button Refinement */
+    .btn-modern {
+        font-weight: 600;
+        border-radius: 10px;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s;
+    }
+
+    .btn-modern:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    .search-box-compact {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+
+    .search-box-compact i {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #64748b;
+        font-size: 1.1rem;
+        z-index: 10;
+        pointer-events: none;
+    }
+
+    .search-box-compact input {
+        border: 2px solid #e2e8f0 !important;
+        background: #ffffff !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .search-box-compact input:focus {
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1) !important;
+        background: #fff !important;
+    }
+
+    .btn-clear {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: #f1f5f9;
+        border: none;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+        cursor: pointer;
+        z-index: 11;
+    }
+
+    .btn-clear:hover {
+        background: #e2e8f0;
+        color: #1e293b;
+    }
 </style>
 
 <PageTitle>Key Card Management - GFC</PageTitle>
 
-<!-- Page Header with Animation -->
-<div class="page-header-modern fade-in">
+<!-- Sticky Page Header -->
+<div class="page-header-modern fade-in" style="position: sticky; top: 0; z-index: 100; background: var(--bg-primary); padding-bottom: 0.5rem; margin-bottom: 0;">
     <div class="header-content">
         <div class="header-icon-wrapper">
             <div class="header-icon pulse">
@@ -137,20 +276,31 @@
         @if (_graceEndDate.HasValue)
         {
             var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
-            var badgeClass = daysRemaining > 30 ? "bg-success" : daysRemaining > 7 ? "bg-warning" : "bg-danger";
+            var badgeClass = daysRemaining > 15 ? "bg-success" : daysRemaining > 0 ? "bg-warning" : "bg-danger";
+            var remainingText = daysRemaining > 0 ? $"{daysRemaining} Days Remaining" : (daysRemaining == 0 ? "Expires Today" : "Expired");
+            
             <div class="badge @badgeClass text-white d-flex align-items-center gap-2 px-3 py-2 me-2" 
-                 style="font-size: 0.85rem; cursor: pointer; font-weight: 600;" 
+                 style="font-size: 0.85rem; cursor: pointer; font-weight: 600; border-radius: 50px; border: 1px solid rgba(255,255,255,0.2);" 
                  @onclick="EditGracePeriod"
                  title="Click to edit grace period">
                 <i class="bi bi-calendar-check" style="font-size: 1rem;"></i>
-                <span>Grace Period: @_graceEndDate.Value.ToString("MMM d") (@daysRemaining days)</span>
-                <i class="bi bi-pencil-fill" style="font-size: 0.7rem; opacity: 0.9;"></i>
+                <span>Grace Period: <strong style="font-weight: 800;">@remainingText</strong></span>
+                <span style="opacity: 0.8; font-size: 0.75rem;">(@_graceEndDate.Value.ToString("MMM d"))</span>
+                <i class="bi bi-pencil-fill" style="font-size: 0.7rem; opacity: 0.9; margin-left: 2px;"></i>
             </div>
         }
         
+        <button class="btn btn-outline-secondary btn-modern me-2" @onclick='() => SetActiveTab("activity")'>
+            <i class="bi bi-activity"></i>
+            <span>Door Activity</span>
+        </button>
+        <button class="btn btn-outline-info btn-modern me-2" @onclick="() => _hardwareMonitorExpanded = !_hardwareMonitorExpanded">
+            <i class="bi bi-hdd-network"></i>
+            <span>@(_hardwareMonitorExpanded ? "Hide" : "Show") Hardware Monitor</span>
+        </button>
         <button class="btn btn-outline-primary btn-modern me-2" @onclick="OpenIdentifyCardModal">
             <i class="bi bi-search"></i>
-            <span>Scan to Identify</span>
+            <span>Scan to Identify Card</span>
         </button>
         <button class="btn btn-primary btn-modern" @onclick="OpenAssignCardModal">
             <div class="btn-shine"></div>
@@ -160,36 +310,76 @@
     </div>
 </div>
 
+@* Hardware Monitor - Full Component (Show/Hide) *@
+@if (_hardwareMonitorExpanded)
+{
+    <div class="mb-2 fade-in">
+        <HardwareCommunicationMonitor />
+    </div>
+}
 
-@* Compact Hardware Traffic Monitor Pill *@
-<div class="mb-2 fade-in" style="animation-delay: 0.1s;">
-    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);">
-        <div class="card-body p-2">
-            <div class="d-flex align-items-center justify-content-between">
-                <div class="d-flex align-items-center gap-2 flex-grow-1" 
-                     style="cursor: pointer;" 
-                     @onclick="() => _hardwareMonitorExpanded = !_hardwareMonitorExpanded">
-                    <div class="badge bg-primary-subtle text-primary px-2 py-1" style="font-size: 0.7rem;">
-                        <i class="bi bi-hdd-network me-1"></i>
-                        Hardware Monitor
-                    </div>
-                    <div class="small text-muted" style="font-size: 0.75rem;">
-                        <strong>Last:</strong> <code class="text-primary" style="font-size: 0.7rem;">@(_lastCommand ?? "None")</code>
-                    </div>
-                    <i class="bi bi-chevron-@(_hardwareMonitorExpanded ? "up" : "down") text-muted ms-auto"></i>
-                </div>
-            </div>
-            
-            @if (_hardwareMonitorExpanded)
+<!-- Sticky Filter Section (Shared between Assignments and Needing Cards) -->
+<div style="position: sticky; top: 130px; z-index: 45; background: #f8fafc; padding: 1rem 1.5rem; margin-bottom: 1.5rem; border: 1px solid #e2e8f0; border-radius: 0 0 16px 16px; box-shadow: 0 10px 15px -10px rgba(0,0,0,0.05);" 
+     class="@(_activeTab == "assignments" || _activeTab == "pending" ? "fade-in" : "d-none")">
+    <div class="d-flex align-items-center gap-3 mb-3">
+        <div class="search-box-compact flex-grow-1" style="max-width: 450px;">
+            <i class="bi bi-search"></i>
+            <input type="text" 
+                   class="form-control form-control-sm" 
+                   placeholder="Search members, cards, or IDs..."
+                   @bind="_cardSearchTerm"
+                   @bind:event="oninput"
+                   style="font-size: 0.9rem; padding: 0.5rem 1rem 0.5rem 2.5rem; height: 42px; border-radius: 12px;" />
+            @if (!string.IsNullOrEmpty(_cardSearchTerm))
             {
-                <div class="mt-2 pt-2 border-top">
-                    <HardwareCommunicationMonitor />
-                </div>
+                <button class="btn-clear" @onclick="() => _cardSearchTerm = string.Empty" style="right: 12px;">
+                    <i class="bi bi-x-lg"></i>
+                </button>
             }
         </div>
+        
+        <div class="d-flex align-items-center gap-2 ms-auto">
+            <div class="view-toggle shadow-sm">
+                <button class="btn-toggle @(_cardViewMode == "grid" ? "active" : "")" @onclick='() => _cardViewMode = "grid"' title="Grid View">
+                    <i class="bi bi-grid-3x3-gap-fill"></i>
+                </button>
+                <button class="btn-toggle @(_cardViewMode == "list" ? "active" : "")" @onclick='() => _cardViewMode = "list"' title="List View">
+                    <i class="bi bi-list-ul"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="filter-pills gap-2">
+        <button class="filter-pill @(_activeTab == "assignments" && _cardStatusFilter == "all" ? "active" : "")" 
+                @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "all"; }'>
+            All Cards <span class="filter-badge">@_countAll</span>
+        </button>
+        <button class="filter-pill @(_activeTab == "assignments" && _cardStatusFilter == "active" ? "active" : "")" 
+                @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "active"; }'>
+            <i class="bi bi-check-circle-fill text-success"></i> Active <span class="filter-badge">@_countActive</span>
+        </button>
+        <button class="filter-pill @(_activeTab == "assignments" && _cardStatusFilter == "inactive" ? "active" : "")" 
+                @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "inactive"; }'>
+            <i class="bi bi-pause-circle-fill text-warning"></i> Inactive <span class="filter-badge">@_countInactive</span>
+        </button>
+        <button class="filter-pill @(_activeTab == "assignments" && _cardStatusFilter == "unpaid" ? "active" : "")" 
+                @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "unpaid"; }' title="Active cards with unpaid dues">
+            <i class="bi bi-clock-history text-info"></i> At Risk <span class="filter-badge">@_countAtRisk</span>
+        </button>
+        <button class="filter-pill @(_activeTab == "assignments" && _cardStatusFilter == "delinquent" ? "active" : "")" 
+                @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "delinquent"; }' title="Cards where previous year was also unpaid">
+            <i class="bi bi-x-circle-fill text-danger"></i> Delinquent <span class="filter-badge">@_countDelinquent</span>
+        </button>
+        
+        <div class="filter-divider"></div>
+        
+        <button class="filter-pill pill-highlight @(_activeTab == "pending" ? "active" : "")" 
+                @onclick='() => SetActiveTab("pending")'>
+            <i class="bi bi-person-badge-fill"></i> Needing Cards <span class="filter-badge badge-primary">@_countNeeding</span>
+        </button>
     </div>
 </div>
-
 
 @if (!_controllerOnline)
 {
@@ -208,40 +398,17 @@
     </div>
 }
 
-<!-- Tab Navigation with Slide Animation -->
-<div class="tab-navigation-modern slide-in-up">
-    <div class="tab-nav-container">
-        <button class="tab-nav-item @(_activeTab == "assignments" ? "active" : "")" 
-                @onclick="@(() => SetActiveTab("assignments"))">
-            <i class="bi bi-credit-card"></i>
-            <span>Card Assignments</span>
-            <div class="tab-indicator"></div>
-        </button>
-        <button class="tab-nav-item @(_activeTab == "activity" ? "active" : "")" 
-                @onclick="@(() => SetActiveTab("activity"))">
-            <i class="bi bi-activity"></i>
-            <span>Door Activity</span>
-            <div class="tab-indicator"></div>
-        </button>
-        <button class="tab-nav-item @(_activeTab == "pending" ? "active" : "")" 
-                @onclick="@(() => SetActiveTab("pending"))">
-            <i class="bi bi-person-plus"></i>
-            <span>Needing Cards</span>
-            @if (_paidMembersWithoutCardsCount > 0)
-            {
-                <span class="badge bg-danger ms-2 rounded-pill">@_paidMembersWithoutCardsCount</span>
-            }
-            <div class="tab-indicator"></div>
-        </button>
-    </div>
-</div>
-
 <!-- Tab Content with Fade Transition -->
 <div class="tab-content-modern">
     <div class="tab-pane fade-in" style="@(_activeTab == "assignments" ? "" : "display:none")">
         @if (_assignmentsTabLoaded)
         {
-            <CardAssignmentsTab OnReplaceCard="HandleReplaceCard" OnNeedingCardsClick="@(() => SetActiveTab("pending"))" />
+            <CardAssignmentsTab 
+                OnReplaceCard="HandleReplaceCard" 
+                OnNeedingCardsClick="@(() => SetActiveTab("pending"))"
+                SearchTerm="@_cardSearchTerm"
+                StatusFilter="@_cardStatusFilter"
+                ViewMode="@_cardViewMode" />
         }
     </div>
 
@@ -262,7 +429,11 @@
     <div class="tab-pane fade-in" style="@(_activeTab == "pending" ? "" : "display:none")">
         @if (_pendingTabLoaded)
         {
-            <MembersNeedingCardsTab @ref="_needingCardsTab" OnAssignMember="HandleAssignMember" />
+            <MembersNeedingCardsTab 
+                @ref="_needingCardsTab" 
+                OnAssignMember="HandleAssignMember"
+                SearchTerm="@_cardSearchTerm"
+                ViewMode="@_cardViewMode" />
         }
     </div>
 </div>
@@ -1017,6 +1188,19 @@
         if (tab == "pending") _pendingTabLoaded = true;
     }
     
+    // Card Filter State (shared with CardAssignmentsTab)
+    private string _cardSearchTerm = string.Empty;
+    private string _cardStatusFilter = "all";
+    private string _cardViewMode = "grid";
+    
+    // Card Counts for Filter Bar
+    private int _countAll = 0;
+    private int _countActive = 0;
+    private int _countInactive = 0;
+    private int _countAtRisk = 0;
+    private int _countDelinquent = 0;
+    private int _countNeeding = 0;
+    
     private GFC.BlazorServer.Components.Pages.KeyCardTabs.MembersNeedingCardsTab? _needingCardsTab;
 
     // Identify Card Logic
@@ -1074,10 +1258,83 @@
         // Loading members here would be redundant and slow down the page load
         
         await LoadGracePeriodAndSyncStatusAsync();
+        await LoadCardCountsAsync();
         Logger.LogInformation("LoadGracePeriodAndSyncStatusAsync completed in {ms}ms", sw.ElapsedMilliseconds);
         
         _ = StartStatusRefresh();
         Logger.LogInformation("KeyCards page initialization completed in {ms}ms total", sw.ElapsedMilliseconds);
+    }
+    
+    private async Task LoadCardCountsAsync()
+    {
+        try
+        {
+            var year = DateTime.Today.Year;
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
+            var cards = await Task.Run(() => KeyCardRepository.GetAll());
+            
+            // For counts, we need some context-heavy calculation (eligibility)
+            var membersList = await Task.Run(() => MemberRepository.GetAllMembers());
+            var duesCurrent = await Task.Run(() => DuesRepository.GetDuesForYear(year));
+            var duesPrev = await Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
+            var boardCurrentList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
+            var boardPrevList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+
+            var duesCurrentMap = duesCurrent.ToDictionary(d => d.MemberID);
+            var duesPrevMap = duesPrev.ToDictionary(d => d.MemberID);
+            var boardCurrent = boardCurrentList.Select(a => a.MemberID).ToHashSet();
+            var boardPrev = boardPrevList.Select(a => a.MemberID).ToHashSet();
+            var cardMemberIds = cards.Select(c => c.MemberId).Distinct().ToHashSet();
+
+            // Calculate Counts
+            _countAll = cards.Count;
+            _countActive = cards.Count(c => c.IsActive);
+            _countInactive = cards.Count(c => !c.IsActive);
+            
+            _countAtRisk = 0;
+            _countDelinquent = 0;
+            
+            foreach (var card in cards.Where(c => c.IsActive))
+            {
+                var member = membersList.FirstOrDefault(m => m.MemberID == card.MemberId);
+                if (member == null) continue;
+
+                bool currentSatisfied = boardCurrent.Contains(card.MemberId) || (duesCurrentMap.TryGetValue(card.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                bool prevSatisfied = boardPrev.Contains(card.MemberId) || (duesPrevMap.TryGetValue(card.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                
+                var eligibility = CardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied);
+                
+                if (!eligibility.CurrentYearSatisfied)
+                {
+                    _countAtRisk++;
+                    if (!eligibility.Eligible && !eligibility.GracePeriodActive)
+                    {
+                        _countDelinquent++;
+                    }
+                }
+            }
+
+            // Needing Cards Count
+            _countNeeding = 0;
+            foreach (var m in membersList)
+            {
+                if (!cardMemberIds.Contains(m.MemberID))
+                {
+                    bool currentSatisfied = boardCurrent.Contains(m.MemberID) || (duesCurrentMap.TryGetValue(m.MemberID, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                    bool prevSatisfied = boardPrev.Contains(m.MemberID) || (duesPrevMap.TryGetValue(m.MemberID, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                    
+                    var eligibility = CardService.GetEligibilityBulk(m, year, settings, currentSatisfied, prevSatisfied);
+                    if (eligibility.Eligible)
+                    {
+                        _countNeeding++;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading card counts");
+        }
     }
     
     private async Task LoadGracePeriodAndSyncStatusAsync()
@@ -1107,6 +1364,9 @@
                 : null;
             
             _controllerOnline = ControllerHealthService.GetHealthStatus().IsOnline;
+            
+            // Refresh counts as well
+            await LoadCardCountsAsync();
 
             // NOTE: Removed _paidMembersWithoutCardsCount calculation - requires loading all cards
             // This metric is available in the CardAssignmentsTab which loads cards anyway
@@ -1990,8 +2250,23 @@
         }
         catch (TaskCanceledException) { }
     }
+    
+    private string GetLastCommand()
+    {
+        try
+        {
+            var lastLog = LogService.GetRecentLogs(1).FirstOrDefault();
+            if (lastLog != null)
+            {
+                return $"{lastLog.Operation} [0x{(lastLog.RequestPacket?[1] ?? 0):X2}]";
+            }
+        }
+        catch { }
+        return "None";
+    }
 
     public void Dispose()
+
     {
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();

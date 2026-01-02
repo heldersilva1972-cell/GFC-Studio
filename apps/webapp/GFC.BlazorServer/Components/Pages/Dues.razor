@@ -33,6 +33,22 @@
             <p class="text-muted mb-0">Manage membership dues, payments, and waivers for @_selectedYear</p>
         </div>
         <div class="d-flex align-items-center gap-3">
+            @if (_graceEndDate.HasValue)
+            {
+                var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
+                var badgeClass = daysRemaining > 15 ? "bg-success" : daysRemaining > 0 ? "bg-warning" : "bg-danger";
+                var remainingText = daysRemaining > 0 ? $"{daysRemaining} Days Remaining" : (daysRemaining == 0 ? "Expires Today" : "Expired");
+                
+                <div class="badge @badgeClass text-white d-flex align-items-center gap-2 px-3 py-2 me-2" 
+                     style="font-size: 0.85rem; cursor: pointer; font-weight: 600; border-radius: 50px; border: 1px solid rgba(255,255,255,0.2); height: 38px;" 
+                     @onclick="EditGracePeriod"
+                     title="Click to edit grace period">
+                    <i class="bi bi-calendar-check" style="font-size: 1rem;"></i>
+                    <span>Grace Period: <strong style="font-weight: 800;">@remainingText</strong></span>
+                    <span style="opacity: 0.8; font-size: 0.75rem;">(@_graceEndDate.Value.ToString("MMM d"))</span>
+                    <i class="bi bi-pencil-fill" style="font-size: 0.7rem; opacity: 0.9; margin-left: 2px;"></i>
+                </div>
+            }
 
             <div class="d-flex align-items-center gap-2">
                 <label class="text-muted small mb-0 fw-semibold">Year:</label>
@@ -56,55 +72,7 @@
     <!-- Status Banners -->
     <!-- Compact Status Grid -->
     <div class="row g-2 mb-3">
-        <!-- Grace Period Column -->
-        <div class=\"col-12\">
-            @if (_graceEndDate.HasValue && DateTime.Today <= _graceEndDate.Value)
-            {
-                var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
-                var alertClass = daysRemaining > 30 ? "bg-success-subtle border-success" : daysRemaining > 7 ? "bg-warning-subtle border-warning" : "bg-danger-subtle border-danger";
-                
-                <div class="card h-100 border shadow-sm @alertClass">
-                    <div class="card-body p-2 d-flex align-items-center">
-                        <div class="fs-4 me-2 lh-1 text-opacity-75 text-body">
-                            <i class="bi bi-hourglass-split"></i>
-                        </div>
-                        <div class="flex-grow-1 lh-1">
-                            <div class="fw-bold small mb-1">Grace Period Active</div>
-                            <div class="d-flex justify-content-between align-items-end">
-                                <span style="font-size: 0.8rem;">@daysRemaining days left (@_graceEndDate.Value.ToString("MMM d"))</span>
-                                @if (_membersAtRiskCount > 0)
-                                {
-                                    <span class="badge bg-danger text-white ms-2" style="font-size: 0.7rem;">@_membersAtRiskCount at risk</span>
-                                }
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Tiny Progress Bar Integrated at Bottom -->
-                     @{
-                        var totalDays = (_graceEndDate.Value - new DateTime(_selectedYear, 1, 1)).Days; 
-                        var progress = 100 - (int)((double)daysRemaining / totalDays * 100);
-                        progress = Math.Clamp(progress, 0, 100);
-                    }
-                    <div class="progress" style="height: 3px; border-radius: 0 0 4px 4px;">
-                        <div class="progress-bar @(daysRemaining < 14 ? "bg-danger" : "bg-warning")" style="width: @progress%"></div>
-                    </div>
-                </div>
-            }
-            else
-            {
-                <div class="card h-100 border-0 bg-light shadow-sm">
-                    <div class="card-body p-2 d-flex align-items-center">
-                         <div class="fs-4 me-2 lh-1 text-secondary">
-                            <i class="bi bi-calendar-check"></i>
-                        </div>
-                         <div class="lh-1">
-                             <div class="fw-bold small text-secondary">Standard Collection</div>
-                             <small class="text-muted" style="font-size: 0.8rem;">No active grace period.</small>
-                         </div>
-                    </div>
-                </div>
-            }
-        </div>
+        <!-- Removed old grace period card -->
     </div>
 
 
@@ -596,6 +564,91 @@
             OnConfirm="HandleConfirmedAction"
             OnCancel="() => _showConfirmModal = false" />
     }
+
+    <!-- Grace Period Edit Modal -->
+    @if (_showGracePeriodModal)
+    {
+        <div class="modal-backdrop-modern fade-in" @onclick="CloseGracePeriodModal"></div>
+        <div class="modal-modern-container fade-in scale-in">
+            <div class="modal-modern">
+                <div class="modal-header-modern">
+                    <div>
+                        <h3 class="modal-title-modern">
+                            <i class="bi bi-calendar-check text-success"></i>
+                            Configure Grace Period
+                        </h3>
+                        <p class="modal-subtitle">Set the grace end date for @_selectedYear dues</p>
+                    </div>
+                    <button class="btn-close-modern" @onclick="CloseGracePeriodModal">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                
+                <div class="modal-body-modern">
+                    <div class="grace-period-config">
+                        <div class="alert alert-info mb-4">
+                            <i class="bi bi-info-circle"></i>
+                            <div>
+                                <strong>About Grace Period:</strong>
+                                <p class="mb-0 small">Members who paid last year can continue using their key cards until this recurring date.</p>
+                            </div>
+                        </div>
+
+                        <div class="form-group-modern mb-4">
+                            <label class="form-label-modern">
+                                Recurring Deadline <span class="text-danger">*</span>
+                            </label>
+                            <div class="d-flex gap-3">
+                                <select class="form-select form-select-lg" @bind="_gracePeriodMonth">
+                                    @for (int m = 1; m <= 12; m++)
+                                    {
+                                        <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
+                                    }
+                                </select>
+                                <select class="form-select form-select-lg" style="width: 100px;" @bind="_gracePeriodDay">
+                                    @for (int d = 1; d <= 31; d++)
+                                    {
+                                        <option value="@d">@d</option>
+                                    }
+                                </select>
+                            </div>
+                            <small class="text-muted">
+                                Setting "April 1st" means cards expire on April 1st, @_selectedYear.
+                            </small>
+                        </div>
+
+                        <div class="summary-card mb-4">
+                            <h6 class="mb-3">Summary</h6>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="text-muted">Selected Date:</span>
+                                <strong>@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth) @_gracePeriodDay</strong>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted">Effect:</span>
+                                <span class="badge bg-primary">Recurs Annually</span>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(_gracePeriodError))
+                        {
+                            <div class="alert alert-danger mt-3">@_gracePeriodError</div>
+                        }
+                    </div>
+                </div>
+                
+                <div class="modal-footer-modern">
+                    <button class="btn btn-light px-4" @onclick="CloseGracePeriodModal">Cancel</button>
+                    <button class="btn btn-primary px-4 fw-bold" @onclick="RequestSaveGracePeriod" disabled="@_savingGracePeriod">
+                        @if (_savingGracePeriod)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Save Configuration
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -618,6 +671,11 @@
     private string? _lastPaymentMember;
     private decimal _lastPaymentAmount;
     private int _lastPaymentMemberId;
+    private bool _showGracePeriodModal;
+    private int _gracePeriodMonth;
+    private int _gracePeriodDay;
+    private string _gracePeriodError = string.Empty;
+    private bool _savingGracePeriod;
 
     // Confirmation Modal State
     private bool _showConfirmModal = false;
@@ -770,8 +828,8 @@
         _confirmMessage = $"Remove the dues waiver for {_waiverForm.MemberName}?";
         _confirmSubMessage = "This will erase the waiver record entirely. The member may immediately show as 'Unpaid' for the covered years.";
         _confirmActionText = "Remove Record";
-        _confirmType = ConfirmActionModal.ConfirmType.Danger;
         _confirmIcon = "bi-trash";
+        _confirmType = ConfirmActionModal.ConfirmType.Danger;
         _confirmAction = async () => await DeleteWaiverAsync();
         _showConfirmModal = true;
     }
@@ -798,6 +856,7 @@
         finally
         {
             _operationInProgress = false;
+            StateHasChanged();
         }
     }
     private static readonly string[] PaymentMethods = { "Cash", "Check", "Card", "Online", "Other" };
@@ -1105,6 +1164,94 @@
         finally
         {
             _operationInProgress = false;
+        }
+    }
+
+    private void EditGracePeriod()
+    {
+        if (_graceEndDate.HasValue)
+        {
+            _gracePeriodMonth = _graceEndDate.Value.Month;
+            _gracePeriodDay = _graceEndDate.Value.Day;
+        }
+        else
+        {
+            _gracePeriodMonth = 4;
+            _gracePeriodDay = 1;
+        }
+
+        _gracePeriodError = string.Empty;
+        _showGracePeriodModal = true;
+    }
+
+    private void CloseGracePeriodModal()
+    {
+        _showGracePeriodModal = false;
+        _gracePeriodError = string.Empty;
+    }
+
+    private void RequestSaveGracePeriod()
+    {
+        int daysInMonth = DateTime.DaysInMonth(_selectedYear, _gracePeriodMonth);
+        if (_gracePeriodDay > daysInMonth)
+        {
+            _gracePeriodError = $"Invalid date. {System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth)} only has {daysInMonth} days.";
+            return;
+        }
+
+        _gracePeriodError = string.Empty;
+        
+        var monthName = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth);
+        _confirmTitle = "Change Grace Period Date";
+        _confirmMessage = $"Are you sure you want to change the annual grace period deadline to: {monthName} {_gracePeriodDay}?";
+        _confirmSubMessage = "This date will recur annually. Key cards for members who haven't paid by this date will be automatically deactivated.";
+        _confirmActionText = "Yes, Change Date";
+        _confirmIcon = "bi-calendar-check";
+        _confirmType = ConfirmActionModal.ConfirmType.Warning;
+        _confirmAction = ExecuteSaveGracePeriod;
+        _showGracePeriodModal = false;
+        _showConfirmModal = true;
+    }
+
+    private async Task ExecuteSaveGracePeriod()
+    {
+        _savingGracePeriod = true;
+        try
+        {
+            var newDate = new DateTime(_selectedYear, _gracePeriodMonth, _gracePeriodDay);
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(_selectedYear));
+            
+            if (settings == null)
+            {
+                settings = new DuesYearSettings
+                {
+                    Year = _selectedYear,
+                    StandardDues = 250,
+                    GraceEndApplied = true,
+                    GraceEndDate = newDate
+                };
+                await DuesYearSettingsRepository.UpsertSettings(settings);
+            }
+            else
+            {
+                settings.GraceEndDate = newDate;
+                settings.GraceEndApplied = true;
+                await DuesYearSettingsRepository.UpsertSettings(settings);
+            }
+            
+            await LoadDataInternal(silent: true);
+            _gracePeriodError = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving grace period");
+            _gracePeriodError = "Failed to save grace period settings.";
+            _showGracePeriodModal = true;
+        }
+        finally
+        {
+            _savingGracePeriod = false;
+            StateHasChanged();
         }
     }
 

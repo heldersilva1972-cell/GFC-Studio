@@ -13,24 +13,7 @@
 @inject KeyCardService KeyCardService
 
 <div class="pending-assignments-container">
-    <div class="d-flex align-items-center justify-content-between mb-4">
-        <div class="info-alert mb-0">
-            <i class="bi bi-info-circle"></i>
-            <div>
-                <strong>Members Needing Cards</strong>
-                <p class="mb-0 small">Paid for @DateTime.Today.Year but no active key card.</p>
-            </div>
-        </div>
-        
-        <div class="view-toggle">
-            <button class="btn-toggle @(_viewMode == "grid" ? "active" : "")" @onclick='() => SetViewMode("grid")' title="Grid View">
-                <i class="bi bi-grid-3x3-gap-fill"></i>
-            </button>
-            <button class="btn-toggle @(_viewMode == "list" ? "active" : "")" @onclick='() => SetViewMode("list")' title="List View">
-                <i class="bi bi-list-ul"></i>
-            </button>
-        </div>
-    </div>
+    <!-- No local toggle, using parent filter bar -->
 
     @if (_loading)
     {
@@ -55,10 +38,10 @@
     }
     else
     {
-        @if (_viewMode == "grid")
+        @if (ViewMode == "grid")
         {
             <div class="members-grid">
-                @foreach (var memberId in _membersNeedingCards)
+                @foreach (var memberId in FilteredMemberIds)
                 {
                     var member = _memberLookup.GetValueOrDefault(memberId);
                     if (member == null) continue;
@@ -101,7 +84,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var memberId in _membersNeedingCards)
+                        @foreach (var memberId in FilteredMemberIds)
                         {
                             var member = _memberLookup.GetValueOrDefault(memberId);
                             if (member == null) continue;
@@ -141,18 +124,25 @@
 </div>
 
 @code {
+    [Parameter] public string SearchTerm { get; set; } = string.Empty;
+    [Parameter] public string ViewMode { get; set; } = "grid";
     [Parameter] public EventCallback<int> OnAssignMember { get; set; }
 
     private bool _loading = true;
-    private string _viewMode = "grid";
     private List<int> _membersNeedingCards = new();
-    private Dictionary<int, DuesListItemDto> _memberLookup = new();
-
-    private void SetViewMode(string mode)
+    
+    private IEnumerable<int> FilteredMemberIds
     {
-        _viewMode = mode;
-        StateHasChanged();
+        get
+        {
+            if (string.IsNullOrWhiteSpace(SearchTerm)) return _membersNeedingCards;
+            var search = SearchTerm.ToLower();
+            return _membersNeedingCards.Where(id => 
+                _memberLookup.TryGetValue(id, out var m) && 
+                (m.FullName.ToLower().Contains(search) || m.MemberId.ToString().Contains(search)));
+        }
     }
+    private Dictionary<int, DuesListItemDto> _memberLookup = new();
 
     public async Task RefreshAsync()
     {
