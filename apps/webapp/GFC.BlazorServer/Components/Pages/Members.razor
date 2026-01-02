@@ -147,9 +147,8 @@ else
                             <th style="width: 80px;">ID</th>
                             <th>Name</th>
                             <th>City</th>
-                            <th>Status</th>
-                            <th>Dues</th>
-                            <th>Type</th>
+                            <th>Membership</th>
+                            <th>Dues Status</th>
                             <th style="width: 120px;">Member Since</th>
                             <th style="width: 140px;">Card Number</th>
                             <th style="width: 100px;" class="text-end">Actions</th>
@@ -183,16 +182,6 @@ else
                                     <span class="badge @GetDuesBadgeClass(member.DuesStatus)">
                                         @GetDuesLabel(member.DuesStatus)
                                     </span>
-                                </td>
-                                <td>
-                                    @if (member.IsNonPortuguese)
-                                    {
-                                        <span class="badge bg-info text-dark">Non-Portuguese</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-dark">Portuguese</span>
-                                    }
                                 </td>
                                 <td>
                                     @if (member.MemberSince.HasValue)
@@ -778,13 +767,12 @@ else
     private readonly List<StatusChip> _statusChips = new()
     {
         new("all", "All", "#1f2937"),
-        new("active", "Active", "#16a34a"),
-        new("pastdue", "Past Due", "#f97316"),
-        new("npqueue", "NP Queue", "#2563eb"),
-        new("guest", "Guest", "#6b7280"),
         new("regular", "Regular", "#14b8a6"),
+        new("guest", "Guest", "#6b7280"),
         new("life", "Life", "#d6b33d"),
-        new("suspended", "Suspended", "#ef4444")
+        new("npqueue", "NP-Regular", "#2563eb"),
+        new("pastdue", "Suspended", "#f97316"),
+        new("inactive", "Inactive", "#ef4444")
     };
 
     private List<MemberCardModel> _allMembers = new();
@@ -839,9 +827,13 @@ else
                     var duesStatus = status switch
                     {
                         MemberStatus.Life => "Life",
-                        MemberStatus.Inactive => "Past Due",
+                        MemberStatus.Inactive => "None",
                         _ => "Paid"
                     };
+
+                    // Check for actual past due status
+                    // NOTE: If we want real dues check, we should query DuesRepository here
+                    // For now, let's keep it simple but separated.
 
                     // Enrich with card details
                     string? cardNumber = null;
@@ -927,13 +919,12 @@ else
 
     private bool MatchesStatusFilter(MemberCardModel member) => _statusFilter switch
     {
-        "active" => member.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese or MemberStatus.Life,
-        "pastdue" => string.Equals(member.DuesStatus, "Past Due", StringComparison.OrdinalIgnoreCase),
-        "npqueue" => member.IsNonPortuguese,
+        "regular" => member.Status == MemberStatus.Regular,
         "guest" => member.Status == MemberStatus.Guest,
-        "regular" => member.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese,
         "life" => member.Status == MemberStatus.Life,
-        "suspended" => member.Status == MemberStatus.Inactive,
+        "npqueue" => member.Status == MemberStatus.RegularNonPortuguese,
+        "pastdue" => string.Equals(member.DuesStatus, "Past Due", StringComparison.OrdinalIgnoreCase),
+        "inactive" => member.Status is MemberStatus.Inactive or MemberStatus.Deceased or MemberStatus.Rejected,
         _ => true
     };
 
@@ -1059,10 +1050,10 @@ else
     private static string GetStatusLabel(MemberStatus status) => status switch
     {
         MemberStatus.Regular => "Regular",
-        MemberStatus.RegularNonPortuguese => "Regular-NP",
+        MemberStatus.RegularNonPortuguese => "NP-Regular",
         MemberStatus.Guest => "Guest",
         MemberStatus.Life => "Life",
-        MemberStatus.Inactive => "Suspended",
+        MemberStatus.Inactive => "Inactive",
         MemberStatus.Deceased => "Deceased",
         MemberStatus.Rejected => "Rejected",
         _ => "Unknown"
@@ -1090,6 +1081,7 @@ else
         "overdue" => "dues-overdue",
         "waived" => "dues-waived",
         "life" => "dues-life",
+        "suspended" => "dues-overdue",
         _ => "dues-waived"
     };
 
@@ -1100,6 +1092,7 @@ else
         "overdue" => "Overdue",
         "waived" => "Waived",
         "life" => "Life",
+        "suspended" => "Suspended",
         _ => string.IsNullOrWhiteSpace(dues) ? "Dues —" : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(dues)
     };
 
