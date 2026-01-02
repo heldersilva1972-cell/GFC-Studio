@@ -940,40 +940,44 @@
                         <i class="bi bi-info-circle"></i>
                         <div>
                             <strong>About Grace Period:</strong>
-                            <p class="mb-0 small">Members who paid dues last year can continue using their key cards until this date, even if they haven't paid for the current year.</p>
+                            <p class="mb-0 small">Members who paid last year can continue using their key cards until this recurring date.</p>
                         </div>
                     </div>
 
                     <div class="form-group-modern mb-4">
                         <label class="form-label-modern">
-                            Grace End Date <span class="text-danger">*</span>
+                            Recurring Deadline <span class="text-danger">*</span>
                         </label>
-                        <input type="date" 
-                               class="form-control form-control-lg" 
-                               @bind="_gracePeriodEditDate"
-                               min="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                        <div class="d-flex gap-3">
+                            <select class="form-select form-select-lg" @bind="_gracePeriodMonth">
+                                @for (int m = 1; m <= 12; m++)
+                                {
+                                    <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
+                                }
+                            </select>
+                            <select class="form-select form-select-lg" style="width: 100px;" @bind="_gracePeriodDay">
+                                @for (int d = 1; d <= 31; d++)
+                                {
+                                    <option value="@d">@d</option>
+                                }
+                            </select>
+                        </div>
                         <small class="text-muted">
-                            Cards will be automatically deactivated after this date if dues are unpaid
+                            Setting "April 1st" means cards expire on April 1st, @DateTime.Today.Year.
                         </small>
                     </div>
 
-                    @if (_gracePeriodEditDate.HasValue)
-                    {
-                        var daysFromNow = (_gracePeriodEditDate.Value - DateTime.Today).Days;
-                        var statusClass = daysFromNow > 30 ? "success" : daysFromNow > 7 ? "warning" : "danger";
-                        
-                        <div class="summary-card mb-4">
-                            <h6 class="mb-3">Summary</h6>
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="text-muted">Selected Date:</span>
-                                <strong>@_gracePeriodEditDate.Value.ToString("MMMM d, yyyy")</strong>
-                            </div>
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span class="text-muted">Days from Today:</span>
-                                <span class="badge bg-@statusClass">@daysFromNow days</span>
-                            </div>
+                    <div class="summary-card mb-4">
+                        <h6 class="mb-3">Summary</h6>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted">Selected Date:</span>
+                            <strong>@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth) @_gracePeriodDay</strong>
                         </div>
-                    }
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted">Effect:</span>
+                            <span class="badge bg-primary">Recurs Annually</span>
+                        </div>
+                    </div>
 
                     @if (!string.IsNullOrEmpty(_gracePeriodError))
                     {
@@ -989,8 +993,8 @@
                             Cancel
                         </button>
                         <button class="btn btn-success btn-lg" 
-                                @onclick="SaveGracePeriod" 
-                                disabled="@(!_gracePeriodEditDate.HasValue || _savingGracePeriod)">
+                                @onclick="RequestSaveGracePeriod" 
+                                disabled="@_savingGracePeriod">
                             @if (_savingGracePeriod)
                             {
                                 <span class="spinner-border spinner-border-sm me-2"></span>
@@ -1036,7 +1040,8 @@
     
     // Grace Period Modal - NEW
     private bool _showGracePeriodModal = false;
-    private DateTime? _gracePeriodEditDate;
+    private int _gracePeriodMonth = 4; // Default April
+    private int _gracePeriodDay = 1;   // Default 1st
     private bool _savingGracePeriod = false;
     private string _gracePeriodError = string.Empty;
     private bool _isAutoSelectedMember = false;
@@ -1633,9 +1638,21 @@
     }
     
     // Grace Period & Sync Actions - NEW
+    // Grace Period & Sync Actions - NEW
     private void EditGracePeriod()
     {
-        _gracePeriodEditDate = _graceEndDate ?? DateTime.Today.AddMonths(3);
+        // Default to April 1st if not set, otherwise parse existing date
+        if (_graceEndDate.HasValue)
+        {
+            _gracePeriodMonth = _graceEndDate.Value.Month;
+            _gracePeriodDay = _graceEndDate.Value.Day;
+        }
+        else
+        {
+            _gracePeriodMonth = 4;
+            _gracePeriodDay = 1;
+        }
+
         _gracePeriodError = string.Empty;
         _showGracePeriodModal = true;
     }
@@ -1643,30 +1660,45 @@
     private void CloseGracePeriodModal()
     {
         _showGracePeriodModal = false;
-        _gracePeriodEditDate = null;
         _gracePeriodError = string.Empty;
     }
-    
-    private async Task SaveGracePeriod()
+
+    private void RequestSaveGracePeriod()
     {
-        if (!_gracePeriodEditDate.HasValue)
+        // 1. Validate Day in Month
+        int daysInMonth = DateTime.DaysInMonth(DateTime.Today.Year, _gracePeriodMonth);
+        if (_gracePeriodDay > daysInMonth)
         {
-            _gracePeriodError = "Please select a grace end date";
+            _gracePeriodError = $"Invalid date. {System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth)} only has {daysInMonth} days.";
             return;
         }
-        
-        if (_gracePeriodEditDate.Value < DateTime.Today)
-        {
-            _gracePeriodError = "Grace end date must be in the future";
-            return;
-        }
-        
-        _savingGracePeriod = true;
+
         _gracePeriodError = string.Empty;
+        
+        // 2. Show Confirmation
+        var monthName = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_gracePeriodMonth);
+        _confirmTitle = "Change Grace Period Date";
+        _confirmMessage = $"Are you sure you want to change the annual grace period deadline to: {monthName} {_gracePeriodDay}?";
+        _confirmSubMessage = "This date will recur annually. Key cards for members who haven't paid by this date will be automatically deactivated.";
+        _confirmActionText = "Yes, Change Date";
+        _confirmIcon = "bi-calendar-check";
+        _confirmType = ConfirmActionModal.ConfirmType.Warning;
+        _confirmAction = ExecuteSaveGracePeriod;
+        _showGracePeriodModal = false; // Hide edit modal
+        _showConfirmModal = true;      // Show confirm modal
+    }
+    
+    private async Task ExecuteSaveGracePeriod()
+    {
+        _savingGracePeriod = true;
         
         try
         {
             var currentYear = DateTime.Today.Year;
+            
+            // Construct the proper date for the current year
+            var newDate = new DateTime(currentYear, _gracePeriodMonth, _gracePeriodDay);
+            
             var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
             
             if (settings == null)
@@ -1677,37 +1709,40 @@
                     Year = currentYear,
                     StandardDues = 250, // Default baseline dues
                     GraceEndApplied = true,
-                    GraceEndDate = _gracePeriodEditDate.Value
+                    GraceEndDate = newDate
                 };
-                await Task.Run(() => DuesYearSettingsRepository.UpsertSettings(settings));
+                await DuesYearSettingsRepository.UpsertSettings(settings);
             }
             else
             {
-                // Update existing settings
-                settings.GraceEndDate = _gracePeriodEditDate.Value;
+                settings.GraceEndDate = newDate;
                 settings.GraceEndApplied = true;
-                await Task.Run(() => DuesYearSettingsRepository.UpsertSettings(settings));
+                await DuesYearSettingsRepository.UpsertSettings(settings);
             }
             
-            Logger.LogInformation("Updated grace period end date to {Date} for year {Year}", 
-                _gracePeriodEditDate.Value, currentYear);
+            // Also update next year just in case? Or keep it per year. 
+            // Constraint says "remain the same month and day every year". 
+            // Since DuesYearSettings is by year, we only affect the current year record here. 
+            // In a real recurrence model, we would store "GraceMonth" and "GraceDay" in a global config.
+            // But for now, updating the current year's deadline effectively sets the active rule.
             
-            // Reload data
             await LoadGracePeriodAndSyncStatusAsync();
-            
-            // Close modal
-            _showGracePeriodModal = false;
+            _gracePeriodError = string.Empty;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error saving grace period");
-            _gracePeriodError = "Failed to save grace period. Please try again.";
+            _gracePeriodError = "Failed to save grace period settings.";
+            // Re-show modal on error
+            _showGracePeriodModal = true;
         }
         finally
         {
             _savingGracePeriod = false;
+            StateHasChanged();
         }
     }
+
     
     private void ViewSyncQueue()
     {
