@@ -15,6 +15,7 @@ public class KeyCardLifecycleService
     private readonly ICardDeactivationLogRepository _deactivationLogRepository;
     private readonly IDuesRepository _duesRepository;
     private readonly IDuesYearSettingsRepository _settingsRepository;
+    private readonly IBoardRepository _boardRepository;
     private readonly ILogger<KeyCardLifecycleService> _logger;
     private readonly KeyCardService _keyCardService;
 
@@ -25,6 +26,7 @@ public class KeyCardLifecycleService
         ICardDeactivationLogRepository deactivationLogRepository,
         IDuesRepository duesRepository,
         IDuesYearSettingsRepository settingsRepository,
+        IBoardRepository boardRepository,
         ILogger<KeyCardLifecycleService> logger,
         KeyCardService keyCardService)
     {
@@ -34,6 +36,7 @@ public class KeyCardLifecycleService
         _deactivationLogRepository = deactivationLogRepository;
         _duesRepository = duesRepository;
         _settingsRepository = settingsRepository;
+        _boardRepository = boardRepository;
         _logger = logger;
         _keyCardService = keyCardService;
     }
@@ -174,6 +177,13 @@ public class KeyCardLifecycleService
 
         try
         {
+            // Mark as out of sync since we are about to queue a change
+            if (card.IsControllerSynced)
+            {
+                card.IsControllerSynced = false;
+                _keyCardRepository.Update(card);
+            }
+
             // Queue for background processing
             await QueueSyncAsync(keyCardId, card.CardNumber, activate, null);
             
@@ -246,40 +256,49 @@ public class KeyCardLifecycleService
     {
         // Get settings for grace period logic
         var settings = _settingsRepository.GetSettingsForYear(year);
-        if (settings == null)
-        {
-            return new List<MemberAtRiskDto>();
-        }
+        if (settings == null) return new List<MemberAtRiskDto>();
 
-        // Get all active cards
+        // 1. Bulk load data to avoid N+1
         var allCards = await Task.Run(() => _keyCardRepository.GetAll(), ct);
-        var activeCards = allCards.Where(c => c.IsActive).ToDictionary(c => c.MemberId);
+        var activeCards = allCards.Where(c => c.IsActive).ToList();
+        if (!activeCards.Any()) return new List<MemberAtRiskDto>();
 
-        // Get unpaid dues
-        var dues = await Task.Run(() => _duesRepository.GetDuesForYear(year), ct);
-        var unpaidDues = dues.Where(d => d.PaidDate == null && (d.Amount ?? 0) > 0).ToList();
+        var members = (await Task.Run(() => _memberRepository.GetAllMembers(), ct)).ToDictionary(m => m.MemberID);
+        var duesCurrent = (await Task.Run(() => _duesRepository.GetDuesForYear(year), ct)).ToDictionary(d => d.MemberID);
+        var duesPrev = (await Task.Run(() => _duesRepository.GetDuesForYear(year - 1), ct)).ToDictionary(d => d.MemberID);
+        var boardCurrent = _boardRepository.GetAssignmentsByYear(year).Select(a => a.MemberID).ToHashSet();
+        var boardPrev = _boardRepository.GetAssignmentsByYear(year - 1).Select(a => a.MemberID).ToHashSet();
 
         var riskList = new List<MemberAtRiskDto>();
-        foreach (var d in unpaidDues)
+        foreach (var card in activeCards)
         {
-            if (activeCards.TryGetValue(d.MemberID, out var card))
-            {
-                var member = await Task.Run(() => _memberRepository.GetMemberById(d.MemberID), ct);
-                if (member == null || member.Status == "LIFE") continue; // Life members exempt
+            if (!members.TryGetValue(card.MemberId, out var member)) continue;
+            if (member.Status == "LIFE") continue;
 
-                var eligibility = _keyCardService.GetKeyCardEligibility(d.MemberID, year);
-                
-                riskList.Add(new MemberAtRiskDto
+            // Check if member actually has unpaid dues (otherwise not at risk)
+            if (!duesCurrent.TryGetValue(card.MemberId, out var d) || (d.PaidDate == null && (d.Amount ?? 0) > 0))
+            {
+                // Evaluate eligibility using pre-loaded data
+                bool currentSatisfied = boardCurrent.Contains(card.MemberId) || (duesCurrent.TryGetValue(card.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                bool prevSatisfied = boardPrev.Contains(card.MemberId) || (duesPrev.TryGetValue(card.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+
+                var eligibility = _keyCardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied);
+
+                // Only add to risk list if NOT fully satisfied for the current year
+                if (!eligibility.CurrentYearSatisfied)
                 {
-                    MemberId = d.MemberID,
-                    CardId = card.KeyCardId,
-                    FullName = $"{member.FirstName} {member.LastName}",
-                    CardNumber = card.CardNumber,
-                    GraceEndDate = settings.GraceEndDate,
-                    DaysRemaining = settings.GraceEndDate.HasValue ? (settings.GraceEndDate.Value - DateTime.Today).Days : 0,
-                    IsDelinquent = !eligibility.Eligible && !eligibility.GracePeriodActive,
-                    InGracePeriod = eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied && !eligibility.CurrentYearSatisfied
-                });
+                    riskList.Add(new MemberAtRiskDto
+                    {
+                        MemberId = card.MemberId,
+                        CardId = card.KeyCardId,
+                        FullName = $"{member.FirstName} {member.LastName}",
+                        CardNumber = card.CardNumber,
+                        GraceEndDate = settings.GraceEndDate,
+                        DaysRemaining = settings.GraceEndDate.HasValue ? (settings.GraceEndDate.Value - DateTime.Today).Days : 0,
+                        IsDelinquent = !eligibility.Eligible && !eligibility.GracePeriodActive,
+                        InGracePeriod = eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied && !eligibility.CurrentYearSatisfied
+                    });
+                }
             }
         }
         

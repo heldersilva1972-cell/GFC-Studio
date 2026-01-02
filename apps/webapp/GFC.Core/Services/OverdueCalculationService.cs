@@ -29,6 +29,109 @@ public class OverdueCalculationService
     }
 
     /// <summary>
+    /// Holds pre-loaded data for bulk dues/overdue calculations to prevent N+1 queries.
+    /// </summary>
+    public class DuesCalculationContext
+    {
+        public Dictionary<int, List<DuesPayment>> DuesByMember { get; set; } = new();
+        public Dictionary<int, List<DuesWaiverPeriod>> WaiversByMember { get; set; } = new();
+        public Dictionary<int, HashSet<int>> BoardAssignmentsByMember { get; set; } = new();
+        public DateTime Today { get; set; } = DateTime.Today;
+    }
+
+    /// <summary>
+    /// Calculates overdue information for a member using a pre-loaded context.
+    /// </summary>
+    public OverdueResult CalculateOverdue(Member member, DuesCalculationContext context)
+    {
+        if (member == null || context == null)
+            return new OverdueResult { IsOverdue = false, MonthsOverdue = 0, DaysOverdue = 0 };
+
+        var today = context.Today.Date;
+        
+        // Exclusions: Life members and waived members are never overdue
+        if (MemberStatusHelper.IsLifeStatus(member.Status))
+        {
+            return new OverdueResult { IsOverdue = false, MonthsOverdue = 0, DaysOverdue = 0 };
+        }
+
+        // Get all dues records for this member from context
+        context.DuesByMember.TryGetValue(member.MemberID, out var allDues);
+        allDues ??= new List<DuesPayment>();
+        
+        // Get waivers for this member from context
+        context.WaiversByMember.TryGetValue(member.MemberID, out var waivers);
+        waivers ??= new List<DuesWaiverPeriod>();
+        
+        // Determine LastCoveredYear (highest year where member is paid or waived)
+        int? lastCoveredYear = GetLastCoveredYear(member, allDues, waivers, context);
+        
+        // Determine FirstUnpaidYear
+        int firstUnpaidYear;
+        if (lastCoveredYear.HasValue)
+        {
+            firstUnpaidYear = lastCoveredYear.Value + 1;
+        }
+        else
+        {
+            // No payments/waivers yet - determine base dues year
+            if (member.AcceptedDate.HasValue)
+            {
+                var acceptanceYear = member.AcceptedDate.Value.Year;
+                var acceptanceMonth = member.AcceptedDate.Value.Month;
+                firstUnpaidYear = acceptanceMonth < 3 ? acceptanceYear : acceptanceYear + 1;
+            }
+            else if (member.ApplicationDate.HasValue)
+            {
+                var applicationYear = member.ApplicationDate.Value.Year;
+                var applicationMonth = member.ApplicationDate.Value.Month;
+                firstUnpaidYear = applicationMonth < 3 ? applicationYear : applicationYear + 1;
+            }
+            else
+            {
+                firstUnpaidYear = today.Year;
+            }
+        }
+        
+        // Check if member has waiver or board status for first unpaid year or later
+        bool hasActiveWaiver = HasActiveWaiverOrBoardStatus(member, firstUnpaidYear, today.Year, waivers, context);
+        
+        if (hasActiveWaiver)
+        {
+            return new OverdueResult { IsOverdue = false, MonthsOverdue = 0, DaysOverdue = 0 };
+        }
+        
+        // Calculate due date for first unpaid year
+        DateTime dueDate = new DateTime(firstUnpaidYear, 1, 1).AddDays(GraceDays);
+        
+        if (today < dueDate)
+        {
+            return new OverdueResult
+            {
+                IsOverdue = false,
+                MonthsOverdue = 0,
+                DaysOverdue = 0,
+                FirstUnpaidYear = firstUnpaidYear,
+                DueDate = dueDate,
+                LastCoveredYear = lastCoveredYear
+            };
+        }
+        
+        int daysOverdue = (today - dueDate).Days;
+        int monthsOverdue = CalculateFullMonths(dueDate, today);
+        
+        return new OverdueResult
+        {
+            IsOverdue = true,
+            MonthsOverdue = monthsOverdue,
+            DaysOverdue = daysOverdue,
+            FirstUnpaidYear = firstUnpaidYear,
+            DueDate = dueDate,
+            LastCoveredYear = lastCoveredYear
+        };
+    }
+
+    /// <summary>
     /// Calculates overdue information for a member.
     /// </summary>
     /// <param name="member">The member to calculate overdue for.</param>
@@ -90,7 +193,7 @@ public class OverdueCalculationService
         }
         
         // Check if member has waiver or board status for first unpaid year or later
-        bool hasActiveWaiver = HasActiveWaiverOrBoardStatus(member, firstUnpaidYear, today.Year, waivers);
+        bool hasActiveWaiver = HasActiveWaiverOrBoardStatus(member, firstUnpaidYear, today.Year, waivers, today);
         
         if (hasActiveWaiver)
         {
@@ -135,9 +238,20 @@ public class OverdueCalculationService
     /// <summary>
     /// Gets the highest year where the member is covered (paid or waived).
     /// </summary>
-    private int? GetLastCoveredYear(Member member, List<DuesPayment> allDues, List<DuesWaiverPeriod> waivers, DateTime today)
+    private int? GetLastCoveredYear(Member member, List<DuesPayment> allDues, List<DuesWaiverPeriod> waivers, object contextOrDate)
     {
         var coveredYears = new HashSet<int>();
+        DateTime today;
+        DuesCalculationContext? context = contextOrDate as DuesCalculationContext;
+
+        if (context != null)
+        {
+            today = context.Today;
+        }
+        else
+        {
+            today = (DateTime)contextOrDate;
+        }
         
         // Add years from paid dues
         foreach (var dues in allDues)
@@ -180,7 +294,17 @@ public class OverdueCalculationService
         // Check current year and next year for board status
         for (int year = today.Year - 1; year <= today.Year + 1; year++)
         {
-            if (_boardRepository.IsBoardMemberForYear(member.MemberID, year))
+            bool isBoard;
+            if (context != null)
+            {
+                isBoard = context.BoardAssignmentsByMember.TryGetValue(member.MemberID, out var assignments) && assignments.Contains(year);
+            }
+            else
+            {
+                isBoard = _boardRepository.IsBoardMemberForYear(member.MemberID, year);
+            }
+
+            if (isBoard)
             {
                 coveredYears.Add(year);
             }
@@ -192,8 +316,20 @@ public class OverdueCalculationService
     /// <summary>
     /// Checks if member has an active waiver or board status for the given year range.
     /// </summary>
-    private bool HasActiveWaiverOrBoardStatus(Member member, int startYear, int endYear, List<DuesWaiverPeriod> waivers)
+    private bool HasActiveWaiverOrBoardStatus(Member member, int startYear, int endYear, List<DuesWaiverPeriod> waivers, object contextOrToday)
     {
+        DateTime today;
+        DuesCalculationContext? context = contextOrToday as DuesCalculationContext;
+
+        if (context != null)
+        {
+            today = context.Today;
+        }
+        else
+        {
+            today = (DateTime)contextOrToday;
+        }
+
         // Check if Life member
         if (MemberStatusHelper.IsLifeStatus(member.Status))
         {
@@ -210,7 +346,17 @@ public class OverdueCalculationService
         // Check board status for any year in range
         for (int year = startYear; year <= endYear; year++)
         {
-            if (_boardRepository.IsBoardMemberForYear(member.MemberID, year))
+            bool isBoard;
+            if (context != null)
+            {
+                isBoard = context.BoardAssignmentsByMember.TryGetValue(member.MemberID, out var assignments) && assignments.Contains(year);
+            }
+            else
+            {
+                isBoard = _boardRepository.IsBoardMemberForYear(member.MemberID, year);
+            }
+
+            if (isBoard)
             {
                 return true;
             }

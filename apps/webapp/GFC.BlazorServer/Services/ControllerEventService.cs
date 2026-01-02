@@ -114,6 +114,107 @@ public class ControllerEventService
             newLastIndex);
     }
 
+    public async Task<int> SyncFromControllerAsync(
+        uint controllerSerialNumber, 
+        Controllers.IControllerClient controllerClient,
+        Action<int, int>? progressCallback = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var controller = await dbContext.Controllers
+            .FirstOrDefaultAsync(c => c.SerialNumber == controllerSerialNumber, cancellationToken);
+            
+        if (controller == null)
+            throw new InvalidOperationException($"Controller SN {controllerSerialNumber} is not registered.");
+
+        // 1. Get current hardware status to see total events available
+        var status = await controllerClient.GetRunStatusAsync(controllerSerialNumber.ToString(), cancellationToken);
+        if (status == null) return 0;
+
+        uint currentIndex = status.TotalEvents;
+        
+        // 2. Get our last read index
+        var lastRecord = await dbContext.ControllerEvents
+            .Where(e => e.ControllerId == controller.Id)
+            .OrderByDescending(e => e.RawIndex)
+            .FirstOrDefaultAsync(cancellationToken);
+            
+        uint lastReadIndex = (uint)(lastRecord?.RawIndex ?? 0);
+
+        if (currentIndex <= lastReadIndex) return 0;
+
+        // Start from next index
+        uint startSyncIndex = lastReadIndex + 1;
+        
+        // Safety: If index reset (rare)
+        if (currentIndex < lastReadIndex) startSyncIndex = 1;
+
+        int totalSaved = 0;
+        var batch = new List<ControllerEvent>();
+        const int BatchSize = 25;
+
+        for (uint i = startSyncIndex; i <= currentIndex; i++)
+        {
+            if (cancellationToken.IsCancellationRequested) break;
+
+            try 
+            {
+                // Fetch single event
+                var result = await controllerClient.GetNewEventsAsync(controllerSerialNumber.ToString(), i - 1, cancellationToken);
+                if (result.Events != null && result.Events.Any())
+                {
+                    var evt = result.Events[0];
+                    
+                    // Map Door
+                    int? doorId = null;
+                    if (evt.DoorNumber > 0)
+                    {
+                        var door = await dbContext.Doors
+                            .FirstOrDefaultAsync(d => d.ControllerId == controller.Id && d.DoorIndex == evt.DoorNumber, cancellationToken);
+                        doorId = door?.Id;
+                    }
+
+                    batch.Add(new ControllerEvent
+                    {
+                        ControllerId = controller.Id,
+                        DoorId = doorId,
+                        TimestampUtc = evt.TimestampUtc,
+                        CardNumber = evt.CardNumber,
+                        EventType = (int)evt.EventType,
+                        ReasonCode = evt.ReasonCode,
+                        RawIndex = (int)i,
+                        CreatedUtc = DateTime.UtcNow
+                    });
+
+                    if (batch.Count >= BatchSize)
+                    {
+                        await dbContext.ControllerEvents.AddRangeAsync(batch, cancellationToken);
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        totalSaved += batch.Count;
+                        batch.Clear();
+                        progressCallback?.Invoke(totalSaved, (int)(currentIndex - startSyncIndex + 1));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to fetch event at index {Index} for SN {SN}: {Msg}", i, controllerSerialNumber, ex.Message);
+                // Continue to next event
+            }
+        }
+
+        if (batch.Count > 0)
+        {
+            await dbContext.ControllerEvents.AddRangeAsync(batch, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            totalSaved += batch.Count;
+            progressCallback?.Invoke(totalSaved, (int)(currentIndex - startSyncIndex + 1));
+        }
+
+        return totalSaved;
+    }
+
     public async Task SaveEventsAsync(uint controllerSerialNumber, IEnumerable<ControllerEvent> events, uint newLastIndex, CancellationToken cancellationToken = default)
     {
         if (events == null)

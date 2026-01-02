@@ -10,9 +10,6 @@ public class ControllerModeProvider : IControllerModeProvider
 {
     private readonly ISystemSettingsService _systemSettingsService;
     private readonly ILogger<ControllerModeProvider> _logger;
-    private bool? _cachedValue;
-    private DateTime _cacheTime = DateTime.MinValue;
-    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(5);
 
     public ControllerModeProvider(ISystemSettingsService systemSettingsService, ILogger<ControllerModeProvider> logger)
     {

@@ -36,16 +36,32 @@ public class KeyCardService
 
         // Check if member is a board member (director) for this year
         var isBoardMember = _boardRepository.IsBoardMemberForYear(memberId, year);
-
-        var statusAllowed = IsStatusEligible(member.Status);
-        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(member.Status), "LIFE", StringComparison.OrdinalIgnoreCase);
-        var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(year)?.GraceEndDate?.Date;
+        var settings = _duesYearSettingsRepository.GetSettingsForYear(year);
         
         // Satisfied if: Board Member, Life Member, Paid, or Waived (via record or period)
-        var currentYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year);
-        var previousYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year - 1);
+        var currentYearSatisfied = isBoardMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year);
+        var previousYearSatisfied = isBoardMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year - 1);
 
-        return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, member.Status, graceEndDate);
+        return GetEligibilityBulk(member, year, settings, currentYearSatisfied, previousYearSatisfied);
+    }
+
+    /// <summary>
+    /// High-performance version that uses pre-loaded status flags to avoid N+1 database queries.
+    /// </summary>
+    public KeyCardEligibilityResult GetEligibilityBulk(
+        Member member, 
+        int year, 
+        DuesYearSettings? settings, 
+        bool currentYearSatisfied, 
+        bool previousYearSatisfied)
+    {
+        var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(member.Status), "LIFE", StringComparison.OrdinalIgnoreCase);
+        var statusAllowed = IsStatusEligible(member.Status);
+        
+        var currentSatisfied = isLifeMember || currentYearSatisfied;
+        var previousSatisfied = isLifeMember || previousYearSatisfied;
+
+        return BuildEligibility(statusAllowed, currentSatisfied, previousSatisfied, member.Status, settings?.GraceEndDate?.Date);
     }
 
     /// <summary>

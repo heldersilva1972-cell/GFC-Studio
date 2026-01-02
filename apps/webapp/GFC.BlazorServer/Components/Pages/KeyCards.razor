@@ -678,7 +678,7 @@
                                     <button class="btn btn-outline-secondary" @onclick="() => _assignStep = 3">
                                         <i class="bi bi-arrow-left"></i> Back
                                     </button>
-                                    <button class="btn btn-primary" @onclick="HandleProceedToConfirm">
+                                    <button class="btn btn-primary" @onclick="HandleProceedToConfirm" disabled="@(!_selectedDoorIds.Any())">
                                         Continue <i class="bi bi-arrow-right"></i>
                                     </button>
                                 </div>
@@ -1101,60 +1101,47 @@
     {
         try
         {
-            // Load grace period
             var currentYear = DateTime.Today.Year;
+            
+            // 1. Load basic settings and board IDs
             var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
             _graceEndDate = settings?.GraceEndDate;
             
-            // Load Directors
             _directorIds = BoardRepository.GetAssignmentsByYear(currentYear)
                             .Select(a => a.MemberID)
                             .ToHashSet();
             
-            // Calculate members at risk using lifecycle service
-             _atRiskMembers = await KeyCardLifecycleService.GetMembersAtRiskAsync(currentYear);
-             _membersAtRiskCount = _atRiskMembers.Count;
-             
-             // Still keep a simple set of unpaid IDs for fast lookup in search results
-             var dues = await DuesInsightService.GetDuesAsync(currentYear, false);
-             _unpaidMemberIds = dues?.Select(d => d.MemberId).ToHashSet() ?? new HashSet<int>();
+            // 2. Load Dues Info (Consolidated)
+            var unpaidDuesList = await DuesInsightService.GetDuesAsync(currentYear, false);
+            var paidDuesList = await DuesInsightService.GetDuesAsync(currentYear, true);
             
-            // Load sync status
+            _unpaidMemberIds = unpaidDuesList?.Select(d => d.MemberId).ToHashSet() ?? new HashSet<int>();
+            
+            // 3. Load Members at Risk (now optimized in the service)
+            _atRiskMembers = await KeyCardLifecycleService.GetMembersAtRiskAsync(currentYear);
+            _membersAtRiskCount = _atRiskMembers.Count;
+            
+            // 4. Load Cards and Sync Status
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            var activeCardMemberIds = allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
+            
             var pendingSyncs = await SyncQueueRepository.GetPendingItemsAsync();
-            
-            // Get all unconfirmed cards that might not be in the queue yet
-            var allCards = (await Task.Run(() => KeyCardRepository.GetAll()));
             var unconfirmedCards = allCards.Where(c => !c.IsControllerSynced).ToList();
             var pendingCardIdsInQueue = pendingSyncs.Select(p => p.KeyCardId).ToHashSet();
             
-            // Final pending count = Items in queue + Unconfirmed cards NOT in queue
             _pendingSyncCount = pendingSyncs.Count + unconfirmedCards.Count(c => !pendingCardIdsInQueue.Contains(c.KeyCardId));
             
-            // Get last sync time from completed items
+            // 5. Get last sync time
             var completedSyncs = await SyncQueueRepository.GetByStatusAsync("COMPLETED");
-            if (completedSyncs.Any())
-            {
-                _lastSyncTime = completedSyncs.Max(x => x.CompletedDate ?? x.QueuedDate);
-            }
-            else
-            {
-                _lastSyncTime = null; 
-            }
+            _lastSyncTime = completedSyncs.Any() 
+                ? completedSyncs.Max(x => x.CompletedDate ?? x.QueuedDate)
+                : null;
             
-            // Get real controller health status
-            var healthStatus = ControllerHealthService.GetHealthStatus();
-            _controllerOnline = healthStatus.IsOnline;
+            _controllerOnline = ControllerHealthService.GetHealthStatus().IsOnline;
 
-            // Calculate members needing cards
-            var paid = await DuesInsightService.GetDuesAsync(currentYear, true);
-            var waived = await DuesInsightService.GetDuesAsync(currentYear, false);
-            var activeCardMemberIds = (await Task.Run(() => KeyCardRepository.GetAll()))
-                                        .Where(c => c.IsActive)
-                                        .Select(c => c.MemberId)
-                                        .ToHashSet();
-            
-            _paidMembersWithoutCardsCount = paid.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
-                                            + waived.Count(m => m.IsWaived && !activeCardMemberIds.Contains(m.MemberId));
+            // 6. Calculate members needing cards using pre-loaded lists
+            _paidMembersWithoutCardsCount = paidDuesList.Count(m => !activeCardMemberIds.Contains(m.MemberId)) 
+                                            + unpaidDuesList.Where(m => m.IsWaived).Count(m => !activeCardMemberIds.Contains(m.MemberId));
         }
         catch (Exception ex)
         {
@@ -1448,6 +1435,13 @@
         
         try
         {
+            if (_selectedDoorIds == null || !_selectedDoorIds.Any())
+            {
+                _assignError = "Please select at least one door for access selection before confirming.";
+                _assigning = false;
+                StateHasChanged();
+                return;
+            }
             // Check if member already has an active card
             var allCards = await Task.Run(() => KeyCardRepository.GetAll());
             var memberActiveCard = allCards.FirstOrDefault(c => c.MemberId == _selectedMemberId && c.IsActive);
@@ -1493,10 +1487,10 @@
                 // If this fails, we catch it and only rollback if it's a security/eligibility issue.
                 // Communication timeouts should remain in the DB as "Pending Sync".
                 await MemberAccessService.SyncMemberPrivilegesAsync(_selectedMemberId);
-
-                newCard.IsControllerSynced = true; 
-                newCard.LastControllerSyncDate = DateTime.Now;
-                await Task.Run(() => KeyCardRepository.Update(newCard));
+                
+                // Do NOT set newCard.IsControllerSynced = true here. 
+                // The sync service or worker will update the status when hardware actually confirms the write.
+                // This prevents 'false positives' in sync status.
             }
             catch (Exception syncEx)
             {

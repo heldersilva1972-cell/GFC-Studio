@@ -19,6 +19,7 @@ public class ControllerSyncService : IControllerSyncService
     private readonly IControllerSyncQueueRepository _queueRepo;
     private readonly IControllerClient _controllerClient;
     private readonly ICommunicationLogService _logService;
+    private readonly IKeyCardRepository _keyCardRepository;
     private readonly ILogger<ControllerSyncService> _logger;
 
     public ControllerSyncService(
@@ -26,12 +27,14 @@ public class ControllerSyncService : IControllerSyncService
         IControllerSyncQueueRepository queueRepo,
         IControllerClient controllerClient,
         ICommunicationLogService logService,
+        IKeyCardRepository keyCardRepository,
         ILogger<ControllerSyncService> logger)
     {
         _contextFactory = contextFactory;
         _queueRepo = queueRepo;
         _controllerClient = controllerClient;
         _logService = logService;
+        _keyCardRepository = keyCardRepository;
         _logger = logger;
     }
 
@@ -74,18 +77,9 @@ public class ControllerSyncService : IControllerSyncService
 
                 if (!permissions.Any())
                 {
-                    _logger.LogWarning("No door permissions found for card {CardNumber}. Skipping activation.", item.CardNumber);
-                    
-                    _logService.Log(new CommunicationLogEntry
-                    {
-                        ControllerSn = 0,
-                        Operation = "ACTIVATE",
-                        IsError = true,
-                        ErrorMessage = "No door permissions found in database for this card. Sync skipped.",
-                        Description = $"Card {item.CardNumber} has no assigned doors in MemberDoorAccess table."
-                    });
-
-                    await _queueRepo.IncrementAttemptAsync(item.QueueId, "No door permissions found for card.");
+                    _logger.LogWarning("No door permissions found for card {CardNumber}. Removing from all controllers for cleanup.", item.CardNumber);
+                    await _controllerClient.DeletePrivilegeAsync(long.Parse(item.CardNumber), ct);
+                    await _queueRepo.MarkAsCompletedAsync(item.QueueId);
                     return;
                 }
                 
@@ -97,30 +91,11 @@ public class ControllerSyncService : IControllerSyncService
                     var controllerId = group.Key;
                     if (controllerId == 0) continue;
 
-                    _logger.LogInformation("Performing Robust Step-by-Step Sync for controller {Id}...", controllerId);
+                    _logger.LogInformation("Syncing card {CardNumber} to controller {Id}...", item.CardNumber, controllerId);
 
-                    _logger.LogInformation("Performing Triple-Handshake Sync (Reset & Unlock) for controller {Id}...", controllerId);
-
-                    // 1-3. Execute Deep Reset Sequence (Broadcast Search -> Clear -> Sync Time -> Verify)
-                    // This now handles the "Month 26" lock recovery automatically.
-                    await _controllerClient.ResetControllerAsync(controllerId, ct: ct);
-                    
-                    // 4. Verify Clock (already done inside ResetControllerAsync, but getting status for logging)
-                    var status = await _controllerClient.GetRunStatusAsync(controllerId, ct).ConfigureAwait(false);
-
-                    if (!status.ControllerTimeUtc.HasValue || status.ControllerTimeUtc.Value.Year < 2025)
-                    {
-                        var currentYear = status.ControllerTimeUtc?.Year.ToString() ?? "Unknown";
-                        var errorMsg = $"[Hardware Clock Lock] Controller {controllerId} rejected sync. Year is still {currentYear}. Clear All (0x54) might have failed.";
-                        _logger.LogError(errorMsg);
-                        await _queueRepo.IncrementAttemptAsync(item.QueueId, errorMsg);
-                        throw new InvalidOperationException(errorMsg);
-                    }
-                    _logger.LogInformation("Clock Verified: {Time}. Cleaning up Ghost Data (Step 4.5)...", status.ControllerTimeUtc);
-
-                    // 4.5 Wipe Ghost Data (0x8E) - Resolve unmapped memory residue on Doors 3 & 4
-                    await _controllerClient.SetDoorConfigAsync(controllerId.ToString(), 3, 0x00, 0x00, 0, 0, ct).ConfigureAwait(false);
-                    await _controllerClient.SetDoorConfigAsync(controllerId.ToString(), 4, 0x00, 0x00, 0, 0, ct).ConfigureAwait(false);
+                    // 1. Add/Update Card (Standard Sync)
+                    // If the controller fails with a known 'Clock Lock' or timeout, we report it.
+                    // We no longer perform a full reset automatically on every sync as it wipes the entire controller memory.
 
                     // 5. Add Card (0x50)
                     var doorIndexes = group
@@ -154,20 +129,31 @@ public class ControllerSyncService : IControllerSyncService
             else
             {
                 // DEACTIVATE logic
-                // Find all controllers that have this card and remove it
-                // We'll iterate through all controllers since we don't know exactly which ones have it
-                // in the current schema without more complex tracking.
-                // But for now, we'll use the controller associated with the card's doors if available.
-                
-                var controllers = await dbContext.Controllers.ToListAsync(ct);
-                foreach (var controller in controllers)
-                {
-                    await _controllerClient.DeletePrivilegeAsync(long.Parse(item.CardNumber), ct);
-                }
+                // Find all controllers and remove the card
+                _logger.LogInformation("Removing card {CardNumber} from all controllers...", item.CardNumber);
+                await _controllerClient.DeletePrivilegeAsync(long.Parse(item.CardNumber), ct);
             }
 
-            // Success - mark as completed
+            // Success - mark item as completed in queue
             await _queueRepo.MarkAsCompletedAsync(item.QueueId);
+            
+            // CRITICAL: Update the KeyCard record to confirm it is now synced with hardware
+            try
+            {
+                var card = _keyCardRepository.GetById(item.KeyCardId);
+                if (card != null)
+                {
+                    card.IsControllerSynced = true;
+                    card.LastControllerSyncDate = DateTime.Now;
+                    _keyCardRepository.Update(card);
+                    _logger.LogInformation("Confirmed sync status for card {CardNumber} in database.", item.CardNumber);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update IsControllerSynced for card {CardNumber}, but hardware sync was successful.", item.CardNumber);
+            }
+
             _logger.LogInformation(
                 "Successfully synced queued item {QueueId} for card {CardNumber} (action {Action})",
                 item.QueueId, item.CardNumber, item.Action);

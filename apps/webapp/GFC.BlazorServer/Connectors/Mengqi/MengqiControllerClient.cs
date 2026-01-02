@@ -28,15 +28,16 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         IControllerEndpointResolver endpointResolver,
         ICommunicationLogService? logService = null,
         IControllerTransport? transport = null,
-        ILogger<MengqiControllerClient>? logger = null)
+        ILogger<MengqiControllerClient>? logger = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _ = options ?? throw new ArgumentNullException(nameof(options));
         endpointResolver = endpointResolver ?? throw new ArgumentNullException(nameof(endpointResolver));
 
         _commands = options.CommandProfiles ?? throw new ArgumentNullException(nameof(options.CommandProfiles));
         _transport = transport ?? new UdpControllerTransport();
-        _dispatcher = new WgCommandDispatcher(options, endpointResolver, _transport, logService);
-        _logger = logger;
+        _dispatcher = new WgCommandDispatcher(options, endpointResolver, _transport, logService, loggerFactory?.CreateLogger<WgCommandDispatcher>());
+        _logger = logger ?? loggerFactory?.CreateLogger<MengqiControllerClient>();
     }
 
     public async Task OpenDoorAsync(uint controllerSn, int doorNo, int? durationSeconds = null, CancellationToken cancellationToken = default)
@@ -319,6 +320,8 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         // 4. Verification & Re-Add (Standard Unicast)
         try
         {
+            await Task.Delay(200, cancellationToken); // Settle buffer before unicast verify
+            
             // Verify Clock (0x20) - Ensure year matches 2025 using REAL SN
             var status = await GetRunStatusAsync(controllerSn, cancellationToken).ConfigureAwait(false);
             if (!status.ControllerTime.HasValue || status.ControllerTime.Value.Year < 2025)

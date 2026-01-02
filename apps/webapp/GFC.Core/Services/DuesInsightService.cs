@@ -31,33 +31,54 @@ public class DuesInsightService : IDuesInsightService
     public async Task<IReadOnlyList<DuesListItemDto>> GetDuesAsync(int year, bool paidTab, CancellationToken cancellationToken = default)
     {
         var membersTask = Task.Run(() => _memberRepository.GetAllMembers(), cancellationToken);
-        var duesTask = Task.Run(() => _duesRepository.GetDuesForYear(year), cancellationToken);
+        var duesHistoryTask = Task.Run(() => _duesRepository.GetAllDues(), cancellationToken);
+        var waiversTask = Task.Run(() => _waiverRepository.GetAllWaivers(), cancellationToken);
+        var boardTask = Task.Run(() => _boardRepository.GetAllAssignments(), cancellationToken);
 
-        await Task.WhenAll(membersTask, duesTask);
+        await Task.WhenAll(membersTask, duesHistoryTask, waiversTask, boardTask);
 
         var members = membersTask.Result
             .Where(m => MemberFilters.IsActiveForDuesYear(m, year) || MemberStatusHelper.IsLifeStatus(m.Status))
             .Where(m => !string.Equals(m.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase)
                      && !string.Equals(m.Status, "DECEASED", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        var duesLookup = duesTask.Result.ToDictionary(d => d.MemberID, d => d);
 
-        // Fetch all waivers for this year
-        var allWaivers = await Task.Run(() => _waiverRepository.GetWaiversForYear(year), cancellationToken);
-        var waiverLookup = allWaivers.ToDictionary(w => w.MemberId, w => w);
+        var duesHistory = duesHistoryTask.Result;
+        var waivers = waiversTask.Result;
+        var boardAssignments = boardTask.Result;
+
+        // Build Bulk Context
+        var context = new OverdueCalculationService.DuesCalculationContext
+        {
+            DuesByMember = duesHistory.GroupBy(d => d.MemberID).ToDictionary(g => g.Key, g => g.ToList()),
+            WaiversByMember = waivers.GroupBy(w => w.MemberId).ToDictionary(g => g.Key, g => g.ToList()),
+            BoardAssignmentsByMember = boardAssignments.GroupBy(a => a.MemberID).ToDictionary(g => g.Key, g => g.Select(a => a.TermYear).ToHashSet()),
+            Today = DateTime.Today
+        };
+
+        // Cache for current year dues lookup
+        var duesCurrentYearLookup = duesHistory
+            .Where(d => d.Year == year)
+            .ToDictionary(d => d.MemberID, d => d);
+
+        // Cache for waivers active in current year
+        var waiverCurrentYearLookup = waivers
+            .Where(w => year >= w.StartYear && year <= w.EndYear)
+            .ToDictionary(w => w.MemberId, w => w);
 
         var list = new List<DuesListItemDto>();
         foreach (var member in members)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            duesLookup.TryGetValue(member.MemberID, out var record);
+            duesCurrentYearLookup.TryGetValue(member.MemberID, out var record);
             var status = MapStatus(member.Status);
-            var isBoardMember = _boardRepository.IsBoardMemberForYear(member.MemberID, year);
+            
+            var isBoardMember = context.BoardAssignmentsByMember.TryGetValue(member.MemberID, out var boardYears) && boardYears.Contains(year);
             var isLife = status == MemberStatus.Life;
 
             var recordIsWaived = record != null && string.Equals(record.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
-            var hasManualWaiver = waiverLookup.ContainsKey(member.MemberID);
+            var hasManualWaiver = waiverCurrentYearLookup.ContainsKey(member.MemberID);
             var isWaived = recordIsWaived || isLife || isBoardMember || hasManualWaiver;
             var isPaid = (record != null && record.PaidDate.HasValue) || isWaived;
 
@@ -74,7 +95,7 @@ public class DuesInsightService : IDuesInsightService
             var overdueMonths = 0;
             if (!isPaid)
             {
-                var overdueResult = _overdueService.CalculateOverdue(member);
+                var overdueResult = _overdueService.CalculateOverdue(member, context);
                 if (overdueResult.IsOverdue && overdueResult.FirstUnpaidYear <= year)
                 {
                     overdueMonths = overdueResult.MonthsOverdue;
@@ -93,7 +114,7 @@ public class DuesInsightService : IDuesInsightService
                 {
                     waiverReason = "Board Member";
                 }
-                else if (waiverLookup.TryGetValue(member.MemberID, out var waiver))
+                else if (waiverCurrentYearLookup.TryGetValue(member.MemberID, out var waiver))
                 {
                     var duration = waiver.EndYear >= 2099 ? "Permanent" : $"thru {waiver.EndYear}";
                     waiverReason = $"{waiver.Reason} ({duration})";

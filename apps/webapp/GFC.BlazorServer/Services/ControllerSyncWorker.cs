@@ -17,7 +17,6 @@ public class ControllerSyncWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ControllerSyncWorker> _logger;
-    private bool _wasOffline = false;
 
     public ControllerSyncWorker(
         IServiceScopeFactory scopeFactory,
@@ -30,6 +29,19 @@ public class ControllerSyncWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Controller Sync Worker started");
+
+        // On startup, recover any items that were stuck in 'PROCESSING' (e.g. from a crash/restart)
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var syncQueue = scope.ServiceProvider.GetRequiredService<IControllerSyncQueueRepository>();
+            await syncQueue.ResetPendingAsync();
+            _logger.LogInformation("Recovered orphaned processing items from sync queue.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to reset sync queue on startup");
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -74,8 +86,8 @@ public class ControllerSyncWorker : BackgroundService
                 _logger.LogError(ex, "Error in controller sync worker");
             }
 
-            // Run every 30 seconds to check for items ready to retry
-            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            // Run every 5 seconds to check for new items or items ready to retry
+            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         }
 
         _logger.LogInformation("Controller Sync Worker stopped");

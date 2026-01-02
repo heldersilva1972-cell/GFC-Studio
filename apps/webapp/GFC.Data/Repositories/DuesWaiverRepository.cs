@@ -72,6 +72,29 @@ public class DuesWaiverRepository : IDuesWaiverRepository
         return waivers;
     }
 
+    public List<DuesWaiverPeriod> GetAllWaivers()
+    {
+        var waivers = new List<DuesWaiverPeriod>();
+
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        const string sql = @"
+            SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
+            FROM DuesWaiverPeriods
+            ORDER BY MemberId, StartYear";
+
+        using var command = new SqlCommand(sql, connection);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            waivers.Add(MapReader(reader, nameof(GetAllWaivers)));
+        }
+
+        return waivers;
+    }
+
     public bool HasWaiverForYear(int memberId, int year)
     {
         using var connection = Db.GetConnection();

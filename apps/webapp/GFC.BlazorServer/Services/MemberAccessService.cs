@@ -256,10 +256,9 @@ public class MemberAccessService : IMemberAccessService
                     var doorNames = string.Join(", ", doorsWithAccess.Select(d => d.Name));
                     syncResults.Add($"{controller.Name}: {(result.Success ? $"✓ Activated: {doorNames}" : $"Failed: {result.Message}")}");
                 }
-                else if (controllerAccess.Any())
+                else
                 {
-                    // No enabled doors, so send update with empty door list (all doors set to 0x00)
-                    // This keeps the card in the database but with no access
+                    // No enabled doors or member not eligible - send update with empty door list (Revoke All)
                     var cardRequest = new AddOrUpdateCardRequestDto
                     {
                         CardNumber = cardNumber,
@@ -270,14 +269,20 @@ public class MemberAccessService : IMemberAccessService
                     
                     var result = await _controllerClient.AddOrUpdateCardAsync(controller.SerialNumber.ToString(), cardRequest, cancellationToken);
                     
-                    var revokedDoorNames = string.Join(", ", controllerDoors.Select(d => d.Name));
-                    
                     foreach (var access in controllerAccess)
                     {
                         access.LastSyncedAt = DateTime.UtcNow;
                         access.LastSyncResult = result.Success ? "Access Revoked" : result.Message;
                     }
-                    syncResults.Add($"{controller.Name}: {(result.Success ? $"✗ Revoked: {revokedDoorNames}" : $"Failed: {result.Message}")}");
+
+                    if (result.Success)
+                    {
+                         syncResults.Add($"{controller.Name}: ✗ Revoked All Access");
+                    }
+                    else 
+                    {
+                         syncResults.Add($"{controller.Name}: Sync Revoke Failed: {result.Message}");
+                    }
                 }
             }
             catch (Exception ex)

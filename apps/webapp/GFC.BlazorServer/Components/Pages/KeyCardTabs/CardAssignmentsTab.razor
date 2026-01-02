@@ -4,6 +4,7 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using GFC.Core.Services
+@implements IDisposable
 @inject IDbContextFactory<GfcDbContext> DbContextFactory
 @inject IKeyCardRepository KeyCardRepository
 @inject IMemberRepository MemberRepository
@@ -19,6 +20,7 @@
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
 @inject IMemberAccessService MemberAccessService
 @inject KeyCardService KeyCardService
+@inject IDuesRepository DuesRepository
 
 <div class="assignments-container">
     <!-- Summary Metrics -->
@@ -1001,7 +1003,10 @@
     private bool _savingAccess = false;
     private string _accessError = string.Empty;
     private List<MemberDoorAccessDto> _memberAccessData = new();
-
+    
+    // Auto-refresh timer
+    private CancellationTokenSource? _refreshCts;
+    
     private void SetViewMode(string mode)
     {
         _viewMode = mode;
@@ -1011,56 +1016,111 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadCardsAsync();
+        _ = StartStatusRefresh();
+    }
+    
+    private async Task StartStatusRefresh()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts = new CancellationTokenSource();
+        var token = _refreshCts.Token;
+
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(10000, token); // Refresh every 10s
+                
+                // We only want to refresh if there are pending syncs to avoid unnecessary DB load
+                if (_allCards.Any(c => c.IsSyncPending || !c.IsControllerSynced))
+                {
+                    await LoadCardsAsync();
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch (TaskCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in CardAssignmentsTab auto-refresh");
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
     }
     
     private async Task LoadCardsAsync()
     {
         _loading = true;
         _errorMessage = string.Empty;
+        var swTotal = System.Diagnostics.Stopwatch.StartNew();
+        var swStep = new System.Diagnostics.Stopwatch();
         
         try
         {
-            // Load all key cards with member info
-            var cards = await Task.Run(() => KeyCardRepository.GetAll());
-            var members = await Task.Run(() => MemberRepository.GetAllMembers());
-            var unpaid = await DuesInsightService.GetDuesAsync(DateTime.Today.Year, false);
-            var unpaidIds = unpaid?.Select(u => u.MemberId).ToHashSet() ?? new HashSet<int>();
-            
             var year = DateTime.Today.Year;
-            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
-            var boardMemberIds = BoardRepository.GetAssignmentsByYear(year).Select(a => a.MemberID).ToHashSet();
             
-            // Sync status check
+            // 1. Bulk Load data for the view
+            swStep.Start();
+            var cards = await Task.Run(() => KeyCardRepository.GetAll());
+            var membersList = await Task.Run(() => MemberRepository.GetAllMembers());
+            var members = membersList.ToDictionary(m => m.MemberID);
+            
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
+            
+            // Pre-load dues status for eligibility (Current and Prev)
+            var duesCurrentMap = (await Task.Run(() => DuesRepository.GetDuesForYear(year))).ToDictionary(d => d.MemberID);
+            var duesPrevMap = (await Task.Run(() => DuesRepository.GetDuesForYear(year - 1))).ToDictionary(d => d.MemberID);
+            var boardCurrent = BoardRepository.GetAssignmentsByYear(year).Select(a => a.MemberID).ToHashSet();
+            var boardPrev = BoardRepository.GetAssignmentsByYear(year - 1).Select(a => a.MemberID).ToHashSet();
+
+            // Sync status check (small sets, usually fine)
             var pendingSyncs = await SyncQueueRepository.GetByStatusAsync("PENDING");
             var processingSyncs = await SyncQueueRepository.GetByStatusAsync("PROCESSING");
             var pendingCardIds = pendingSyncs.Concat(processingSyncs).Select(x => x.KeyCardId).ToHashSet();
+            swStep.Stop();
+            Logger.LogInformation("Performance Trace: Bulk data load took {ms}ms", swStep.ElapsedMilliseconds);
+            swStep.Reset();
 
-            // Fetch last used dates from ControllerEvents
-            using var db = await DbContextFactory.CreateDbContextAsync();
-            var lastUsedMap = await db.ControllerEvents
-                .Where(e => e.CardNumber != null)
-                .GroupBy(e => e.CardNumber)
-                .Select(g => new { CardNumber = g.Key, LastUsed = g.Max(e => e.TimestampUtc) })
-                .ToDictionaryAsync(x => x.CardNumber!.Value, x => x.LastUsed);
+            // 2. Fetch last used dates from ControllerEvents selectively
+            swStep.Start();
+            var cardNumbers = cards.Select(c => long.TryParse(c.CardNumber, out var val) ? (long?)val : null)
+                                   .Where(v => v.HasValue).Select(v => v!.Value).ToList();
+            
+            var lastUsedMap = new Dictionary<long, DateTime>();
+            if (cardNumbers.Any())
+            {
+                using var db = await DbContextFactory.CreateDbContextAsync();
+                // We use a targeted query to avoid a full table scan on massive event logs
+                lastUsedMap = await db.ControllerEvents
+                    .Where(e => e.CardNumber != null && cardNumbers.Contains(e.CardNumber.Value))
+                    .GroupBy(e => e.CardNumber)
+                    .Select(g => new { CardNumber = g.Key, LastUsed = g.Max(e => e.TimestampUtc) })
+                    .ToDictionaryAsync(x => x.CardNumber!.Value, x => x.LastUsed);
+            }
+            swStep.Stop();
+            Logger.LogInformation("Performance Trace: Event log query took {ms}ms for {count} cards", swStep.ElapsedMilliseconds, cardNumbers.Count);
+            swStep.Reset();
 
+            // 3. Project to ViewModel using pre-loaded maps (ZERO DB calls inside loop)
+            swStep.Start();
             _allCards = cards.Select(c => {
-                var member = members.FirstOrDefault(m => m.MemberID == c.MemberId);
-                var isDirector = boardMemberIds.Contains(c.MemberId);
+                members.TryGetValue(c.MemberId, out var member);
                 
                 long? cardNumberLong = long.TryParse(c.CardNumber, out long val) ? val : null;
                 DateTime? lastUsed = (cardNumberLong.HasValue && lastUsedMap.TryGetValue(cardNumberLong.Value, out var lu)) ? lu : null;
 
-                var status = member?.Status ?? string.Empty;
-                var isLife = status.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
-                var isReg = status.Equals("REGULAR", StringComparison.OrdinalIgnoreCase) || 
-                            status.Equals("REGULAR-NP", StringComparison.OrdinalIgnoreCase);
-                var isGuest = status.Equals("GUEST", StringComparison.OrdinalIgnoreCase);
-                
-                var isUnpaid = unpaidIds.Contains(c.MemberId);
-                var eligibility = KeyCardService.GetKeyCardEligibility(c.MemberId, year);
-                
-                // Eligibility rule based on service
-                var isEligible = eligibility.Eligible;
+                // Built satisfied flags from our maps
+                bool currentSatisfied = boardCurrent.Contains(c.MemberId) || (duesCurrentMap.TryGetValue(c.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                bool prevSatisfied = boardPrev.Contains(c.MemberId) || (duesPrevMap.TryGetValue(c.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+
+                // High-performance eligibility check (0 DB calls)
+                var eligibility = member != null 
+                    ? KeyCardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied)
+                    : new KeyCardEligibilityResult(false, false, false, false, false, null, "UNKNOWN");
 
                 return new CardListItem
                 {
@@ -1072,8 +1132,8 @@
                     IssuedDate = c.CreatedDate == DateTime.MinValue ? null : c.CreatedDate,
                     LastUsed = lastUsed,
                     CardType = c.CardType ?? "Card",
-                    IsEligible = isEligible,
-                    IsDirector = isDirector,
+                    IsEligible = eligibility.Eligible,
+                    IsDirector = boardCurrent.Contains(c.MemberId),
                     IsSyncPending = pendingCardIds.Contains(c.KeyCardId),
                     IsControllerSynced = c.IsControllerSynced,
                     LastControllerSyncDate = c.LastControllerSyncDate,
@@ -1083,6 +1143,12 @@
                     InGracePeriod = eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied && !eligibility.CurrentYearSatisfied
                 };
             }).ToList();
+            swStep.Stop();
+            Logger.LogInformation("Performance Trace: Projection loop took {ms}ms", swStep.ElapsedMilliseconds);
+            
+            await LoadMetricsAsync();
+            swTotal.Stop();
+            Logger.LogInformation("Performance Trace: TOTAL LoadCardsAsync took {ms}ms", swTotal.ElapsedMilliseconds);
             
             // Calculate members needing cards
             var paid = await DuesInsightService.GetDuesAsync(year, true);

@@ -91,7 +91,7 @@ public class ControllerFullSyncService
 
                     if (!permissions.Any())
                     {
-                        _logger.LogWarning("No door permissions found for active card {CardNumber} - deactivating", card.CardNumber);
+                        _logger.LogWarning("No door permissions found for active card {CardNumber} - removing from controllers", card.CardNumber);
                         await _controllerClient.DeletePrivilegeAsync(long.Parse(card.CardNumber), ct);
                     }
                     else
@@ -128,7 +128,11 @@ public class ControllerFullSyncService
                             await _controllerClient.AddOrUpdatePrivilegeAsync(privilege, ct);
                         }
                     }
-                    
+                    // Update card sync status
+                    card.IsControllerSynced = true;
+                    card.LastControllerSyncDate = DateTime.Now;
+                    _keyCardRepository.Update(card);
+
                     result.SuccessCount++;
                     _logger.LogDebug("Synced card {CardNumber}", card.CardNumber);
                 }

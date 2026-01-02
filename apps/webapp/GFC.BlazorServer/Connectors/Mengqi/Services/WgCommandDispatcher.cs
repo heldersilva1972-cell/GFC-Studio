@@ -9,6 +9,7 @@ using GFC.BlazorServer.Connectors.Mengqi.Packets;
 using GFC.BlazorServer.Connectors.Mengqi.Transport;
 using GFC.BlazorServer.Connectors.Mengqi.Utilities;
 using GFC.BlazorServer.Services.Controllers;
+using Microsoft.Extensions.Logging;
 
 namespace GFC.BlazorServer.Connectors.Mengqi.Services;
 
@@ -18,6 +19,7 @@ internal sealed class WgCommandDispatcher
     private readonly IControllerEndpointResolver _endpointResolver;
     private readonly IControllerTransport _transport;
     private readonly ICommunicationLogService? _logService;
+    private readonly ILogger<WgCommandDispatcher>? _logger;
     private readonly WgPacketBuilder _packetBuilder;
     private readonly AsyncLock _sendLock = new();
     private ushort _xid;
@@ -26,12 +28,14 @@ internal sealed class WgCommandDispatcher
         ControllerClientOptions options,
         IControllerEndpointResolver endpointResolver,
         IControllerTransport transport,
-        ICommunicationLogService? logService = null)
+        ICommunicationLogService? logService = null,
+        ILogger<WgCommandDispatcher>? logger = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _endpointResolver = endpointResolver ?? throw new ArgumentNullException(nameof(endpointResolver));
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _logService = logService;
+        _logger = logger;
         _packetBuilder = new WgPacketBuilder(options);
     }
 
@@ -93,9 +97,45 @@ internal sealed class WgCommandDispatcher
                         // Optional: Could log "Sending..." here, but we usually wait for result.
                     }
 
-                    var response = await _transport
-                        .SendAsync(endpoint, request, _options.ReceiveTimeout, cancellationToken)
-                        .ConfigureAwait(false);
+                    var responseMatched = false;
+                    byte[]? response = null;
+                    var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    receiveCts.CancelAfter(_options.ReceiveTimeout);
+
+                    while (!responseMatched && !receiveCts.Token.IsCancellationRequested)
+                    {
+                        response = await _transport
+                            .SendAsync(endpoint, request, _options.ReceiveTimeout, receiveCts.Token)
+                            .ConfigureAwait(false);
+
+                        if (response.Length >= 2)
+                        {
+                            var respFunction = response[1];
+                            
+                            // Check if function matches. 
+                            // Some commands might have specific ACK codes, but usually they mirror.
+                            // Profile.CommandCode is what we sent.
+                            // Check if function mirrors the request (N3000 Standard)
+                            if (respFunction == profile.CommandCode)
+                            {
+                                responseMatched = true;
+                            }
+                            else
+                            {
+                                // Late/Mismatched packet detected from a previous command.
+                                // Draining the buffer by ignoring it and letting the loop re-poll.
+                                _logger?.LogDebug("Discarding ghost packet (Function 0x{Actual:X2}, Expected 0x{Expected:X2})", 
+                                    respFunction, profile.CommandCode);
+                            }
+                        }
+                    }
+
+                    if (!responseMatched || response == null)
+                    {
+                        var errorMsg = $"Controller {controllerSn} (0x{controllerSn:X}) did not respond with 0x{profile.CommandCode:X2} within {_options.ReceiveTimeout.TotalMilliseconds}ms.";
+                        _logger?.LogWarning(errorMsg);
+                        throw new TimeoutException(errorMsg);
+                    }
 
                     if (!string.IsNullOrWhiteSpace(endpoint.CommPassword))
                     {

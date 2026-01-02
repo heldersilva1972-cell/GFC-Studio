@@ -11,6 +11,7 @@
 @inject IControllerClient ControllerClient
 @inject IJSRuntime JSRuntime
 @inject ILogger<DoorActivityTab> Logger
+@inject ControllerEventService EventService
 
 <div class="activity-container">
     <!-- Time Range Filters -->
@@ -483,11 +484,7 @@
         try
         {
             using var context = await DbContextFactory.CreateDbContextAsync();
-            
-            // Get all active controllers
-            var controllers = await context.Controllers
-                .Where(c => c.IsEnabled)
-                .ToListAsync();
+            var controllers = await context.Controllers.Where(c => c.IsEnabled).ToListAsync();
             
             foreach (var controller in controllers)
             {
@@ -500,154 +497,36 @@
                 
                 try
                 {
-                    Logger.LogInformation("Starting event sync for controller {ControllerName} (SN: {SerialNumber})", 
-                        controller.Name, controller.SerialNumber);
+                    Logger.LogInformation("Syncing events for {ControllerName}...", controller.Name);
                     
-                    // Step 1: Get the controller's current index via 0x20 (GetRunStatus)
-                    var status = await ControllerClient.GetRunStatusAsync(
-                        controller.SerialNumber.ToString(), 
+                    int saved = await EventService.SyncFromControllerAsync(
+                        controller.SerialNumber, 
+                        ControllerClient,
+                        (count, total) => {
+                            debugEntry.EventsSaved = count;
+                            debugEntry.EventsDownloaded = count;
+                            InvokeAsync(StateHasChanged);
+                        },
                         CancellationToken.None);
-                    
-                    if (status == null)
-                    {
-                        Logger.LogWarning("Failed to get status from controller {ControllerName}", controller.Name);
-                        debugEntry.ErrorMessage = "Failed to get controller status";
-                        continue;
-                    }
-                    
-                    uint currentIndex = status.TotalEvents;
-                    Logger.LogInformation("Controller {ControllerName}: CurrentIndex={CurrentIndex}", 
-                        controller.Name, currentIndex);
-                    
-                    // Step 2: Get our last read index from database
-                    var lastEvent = await context.ControllerEvents
-                        .Where(e => e.ControllerId == controller.Id)
-                        .OrderByDescending(e => e.RawIndex)
-                        .FirstOrDefaultAsync();
-                    
-                    uint lastReadIndex = lastEvent?.RawIndex > 0 ? (uint)lastEvent.RawIndex : 0;
-                    Logger.LogInformation("Controller {ControllerName}: LastReadIndex={LastReadIndex}", 
-                        controller.Name, lastReadIndex);
-                    
-                    // Step 3: Sequential retrieval loop
-                    int downloadedCount = 0;
-                    int savedCount = 0;
-                    int skippedCount = 0;
-                    
-                    // CRITICAL FIX: Handle index reset. If currentIndex < lastReadIndex, the controller was reset.
-                    uint startSyncIndex = lastReadIndex + 1;
-                    if (currentIndex < lastReadIndex)
-                    {
-                        Logger.LogWarning("Controller {ControllerName} index reset detected! (Current: {Current}, LastRead: {LastRead}). Restarting sync from 0.", 
-                            controller.Name, currentIndex, lastReadIndex);
-                        startSyncIndex = 0;
-                    }
 
-                    // Fetch events from startSyncIndex to CurrentIndex
-                    if (currentIndex > 0)
-                    {
-                        for (uint index = Math.Max(1, startSyncIndex); index <= currentIndex; index++)
-                        {
-                            try
-                            {
-                                // Fetch single event at this index
-                                var result = await ControllerClient.GetNewEventsAsync(
-                                    controller.SerialNumber.ToString(),
-                                    index - 1, // index is 1-based in our loop, 0-based in hardware query
-                                    CancellationToken.None);
-                            
-                            if (result?.Events != null && result.Events.Any())
-                            {
-                                downloadedCount += result.Events.Count;
-                                
-                                // Step 4: Process downloaded events
-                                foreach (var evt in result.Events)
-                                {
-                                    // Check if already exists in database
-                                    var exists = await context.ControllerEvents
-                                        .AnyAsync(e => e.ControllerId == controller.Id && e.RawIndex == evt.RawIndex);
-                                    
-                                    if (!exists)
-                                    {
-                                        // Find the door record - Handle Door 0 mapped to Door 1 (Index 1) case if using 1-based indexing
-                                        var targetDoorIndex = evt.DoorNumber;
-                                        if (targetDoorIndex == 0) targetDoorIndex = 1; // Default to Door 1 if 0 is received
-                                        
-                                        var door = await context.Doors
-                                            .FirstOrDefaultAsync(d => d.ControllerId == controller.Id && d.DoorIndex == targetDoorIndex);
-                                        
-                                        // Prepare hex dump for diagnostics modal
-                                        var hexDump = evt.RawData ?? string.Empty;
-                                        if (string.IsNullOrEmpty(hexDump))
-                                        {
-                                            hexDump = $"TYPE:{(int)evt.EventType}, CARD:{evt.CardNumber}, DOOR:{evt.DoorNumber}";
-                                        }
-
-                                        var controllerEvent = new Data.Entities.ControllerEvent
-                                        {
-                                            ControllerId = controller.Id,
-                                            DoorId = door?.Id,
-                                            TimestampUtc = evt.TimestampUtc,
-                                            CardNumber = evt.CardNumber,
-                                            EventType = (int)evt.EventType,
-                                            ReasonCode = (int)evt.ReasonCode,
-                                            IsByCard = evt.IsByCard || (evt.CardNumber > 0),
-                                            IsByButton = evt.IsByButton,
-                                            RawIndex = (int)evt.RawIndex,
-                                            RawData = hexDump,
-                                            CreatedUtc = DateTime.UtcNow
-                                        };
-                                        
-                                        context.ControllerEvents.Add(controllerEvent);
-                                        await context.SaveChangesAsync();
-                                        savedCount++;
-                                        
-                                        Logger.LogInformation("Saved event: Index={RawIndex}, Card={CardNumber}, Door={DoorId}, Time={Time}", 
-                                            evt.RawIndex, evt.CardNumber, door?.Id, evt.TimestampUtc);
-                                    }
-                                    else
-                                    {
-                                        skippedCount++;
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogError(ex, "Failed to fetch event at index {Index} from controller {ControllerName}", 
-                                index, controller.Name);
-                        }
-                    }
-                    }
-                    
-                    debugEntry.EventsDownloaded = downloadedCount;
-                    debugEntry.EventsSaved = savedCount;
-                    debugEntry.EventsSkipped = skippedCount;
-                    debugEntry.LastIndex = currentIndex;
                     debugEntry.Success = true;
-                    
-                    Logger.LogInformation("Event sync complete for {ControllerName}: Downloaded={Downloaded}, Saved={Saved}, Skipped={Skipped}", 
-                        controller.Name, downloadedCount, savedCount, skippedCount);
+                    debugEntry.EventsSaved = saved;
+                    debugEntry.EventsDownloaded = saved;
+                    Logger.LogInformation("Sync complete for {ControllerName}: {Count} new events.", controller.Name, saved);
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "Failed to sync events from controller {ControllerName} (ID: {ControllerId})", 
-                        controller.Name, controller.Id);
+                    Logger.LogError(ex, "Failed to sync {ControllerName}", controller.Name);
                     debugEntry.ErrorMessage = ex.Message;
                 }
                 
                 _debugInfo.Add(debugEntry);
-                
-                // Keep only last 20 entries
-                if (_debugInfo.Count > 20)
-                {
-                    _debugInfo.RemoveAt(0);
-                }
+                if (_debugInfo.Count > 20) _debugInfo.RemoveAt(0);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error in event synchronization");
+            Logger.LogError(ex, "Global sync error");
         }
     }
     
