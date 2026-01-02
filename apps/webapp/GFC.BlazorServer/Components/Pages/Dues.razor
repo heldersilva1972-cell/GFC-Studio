@@ -33,24 +33,26 @@
             <p class="text-muted mb-0">Manage membership dues, payments, and waivers for @_selectedYear</p>
         </div>
         <div class="d-flex align-items-center gap-3">
-             <div class="scanner-status" title="Card Scanner Ready">
+             <div class="scanner-status" title="Card Scanner Ready - Scan a member's key card to quickly find and process their dues payment">
                 <span class="pulse-dot"></span>
                 <i class="bi bi-upc-scan"></i>
                 <span class="d-none d-md-inline ms-2">Ready to Scan</span>
             </div>
-            <select class="form-select year-select" @bind="_selectedYear" @bind:after="OnYearChanged">
+            <div class="d-flex align-items-center gap-2">
+                <label class="text-muted small mb-0 fw-semibold">Year:</label>
+                <select class="form-select year-select" @bind="_selectedYear" @bind:after="OnYearChanged">
                 @foreach (var year in _years)
                 {
                     <option value="@year">@year</option>
                 }
             </select>
+            </div>
         </div>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(_operationMessage))
     {
         <div class="alert @( _operationError ? "alert-danger" : "alert-success") shadow-sm border-0 mb-4">
-            <i class="bi @( _operationError ? "bi-exclamation-octagon" : "bi-check-circle") me-2"></i>
             @_operationMessage
         </div>
     }
@@ -61,14 +63,14 @@
         var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
         var alertClass = daysRemaining > 30 ? "status-banner-success" : daysRemaining > 14 ? "status-banner-warning" : "status-banner-danger";
         
-        <div class="status-banner @alertClass mb-4">
+        <div class="status-banner status-banner-compact @alertClass mb-3">
             <div class="d-flex align-items-center">
-                <div class="banner-icon">
+                <div class="banner-icon-compact">
                     <i class="bi bi-hourglass-split"></i>
                 </div>
                 <div class="flex-grow-1">
-                    <h5 class="mb-1">Grace Period Active</h5>
-                    <p class="mb-0">
+                    <h6 class="mb-0 fw-semibold">Grace Period Active</h6>
+                    <p class="mb-0 small">
                         @daysRemaining days remaining until @_graceEndDate.Value.ToString("MMMM d, yyyy").
                         @if (_membersAtRiskCount > 0)
                         {
@@ -97,14 +99,14 @@
     }
     else
     {
-        <div class="status-banner status-banner-neutral mb-4">
+        <div class="status-banner status-banner-compact status-banner-neutral mb-3">
              <div class="d-flex align-items-center">
-                <div class="banner-icon">
+                <div class="banner-icon-compact">
                     <i class="bi bi-calendar-check"></i>
                 </div>
                 <div class="flex-grow-1">
-                    <h5 class="mb-1">Standard Collection Period</h5>
-                    <p class="mb-0 text-muted">No grace period is currently active for @_selectedYear.</p>
+                    <h6 class="mb-0 fw-semibold">Standard Collection Period</h6>
+                    <p class="mb-0 text-muted small">No grace period is currently active for @_selectedYear.</p>
                 </div>
             </div>
         </div>
@@ -112,14 +114,14 @@
 
     @if (_pendingSyncCount > 0)
     {
-        <div class="status-banner status-banner-info mb-4">
+        <div class="status-banner status-banner-compact status-banner-info mb-3">
             <div class="d-flex align-items-center">
-                <div class="banner-icon">
+                <div class="banner-icon-compact">
                     <i class="bi bi-arrow-repeat spin-slow"></i>
                 </div>
                 <div class="flex-grow-1">
-                    <h5 class="mb-1">Controller Sync Pending</h5>
-                    <p class="mb-0">@_pendingSyncCount cards waiting to sync. Last success: @(_lastSyncTime?.ToString("h:mm tt") ?? "Unknown")</p>
+                    <h6 class="mb-0 fw-semibold">Controller Sync Pending</h6>
+                    <p class="mb-0 small">@_pendingSyncCount cards waiting to sync. Last success: @(_lastSyncTime?.ToString("h:mm tt") ?? "Unknown")</p>
                 </div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-sm btn-light text-info fw-bold" @onclick="ViewSyncQueue">View Queue</button>
@@ -130,14 +132,14 @@
     }
     else
     {
-         <div class="status-banner status-banner-success-subtle mb-4">
+         <div class="status-banner status-banner-compact status-banner-success-subtle mb-3">
             <div class="d-flex align-items-center">
-                <div class="banner-icon">
+                <div class="banner-icon-compact">
                     <i class="bi bi-check-circle-fill"></i>
                 </div>
                 <div class="flex-grow-1">
-                    <h5 class="mb-1">System Synchronized</h5>
-                    <p class="mb-0">All key cards are synced with the controller.</p>
+                    <h6 class="mb-0 fw-semibold">System Synchronized</h6>
+                    <p class="mb-0 small">All key cards are synced with the controller.</p>
                 </div>
                 <button class="btn btn-sm btn-outline-success" @onclick="ViewSyncQueue">Details</button>
             </div>
@@ -226,7 +228,7 @@
 
         <!-- Member List -->
         <div class="card shadow-sm border-0 overflow-hidden">
-            <div class="table-responsive">
+            <div class="table-responsive table-container-fixed">
                 <table class="table table-hover align-middle mb-0">
                     <thead class="bg-light">
                         <tr>
@@ -361,6 +363,12 @@
                                                     <span class="d-none d-lg-inline ms-1">Auto-Waived</span>
                                                 </button>
                                             }
+                                            else if (item.MonthsOverdue >= 15 && CanSetInactive(item))
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmAndSetInactiveAsync(item)">
+                                                    Deactivate
+                                                </button>
+                                            }
                                             else if (item.Status == MemberStatus.Regular || item.Status == MemberStatus.RegularNonPortuguese || item.Status == MemberStatus.Guest)
                                             {
                                                 <button class="btn btn-sm @(item.IsWaived ? "btn-outline-info" : "btn-info text-white")" 
@@ -368,12 +376,6 @@
                                                         title="@(item.IsWaived ? "Manage Waiver" : "Apply Waiver")">
                                                     <i class="bi @(item.IsWaived ? "bi-shield-check" : "bi-shield-plus")"></i>
                                                     <span class="d-none d-lg-inline ms-1">@(item.IsWaived ? "Waiver" : "Waive")</span>
-                                                </button>
-                                            }
-                                            else if (item.MonthsOverdue >= 15 && CanSetInactive(item))
-                                            {
-                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmAndSetInactiveAsync(item)">
-                                                    Deactivate
                                                 </button>
                                             }
                                             else if (IsPaid(item))
@@ -1423,6 +1425,56 @@
         justify-content: center;
         margin-right: 1rem;
         font-size: 1.25rem;
+    }
+
+    /* Compact Banner Styles */
+    .status-banner-compact {
+        padding: 0.625rem 1rem;
+        border-radius: 8px;
+    }
+
+    .banner-icon-compact {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 0.75rem;
+        font-size: 1rem;
+    }
+
+    /* Fixed Height Table Container */
+    .table-container-fixed {
+        max-height: calc(100vh - 480px);
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .table-container-fixed::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .table-container-fixed::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+
+    .table-container-fixed::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+    }
+
+    .table-container-fixed::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+
+    .table-container-fixed thead {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #f8f9fa;
     }
 
     .avatar-circle {
