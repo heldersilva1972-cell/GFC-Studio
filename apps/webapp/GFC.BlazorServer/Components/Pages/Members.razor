@@ -169,14 +169,18 @@ else
                                     <div class="d-flex align-items-center">
                                         <div>
                                             <div class="fw-semibold">@member.FullName</div>
-                                            @if (!string.IsNullOrWhiteSpace(member.Email))
+                                            @if (!string.IsNullOrWhiteSpace(member.Email) && member.Status != MemberStatus.Deceased)
                                             {
                                                 <small class="text-muted">@member.Email</small>
+                                            }
+                                            @if (member.Status == MemberStatus.Deceased && member.DateOfDeath.HasValue)
+                                            {
+                                                <small class="text-danger">Deceased: @member.DateOfDeath.Value.ToString("MMM d, yyyy")</small>
                                             }
                                         </div>
                                     </div>
                                 </td>
-                                <td>@(member.City ?? "—")</td>
+                                <td>@(member.Status == MemberStatus.Deceased ? "—" : (member.City ?? "—"))</td>
                                 <td>
                                     <span class="badge @GetStatusBadgeClass(member.Status)">
                                         @GetStatusLabel(member.Status)
@@ -855,7 +859,7 @@ else
                     var eligibility = CardService.GetEligibilityBulk(detail, year, settings, currentPaid, prevPaid);
 
                     string duesStatus = "Paid";
-                    if (status == MemberStatus.Inactive)
+                    if (status == MemberStatus.Inactive || status == MemberStatus.Deceased || status == MemberStatus.Rejected)
                     {
                         duesStatus = "None";
                     }
@@ -867,13 +871,13 @@ else
                     {
                         duesStatus = "Paid"; // Board members have paid status by privilege
                     }
-                    else if (!eligibility.Eligible && !eligibility.GracePeriodActive)
-                    {
-                        duesStatus = "Past Due";
-                    }
-                    else if (eligibility.GracePeriodActive && !eligibility.CurrentYearSatisfied)
+                    else if (eligibility.GracePeriodActive && !eligibility.CurrentYearSatisfied && eligibility.PreviousYearSatisfied)
                     {
                         duesStatus = "In Grace Period";
+                    }
+                    else if (!eligibility.Eligible)
+                    {
+                        duesStatus = "Past Due";
                     }
 
                     // Enrich with card details
@@ -910,7 +914,8 @@ else
                         IsBoardMember = isBoard,
                         NormalizedStatus = normalized,
                         CardNumber = cardNumber,
-                        CardIsActive = cardActive
+                        CardIsActive = cardActive,
+                        DateOfDeath = detail?.DateOfDeath
                     };
                 })
                 .Where(m => m != null)

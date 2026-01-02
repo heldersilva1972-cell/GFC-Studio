@@ -185,6 +185,13 @@ else if (_member is not null)
                             <div class="info-value">@FormatDate(GetLifeSince())</div>
                         </div>
                     }
+                    @if (_member?.DateOfDeath.HasValue == true)
+                    {
+                        <div class="col">
+                            <div class="info-label">Date of Death</div>
+                            <div class="info-value text-danger fw-bold">@FormatDate(_member.DateOfDeath)</div>
+                        </div>
+                    }
                 </div>
             </section>
 
@@ -253,7 +260,7 @@ else if (_member is not null)
                     var hasContact = hasPhone || hasSecondary || hasEmail || hasAddress;
                 }
 
-                @if (hasContact)
+                @if (hasContact && !IsDeceased())
                 {
                     <div class="row g-3 row-cols-1 row-cols-md-2">
                         @if (hasPhone)
@@ -299,6 +306,12 @@ else if (_member is not null)
                                 </div>
                             </div>
                         }
+                    </div>
+                }
+                else if (IsDeceased())
+                {
+                    <div class="alert alert-light border mb-0 text-muted small">
+                        <i class="bi bi-info-circle me-1"></i> Contact information is hidden for deceased members.
                     </div>
                 }
                 else
@@ -793,8 +806,15 @@ else if (_member is not null)
             yield return new StatusPill("NP Queue", GetChipColor("NP Queue"), false);
         }
 
-        var dues = GetDuesStatus();
-        yield return new StatusPill(dues, GetChipColor(dues), !dues.Equals("Waived", StringComparison.OrdinalIgnoreCase));
+        if (IsDeceased())
+        {
+            yield return new StatusPill("Deceased", GetChipColor("Inactive"), true);
+        }
+        else
+        {
+            var dues = GetDuesStatus();
+            yield return new StatusPill(dues, GetChipColor(dues), !dues.Equals("Waived", StringComparison.OrdinalIgnoreCase));
+        }
 
         if (_isBoardMember)
         {
@@ -813,8 +833,22 @@ else if (_member is not null)
 
     private string GetDuesStatus()
     {
-        var status = KeyCardService.GetDuesState(_currentYearDues?.PaymentType, _currentYearDues?.PaidDate);
-        return status.Equals("Unpaid", StringComparison.OrdinalIgnoreCase) ? "Past Due" : status;
+        if (_member is null) return "Loading";
+        
+        var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
+        if (normalized == "INACTIVE" || normalized == "DECEASED" || normalized == "REJECTED")
+            return "None";
+
+        if (IsLifeMember()) return "Life";
+        if (IsDirector()) return "Paid";
+        
+        var year = DateTime.Today.Year;
+        var eligibility = KeyCardService.GetKeyCardEligibility(_member.MemberID, year);
+        
+        if (eligibility.CurrentYearSatisfied) return "Paid";
+        if (eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied) return "In Grace Period";
+        
+        return "Past Due";
     }
 
     private bool IsPastDueDues()
@@ -930,7 +964,8 @@ else if (_member is not null)
             "REGULAR" or "REGULAR-NP" => "Regular",
             "GUEST" => "Guest",
             "LIFE" => "Life",
-            "INACTIVE" or "DECEASED" => "Inactive",
+            "DECEASED" => "Deceased",
+            "INACTIVE" => "Inactive",
             _ => "Unknown"
         };
     }
@@ -1016,7 +1051,13 @@ else if (_member is not null)
 
     private bool ShowKeyCardSection() => !IsGuestMember();
 
-    private bool AllowActiveActions() => !IsInactiveMember() && !IsGuestMember();
+    private bool AllowActiveActions() => !IsInactiveMember() && !IsGuestMember() && !IsDeceased();
+
+    private bool IsDeceased()
+    {
+        var normalized = MemberStatusHelper.NormalizeStatus(_member?.Status);
+        return string.Equals(normalized, "DECEASED", StringComparison.OrdinalIgnoreCase);
+    }
 
     private sealed record StatusPill(string Label, string Color, bool Solid);
 }
