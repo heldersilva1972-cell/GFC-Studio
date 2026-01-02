@@ -12,21 +12,18 @@
 @inject IMemberRepository MemberRepository
 @inject ILogger<Members> Logger
 @inject NavigationManager NavManager
+@inject IKeyCardRepository KeyCardRepository
 @implements IDisposable
 
-<div class="page-header align-items-center flex-wrap gap-3">
+<div class="page-header align-items-center mb-4">
     <div>
-        <h1 class="page-title mb-0">Members</h1>
-    </div>
-    <div class="ms-auto">
-        <button class="btn-modern btn-primary-modern" 
-                type="button" 
-                @onclick="NavigateToAdd">
-            <i class="bi bi-person-plus-fill me-2"></i>
-            Add Member
-        </button>
+        <h1 class="page-title-modern mb-0">Members</h1>
+        <p class="text-muted small mb-0">Manage the club's membership database and card access</p>
     </div>
 </div>
+
+<div class="row g-4">
+    <div class="col-lg-9">
 
 <div class="data-card mb-4">
     <div class="row g-3 align-items-end">
@@ -154,8 +151,8 @@ else
                             <th>Dues</th>
                             <th>Type</th>
                             <th style="width: 120px;">Member Since</th>
-                            <th style="width: 100px;">Key Cards</th>
-                            <th style="width: 120px;" class="text-end">Actions</th>
+                            <th style="width: 140px;">Card Number</th>
+                            <th style="width: 100px;" class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -208,13 +205,19 @@ else
                                     }
                                 </td>
                                 <td class="text-center">
-                                    @if (member.KeyCardCount > 0)
+                                    @if (!string.IsNullOrEmpty(member.CardNumber))
                                     {
-                                        <span class="badge bg-success">@member.KeyCardCount</span>
+                                        <div class="d-flex flex-column align-items-center">
+                                            <code class="fw-bold text-dark" style="font-size: 0.85rem;">@member.CardNumber</code>
+                                            <span class="badge @(member.CardIsActive == true ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger")" 
+                                                  style="font-size: 0.65rem; padding: 2px 6px;">
+                                                @(member.CardIsActive == true ? "ACTIVE" : "INACTIVE")
+                                            </span>
+                                        </div>
                                     }
                                     else
                                     {
-                                        <span class="text-muted">0</span>
+                                        <span class="text-muted small">No card assigned</span>
                                     }
                                 </td>
                                 <td class="text-end">
@@ -241,6 +244,42 @@ else
         </div>
     }
 }
+</div>
+
+    <!-- Sidebar / Quick Actions Column -->
+    <div class="col-lg-3">
+        <div class="action-tile-modern scale-in mb-4">
+            <div class="action-tile-content">
+                <div class="action-icon-wrapper pulse-slow">
+                    <i class="bi bi-person-plus-fill"></i>
+                </div>
+                <h3>Membership Actions</h3>
+                <p>Register a new member into the system</p>
+                <button class="btn btn-primary btn-action-modern w-100 mt-2" @onclick="NavigateToAdd">
+                    <i class="bi bi-plus-lg me-2"></i>
+                    Add New Member
+                </button>
+            </div>
+        </div>
+
+        <!-- System Stats / Info (Optional context) -->
+        <div class="data-card p-4">
+            <h6 class="fw-800 text-uppercase small text-muted mb-3" style="letter-spacing: 0.5px;">Quick Stats</h6>
+            <div class="d-flex justify-content-between mb-2">
+                <span class="text-muted small">Total Members</span>
+                <span class="fw-bold">@_allMembers.Count</span>
+            </div>
+            <div class="d-flex justify-content-between mb-2">
+                <span class="text-muted small">Active Members</span>
+                <span class="fw-bold text-success">@_allMembers.Count(m => m.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese or MemberStatus.Life)</span>
+            </div>
+            <div class="d-flex justify-content-between">
+                <span class="text-muted small">With Cards</span>
+                <span class="fw-bold text-primary">@_allMembers.Count(m => !string.IsNullOrEmpty(m.CardNumber))</span>
+            </div>
+        </div>
+    </div>
+</div>
 
 <style>
     .bulk-actions-bar {
@@ -773,11 +812,23 @@ else
         {
             var listTask = MemberQueryService.GetMembersAsync(new MemberFilterOptions());
             var detailsTask = Task.Run(() => MemberRepository.GetAllMembers());
+            var cardsTask = Task.Run(() => KeyCardRepository.GetAll());
 
-            await Task.WhenAll(listTask, detailsTask);
+            await Task.WhenAll(listTask, detailsTask, cardsTask);
 
             var list = listTask.Result;
             var detailsLookup = detailsTask.Result.ToDictionary(m => m.MemberID);
+            var allCards = cardsTask.Result;
+
+            var activeCardByMember = allCards
+                .Where(c => c.IsActive)
+                .GroupBy(c => c.MemberId)
+                .ToDictionary(g => g.Key, g => g.First());
+            
+            // Secondary lookup for inactive cards if no active one exists
+            var anyCardByMember = allCards
+                .GroupBy(c => c.MemberId)
+                .ToDictionary(g => g.Key, g => g.First());
 
             _allMembers = list
                 .Select(item =>
@@ -787,10 +838,25 @@ else
                     var normalized = MemberStatusHelper.NormalizeStatus(detail?.Status ?? status.ToString());
                     var duesStatus = status switch
                     {
-            MemberStatus.Life => "Life",
+                        MemberStatus.Life => "Life",
                         MemberStatus.Inactive => "Past Due",
                         _ => "Paid"
                     };
+
+                    // Enrich with card details
+                    string? cardNumber = null;
+                    bool? cardActive = null;
+
+                    if (activeCardByMember.TryGetValue(item.MemberId, out var activeCard))
+                    {
+                        cardNumber = activeCard.CardNumber;
+                        cardActive = true;
+                    }
+                    else if (anyCardByMember.TryGetValue(item.MemberId, out var anyCard))
+                    {
+                        cardNumber = anyCard.CardNumber;
+                        cardActive = anyCard.IsActive;
+                    }
 
                     return new MemberCardModel
                     {
@@ -805,10 +871,12 @@ else
                         MemberSince = item.MemberSince,
                         RegularSince = item.RegularSince,
                         IsNonPortuguese = item.IsNonPortuguese,
-                        HasKeyCard = item.HasKeyCard,
+                        HasKeyCard = !string.IsNullOrEmpty(cardNumber),
                         InactiveDate = item.InactiveDate,
                         DuesStatus = duesStatus,
-                        NormalizedStatus = normalized
+                        NormalizedStatus = normalized,
+                        CardNumber = cardNumber,
+                        CardIsActive = cardActive
                     };
                 })
                 .ToList();
@@ -1064,6 +1132,7 @@ else
         public bool HasKeyCard { get; set; }
         public DateTime? InactiveDate { get; set; }
         public string DuesStatus { get; set; } = "Paid";
-        public int KeyCardCount => HasKeyCard ? 1 : 0;
+        public string? CardNumber { get; set; }
+        public bool? CardIsActive { get; set; }
     }
 }
