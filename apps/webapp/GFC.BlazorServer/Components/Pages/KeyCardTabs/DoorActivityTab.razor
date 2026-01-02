@@ -4,6 +4,7 @@
 @using GFC.Core.Interfaces
 @using GFC.BlazorServer.Services.Controllers
 @using GFC.BlazorServer.Models
+@using GFC.Core.Models
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<GfcDbContext> DbContextFactory
 @inject IKeyCardRepository KeyCardRepository
@@ -661,11 +662,21 @@
             // Just use the existing repository call but acknowledge it might be slightly stale for *new members*, 
             // but events are the main thing being refreshed.
             
-            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
-            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            // FETCH FRESH DATA: Use the local context to get cards and members.
+            // This avoids "Stale Scope" issues where the injected Repository doesn't see updates made by other components.
+            var allCards = await context.KeyCards.AsNoTracking().ToListAsync(); 
+            
+            // For members, we need to join slightly more carefully or just fetch widely. 
+            // Since we need names, fetching the member table is acceptable for this view size.
+            // Note: Member entity name might vary based on project structure, checking imports.
+            // Converting to simple DTOs to avoid tracking overhead
+            var allMembers = await context.Set<Member>()
+                .Select(m => new { m.MemberID, m.FirstName, m.LastName })
+                .ToListAsync();
 
             // Optimization: Use Dictionaries for O(1) lookups instead of O(N) FirstOrDefault in a loop
             var cardsByNumber = allCards
+                .Where(c => !string.IsNullOrEmpty(c.CardNumber))
                 .GroupBy(c => c.CardNumber.TrimStart('0'))
                 .ToDictionary(g => g.Key, g => g.First());
             

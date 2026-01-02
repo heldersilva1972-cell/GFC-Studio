@@ -65,6 +65,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.VpnSession> VpnSessions => Set<GFC.Core.Models.VpnSession>();
     public DbSet<GFC.Core.Models.SecurityAlert> SecurityAlerts => Set<GFC.Core.Models.SecurityAlert>();
     public DbSet<AuthorizedUser> AuthorizedUsers => Set<AuthorizedUser>();
+    public DbSet<GFC.Core.Models.KeyCard> KeyCards => Set<GFC.Core.Models.KeyCard>();
     // public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>(); // Commented due to CS0102 duplicate error - duplicate location unknown
 
     // GFC Ecosystem Foundation
@@ -478,6 +479,14 @@ public class GfcDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GFC.Core.Models.KeyCard>(entity =>
+        {
+            entity.ToTable("KeyCards");
+            entity.HasKey(e => e.KeyCardId);
+            entity.HasIndex(e => e.CardNumber);
+            entity.HasIndex(e => e.MemberId);
         });
 
         // GFC Ecosystem Foundation / Studio V2
