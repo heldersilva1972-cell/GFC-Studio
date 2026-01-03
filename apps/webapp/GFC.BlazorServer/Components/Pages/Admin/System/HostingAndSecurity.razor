@@ -1,0 +1,209 @@
+@page "/admin/system/hosting-security"
+@using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@using global::System.Security.Claims
+
+@inject ISystemSettingsService SystemSettingsService
+@inject IAuditLogRepository AuditLogRepository
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JSRuntime
+
+<h3 class="mb-4">Hosting & Security Framework</h3>
+
+<div class="card">
+    <div class="card-header">
+        <ul class="nav nav-tabs card-header-tabs">
+            <li class="nav-item">
+                <button class="nav-link @(_activeTab == "environment" ? "active" : "")" @onclick="@(() => _activeTab = "environment")">Environment</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(_activeTab == "accessControl" ? "active" : "")" @onclick="@(() => _activeTab = "accessControl")">Access Control</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(_activeTab == "auditLogs" ? "active" : "")" @onclick="@(() => _activeTab = "auditLogs")">Audit Logs</button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        @if (_settings == null)
+        {
+            <p><em>Loading...</em></p>
+        }
+        else
+        {
+            <div class="tab-content">
+                @if (_activeTab == "environment")
+                {
+                    <div class="tab-pane fade show active">
+                        <h4>Effective Configuration (Read-Only)</h4>
+                        <table class="table table-bordered">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Hosting Environment</th>
+                                    <td>@_settings.HostingEnvironment</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Public IP Address</th>
+                                    <td>@_publicIpAddress</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Bound Port</th>
+                                    <td>@_boundPort</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">SSL Status</th>
+                                    <td>@_sslStatus</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                @if (_activeTab == "accessControl")
+                {
+                    <div class="tab-pane fade show active">
+                        <h4>Access Control Settings</h4>
+                        <EditForm Model="@_settings" OnValidSubmit="SaveChanges">
+                            <DataAnnotationsValidator />
+                            <div class="mb-3">
+                                <label for="hostingEnvironment" class="form-label">Hosting Environment</label>
+                                <InputSelect id="hostingEnvironment" class="form-select" @bind-Value="_settings.HostingEnvironment">
+                                    <option value="Dev">Development</option>
+                                    <option value="Staging">Staging</option>
+                                    <option value="Prod">Production</option>
+                                </InputSelect>
+                            </div>
+                            <div class="mb-3">
+                                <label for="deviceTrustDuration" class="form-label">Device Trust Duration (Days)</label>
+                                <InputNumber id="deviceTrustDuration" class="form-control" @bind-Value="_settings.DeviceTrustDurationDays" />
+                            </div>
+                            <div class="form-check form-switch mb-3">
+                                <InputCheckbox id="magicLinkEnabled" class="form-check-input" @bind-Value="_settings.MagicLinkEnabled" />
+                                <label class="form-check-label" for="magicLinkEnabled">Enable Magic Links</label>
+                            </div>
+                            <div class="form-check form-switch mb-3">
+                                <InputCheckbox id="enforceVpn" class="form-check-input" @bind-Value="_settings.EnforceVpn" />
+                                <label class="form-check-label" for="enforceVpn">Enforce VPN for Remote Access</label>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                        </EditForm>
+                    </div>
+                }
+                @if (_activeTab == "auditLogs")
+                {
+                    <div class="tab-pane fade show active">
+                        <h4>Audit Logs</h4>
+                        @if (_auditLogs == null)
+                        {
+                            <p><em>Loading audit logs...</em></p>
+                        }
+                        else
+                        {
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>User</th>
+                                        <th>Action</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var log in _auditLogs)
+                                    {
+                                        <tr>
+                                            <td>@log.TimestampUtc</td>
+                                            <td>@log.PerformedByDisplayName</td>
+                                            <td>@log.Action</td>
+                                            <td>@log.Details</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _activeTab = "environment";
+    private SystemSettings _settings;
+    private List<AuditLogRecord> _auditLogs;
+    private string _publicIpAddress = "N/A";
+    private string _boundPort = "N/A";
+    private string _sslStatus = "N/A";
+    private global::System.Security.Claims.ClaimsPrincipal _user;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        _user = authState.User;
+        await LoadSettings();
+        await LoadAuditLogs();
+        LoadEffectiveConfiguration();
+    }
+
+    private async Task LoadSettings()
+    {
+        _settings = await SystemSettingsService.GetAsync();
+    }
+
+    private async Task LoadAuditLogs()
+    {
+        var result = await AuditLogRepository.GetAuditLogsAsync("SystemSettings", null, null, null, 1, 100);
+        _auditLogs = result.Items.ToList();
+    }
+
+    private void LoadEffectiveConfiguration()
+    {
+        // Placeholder for effective configuration
+        _publicIpAddress = "127.0.0.1";
+        _boundPort = "5207";
+        _sslStatus = "Active";
+    }
+
+    private async Task SaveChanges()
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Please confirm that you have re-authenticated recently to save these changes.");
+        if (confirmed)
+        {
+            var originalSettings = await SystemSettingsService.GetAsync();
+
+            await AuditChange("Hosting Environment", originalSettings.HostingEnvironment, _settings.HostingEnvironment);
+            await AuditChange("Device Trust Duration", originalSettings.DeviceTrustDurationDays.ToString(), _settings.DeviceTrustDurationDays.ToString());
+            await AuditChange("Magic Link Enabled", originalSettings.MagicLinkEnabled.ToString(), _settings.MagicLinkEnabled.ToString());
+            await AuditChange("Enforce VPN", originalSettings.EnforceVpn.ToString(), _settings.EnforceVpn.ToString());
+
+            await SystemSettingsService.UpdateAsync(_settings);
+            await LoadAuditLogs();
+        }
+    }
+
+    private async Task AuditChange(string fieldName, string oldValue, string newValue)
+    {
+        if (oldValue != newValue)
+        {
+            AuditLogRepository.Insert(new AuditLogEntry
+            {
+                PerformedByUserId = GetCurrentUserId(),
+                TimestampUtc = DateTime.UtcNow,
+                Action = "SystemSettingsUpdate",
+                Details = $"{fieldName} changed from '{oldValue}' to '{newValue}'"
+            });
+        }
+    }
+
+    private int GetCurrentUserId()
+    {
+        var userIdClaim = _user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            return userId;
+        }
+        return 0; // Or handle appropriately
+    }
+}

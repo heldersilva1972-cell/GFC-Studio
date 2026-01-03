@@ -1377,6 +1377,20 @@ namespace GFC.BlazorServer.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("DeviceTrustDurationDays")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("EnforceVpn")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("HostingEnvironment")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("MagicLinkEnabled")
+                        .HasColumnType("bit");
+
                     b.HasKey("Id");
 
                     b.ToTable("SystemSettings", (string)null);

@@ -84,4 +84,15 @@ public class SystemSettings
 
     // Cloudflare & WireGuard Remote Access Settings (Phase 1)
     public string? LanSubnet { get; set; } = "192.168.1.0/24";
+
+    // Hosting & Security Framework (Phase 2)
+    [StringLength(20)]
+    public string HostingEnvironment { get; set; } = "Dev"; // Dev, Staging, Prod
+
+    [Range(1, 365)]
+    public int DeviceTrustDurationDays { get; set; } = 30;
+
+    public bool MagicLinkEnabled { get; set; } = true;
+
+    public bool EnforceVpn { get; set; } = false;
 }

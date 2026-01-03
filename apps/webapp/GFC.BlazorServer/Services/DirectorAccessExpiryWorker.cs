@@ -60,7 +60,7 @@ public class DirectorAccessExpiryWorker : BackgroundService
 
                             // Optional: Nullify the expiry date to prevent re-running this logic unnecessarily
                             settings.DirectorAccessExpiryDate = null;
-                            await systemSettingsService.UpdateSecuritySettingsAsync(settings);
+                            await systemSettingsService.UpdateAsync(settings);
                         }
                     }
                 }
