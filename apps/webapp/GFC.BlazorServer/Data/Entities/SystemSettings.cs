@@ -107,4 +107,5 @@ public class SystemSettings
     public DateTime? LastSuccessfulBackupUtc { get; set; }
     public DateTime? LastRestoreTestUtc { get; set; }
     public int BackupFrequencyHours { get; set; } = 24;
+    
 }

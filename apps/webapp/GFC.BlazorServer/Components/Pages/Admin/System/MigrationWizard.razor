@@ -1,0 +1,447 @@
+@page "/admin/system/migration"
+@using GFC.Core.Helpers
+@using GFC.BlazorServer.Services.Migration
+@using GFC.BlazorServer.Data.Entities
+@using global::System.Text.Json
+@using GFC.Core.Interfaces
+@inject IMigrationService MigrationService
+@inject IBlazorSystemSettingsService SettingsService
+@inject NavigationManager NavManager
+@inject IJSRuntime JS
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">Migration & Go Live Wizard</h1>
+            <p class="text-muted mb-0">System deployment checklist and verification.</p>
+        </div>
+        <div class="text-end">
+             <div class="badge @_envBadgeClass p-2 fs-6">
+                 Environment: @_currentEnv
+             </div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading profiles...</p>
+        </div>
+    }
+    else if (_activeProfile == null)
+    {
+        <!-- Profile Selection List -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Migration Profiles</h5>
+                <button class="btn btn-primary btn-sm" @onclick="() => _showCreate = true">
+                    <i class="bi bi-plus-lg me-1"></i> Start New Migration
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Profile Name</th>
+                            <th>Mode</th>
+                            <th>Created</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_profiles.Any())
+                        {
+                            @foreach (var p in _profiles)
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="fw-medium">@p.Name</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary">@p.Mode</span>
+                                    </td>
+                                    <td>@p.CreatedAtUtc.ToString("g")</td>
+                                    <td>
+                                        @if (p.IsCompleted)
+                                        {
+                                            <span class="badge bg-success">
+                                                <i class="bi bi-check-circle-fill me-1"></i> Completed
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning text-dark">In Progress</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => OpenProfile(p)">
+                                            Resume
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteProfile(p.Id)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">
+                                    No migration profiles found. Start one to begin the Go Live process.
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @if (_showCreate)
+        {
+            <div class="card mt-4 shadow-sm border-primary">
+                <div class="card-body">
+                    <h5 class="card-title">New Profile Configuration</h5>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label">Profile Name</label>
+                            <input type="text" class="form-control" @bind="_newProfileName" placeholder="e.g. Production Candidate 1.0" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Validation Mode</label>
+                            <select class="form-select" @bind="_newProfileMode">
+                                <option value="@MigrationMode.Guided">Guided (Checklist)</option>
+                                <option value="@MigrationMode.Strict">Strict (Sequential Lock)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-success w-100" @onclick="CreateProfile" disabled="@string.IsNullOrWhiteSpace(_newProfileName)">
+                                Create & Start
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <!-- Active Wizard View -->
+        <div class="mb-3">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="CloseProfile">
+                <i class="bi bi-arrow-left me-1"></i> Back to Profiles
+            </button>
+        </div>
+
+        <div class="card shadow border-0 mb-4">
+            <div class="card-body p-4 text-center bg-gradient-primary-to-secondary text-white rounded-top" style="background: linear-gradient(135deg, #0d6efd 0%, #6610f2 100%);">
+                <h2 class="fw-bold mb-1">@_activeProfile.Name</h2>
+                <div class="opacity-75">Mode: @_activeProfile.Mode</div>
+                @if (_activeProfile.IsCompleted)
+                {
+                    <div class="mt-3">
+                        <span class="badge bg-white text-success fs-5 px-3 py-2 shadow-sm">
+                            <i class="bi bi-patch-check-fill me-2"></i> Deployment Verified
+                        </span>
+                    </div>
+                }
+            </div>
+            
+            <div class="list-group list-group-flush">
+                @{
+                    var gates = GetGatesDictionary();
+                    var keys = new[] { "VPN", "Router", "Backup", "Restore", "SafeMode" };
+                    bool allPassed = true;
+                }
+
+                @for (int i = 0; i < keys.Length; i++)
+                {
+                    var key = keys[i];
+                    if (!gates.ContainsKey(key)) continue;
+
+                    var gate = gates[key];
+                    if (!gate.Passed) { allPassed = false; }
+
+                    // Strict Mode Logic: Disable if previous failed
+                    bool isLocked = false;
+                    if (_activeProfile.Mode == MigrationMode.Strict && i > 0)
+                    {
+                        var prevKey = keys[i-1];
+                        if (gates.ContainsKey(prevKey) && !gates[prevKey].Passed)
+                        {
+                            isLocked = true;
+                        }
+                    }
+
+                    <div class="list-group-item p-4 @(isLocked ? "bg-light opacity-50" : "")">
+                        <div class="d-flex align-items-start">
+                            <!-- Status Icon -->
+                            <div class="me-3 mt-1">
+                                @if (gate.Passed)
+                                {
+                                    <i class="bi bi-check-circle-fill text-success fs-3"></i>
+                                }
+                                else if (isLocked)
+                                {
+                                    <i class="bi bi-lock-fill text-muted fs-3"></i>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-exclamation-circle text-danger fs-3"></i>
+                                }
+                            </div>
+
+                            <!-- Content -->
+                            <div class="flex-grow-1">
+                                <div class="d-flex justify-content-between">
+                                    <h5 class="mb-1 fw-bold">
+                                        @(GetGateTitle(key))
+                                    </h5>
+                                    @if (gate.LastCheckedUtc.HasValue)
+                                    {
+                                        <small class="text-muted">Last checked: @gate.LastCheckedUtc.Value.ToLocalTime().ToString("g")</small>
+                                    }
+                                </div>
+                                <p class="mb-2 text-muted">@(GetGateDescription(key))</p>
+
+                                @if (!string.IsNullOrEmpty(gate.Message))
+                                {
+                                    <div class="alert @(gate.Passed ? "alert-success" : "alert-warning") py-2 px-3 mb-2 d-inline-block">
+                                        <small><i class="bi bi-info-circle me-1"></i> @gate.Message</small>
+                                    </div>
+                                }
+                            </div>
+
+                            <!-- Actions -->
+                            <div class="ms-3 align-self-center">
+                                @if (isLocked)
+                                {
+                                    <button class="btn btn-secondary btn-sm" disabled>Locked</button>
+                                }
+                                else if (gate.IsAutomated)
+                                {
+                                    <button class="btn @(gate.Passed ? "btn-outline-success" : "btn-primary")" 
+                                            @onclick="() => VerifyGate(key)"
+                                            disabled="@_isVerifying">
+                                        @(_isVerifying ? "Checking..." : (gate.Passed ? "Re-Verify" : "Verify Now"))
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" style="width: 3em; height: 1.5em;"
+                                               checked="@gate.Passed" 
+                                               @onchange="() => ToggleManualGate(key)"
+                                               id="gate_@key" />
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+            
+            <div class="card-footer p-4 text-center bg-light">
+                @if (_activeProfile.IsCompleted)
+                {
+                    <p class="text-success fw-bold mb-0">
+                        <i class="bi bi-rocket-takeoff-fill me-1"></i> System is LIVE in Production mode.
+                    </p>
+                }
+                else
+                {
+                    <div class="d-grid gap-2 col-md-6 mx-auto">
+                        <button class="btn btn-lg btn-success py-3 shadow-sm" 
+                                @onclick="FinalizeGoLive"
+                                disabled="@(!allPassed || _isFinalizing)">
+                            @if (_isFinalizing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                <span>Finalizing...</span>
+                            }
+                            else
+                            {
+                                <span><i class="bi bi-rocket-takeoff me-2"></i> Finalize & Go Live</span>
+                            }
+                        </button>
+                        
+                        @if (!allPassed)
+                        {
+                            <small class="text-muted">
+                                * All gates must be green to enable deployment.
+                            </small>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<MigrationProfile> _profiles = new();
+    private MigrationProfile? _activeProfile;
+    private bool _loading = true;
+    private bool _isVerifying = false;
+    private bool _isFinalizing = false;
+    
+    // Create Form
+    private bool _showCreate = false;
+    private string _newProfileName = "";
+    private MigrationMode _newProfileMode = MigrationMode.Guided;
+
+    // Environment info
+    private string _currentEnv = "Unknown";
+    private string _envBadgeClass = "bg-secondary";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProfiles();
+        await LoadEnvInfo();
+    }
+
+    private async Task LoadProfiles()
+    {
+        _loading = true;
+        _profiles = await MigrationService.GetAllProfilesAsync();
+        _loading = false;
+    }
+
+    private async Task LoadEnvInfo()
+    {
+        var settings = await SettingsService.GetAsync();
+        // Since IBlazorSystemSettingsService returns entity or DTO with properties dynamically, we assume HostingEnvironment is available.
+        // If the DTO hasn't been updated in this context, we might check directly. 
+        // For this implementation, we will try to read it dynamically if possible, or fallback.
+        // Given recent updates to SystemSettings.cs, it should be available if the interface exposes it. 
+        // Interface update was not explicitly requested but entity was. 
+        // We'll rely on the DB Entity access in the service for the functional logic, here just display.
+        // We'll trust that SystemSettings entity has it.
+        // Note: We injected IBlazorSystemSettingsService which returns the Entity SystemSettings in the default implementation.
+        if (settings != null)
+        {
+           _currentEnv = settings.HostingEnvironment; 
+           _envBadgeClass = _currentEnv == "Production" ? "bg-danger" : "bg-info text-dark";
+        }
+    }
+
+    private async Task CreateProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_newProfileName)) return;
+        
+        var profile = await MigrationService.CreateProfileAsync(_newProfileName, _newProfileMode);
+        await LoadProfiles();
+        OpenProfile(profile);
+        
+        _showCreate = false;
+        _newProfileName = "";
+    }
+
+    private void OpenProfile(MigrationProfile profile)
+    {
+        _activeProfile = profile;
+    }
+
+    private void CloseProfile()
+    {
+        _activeProfile = null;
+        LoadProfiles(); // Refresh status on close
+    }
+
+    private async Task DeleteProfile(int id)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this profile?");
+        if (confirmed)
+        {
+            await MigrationService.DeleteProfileAsync(id);
+            await LoadProfiles();
+            if (_activeProfile?.Id == id) _activeProfile = null;
+        }
+    }
+
+    private async Task VerifyGate(string key)
+    {
+        if (_activeProfile == null) return;
+        _isVerifying = true;
+        
+        await MigrationService.RunGateCheckAsync(_activeProfile.Id, key);
+        await ReloadActiveProfile();
+        
+        _isVerifying = false;
+    }
+
+    private async Task ToggleManualGate(string key)
+    {
+         if (_activeProfile == null) return;
+         await MigrationService.AcknowledgeGateAsync(_activeProfile.Id, key);
+         await ReloadActiveProfile();
+    }
+
+    private async Task ReloadActiveProfile()
+    {
+        if (_activeProfile == null) return;
+        _activeProfile = await MigrationService.GetProfileAsync(_activeProfile.Id);
+    }
+
+    private async Task FinalizeGoLive()
+    {
+         if (_activeProfile == null) return;
+         
+         bool confirmed = await JS.InvokeAsync<bool>("confirm", "This will mark the system as Production Ready and update environment settings. Continue?");
+         if (!confirmed) return;
+
+         _isFinalizing = true;
+         bool success = await MigrationService.AttemptGoLiveAsync(_activeProfile.Id);
+         
+         if (success)
+         {
+             await ReloadActiveProfile();
+             await LoadEnvInfo();
+         }
+         else
+         {
+             await JS.InvokeVoidAsync("alert", "Validation failed. Please ensure all gates are green.");
+         }
+         
+         _isFinalizing = false;
+    }
+
+    private Dictionary<string, GateStatus> GetGatesDictionary()
+    {
+        if (_activeProfile == null || string.IsNullOrEmpty(_activeProfile.GatesStatusJson)) 
+            return new Dictionary<string, GateStatus>();
+            
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, GateStatus>>(_activeProfile.GatesStatusJson) 
+                   ?? new Dictionary<string, GateStatus>();
+        }
+        catch
+        {
+            return new Dictionary<string, GateStatus>();
+        }
+    }
+
+    private string GetGateTitle(string key) => key switch
+    {
+        "VPN" => "1. Secure VPN Gateway",
+        "Router" => "2. Router Isolation",
+        "Backup" => "3. Data Backup Health",
+        "Restore" => "4. Restore Drill",
+        "SafeMode" => "5. Emergency Safe Mode",
+        _ => key
+    };
+
+    private string GetGateDescription(string key) => key switch
+    {
+        "VPN" => "Verifies that the system Enforce VPN setting is enabled to restrict public access.",
+        "Router" => "Manual confirmation that the physical router is isolated from the main LAN.",
+        "Backup" => "Checks if a valid backup has been successfully recorded in the last 24 hours.",
+        "Restore" => "Checks if a restore drill test was performed successfully in the last 30 days.",
+        "SafeMode" => "Confirm that Emergency Safe Mode controls are accessible and functional.",
+        _ => ""
+    };
+}

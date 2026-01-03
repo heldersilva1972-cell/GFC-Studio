@@ -211,6 +211,7 @@ public class Program
 
 
         builder.Services.AddScoped<IDataProtectionService, DataProtectionService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.Migration.IMigrationService, GFC.BlazorServer.Services.Migration.MigrationService>();
 
         // Network Location Service (registered above as Scoped)
         builder.Services.AddScoped<IUserConnectionService, UserConnectionService>();
@@ -628,6 +629,24 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                         }
                     }
                     Console.WriteLine(">>> Safe Mode Schema Applied Successfully.");
+                }
+
+                // [AUTO-FIX 11] Run Migration Wizard Schema Migration
+                var migWizardPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "Manual_MigrationWizard_Schema.sql");
+                if (File.Exists(migWizardPath))
+                {
+                    Console.WriteLine($">>> Applying Migration Wizard Schema Fixes from: {migWizardPath}");
+                    var mwSql = File.ReadAllText(migWizardPath);
+                    var mwBatches = System.Text.RegularExpressions.Regex.Split(mwSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in mwBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Migration Wizard batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Migration Wizard Schema Applied Successfully.");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

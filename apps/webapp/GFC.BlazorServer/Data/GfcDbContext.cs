@@ -32,6 +32,7 @@ public class GfcDbContext : DbContext
     public DbSet<ControllerCommandLog> ControllerCommandLogs => Set<ControllerCommandLog>();
     public DbSet<CardReaderProfile> CardReaderProfiles => Set<CardReaderProfile>();
     public DbSet<SystemSettings> SystemSettings => Set<SystemSettings>();
+    public DbSet<MigrationProfile> MigrationProfiles => Set<MigrationProfile>();
     public DbSet<GFC.BlazorServer.Data.Entities.MemberDoorAccess> MemberDoorAccesses => Set<GFC.BlazorServer.Data.Entities.MemberDoorAccess>();
     public DbSet<GFC.BlazorServer.Data.Entities.DuesPayment> DuesPayments => Set<GFC.BlazorServer.Data.Entities.DuesPayment>();
     public DbSet<Waiver> Waivers => Set<Waiver>();
