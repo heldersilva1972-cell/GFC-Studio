@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using GFC.Core.Enums;
 
 namespace GFC.BlazorServer.Data.Entities;
 
