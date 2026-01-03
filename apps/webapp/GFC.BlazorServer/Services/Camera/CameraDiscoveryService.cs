@@ -19,7 +19,7 @@ namespace GFC.BlazorServer.Services.Camera
     {
         private readonly GfcDbContext _context;
         private readonly ICameraService _cameraService;
-        private readonly ISystemSettingsService _systemSettingsService;
+        private readonly IBlazorSystemSettingsService _systemSettingsService;
         private readonly ILogger<CameraDiscoveryService> _logger;
 
         // Common RTSP ports to scan
@@ -31,7 +31,7 @@ namespace GFC.BlazorServer.Services.Camera
         public CameraDiscoveryService(
             GfcDbContext context,
             ICameraService cameraService,
-            ISystemSettingsService systemSettingsService,
+            IBlazorSystemSettingsService systemSettingsService,
             ILogger<CameraDiscoveryService> logger)
         {
             _context = context;

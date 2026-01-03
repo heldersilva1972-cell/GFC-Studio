@@ -5,12 +5,13 @@ namespace GFC.BlazorServer.Services;
 /// <summary>
 /// Service for managing system-wide settings.
 /// </summary>
-public interface ISystemSettingsService
+public interface IBlazorSystemSettingsService
 {
     /// <summary>
     /// Gets the system settings. Creates default settings if none exist.
     /// </summary>
     Task<SystemSettings> GetAsync();
+    Task<SystemSettings> GetSystemSettingsAsync();
 
     /// <summary>
     /// Gets the system settings synchronously. Creates default settings if none exist.

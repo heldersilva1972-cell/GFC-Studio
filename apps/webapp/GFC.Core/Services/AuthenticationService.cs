@@ -280,8 +280,7 @@ public class AuthenticationService : IAuthenticationService
 
     private async Task<(string, DateTime)> RotateDeviceTokenAsync(TrustedDevice trustedDevice)
     {
-        var settings = await _systemSettingsService.GetSystemSettingsAsync();
-        var durationDays = settings?.TrustedDeviceDurationDays ?? 30;
+        var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
 
         trustedDevice.LastUsedUtc = DateTime.UtcNow;
         trustedDevice.ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays);
@@ -294,8 +293,7 @@ public class AuthenticationService : IAuthenticationService
 
     private async Task<string?> GenerateAndSaveDeviceTokenAsync(int userId, string? ipAddress, string? userAgent)
     {
-        var settings = await _systemSettingsService.GetSystemSettingsAsync();
-        var durationDays = settings?.TrustedDeviceDurationDays ?? 30;
+        var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
 
         var token = GenerateSecureToken();
         var newDevice = new TrustedDevice

@@ -17,13 +17,13 @@ namespace GFC.BlazorServer.Services.Camera
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly ILogger<CameraVerificationService> _logger;
-        private readonly ISystemSettingsService _systemSettingsService;
+        private readonly IBlazorSystemSettingsService _systemSettingsService;
 
         public CameraVerificationService(
             IHttpClientFactory httpClientFactory,
             IConfiguration configuration,
             ILogger<CameraVerificationService> logger,
-            ISystemSettingsService systemSettingsService)
+            IBlazorSystemSettingsService systemSettingsService)
         {
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;

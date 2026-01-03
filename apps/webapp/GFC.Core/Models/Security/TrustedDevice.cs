@@ -1,23 +1,16 @@
 // [NEW]
-using GFC.Core.Models;
-using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
-namespace GFC.BlazorServer.Data.Entities.Security;
+namespace GFC.Core.Models.Security;
 
-[Table("TrustedDevices")]
-[Index(nameof(DeviceToken), IsUnique = true)]
 public class TrustedDevice
 {
-    [Key]
     public int Id { get; set; }
 
     [Required]
     public int UserId { get; set; }
 
-    [ForeignKey(nameof(UserId))]
-    public AppUser User { get; set; } = null!;
+    public AppUser? User { get; set; }
 
     [Required]
     [MaxLength(128)]

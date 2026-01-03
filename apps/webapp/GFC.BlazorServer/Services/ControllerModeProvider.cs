@@ -8,10 +8,10 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class ControllerModeProvider : IControllerModeProvider
 {
-    private readonly ISystemSettingsService _systemSettingsService;
+    private readonly IBlazorSystemSettingsService _systemSettingsService;
     private readonly ILogger<ControllerModeProvider> _logger;
 
-    public ControllerModeProvider(ISystemSettingsService systemSettingsService, ILogger<ControllerModeProvider> logger)
+    public ControllerModeProvider(IBlazorSystemSettingsService systemSettingsService, ILogger<ControllerModeProvider> logger)
     {
         _systemSettingsService = systemSettingsService ?? throw new ArgumentNullException(nameof(systemSettingsService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));

@@ -7,11 +7,11 @@ namespace GFC.BlazorServer.Services
     public class UserConnectionService : IUserConnectionService
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
-        private readonly ISystemSettingsService _systemSettingsService;
+        private readonly IBlazorSystemSettingsService _systemSettingsService;
 
         public UserConnectionService(
             IHttpContextAccessor httpContextAccessor,
-            ISystemSettingsService systemSettingsService)
+            IBlazorSystemSettingsService systemSettingsService)
         {
             _httpContextAccessor = httpContextAccessor;
             _systemSettingsService = systemSettingsService;

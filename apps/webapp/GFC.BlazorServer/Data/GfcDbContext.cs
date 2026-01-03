@@ -664,6 +664,19 @@ public class GfcDbContext : DbContext
                 .HasForeignKey(e => e.MediaAssetId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // Trusted Devices (Session Management)
+        modelBuilder.Entity<TrustedDevice>(entity =>
+        {
+            entity.ToTable("TrustedDevices");
+            entity.HasKey(t => t.Id);
+            entity.HasIndex(t => t.DeviceToken).IsUnique();
+            entity.HasIndex(t => t.UserId);
+            entity.HasOne(t => t.User)
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static IEnumerable<ControllerCommandInfo> GetCommandSeedData()

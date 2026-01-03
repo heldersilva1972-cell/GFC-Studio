@@ -30,7 +30,7 @@ public class DirectorAccessExpiryWorker : BackgroundService
                 {
                     using (var scope = _serviceProvider.CreateScope())
                     {
-                        var systemSettingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
+                        var systemSettingsService = scope.ServiceProvider.GetRequiredService<IBlazorSystemSettingsService>();
                         var vpnManagementService = scope.ServiceProvider.GetRequiredService<IVpnManagementService>();
                         var dbContext = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
 

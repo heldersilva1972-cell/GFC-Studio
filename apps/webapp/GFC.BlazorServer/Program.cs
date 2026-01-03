@@ -229,7 +229,9 @@ public class Program
         builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
-builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+// Register SystemSettingsService for both interfaces (core and BlazorServer-specific)
+builder.Services.AddScoped<GFC.Core.Interfaces.ISystemSettingsService, SystemSettingsService>();
+builder.Services.AddScoped<IBlazorSystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IUrlHelperService, UrlHelperService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddSingleton<TunnelStatusService>();

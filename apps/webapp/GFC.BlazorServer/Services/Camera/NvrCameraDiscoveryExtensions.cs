@@ -17,7 +17,7 @@ namespace GFC.BlazorServer.Services.Camera
         /// </summary>
         public static async Task<List<DiscoveredCamera>> DiscoverCamerasFromNvrAsync(
             this CameraDiscoveryService service,
-            ISystemSettingsService settingsService,
+            IBlazorSystemSettingsService settingsService,
             ILogger logger,
             Action<string> onStatusUpdate = null)
         {

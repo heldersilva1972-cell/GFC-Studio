@@ -67,6 +67,8 @@ public class SystemSettings
     public int MinimumBandwidthMbps { get; set; } = 5;
     public bool EnableSessionTimeout { get; set; } = true;
     public int SessionTimeoutMinutes { get; set; } = 30;
+    public int IdleTimeoutMinutes { get; set; } = 20;
+    public int AbsoluteSessionMaxMinutes { get; set; } = 1440;
     public bool EnableFailedLoginProtection { get; set; } = true;
     public int MaxFailedLoginAttempts { get; set; } = 5;
     public string IPFilterMode { get; set; } = "Whitelist"; // "Whitelist" or "Blacklist"
@@ -91,9 +93,10 @@ public class SystemSettings
     public string HostingEnvironment { get; set; } = "Dev"; // Dev, Staging, Prod
 
     [Range(1, 365)]
-    public int DeviceTrustDurationDays { get; set; } = 30;
+    public int TrustedDeviceDurationDays { get; set; } = 30;
 
     public bool MagicLinkEnabled { get; set; } = true;
 
     public bool EnforceVpn { get; set; } = false;
+    public GFC.Core.Enums.AccessMode AccessMode { get; set; } = GFC.Core.Enums.AccessMode.Open;
 }

@@ -1,5 +1,6 @@
 using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Data.Entities;
+using GFC.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -8,7 +9,7 @@ namespace GFC.BlazorServer.Services;
 /// <summary>
 /// Service for managing system-wide settings.
 /// </summary>
-public class SystemSettingsService : ISystemSettingsService
+public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Interfaces.ISystemSettingsService
 {
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<SystemSettingsService> _logger;
@@ -40,6 +41,14 @@ public class SystemSettingsService : ISystemSettingsService
         }
         
         return settings;
+    }
+
+    public async Task<SystemSettings> GetSystemSettingsAsync() => await GetAsync();
+
+    public async Task<int> GetTrustedDeviceDurationDaysAsync()
+    {
+        var settings = await GetAsync();
+        return settings.TrustedDeviceDurationDays;
     }
 
     public SystemSettings GetSettings()
@@ -124,9 +133,12 @@ public class SystemSettingsService : ISystemSettingsService
 
         // Hosting & Security Framework (Phase 2)
         existingSettings.HostingEnvironment = settings.HostingEnvironment;
-        existingSettings.DeviceTrustDurationDays = settings.DeviceTrustDurationDays;
+        existingSettings.TrustedDeviceDurationDays = settings.TrustedDeviceDurationDays;
         existingSettings.MagicLinkEnabled = settings.MagicLinkEnabled;
         existingSettings.EnforceVpn = settings.EnforceVpn;
+        existingSettings.AccessMode = settings.AccessMode;
+        existingSettings.IdleTimeoutMinutes = settings.IdleTimeoutMinutes;
+        existingSettings.AbsoluteSessionMaxMinutes = settings.AbsoluteSessionMaxMinutes;
 
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
