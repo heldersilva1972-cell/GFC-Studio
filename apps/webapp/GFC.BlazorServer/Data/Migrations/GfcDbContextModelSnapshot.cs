@@ -1271,11 +1271,20 @@ namespace GFC.BlazorServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AllowedDomains")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("CloudflareTunnelToken")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("DirectorAccessExpiryDate")
                         .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DomainSwitchExpiryUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DomainSwitchPending")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("EnableConnectionQualityAlerts")
                         .HasColumnType("bit");
@@ -1303,6 +1312,9 @@ namespace GFC.BlazorServer.Data.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("LanSubnet")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LastConfirmedDomain")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("LastUpdatedUtc")
@@ -1335,7 +1347,7 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.Property<string>("NvrUsername")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("PublicDomain")
+                    b.Property<string>("PrimaryDomain")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("RemoteQualityMaxBitrate")

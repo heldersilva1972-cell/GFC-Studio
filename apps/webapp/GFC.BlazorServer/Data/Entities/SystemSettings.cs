@@ -49,7 +49,11 @@ public class SystemSettings
 
     // Phase 5: VPN and Remote Access Security
     public string? CloudflareTunnelToken { get; set; } // Encrypted
-    public string? PublicDomain { get; set; } // e.g., gfc-cameras.yourclub.com
+    public string? PrimaryDomain { get; set; } // e.g., gfc-cameras.yourclub.com
+    public string? AllowedDomains { get; set; } // Comma-separated list of allowed domains
+    public string? DomainSwitchPending { get; set; }
+    public DateTime? DomainSwitchExpiryUtc { get; set; }
+    public string? LastConfirmedDomain { get; set; }
     public int WireGuardPort { get; set; } = 51820;
     public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
     public string? WireGuardServerPublicKey { get; set; }
