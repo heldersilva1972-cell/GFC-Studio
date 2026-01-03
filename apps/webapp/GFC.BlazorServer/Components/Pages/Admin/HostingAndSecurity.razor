@@ -10,6 +10,9 @@
 @inject IAuditLogRepository AuditLogRepository
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject GFC.BlazorServer.Services.Vpn.IVpnConfigurationService VpnConfigurationService
+@inject IAuthenticationService AuthenticationService
 
 <h3 class="mb-4">Hosting & Security Framework</h3>
 
@@ -64,6 +67,34 @@
                 @if (_activeTab == "accessControl")
                 {
                     <div class="tab-pane fade show active">
+                        
+                        <!-- Emergency Controls -->
+                        <div class="card border-danger mb-4">
+                            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>Emergency Controls</h5>
+                                <span class="badge bg-white text-danger">Admin Only</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <h6 class="fw-bold">Safe Mode Lockdown</h6>
+                                        <p class="text-muted small mb-0">
+                                            When enabled, only Administrators can log in. All other users are blocked and onboarding is suspended.
+                                            Use this during security incidents.
+                                        </p>
+                                    </div>
+                                    <div class="form-check form-switch custom-switch-lg">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="safeModeToggle" 
+                                               checked="@_settings.SafeModeEnabled" 
+                                               @onchange="InitiateSafeModeChange">
+                                        <label class="form-check-label fw-bold @(_settings.SafeModeEnabled ? "text-danger" : "text-secondary")" for="safeModeToggle">
+                                            @(_settings.SafeModeEnabled ? "ENABLED" : "DISABLED")
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <h4>Access Control Settings</h4>
                         <EditForm Model="@_settings" OnValidSubmit="SaveChanges">
                             <DataAnnotationsValidator />
@@ -167,8 +198,51 @@
     </div>
 </div>
 
-@inject NavigationManager NavigationManager
-@inject GFC.BlazorServer.Services.Vpn.IVpnConfigurationService VpnConfigurationService
+<!-- Safe Mode Confirmation Modal -->
+@if (_showSafeModeModal)
+{
+    <div class="modal-backdrop show" style="background-color: rgba(0,0,0,0.8);"></div>
+    <div class="modal show d-block" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        @(_pendingSafeModeState ? "ENABLE" : "DISABLE") SAFE MODE
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CancelSafeModeChange"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="lead">Security Verification Required</p>
+                    <p>
+                        You are about to <strong>@(_pendingSafeModeState ? "ENABLE" : "DISABLE")</strong> Safe Mode.
+                        @if (_pendingSafeModeState)
+                        {
+                            <span class="text-danger fw-bold">This will immediately block access for all non-admin users.</span>
+                        }
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label">Admin Password</label>
+                        <input type="password" class="form-control" @bind="_safeModePassword" placeholder="Enter your password to confirm" />
+                         @if (!string.IsNullOrEmpty(_safeModeError))
+                        {
+                            <div class="text-danger small mt-1">@_safeModeError</div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CancelSafeModeChange">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="ConfirmSafeModeChange" disabled="@(_isVerifying)">
+                        @if (_isVerifying)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Confirm Change
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private string _activeTab = "environment";
@@ -182,6 +256,13 @@
     private int _inviteUserId;
     private string _generatedLink;
 
+    // Safe Mode Logic
+    private bool _showSafeModeModal = false;
+    private bool _pendingSafeModeState = false;
+    private string _safeModePassword = "";
+    private string _safeModeError = "";
+    private bool _isVerifying = false;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
@@ -192,6 +273,76 @@
         LoadEffectiveConfiguration();
     }
 
+    private void InitiateSafeModeChange(ChangeEventArgs e)
+    {
+        _pendingSafeModeState = (bool)e.Value!;
+        _safeModePassword = "";
+        _safeModeError = "";
+        _showSafeModeModal = true;
+    }
+
+    private void CancelSafeModeChange()
+    {
+        _showSafeModeModal = false;
+        StateHasChanged(); // Refresh UI to revert checkbox
+    }
+
+    private async Task ConfirmSafeModeChange()
+    {
+        if (string.IsNullOrWhiteSpace(_safeModePassword))
+        {
+            _safeModeError = "Password is required.";
+            return;
+        }
+
+        _isVerifying = true;
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name;
+            
+            if (string.IsNullOrEmpty(username))
+            {
+                _safeModeError = "Could not identify current user.";
+                _isVerifying = false;
+                return;
+            }
+
+            var result = await AuthenticationService.LoginAsync(username, _safeModePassword);
+            
+            if (result.Code != LoginResultCode.Success && result.Code != LoginResultCode.MfaRequired)
+            {
+                 _safeModeError = "Invalid password.";
+                 _isVerifying = false;
+                 return;
+            }
+            
+            _settings.SafeModeEnabled = _pendingSafeModeState;
+            await SystemSettingsService.UpdateAsync(_settings);
+            
+            AuditLogRepository.Insert(new AuditLogEntry
+            {
+                PerformedByUserId = GetCurrentUserId(),
+                TimestampUtc = DateTime.UtcNow,
+                Action = _pendingSafeModeState ? "SafeModeEnabled" : "SafeModeDisabled",
+                Details = _pendingSafeModeState 
+                    ? "Emergency Safe Mode ENABLED. Non-admin access restricted." 
+                    : "Emergency Safe Mode DISABLED. Standard access restored."
+            });
+            
+            await LoadAuditLogs();
+            _showSafeModeModal = false;
+        }
+        catch (Exception ex)
+        {
+            _safeModeError = "Error: " + ex.Message;
+        }
+        finally
+        {
+            _isVerifying = false;
+        }
+    }
+
     private async Task GenerateInviteLink()
     {
         if (_inviteUserId <= 0) return;
@@ -200,10 +351,8 @@
         var baeUri = NavigationManager.BaseUri.TrimEnd('/');
         _generatedLink = $"{baeUri}/setup/{token}";
         
-        // Log to console as requested
         Console.WriteLine($"[VPN Invite] Link generated for User {_inviteUserId}: {_generatedLink}");
         
-        // Log to Audit Log
         AuditLogRepository.Insert(new AuditLogEntry
         {
             PerformedByUserId = GetCurrentUserId(),
@@ -212,7 +361,6 @@
             Details = $"Generated onboarding link for User {_inviteUserId}"
         });
         
-        // Refresh logs to show the action
         await LoadAuditLogs();
     }
 
@@ -229,7 +377,6 @@
 
     private void LoadEffectiveConfiguration()
     {
-        // Placeholder for effective configuration
         _publicIpAddress = "127.0.0.1";
         _boundPort = "5207";
         _sslStatus = "Active";
@@ -276,6 +423,6 @@
         {
             return userId;
         }
-        return 0; // Or handle appropriately
+        return 0;
     }
 }

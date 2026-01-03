@@ -28,5 +28,10 @@ public interface IBlazorSystemSettingsService
     /// </summary>
     /// <param name="settings">The system settings object with updated values.</param>
     Task UpdateAsync(SystemSettings settings);
+
+    /// <summary>
+    /// Gets whether the system is in Safe Mode.
+    /// </summary>
+    Task<bool> GetSafeModeEnabledAsync();
 }
 

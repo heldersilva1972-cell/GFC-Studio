@@ -10,5 +10,10 @@ namespace GFC.Core.Interfaces
         /// Gets the trusted device duration in days.
         /// </summary>
         Task<int> GetTrustedDeviceDurationDaysAsync();
+
+        /// <summary>
+        /// Gets whether the system is in Safe Mode.
+        /// </summary>
+        Task<bool> GetSafeModeEnabledAsync();
     }
 }

@@ -51,6 +51,12 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         return settings.TrustedDeviceDurationDays;
     }
 
+    public async Task<bool> GetSafeModeEnabledAsync()
+    {
+        var settings = await GetAsync();
+        return settings.SafeModeEnabled;
+    }
+
     public SystemSettings GetSettings()
     {
         using var dbContext = _contextFactory.CreateDbContext();
@@ -139,6 +145,8 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.AccessMode = settings.AccessMode;
         existingSettings.IdleTimeoutMinutes = settings.IdleTimeoutMinutes;
         existingSettings.AbsoluteSessionMaxMinutes = settings.AbsoluteSessionMaxMinutes;
+        existingSettings.SafeModeEnabled = settings.SafeModeEnabled;
+        existingSettings.EnableOnboarding = settings.EnableOnboarding;
 
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
