@@ -118,6 +118,7 @@ public class Program
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+        builder.Services.AddScoped<IMagicLinkService, MagicLinkService>();
         builder.Services.AddScoped<CustomAuthenticationStateProvider>();
         builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
             sp.GetRequiredService<CustomAuthenticationStateProvider>());

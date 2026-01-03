@@ -104,6 +104,7 @@ public class AuthenticationService : IAuthenticationService
             }
 
             await SafeLogLogin(username, user.UserId, true, ipAddress, null);
+            _auditLogger.Log(user.UserId, AuditLogActions.LoginSuccess, $"User {user.Username} logged in successfully from {ipAddress}.");
 
             return new LoginResult
             {

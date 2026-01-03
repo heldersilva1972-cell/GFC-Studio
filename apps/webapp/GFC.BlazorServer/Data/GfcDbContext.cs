@@ -108,6 +108,7 @@ public class GfcDbContext : DbContext
     public DbSet<BarSaleEntry> BarSaleEntries => Set<BarSaleEntry>();
     public DbSet<DynamicForm> DynamicForms => Set<DynamicForm>();
     public DbSet<UrlRedirect> UrlRedirects => Set<UrlRedirect>();
+    public DbSet<MagicLinkToken> MagicLinkTokens => Set<MagicLinkToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -662,6 +663,12 @@ public class GfcDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.MediaAssetId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MagicLinkToken>(entity =>
+        {
+            entity.ToTable("MagicLinkTokens");
+            entity.HasIndex(t => t.Token);
         });
     }
 

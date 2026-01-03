@@ -31,6 +31,14 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         return Task.FromResult(new AuthenticationState(_currentPrincipal));
     }
 
+    public Task LoginWithUserAsync(AppUser user)
+    {
+        _currentUser = user;
+        _currentPrincipal = BuildPrincipal(user);
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+        return Task.CompletedTask;
+    }
+
     private ClaimsPrincipal BuildPrincipal(AppUser user)
     {
         var claims = new List<Claim>
