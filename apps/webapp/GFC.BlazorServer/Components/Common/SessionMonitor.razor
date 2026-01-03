@@ -1,0 +1,96 @@
+// [MODIFIED]
+@using Microsoft.JSInterop
+@using GFC.Core.Interfaces
+@using System.Threading
+@implements IDisposable
+
+@inject IJSRuntime JSRuntime
+@inject ISystemSettingsService SystemSettingsService
+@inject NavigationManager NavigationManager
+@inject CustomAuthenticationStateProvider AuthStateProvider
+
+<div class="modal fade" id="sessionWarningModal" tabindex="-1" aria-labelledby="sessionWarningModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sessionWarningModalLabel">Session Timeout Warning</h5>
+            </div>
+            <div class="modal-body">
+                <p>Your session is about to expire due to inactivity. You will be logged out in <span class="fw-bold">@_countdownSeconds</span> seconds.</p>
+                <p>To stay logged in, please move your mouse or press any key.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" @onclick="StayLoggedIn">Stay Logged In</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private DotNetObjectReference<SessionMonitor> _dotNetRef;
+    private int _idleTimeoutMinutes;
+    private Timer _countdownTimer;
+    private int _countdownSeconds = 60;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var settings = await SystemSettingsService.GetSystemSettingsAsync();
+            _idleTimeoutMinutes = settings?.IdleTimeoutMinutes ?? 20;
+
+            if (_idleTimeoutMinutes > 1)
+            {
+                _dotNetRef = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("sessionMonitor.init", _dotNetRef, _idleTimeoutMinutes, _idleTimeoutMinutes - 1);
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void ShowIdleWarning()
+    {
+        _countdownSeconds = 60;
+        _countdownTimer = new Timer(async _ =>
+        {
+            _countdownSeconds--;
+            if (_countdownSeconds <= 0)
+            {
+                _countdownTimer?.Dispose();
+                await LogoutUser();
+            }
+            await InvokeAsync(StateHasChanged);
+        }, null, 1000, 1000);
+
+        JSRuntime.InvokeVoidAsync("sessionMonitor.showWarningModal");
+    }
+
+    [JSInvokable]
+    public async Task LogoutUser()
+    {
+        await JSRuntime.InvokeVoidAsync("sessionMonitor.cleanup");
+        var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+        await AuthStateProvider.LogoutAsync(token);
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+        NavigationManager.NavigateTo("/login", true);
+    }
+
+    private async Task StayLoggedIn()
+    {
+        await JSRuntime.InvokeVoidAsync("sessionMonitor.resetTimer");
+    }
+
+    [JSInvokable]
+    public async Task ResetFromJavaScript()
+    {
+        _countdownTimer?.Dispose();
+        await JSRuntime.InvokeVoidAsync("sessionMonitor.hideWarningModal");
+    }
+
+    public void Dispose()
+    {
+        _dotNetRef?.Dispose();
+        _countdownTimer?.Dispose();
+        JSRuntime.InvokeVoidAsync("sessionMonitor.cleanup");
+    }
+}

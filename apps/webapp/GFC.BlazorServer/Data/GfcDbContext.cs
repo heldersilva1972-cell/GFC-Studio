@@ -1,8 +1,8 @@
 // [MODIFIED]
 using GFC.BlazorServer.Data.Entities;
-using GFC.BlazorServer.Data.Entities.Security;
 using GFC.Core.Models;
 using GFC.Core.Models.Diagnostics;
+using GFC.Core.Models.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace GFC.BlazorServer.Data;
@@ -66,6 +66,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.SecurityAlert> SecurityAlerts => Set<GFC.Core.Models.SecurityAlert>();
     public DbSet<AuthorizedUser> AuthorizedUsers => Set<AuthorizedUser>();
     public DbSet<GFC.Core.Models.KeyCard> KeyCards => Set<GFC.Core.Models.KeyCard>();
+    public DbSet<TrustedDevice> TrustedDevices => Set<TrustedDevice>();
     // public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>(); // Commented due to CS0102 duplicate error - duplicate location unknown
 
     // GFC Ecosystem Foundation

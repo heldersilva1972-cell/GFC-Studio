@@ -109,6 +109,7 @@ public class Program
         builder.Services.AddScoped<IUserRepository, UserRepository>();
         builder.Services.AddScoped<ILoginHistoryRepository, LoginHistoryRepository>();
         builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        builder.Services.AddScoped<ITrustedDeviceRepository, TrustedDeviceRepository>();
         builder.Services.AddScoped<IAppSettingsRepository, AppSettingsRepository>();
         builder.Services.AddScoped<ILotteryShiftRepository, LotteryShiftRepository>();
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
@@ -118,6 +119,7 @@ public class Program
 
         // Authentication services
         builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
+        builder.Services.AddScoped<IUserSessionService, UserSessionService>();
         builder.Services.AddScoped<CustomAuthenticationStateProvider>();
         builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
             sp.GetRequiredService<CustomAuthenticationStateProvider>());

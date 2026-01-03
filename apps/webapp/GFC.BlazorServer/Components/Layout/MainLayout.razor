@@ -1,3 +1,5 @@
+// [MODIFIED]
+@using GFC.BlazorServer.Components.Common
 @inherits LayoutComponentBase
 @using GFC.Core.Enums
 @using GFC.BlazorServer.Services
@@ -12,6 +14,9 @@
 @inject ThemeService ThemeService
 @inject IUserConnectionService UserConnectionService
 @inject ControllerHealthService ControllerHealthService
+@inject IUserSessionService UserSessionService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
 
 <div class="app-shell">
     <header class="app-topbar">
@@ -52,7 +57,6 @@
                     <i class="bi bi-moon-stars-fill"></i>
                 }
             </button>
-
         </div>
     </header>
 
@@ -89,15 +93,14 @@
     </div>
 </div>
 
-
-
-@* Scripts have been moved to _Host.cshtml for proper resolution *@
+<SessionMonitor />
 
 @code {
     private string _currentUsername = string.Empty;
     private bool _isAdmin = false;
     private string _connectionStatus = "Checking...";
     private System.Threading.Timer? _healthTimer;
+    private System.Threading.Timer? _sessionTimer;
     private bool _isControllerOnline = false;
 
     protected override async Task OnInitializedAsync()
@@ -107,17 +110,25 @@
             await CheckVpnEnforcement();
             await UpdateUserInfo();
             
-            // Initial controller status check
             UpdateControllerStatus();
 
-            // Start polling for controller health every 5 seconds
             _healthTimer = new System.Threading.Timer(async _ => 
             {
                 UpdateControllerStatus();
                 await InvokeAsync(StateHasChanged);
             }, null, 5000, 5000);
+
+            var settings = await SystemSettingsService.GetSystemSettingsAsync();
+            var absoluteSessionMaxMinutes = settings?.AbsoluteSessionMaxMinutes ?? 1440;
+
+            _sessionTimer = new System.Threading.Timer(async _ =>
+            {
+                if (UserSessionService.LoginTimeUtc != default && (DateTime.UtcNow - UserSessionService.LoginTimeUtc).TotalMinutes > absoluteSessionMaxMinutes)
+                {
+                    await HandleLogout();
+                }
+            }, null, 60000, 60000);
             
-            // Subscribe to authentication state changes
             AuthStateProvider.AuthenticationStateChanged += async (task) =>
             {
                 await UpdateUserInfo();
@@ -171,6 +182,7 @@
     public void Dispose()
     {
         _healthTimer?.Dispose();
+        _sessionTimer?.Dispose();
         ThemeService.OnThemeChanged -= StateHasChanged;
     }
 
@@ -211,7 +223,10 @@
     {
         try
         {
-            await AuthStateProvider.LogoutAsync();
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            await AuthStateProvider.LogoutAsync(token);
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+
             await Task.Delay(100);
             await UpdateUserInfo();
             Navigation.NavigateTo("/login", forceLoad: true);
@@ -277,4 +292,3 @@
         };
     }
 }
-
