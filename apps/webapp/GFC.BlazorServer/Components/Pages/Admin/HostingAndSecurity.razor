@@ -13,6 +13,8 @@
 @inject NavigationManager NavigationManager
 @inject GFC.BlazorServer.Services.Vpn.IVpnConfigurationService VpnConfigurationService
 @inject IAuthenticationService AuthenticationService
+@using GFC.BlazorServer.Services.DataProtection
+@inject IDataProtectionService DataProtectionService
 
 <h3 class="mb-4">Hosting & Security Framework</h3>
 
@@ -27,6 +29,9 @@
             </li>
             <li class="nav-item">
                 <button class="nav-link @(_activeTab == "auditLogs" ? "active" : "")" @onclick="@(() => _activeTab = "auditLogs")">Audit Logs</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(_activeTab == "dataProtection" ? "active" : "")" @onclick="@(() => _activeTab = "dataProtection")">Data Protection</button>
             </li>
         </ul>
     </div>
@@ -193,6 +198,70 @@
                         }
                     </div>
                 }
+                @if (_activeTab == "dataProtection")
+                {
+                    <div class="tab-pane fade show active">
+                         <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h4>Data Protection & Recovery</h4>
+                            <div class="badge @_healthBadgeClass fs-5">
+                                <i class="bi @_healthIcon me-2"></i>@_healthStatus
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card mb-4">
+                                    <div class="card-header">Target: <span class="fw-bold">@_settings.BackupMethod</span></div>
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title">Last Backup</h5>
+                                        <p class="display-6 my-3">
+                                            @if (_lastBackup.HasValue)
+                                            {
+                                                @_lastBackup.Value.ToLocalTime().ToString("MMM dd, HH:mm")
+                                                <div class="fs-6 text-muted">(@GetRelativeTime(_lastBackup.Value))</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-danger">NEVER</span>
+                                            }
+                                        </p>
+                                        <button class="btn btn-success" @onclick="RecordBackup">
+                                            <i class="bi bi-check-circle-fill me-2"></i>Record Successful Backup
+                                        </button>
+                                        <div class="form-text mt-2">
+                                            Click this after you have successfully copied the database backup file to the external drive.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card mb-4">
+                                    <div class="card-header">Disaster Recovery</div>
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title">Last Restore Test</h5>
+                                        <p class="display-6 my-3">
+                                            @if (_lastRestoreTest.HasValue)
+                                            {
+                                                @_lastRestoreTest.Value.ToLocalTime().ToString("MMM dd, HH:mm")
+                                                <div class="fs-6 text-muted">(@GetRelativeTime(_lastRestoreTest.Value))</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-warning">NEVER</span>
+                                            }
+                                        </p>
+                                        <button class="btn btn-outline-primary" @onclick="RecordRestoreTest">
+                                            <i class="bi bi-capslock-fill me-2"></i>Record Restore Test
+                                        </button>
+                                        <div class="form-text mt-2">
+                                            Regularly test restoring a backup to a separate environment to ensure data integrity.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
             </div>
         }
     </div>
@@ -263,6 +332,25 @@
     private string _safeModeError = "";
     private bool _isVerifying = false;
 
+    // Data Protection Logic
+    private DataHealthStatus _healthStatus = DataHealthStatus.Unknown;
+    private DateTime? _lastBackup;
+    private DateTime? _lastRestoreTest;
+    private string _healthBadgeClass => _healthStatus switch
+    {
+        DataHealthStatus.Healthy => "bg-success",
+        DataHealthStatus.Warning => "bg-warning text-dark",
+        DataHealthStatus.Critical => "bg-danger",
+        _ => "bg-secondary"
+    };
+    private string _healthIcon => _healthStatus switch
+    {
+        DataHealthStatus.Healthy => "bi-check-circle-fill",
+        DataHealthStatus.Warning => "bi-exclamation-triangle-fill",
+        DataHealthStatus.Critical => "bi-x-octagon-fill",
+        _ => "bi-question-circle"
+    };
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
@@ -270,7 +358,38 @@
         _inviteUserId = GetCurrentUserId(); // Default to self
         await LoadSettings();
         await LoadAuditLogs();
+        await LoadDataProtectionStatus();
         LoadEffectiveConfiguration();
+    }
+
+    private async Task LoadDataProtectionStatus()
+    {
+        _healthStatus = await DataProtectionService.GetHealthStatusAsync();
+        _lastBackup = await DataProtectionService.GetLastBackupTimeAsync();
+        _lastRestoreTest = await DataProtectionService.GetLastRestoreTestTimeAsync();
+    }
+
+    private async Task RecordBackup()
+    {
+        await DataProtectionService.LogBackupCompletesAsync(GetCurrentUserId());
+        await LoadDataProtectionStatus();
+        StateHasChanged();
+    }
+    
+    private async Task RecordRestoreTest()
+    {
+        await DataProtectionService.LogRestoreTestCompletedAsync(GetCurrentUserId());
+        await LoadDataProtectionStatus();
+        StateHasChanged();
+    }
+
+    private string GetRelativeTime(DateTime utcDate)
+    {
+        var ts = DateTime.UtcNow - utcDate;
+        if (ts.TotalMinutes < 1) return "just now";
+        if (ts.TotalHours < 1) return $"{ts.Minutes}m ago";
+        if (ts.TotalHours < 24) return $"{ts.Hours}h ago";
+        return $"{ts.Days}d ago";
     }
 
     private void InitiateSafeModeChange(ChangeEventArgs e)

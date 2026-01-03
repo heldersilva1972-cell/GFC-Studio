@@ -27,6 +27,8 @@
 @inject ControllerHealthService ControllerHealthService
 @inject KeyCardLifecycleService KeyCardLifecycleService
 @inject IKeyCardRepository KeyCardRepository
+@using GFC.BlazorServer.Services.DataProtection
+@inject IDataProtectionService DataProtectionService
 
 @if (_showSplash)
 {
@@ -35,6 +37,19 @@
 
 <div class="dash-page @(_showSplash && !_isSplashFadingOut ? "dash-hidden" : "dash-visible")">
     <VpnSetupNotificationBanner />
+
+    @if (_dataHealth == DataHealthStatus.Critical)
+    {
+        <div class="alert alert-danger d-flex align-items-center mb-3 mx-4 mt-3" role="alert">
+            <i class="bi bi-exclamation-octagon-fill fs-4 me-3"></i>
+            <div>
+                <strong>CRITICAL: Backup Overdue</strong>
+                <div class="small">No backup recorded for over 3 days. Please rotate USB drives and record a backup immediately in <a href="/admin/hosting-security" class="alert-link">Hosting & Security</a>.</div>
+            </div>
+            <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Close" @onclick="@(() => _dataHealth = DataHealthStatus.Unknown)"></button>
+        </div>
+    }
+
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h1 class="mb-0">Dashboard</h1>
             <div class="d-flex align-items-center gap-2">
@@ -963,6 +978,7 @@
     private DuesSummaryDto? _duesSummary;
     private AlertSummaryDto? _alerts;
     private BackupStatusDto? _backupStatus;
+    private DataHealthStatus _dataHealth = DataHealthStatus.Unknown;
     private string? _errorMessage;
     private DashboardMetricsDto? _metrics;
     private bool _sidebarOpen = true;
@@ -1191,7 +1207,13 @@
             try { _memberSummary = await memberTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:memberTask] {ex.Message}"); }
             try { _duesSummary = await duesTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:duesTask] {ex.Message}"); }
             try { _alerts = await alertsTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:alertsTask] {ex.Message}"); }
-            try { _backupStatus = await backupStatusTask; } catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:backupStatusTask] {ex.Message}"); }
+            try 
+            { 
+                 _dataHealth = await DataProtectionService.GetHealthStatusAsync();
+                 var realLastBackup = await DataProtectionService.GetLastBackupTimeAsync();
+                 _backupStatus = new BackupStatusDto(realLastBackup, null);
+            } 
+            catch (Exception ex) { Console.Error.WriteLine($"[Dashboard:dataProtectionTask] {ex.Message}"); }
             
             // New Data Fetching
             try 

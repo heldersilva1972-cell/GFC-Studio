@@ -101,4 +101,10 @@ public class SystemSettings
     public GFC.Core.Enums.AccessMode AccessMode { get; set; } = GFC.Core.Enums.AccessMode.Open;
     public bool EnableOnboarding { get; set; } = false;
     public bool SafeModeEnabled { get; set; } = false;
+
+    // Backup & Data Protection Tracking
+    public string BackupMethod { get; set; } = "External USB";
+    public DateTime? LastSuccessfulBackupUtc { get; set; }
+    public DateTime? LastRestoreTestUtc { get; set; }
+    public int BackupFrequencyHours { get; set; } = 24;
 }

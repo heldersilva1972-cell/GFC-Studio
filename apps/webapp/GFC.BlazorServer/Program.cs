@@ -10,6 +10,7 @@ using GFC.BlazorServer.Services.Dashboard;
 using GFC.BlazorServer.Services.Members;
 using GFC.BlazorServer.Services.Controllers;
 using GFC.BlazorServer.Services.Diagnostics;
+using GFC.BlazorServer.Services.DataProtection;
 using GFC.BlazorServer.Data.Repositories;
 using GFC.BlazorServer.Repositories;
 using GFC.Data;
@@ -207,6 +208,9 @@ public class Program
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
         builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+
+
+        builder.Services.AddScoped<IDataProtectionService, DataProtectionService>();
 
         // Network Location Service (registered above as Scoped)
         builder.Services.AddScoped<IUserConnectionService, UserConnectionService>();
@@ -587,6 +591,43 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                 else
                 {
                     Console.WriteLine($">>> WARNING: Member Access schema script not found at {accessScriptPath}");
+                }
+
+
+                // [AUTO-FIX 9] Run Backup Schema Migration
+                var backupSchemaPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "Manual_Backup_Schema.sql");
+                if (File.Exists(backupSchemaPath))
+                {
+                    Console.WriteLine($">>> Applying Backup Schema Fixes from: {backupSchemaPath}");
+                    var backupSql = File.ReadAllText(backupSchemaPath);
+                    var backupBatches = System.Text.RegularExpressions.Regex.Split(backupSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in backupBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing backup batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Backup Schema Applied Successfully.");
+                }
+
+                // [AUTO-FIX 10] Run Safe Mode Schema Migration
+                var safeModePath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "Manual_SafeMode_Update.sql");
+                if (File.Exists(safeModePath))
+                {
+                    Console.WriteLine($">>> Applying Safe Mode Schema Fixes from: {safeModePath}");
+                    var smSql = File.ReadAllText(safeModePath);
+                    var smBatches = System.Text.RegularExpressions.Regex.Split(smSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in smBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Safe Mode batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Safe Mode Schema Applied Successfully.");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
