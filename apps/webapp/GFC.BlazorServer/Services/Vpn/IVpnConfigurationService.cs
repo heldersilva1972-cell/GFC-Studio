@@ -24,4 +24,9 @@ public interface IVpnConfigurationService
     /// Checks if VPN testing endpoint is reachable.
     /// </summary>
     Task<bool> TestVpnConnectionAsync();
+
+    /// <summary>
+    /// Revokes VPN access for a user (removes keys/access).
+    /// </summary>
+    Task RevokeUserAccessAsync(int userId);
 }

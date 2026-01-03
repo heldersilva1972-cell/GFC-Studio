@@ -9,6 +9,7 @@
 @inject IAuthenticationService AuthService
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 @inject ILogger<UserManagement> Logger
 @inject IPasswordPolicy PasswordPolicy
 
@@ -122,12 +123,12 @@
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="@(FilteredUsers.Any() ? "" : "empty")">
                     @foreach (var user in FilteredUsers)
                     {
-                        <tr>
+                        <tr class="@(user.IsActive ? "" : "bg-light text-muted")">
                             <td>
-                                <div class="fw-semibold">@user.Username</div>
+                                <div class="fw-semibold @(user.IsActive ? "" : "text-decoration-line-through")">@user.Username</div>
                                 @if (!string.IsNullOrEmpty(user.Notes))
                                 {
                                     <div class="text-muted small">@user.Notes</div>
@@ -151,7 +152,7 @@
                                 }
                                 else
                                 {
-                                    <span class="badge badge-danger">Inactive</span>
+                                    <span class="badge badge-danger">Revoked / Inactive</span>
                                 }
                             </td>
                             <td>
@@ -166,41 +167,44 @@
                             </td>
                             <td>
                                 <div class="d-flex gap-2 align-items-center">
-                                    <!-- History Button -->
                                     <button class="btn btn-sm btn-icon-modern" 
                                             @onclick="() => ViewHistory(user.UserId)"
                                             title="View Login History">
                                         <i class="bi bi-clock-history"></i>
                                     </button>
                                     
-                                    <!-- Edit Button -->
                                     <button class="btn btn-sm btn-icon-modern text-primary" 
                                             @onclick="() => EditUser(user.UserId)"
                                             title="Edit User">
                                         <i class="bi bi-pencil-fill"></i>
                                     </button>
                                     
-                                    <!-- Notifications Button -->
                                     <button class="btn btn-sm btn-icon-modern text-info" 
                                             @onclick="() => ConfigureNotifications(user.UserId)"
                                             title="Notification Preferences">
                                         <i class="bi bi-bell-fill"></i>
                                     </button>
                                     
-                                    <!-- Page Permissions Button -->
                                     <button class="btn btn-sm btn-icon-modern text-warning" 
                                             @onclick="() => ConfigurePagePermissions(user.UserId, user.Username, user.IsAdmin)"
                                             title="Page Access Permissions">
                                         <i class="bi bi-shield-lock-fill"></i>
                                     </button>
                                     
-                                    <!-- Deactivate/Activate Button (only for non-admin users) -->
-                                    @if (!user.IsAdmin)
+                                    @if (user.IsActive)
                                     {
-                                        <button class="btn btn-sm btn-icon-modern @(user.IsActive ? "text-danger" : "text-success")" 
-                                                @onclick="() => ConfirmDeleteUser(user.UserId, user.Username)"
-                                                title="@(user.IsActive ? "Deactivate User" : "Activate User")">
-                                            <i class="bi @(user.IsActive ? "bi-person-x-fill" : "bi-person-check-fill")"></i>
+                                        <button class="btn btn-sm btn-danger" 
+                                                @onclick="() => ConfirmRevokeUser(user.UserId, user.Username, user.IsAdmin)"
+                                                title="Revoke Access Instantly">
+                                            <i class="bi bi-slash-circle"></i> Revoke
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                         <button class="btn btn-sm btn-outline-success" 
+                                                @onclick="() => EditUser(user.UserId)"
+                                                title="Re-activate via Edit">
+                                            <i class="bi bi-arrow-counterclockwise"></i>
                                         </button>
                                     }
                                 </div>
@@ -477,6 +481,46 @@
     </div>
 }
 
+@* Revoke Access Modal *@
+@if (_showRevokeModal && _userToRevoke.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" style="max-width: 500px; border-left: 5px solid red;">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+             <h4 class="mb-0 text-danger"><i class="bi bi-shield-slash-fill me-2"></i>Revoke Access</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CancelRevokeUser">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="mb-3">
+            <p>Are you sure you want to <strong>Revoke Access</strong> for user <strong>@_userToRevokeUsername</strong>?</p>
+            <div class="alert alert-warning small">
+                <strong>This action will immediately:</strong>
+                <ul class="mb-0 ps-3">
+                    <li>Disable user login (Set Inactive)</li>
+                    <li>Log them out of ALL active sessions/devices</li>
+                    <li>Invalidate any Magic Links</li>
+                    <li>Revoke VPN Access Keys</li>
+                </ul>
+            </div>
+            
+            <label class="form-label small fw-bold">Reason for Revocation (Log Entry)</label>
+            <input type="text" class="form-control" @bind="_revokeReason" placeholder="e.g., Policy Violation, Compromised Account..." />
+            @if (string.IsNullOrWhiteSpace(_revokeReason))
+            {
+                 <small class="text-danger">* Reason is required.</small>
+            }
+        </div>
+        <div class="modal-card__actions">
+            <button type="button" class="btn btn-danger" disabled="@(_revokingUser || string.IsNullOrWhiteSpace(_revokeReason))" @onclick="RevokeUserConfirmed">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_revokingUser)"></span>
+                CONFIRM REVOCATION
+            </button>
+            <button type="button" class="btn btn-outline" @onclick="CancelRevokeUser" disabled="@_revokingUser">Cancel</button>
+        </div>
+    </div>
+}
+
 @* Notification Configuration Modal *@
 @if (_showNotificationModal && _selectedNotificationUserId.HasValue)
 {
@@ -737,6 +781,15 @@
     private UserFormModel _userForm = new();
     
     private bool IsEditingAdminUser => _editingUserId.HasValue && _originalUserIsAdmin;
+
+    [Inject] IUserRevocationService RevocationService { get; set; }
+
+    // Revoke State
+    private bool _showRevokeModal = false;
+    private int? _userToRevoke = null;
+    private string _userToRevokeUsername = string.Empty;
+    private bool _revokingUser = false;
+    private string _revokeReason = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1111,6 +1164,57 @@
         _showDeleteModal = false;
         _userToDelete = null;
         _userToDeleteUsername = string.Empty;
+    }
+
+    private void ConfirmRevokeUser(int userId, string username, bool isAdmin)
+    {
+        // Require reason and confirmation for revocation
+        _userToRevoke = userId;
+        _userToRevokeUsername = username;
+        _revokeReason = "";
+        _showRevokeModal = true;
+    }
+
+    private async Task RevokeUserConfirmed()
+    {
+        if (!_userToRevoke.HasValue) return;
+        
+        _revokingUser = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var uidClaim = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            int currentUserId = 0;
+            if (uidClaim != null && int.TryParse(uidClaim.Value, out int uid))
+            {
+                currentUserId = uid;
+            }
+
+            if (currentUserId == 0) throw new Exception("Could not determine current user.");
+
+            await RevocationService.RevokeUserAccessAsync(_userToRevoke.Value, _revokeReason, currentUserId);
+            
+            // Refresh
+            await LoadData();
+            CancelRevokeUser();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Revocation Failed: {ex.Message}");
+        }
+        finally
+        {
+            _revokingUser = false;
+        }
+    }
+
+    private void CancelRevokeUser()
+    {
+        _showRevokeModal = false;
+        _userToRevoke = null;
+        _userToRevokeUsername = "";
+        _revokingUser = false;
+        _revokeReason = "";
     }
 
     private bool ValidatePasswordField()

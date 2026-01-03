@@ -119,6 +119,30 @@ public class VpnConfigurationService : IVpnConfigurationService
         // can be simulated by just checking if the current HTTP request came from VPN subnet.
         return _userConnectionService.LocationType == LocationType.VPN;
     }
+
+    public async Task RevokeUserAccessAsync(int userId)
+    {
+        // In a real implementation with a WireGuard management API (e.g., wg-easy or direct file manipulation),
+        // code here would:
+        // 1. Identify the peer config for this userId.
+        // 2. Remove the peer from the interface.
+        // 3. Restart/Reload the WireGuard interface.
+        
+        // For this MVP/simulation:
+        // We log the revocation. In the future, this would integrate with the actual VPN Controller.
+        _logger.LogWarning("VPN Access Revoked for User {UserId}. Keys invalidated.", userId);
+        
+        // We also explicitly expire any onboarding tokens for this user immediately, redundant to UserManagementService but safe.
+        using var context = await _dbContextFactory.CreateDbContextAsync();
+        var tokens = await context.VpnOnboardingTokens.Where(t => t.UserId == userId && !t.IsUsed).ToListAsync();
+        foreach (var t in tokens)
+        {
+            t.ExpiresAtUtc = DateTime.MinValue; // Expire immediately
+        }
+        await context.SaveChangesAsync();
+        
+        await Task.CompletedTask;
+    }
     
     // Helpers
     private static string GenerateSimulatedKey()

@@ -99,6 +99,7 @@ public static class AuditLogActions
     public const string LogoutIdle = "LogoutIdle";
     public const string LogoutAbsolute = "LogoutAbsolute";
     public const string SessionInvalidatedVpnLost = "SessionInvalidatedVpnLost";
+    public const string AccessRevoked = "AccessRevoked";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -123,6 +124,7 @@ public static class AuditLogActions
         LoginSuccessMagicLink,
         LogoutIdle,
         LogoutAbsolute,
-        SessionInvalidatedVpnLost
+        SessionInvalidatedVpnLost,
+        AccessRevoked
     };
 }
