@@ -21,6 +21,23 @@ BEGIN
     PRINT 'Created MagicLinkTokens table.';
 END
 
+-- 1.5 Ensure VpnOnboardingTokens Table exists
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[VpnOnboardingTokens]') AND type in (N'U'))
+BEGIN
+    CREATE TABLE [VpnOnboardingTokens] (
+        [Id] int NOT NULL IDENTITY,
+        [UserId] int NOT NULL,
+        [Token] nvarchar(256) NOT NULL,
+        [CreatedAtUtc] datetime2 NOT NULL,
+        [ExpiresAtUtc] datetime2 NOT NULL,
+        [IsUsed] bit NOT NULL,
+        [DeviceInfo] nvarchar(500) NULL,
+        CONSTRAINT [PK_VpnOnboardingTokens] PRIMARY KEY ([Id])
+    );
+    CREATE INDEX [IX_VpnOnboardingTokens_Token] ON [VpnOnboardingTokens] ([Token]);
+    PRINT 'Created VpnOnboardingTokens table.';
+END
+
 -- 2. SystemSettings - Add ALL potentially missing columns
 IF EXISTS(SELECT * FROM sys.tables WHERE name = 'SystemSettings')
 BEGIN
@@ -134,6 +151,9 @@ BEGIN
 
     IF NOT EXISTS(SELECT * FROM sys.columns WHERE Name = N'AccessMode' AND Object_ID = Object_ID(N'SystemSettings'))
         ALTER TABLE [SystemSettings] ADD [AccessMode] int NOT NULL DEFAULT 0;
+
+    IF NOT EXISTS(SELECT * FROM sys.columns WHERE Name = N'EnableOnboarding' AND Object_ID = Object_ID(N'SystemSettings'))
+        ALTER TABLE [SystemSettings] ADD [EnableOnboarding] bit NOT NULL DEFAULT 0;
 
     PRINT 'SystemSettings schema update check complete.';
 END

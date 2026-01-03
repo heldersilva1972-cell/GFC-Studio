@@ -1,0 +1,298 @@
+@page "/setup/{Token}"
+@layout FullPageLayout
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Vpn
+@using Microsoft.JSInterop
+@inject NavigationManager Navigation
+@inject IBlazorSystemSettingsService SystemSettingsService
+@inject IVpnConfigurationService VpnConfigService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Secure Access Setup - GFC</PageTitle>
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary text-white text-center py-4">
+                    <h3 class="mb-0"><i class="bi bi-shield-check me-2"></i>Secure Access Setup</h3>
+                    <p class="mb-0 mt-2 opacity-75">Connect your device to the GFC Private Network</p>
+                </div>
+                
+                <div class="card-body p-4">
+                    @if (_isLoading)
+                    {
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary mb-3" role="status"></div>
+                            <p class="text-muted">Verifying your invite...</p>
+                        </div>
+                    }
+                    else if (!_isValid)
+                    {
+                        <div class="text-center py-5">
+                            <i class="bi bi-x-circle text-danger display-1 mb-3"></i>
+                            <h4>Invalid or Expired Invite</h4>
+                            <p class="text-muted">This setup link is invalid, expired, or has already been used.</p>
+                            <p>Please request a new invite from an administrator.</p>
+                        </div>
+                    }
+                    else if (!_onboardingEnabled)
+                    {
+                        <div class="text-center py-5">
+                             <i class="bi bi-lock text-warning display-1 mb-3"></i>
+                            <h4>Onboarding Disabled</h4>
+                            <p class="text-muted">New device onboarding is currently paused by the system administrator.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="setup-wizard">
+                            <!-- Step Indicators -->
+                            <div class="d-flex justify-content-between mb-5 position-relative">
+                                <div class="step-line position-absolute top-50 start-0 w-100 translate-middle-y bg-light" style="height: 4px; z-index: 0;"></div>
+                                @for (int i = 1; i <= 3; i++)
+                                {
+                                    <div class="step-indicator position-relative bg-white rounded-circle d-flex align-items-center justify-content-center border @GetStepClass(i)" 
+                                         style="width: 40px; height: 40px; z-index: 1;">
+                                        @if (_currentStep > i) { <i class="bi bi-check-lg"></i> } else { <span>@i</span> }
+                                    </div>
+                                }
+                            </div>
+
+                            @if (_currentStep == 1)
+                            {
+                                <div class="text-center animate-fade-in">
+                                    <div class="mb-4">
+                                        <i class="bi bi-phone display-4 text-primary"></i>
+                                    </div>
+                                    <h4 class="mb-3">Get WireGuard</h4>
+                                    <p class="text-muted mb-4">First, ensure you have the verified WireGuard app installed on this device (@_detectedOs).</p>
+                                    
+                                    <div class="d-grid gap-3 mb-4">
+                                        <a href="@_storeLink" target="_blank" class="btn btn-outline-primary btn-lg">
+                                            <i class="bi bi-download me-2"></i>Download WireGuard App
+                                        </a>
+                                        <button @onclick="NextStep" class="btn btn-primary btn-lg">
+                                            I have the app installed <i class="bi bi-arrow-right ms-2"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else if (_currentStep == 2)
+                            {
+                                <div class="text-center animate-fade-in">
+                                    <div class="mb-4">
+                                        <i class="bi bi-file-earmark-lock display-4 text-success"></i>
+                                    </div>
+                                    <h4 class="mb-3">Import Configuration</h4>
+                                    <p class="text-muted mb-4">Click below to download your unique security profile. 
+                                    @if (_isMobile)
+                                    {
+                                        <span>When prompted, choose "Open with WireGuard" or find the file in your downloads and import it.</span>
+                                    }
+                                    else
+                                    {
+                                         <span>After downloading, open WireGuard and click "Import Tunnel(s) from File".</span>
+                                    }
+                                    </p>
+
+                                    <div class="d-grid gap-3 mb-4">
+                                        <button @onclick="DownloadConfig" class="btn btn-success btn-lg shadow-sm">
+                                            <i class="bi bi-cloud-arrow-down me-2"></i>Add Secure Access
+                                        </button>
+                                    </div>
+                                    <div class="mt-3">
+                                        <button @onclick="NextStep" class="btn btn-link text-muted">Skip to Test</button>
+                                    </div>
+                                </div>
+                            }
+                            else if (_currentStep == 3)
+                            {
+                                <div class="text-center animate-fade-in">
+                                    <h4 class="mb-3">Test Connection</h4>
+                                    <p class="text-muted mb-4">Turn on the VPN in your WireGuard app, then click Test below.</p>
+
+                                    <div class="mb-4">
+                                        <button @onclick="TestConnection" class="btn btn-primary btn-lg position-relative" disabled="@_isTesting">
+                                            @if (_isTesting)
+                                            {
+                                                 <span class="spinner-border spinner-border-sm me-2"></span> <span>Testing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Test Connection</span>
+                                            }
+                                        </button>
+                                    </div>
+
+                                    @if (_testResult.HasValue)
+                                    {
+                                        @if (_testResult.Value)
+                                        {
+                                            <div class="alert alert-success d-flex align-items-center justify-content-center">
+                                                <i class="bi bi-check-circle-fill me-2 fs-4"></i>
+                                                <div>
+                                                    <strong>Connected!</strong> Your setup is complete.
+                                                </div>
+                                            </div>
+                                            <a href="/" class="btn btn-outline-success mt-2">Go to Dashboard</a>
+                                        }
+                                        else
+                                        {
+                                            <div class="alert alert-danger">
+                                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                                <strong>Not Connected.</strong> Ensure the toggle in WireGuard is active.
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+            
+            <div class="text-center mt-4 text-muted small">
+                 &copy; @DateTime.Now.Year GFC System
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    window.detectOsFamily = function() {
+        var userAgent = window.navigator.userAgent;
+        var platform = window.navigator.platform;
+        var macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
+        var windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
+        var iosPlatforms = ['iPhone', 'iPad', 'iPod'];
+        
+        if (macosPlatforms.indexOf(platform) !== -1) return 'macOS';
+        if (iosPlatforms.indexOf(platform) !== -1) return 'iOS';
+        if (windowsPlatforms.indexOf(platform) !== -1) return 'Windows';
+        if (/Android/.test(userAgent)) return 'Android';
+        if (/Linux/.test(platform)) return 'Linux';
+        
+        return 'Unknown';
+    };
+
+    window.downloadFileFromStream = async (fileName, contentStreamReference) => {
+        const arrayBuffer = await contentStreamReference.arrayBuffer();
+        const blob = new Blob([arrayBuffer]);
+        const url = URL.createObjectURL(blob);
+        const anchorElement = document.createElement('a');
+        anchorElement.href = url;
+        anchorElement.download = fileName ?? '';
+        anchorElement.click();
+        anchorElement.remove();
+        URL.revokeObjectURL(url);
+    }
+</script>
+
+@code {
+    [Parameter]
+    public string? Token { get; set; }
+
+    private bool _isLoading = true;
+    private bool _isValid = false;
+    private bool _onboardingEnabled = false;
+    private int _currentStep = 1;
+    private int _userId = 0;
+    
+    private string _detectedOs = "Device";
+    private string _storeLink = "https://www.wireguard.com/install/";
+    private bool _isMobile = false;
+
+    private bool _isTesting = false;
+    private bool? _testResult;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isValid)
+        {
+            var os = await JSRuntime.InvokeAsync<string>("detectOsFamily");
+            _detectedOs = os;
+            
+            switch (os)
+            {
+                case "iOS": 
+                    _storeLink = "https://apps.apple.com/us/app/wireguard/id1441195209"; 
+                    _isMobile = true;
+                    break;
+                case "Android": 
+                    _storeLink = "https://play.google.com/store/apps/details?id=com.wireguard.android"; 
+                    _isMobile = true;
+                    break;
+                case "macOS": 
+                    _storeLink = "https://apps.apple.com/us/app/wireguard/id1451685025"; 
+                    break;
+                case "Windows": 
+                    _storeLink = "https://download.wireguard.com/windows/client/wireguard-installer.exe"; 
+                    break;
+            }
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetSystemSettingsAsync();
+            _onboardingEnabled = settings?.EnableOnboarding ?? false;
+            
+            if (_onboardingEnabled && !string.IsNullOrEmpty(Token))
+            {
+                var uid = await VpnConfigService.ValidateOnboardingTokenAsync(Token);
+                if (uid.HasValue)
+                {
+                    _userId = uid.Value;
+                    _isValid = true;
+                }
+            }
+        }
+        catch(Exception ex) 
+        {
+            Console.WriteLine(ex);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void NextStep() => _currentStep++;
+
+    private async Task DownloadConfig()
+    {
+        var configContent = await VpnConfigService.GenerateConfigForUserAsync(_userId);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(configContent);
+        var stream = new MemoryStream(bytes);
+        using var streamRef = new DotNetStreamReference(stream);
+        
+        await JSRuntime.InvokeVoidAsync("downloadFileFromStream", "gfc-access.conf", streamRef);
+        
+        // Advance to testing step automatically after download
+        _currentStep = 3;
+    }
+
+    private async Task TestConnection()
+    {
+        _isTesting = true;
+        _testResult = null;
+        StateHasChanged();
+        
+        // Simulate a small network delay
+        await Task.Delay(1500);
+        
+        _testResult = await VpnConfigService.TestVpnConnectionAsync();
+        _isTesting = false;
+    }
+
+    private string GetStepClass(int step)
+    {
+        if (_currentStep == step) return "border-primary text-primary fw-bold ring-active";
+        if (_currentStep > step) return "bg-primary text-white border-primary";
+        return "text-muted border-light";
+    }
+}

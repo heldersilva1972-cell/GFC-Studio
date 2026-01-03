@@ -97,6 +97,33 @@
                                 <InputCheckbox id="enforceVpn" class="form-check-input" @bind-Value="_settings.EnforceVpn" />
                                 <label class="form-check-label" for="enforceVpn">Enforce VPN for Remote Access</label>
                             </div>
+                            <div class="form-check form-switch mb-3">
+                                <InputCheckbox id="enableOnboarding" class="form-check-input" @bind-Value="_settings.EnableOnboarding" />
+                                <label class="form-check-label" for="enableOnboarding">Enable Device Onboarding Portal</label>
+                            </div>
+
+                            <hr class="my-4" />
+                            <h5>VPN Onboarding Invite</h5>
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="form-label">User ID to Invite</label>
+                                        <input type="number" class="form-control" @bind="_inviteUserId" placeholder="Enter User ID (default: current)" />
+                                    </div>
+                                    <button type="button" class="btn btn-outline-primary" @onclick="GenerateInviteLink">
+                                        <i class="bi bi-link-45deg"></i> Generate Invite Link
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(_generatedLink))
+                                    {
+                                        <div class="mt-3 alert alert-success">
+                                            <strong>Link Generated:</strong> <br/>
+                                            <code class="user-select-all">@_generatedLink</code>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <hr class="my-4" />
+
                             <button type="submit" class="btn btn-primary">Save Changes</button>
                         </EditForm>
                     </div>
@@ -140,6 +167,9 @@
     </div>
 </div>
 
+@inject NavigationManager NavigationManager
+@inject GFC.BlazorServer.Services.Vpn.IVpnConfigurationService VpnConfigurationService
+
 @code {
     private string _activeTab = "environment";
     private SystemSettings _settings;
@@ -148,14 +178,42 @@
     private string _boundPort = "N/A";
     private string _sslStatus = "N/A";
     private global::System.Security.Claims.ClaimsPrincipal _user;
+    
+    private int _inviteUserId;
+    private string _generatedLink;
 
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         _user = authState.User;
+        _inviteUserId = GetCurrentUserId(); // Default to self
         await LoadSettings();
         await LoadAuditLogs();
         LoadEffectiveConfiguration();
+    }
+
+    private async Task GenerateInviteLink()
+    {
+        if (_inviteUserId <= 0) return;
+        
+        var token = await VpnConfigurationService.CreateOnboardingTokenAsync(_inviteUserId);
+        var baeUri = NavigationManager.BaseUri.TrimEnd('/');
+        _generatedLink = $"{baeUri}/setup/{token}";
+        
+        // Log to console as requested
+        Console.WriteLine($"[VPN Invite] Link generated for User {_inviteUserId}: {_generatedLink}");
+        
+        // Log to Audit Log
+        AuditLogRepository.Insert(new AuditLogEntry
+        {
+            PerformedByUserId = GetCurrentUserId(),
+            TimestampUtc = DateTime.UtcNow,
+            Action = "VpnInviteGenerated",
+            Details = $"Generated onboarding link for User {_inviteUserId}"
+        });
+        
+        // Refresh logs to show the action
+        await LoadAuditLogs();
     }
 
     private async Task LoadSettings()
@@ -190,6 +248,7 @@
             await AuditChange("Absolute Session Max", originalSettings.AbsoluteSessionMaxMinutes.ToString(), _settings.AbsoluteSessionMaxMinutes.ToString());
             await AuditChange("Magic Link Enabled", originalSettings.MagicLinkEnabled.ToString(), _settings.MagicLinkEnabled.ToString());
             await AuditChange("Enforce VPN", originalSettings.EnforceVpn.ToString(), _settings.EnforceVpn.ToString());
+            await AuditChange("Enable Onboarding", originalSettings.EnableOnboarding.ToString(), _settings.EnableOnboarding.ToString());
 
             await SystemSettingsService.UpdateAsync(_settings);
             await LoadAuditLogs();

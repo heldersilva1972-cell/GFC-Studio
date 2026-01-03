@@ -68,6 +68,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.KeyCard> KeyCards => Set<GFC.Core.Models.KeyCard>();
     public DbSet<TrustedDevice> TrustedDevices => Set<TrustedDevice>();
     public DbSet<MagicLinkToken> MagicLinkTokens => Set<MagicLinkToken>();
+    public DbSet<VpnOnboardingToken> VpnOnboardingTokens => Set<VpnOnboardingToken>();
     // public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>(); // Commented due to CS0102 duplicate error - duplicate location unknown
 
     // GFC Ecosystem Foundation

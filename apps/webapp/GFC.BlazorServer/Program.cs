@@ -235,6 +235,7 @@ builder.Services.AddScoped<GFC.Core.Interfaces.ISystemSettingsService, SystemSet
 builder.Services.AddScoped<IBlazorSystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IUrlHelperService, UrlHelperService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<GFC.BlazorServer.Services.Vpn.IVpnConfigurationService, GFC.BlazorServer.Services.Vpn.VpnConfigurationService>();
 builder.Services.AddSingleton<TunnelStatusService>();
 builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();

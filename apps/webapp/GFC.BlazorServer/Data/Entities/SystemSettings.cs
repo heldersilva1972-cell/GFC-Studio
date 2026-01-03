@@ -99,4 +99,5 @@ public class SystemSettings
 
     public bool EnforceVpn { get; set; } = false;
     public GFC.Core.Enums.AccessMode AccessMode { get; set; } = GFC.Core.Enums.AccessMode.Open;
+    public bool EnableOnboarding { get; set; } = false;
 }
