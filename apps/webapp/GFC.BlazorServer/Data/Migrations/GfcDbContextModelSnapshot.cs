@@ -1271,6 +1271,13 @@ namespace GFC.BlazorServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AccessMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("Open");
+
                     b.Property<string>("CloudflareTunnelToken")
                         .HasColumnType("nvarchar(max)");
 
@@ -1279,6 +1286,11 @@ namespace GFC.BlazorServer.Data.Migrations
 
                     b.Property<bool>("EnableConnectionQualityAlerts")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("EnforceVpn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("EnableFailedLoginProtection")
                         .HasColumnType("bit");

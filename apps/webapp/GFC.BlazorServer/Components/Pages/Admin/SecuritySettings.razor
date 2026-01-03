@@ -1,5 +1,6 @@
 // [NEW]
 @page "/admin/security-settings"
+@using GFC.Core.Enums
 @using GFC.Core.Models
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Data.Entities
@@ -9,6 +10,7 @@
 @inject IVpnManagementService VpnManagementService
 @inject IJSRuntime JSRuntime
 @inject IUserManagementService UserManagementService
+@inject IUserConnectionService UserConnectionService
 
 <h3>Security & Remote Access <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
 
@@ -220,6 +222,36 @@ else
         </div>
     </EditForm>
 
+    @* Access Control *@
+    <div class="form-card mt-4">
+        <div class="form-card-header">
+            <i class="bi bi-shield-check"></i>
+            <h5>Access Control</h5>
+        </div>
+        <div class="form-card-body">
+            <p>Your detected connection type: <strong>@UserConnectionService.LocationType</strong></p>
+            <div class="form-check form-switch mb-2">
+                <InputCheckbox id="enforceVpn" class="form-check-input" @bind-Value="_settings.EnforceVpn" @oninput="OnEnforceVpnChanged" />
+                <label for="enforceVpn" class="form-check-label">Enforce VPN/LAN Access</label>
+            </div>
+            @if (_showVpnWarning)
+            {
+                <div class="alert alert-warning mt-2">
+                    <strong>Warning:</strong> You are not currently detected as being on a VPN or LAN. Enabling this option may lock you out of the application.
+                </div>
+            }
+            <div class="mb-3">
+                <label for="accessMode" class="form-label">Access Mode</label>
+                <InputSelect id="accessMode" class="form-select" @bind-Value="_settings.AccessMode">
+                    @foreach (var mode in Enum.GetValues(typeof(AccessMode)))
+                    {
+                        <option value="@mode">@mode</option>
+                    }
+                </InputSelect>
+            </div>
+        </div>
+    </div>
+
     @* Emergency Lockdown *@
     <div class="form-card mt-4 border-danger">
         <div class="form-card-header bg-danger text-white">
@@ -243,6 +275,7 @@ else
     private List<UserListItemDto> _allUsers = new();
     private string _errorMessage;
     private string _successMessage;
+    private bool _showVpnWarning = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -317,6 +350,19 @@ else
         catch (Exception ex)
         {
             _errorMessage = $"Error removing authorized user: {ex.Message}";
+        }
+    }
+
+    private void OnEnforceVpnChanged(ChangeEventArgs e)
+    {
+        bool isEnforced = (bool)(e.Value ?? false);
+        if (isEnforced && UserConnectionService.LocationType == LocationType.Public)
+        {
+            _showVpnWarning = true;
+        }
+        else
+        {
+            _showVpnWarning = false;
         }
     }
 }

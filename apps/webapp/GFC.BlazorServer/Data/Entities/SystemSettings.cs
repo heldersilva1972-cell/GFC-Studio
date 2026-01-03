@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using GFC.Core.Enums;
 
 namespace GFC.BlazorServer.Data.Entities;
 
@@ -80,4 +81,12 @@ public class SystemSettings
 
     // Cloudflare & WireGuard Remote Access Settings (Phase 1)
     public string? LanSubnet { get; set; } = "192.168.1.0/24";
+
+    // VPN Awareness and Enforcement (Phase 3)
+    [DefaultValue(false)]
+    public bool EnforceVpn { get; set; } = false;
+
+    [DefaultValue(AccessMode.Open)]
+    [Column(TypeName = "nvarchar(50)")]
+    public AccessMode AccessMode { get; set; } = AccessMode.Open;
 }
