@@ -56,7 +56,14 @@
                 {
                     <i class="bi bi-moon-stars-fill"></i>
                 }
+                }
             </button>
+            @if (_canInstallPwa && !_isPwaInstalled)
+            {
+                <button class="app-link-button ms-2" @onclick="InstallPwa" title="Install App">
+                    <i class="bi bi-download me-1"></i> Install App
+                </button>
+            }
         </div>
     </header>
 
@@ -103,6 +110,9 @@
     private System.Threading.Timer? _sessionTimer;
     private bool _isControllerOnline = false;
 
+    private bool _canInstallPwa = false;
+    private bool _isPwaInstalled = false;
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -115,8 +125,10 @@
             _healthTimer = new System.Threading.Timer(async _ => 
             {
                 UpdateControllerStatus();
+                // Check PWA status periodically
+                await CheckPwaStatus();
                 await InvokeAsync(StateHasChanged);
-            }, null, 5000, 5000);
+            }, null, 3000, 5000);
 
             var settings = await SystemSettingsService.GetSystemSettingsAsync();
             var absoluteSessionMaxMinutes = settings?.AbsoluteSessionMaxMinutes ?? 1440;
@@ -142,6 +154,42 @@
         {
             _currentUsername = "Unknown";
             _isAdmin = false;
+        }
+    }
+
+    private async Task CheckPwaStatus()
+    {
+        try
+        {
+            _canInstallPwa = await JSRuntime.InvokeAsync<bool>("window.GFC.canInstall");
+            _isPwaInstalled = await JSRuntime.InvokeAsync<bool>("window.GFC.isPwaInstalled");
+        }
+        catch 
+        {
+            // Ignore JS interop errors during prerendering or if script not loaded
+        }
+    }
+
+    private async Task InstallPwa()
+    {
+        try
+        {
+            var isIOS = await JSRuntime.InvokeAsync<bool>("window.GFC.isIOS");
+            if (isIOS)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "To install on iOS: Tap the Share button in Safari, then select 'Add to Home Screen'.");
+            }
+            else
+            {
+                await JSRuntime.InvokeAsync<bool>("window.GFC.triggerInstall");
+                // Recheck status after attempt
+                await Task.Delay(1000); 
+                await CheckPwaStatus();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"PWA Install Error: {ex.Message}");
         }
     }
 
