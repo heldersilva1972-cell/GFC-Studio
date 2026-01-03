@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using GFC.Core.Enums;
 
 namespace GFC.BlazorServer.Data.Entities;
 
@@ -49,7 +50,11 @@ public class SystemSettings
 
     // Phase 5: VPN and Remote Access Security
     public string? CloudflareTunnelToken { get; set; } // Encrypted
-    public string? PublicDomain { get; set; } // e.g., gfc-cameras.yourclub.com
+    public string? PrimaryDomain { get; set; } // e.g., gfc-cameras.yourclub.com
+    public string? AllowedDomains { get; set; } // Comma-separated list of allowed domains
+    public string? DomainSwitchPending { get; set; }
+    public DateTime? DomainSwitchExpiryUtc { get; set; }
+    public string? LastConfirmedDomain { get; set; }
     public int WireGuardPort { get; set; } = 51820;
     public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
     public string? WireGuardServerPublicKey { get; set; }
@@ -81,13 +86,14 @@ public class SystemSettings
     // Cloudflare & WireGuard Remote Access Settings (Phase 1)
     public string? LanSubnet { get; set; } = "192.168.1.0/24";
 
-    // Session Management
-    [DefaultValue(20)]
-    public int IdleTimeoutMinutes { get; set; } = 20;
+    // Hosting & Security Framework (Phase 2)
+    [StringLength(20)]
+    public string HostingEnvironment { get; set; } = "Dev"; // Dev, Staging, Prod
 
-    [DefaultValue(1440)]
-    public int AbsoluteSessionMaxMinutes { get; set; } = 1440; // 24 hours
+    [Range(1, 365)]
+    public int DeviceTrustDurationDays { get; set; } = 30;
 
-    [DefaultValue(30)]
-    public int TrustedDeviceDurationDays { get; set; } = 30;
+    public bool MagicLinkEnabled { get; set; } = true;
+
+    public bool EnforceVpn { get; set; } = false;
 }

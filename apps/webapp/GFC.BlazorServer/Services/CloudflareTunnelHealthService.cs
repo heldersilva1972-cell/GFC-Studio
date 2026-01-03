@@ -58,7 +58,7 @@ namespace GFC.BlazorServer.Services
             var dbContext = scope.ServiceProvider.GetRequiredService<GfcDbContext>();
             var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
 
-            if (string.IsNullOrWhiteSpace(settings?.PublicDomain))
+            if (string.IsNullOrWhiteSpace(settings?.PrimaryDomain))
             {
                 await _tunnelStatusService.SetStatusAsync(false);
                 return;
@@ -67,7 +67,7 @@ namespace GFC.BlazorServer.Services
             var httpClient = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient();
             try
             {
-                var response = await httpClient.GetAsync($"https://{settings.PublicDomain}/health");
+                var response = await httpClient.GetAsync($"https://{settings.PrimaryDomain}/health");
                 await _tunnelStatusService.SetStatusAsync(response.IsSuccessStatusCode);
             }
             catch (Exception ex)

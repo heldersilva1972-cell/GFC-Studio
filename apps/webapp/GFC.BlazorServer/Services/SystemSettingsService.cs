@@ -80,7 +80,7 @@ public class SystemSettingsService : ISystemSettingsService
         _logger.LogInformation("Updated NVR credentials");
     }
 
-    public async Task UpdateSecuritySettingsAsync(SystemSettings settings)
+    public async Task UpdateAsync(SystemSettings settings)
     {
         await using var dbContext = await _contextFactory.CreateDbContextAsync();
         var existingSettings = await dbContext.SystemSettings.FindAsync(1);
@@ -88,7 +88,11 @@ public class SystemSettingsService : ISystemSettingsService
 
         // Remote Access Configuration
         existingSettings.CloudflareTunnelToken = settings.CloudflareTunnelToken;
-        existingSettings.PublicDomain = settings.PublicDomain;
+        existingSettings.PrimaryDomain = settings.PrimaryDomain;
+        existingSettings.AllowedDomains = settings.AllowedDomains;
+        existingSettings.DomainSwitchPending = settings.DomainSwitchPending;
+        existingSettings.DomainSwitchExpiryUtc = settings.DomainSwitchExpiryUtc;
+        existingSettings.LastConfirmedDomain = settings.LastConfirmedDomain;
         existingSettings.WireGuardPort = settings.WireGuardPort;
         existingSettings.WireGuardSubnet = settings.WireGuardSubnet;
         existingSettings.LanSubnet = settings.LanSubnet;
@@ -118,10 +122,16 @@ public class SystemSettingsService : ISystemSettingsService
         existingSettings.EnableConnectionQualityAlerts = settings.EnableConnectionQualityAlerts;
         existingSettings.MinimumBandwidthMbps = settings.MinimumBandwidthMbps;
 
+        // Hosting & Security Framework (Phase 2)
+        existingSettings.HostingEnvironment = settings.HostingEnvironment;
+        existingSettings.DeviceTrustDurationDays = settings.DeviceTrustDurationDays;
+        existingSettings.MagicLinkEnabled = settings.MagicLinkEnabled;
+        existingSettings.EnforceVpn = settings.EnforceVpn;
+
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
         await dbContext.SaveChangesAsync();
-        _logger.LogInformation("Updated security settings");
+        _logger.LogInformation("Updated system settings");
     }
 }
 

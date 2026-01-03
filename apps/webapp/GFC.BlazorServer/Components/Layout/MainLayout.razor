@@ -1,6 +1,7 @@
 // [MODIFIED]
 @using GFC.BlazorServer.Components.Common
 @inherits LayoutComponentBase
+@using GFC.Core.Enums
 @using GFC.BlazorServer.Services
 @using Microsoft.AspNetCore.Authorization
 @using GFC.Core.Interfaces
@@ -24,6 +25,9 @@
             <span class="app-title">GFC Membership System</span>
         </div>
         <div class="app-topbar-right">
+            <div class="security-badge @GetSecurityBadgeClass()">
+                @GetSecurityBadgeText()
+            </div>
             <div class="connection-status @GetConnectionStatusClass()" title="Card Access Controller Status">
                 <i class="bi @GetConnectionStatusIcon()"></i>
                 <span>@_connectionStatus</span>
@@ -103,6 +107,7 @@
     {
         try
         {
+            await CheckVpnEnforcement();
             await UpdateUserInfo();
             
             UpdateControllerStatus();
@@ -137,6 +142,40 @@
         {
             _currentUsername = "Unknown";
             _isAdmin = false;
+        }
+    }
+
+    private async Task CheckVpnEnforcement()
+    {
+        var settings = await SystemSettingsService.GetAsync();
+        if (!settings.EnforceVpn || UserConnectionService.LocationType == LocationType.Local)
+        {
+            return;
+        }
+
+        bool shouldBlock = false;
+        switch (settings.AccessMode)
+        {
+            case AccessMode.VpnOnly:
+                if (UserConnectionService.LocationType != LocationType.VPN)
+                {
+                    shouldBlock = true;
+                }
+                break;
+            case AccessMode.LanOrVpn:
+                if (UserConnectionService.LocationType != LocationType.LAN && UserConnectionService.LocationType != LocationType.VPN)
+                {
+                    shouldBlock = true;
+                }
+                break;
+            case AccessMode.Open:
+            default:
+                break;
+        }
+
+        if (shouldBlock)
+        {
+            Navigation.NavigateTo("/vpn-required");
         }
     }
 
@@ -227,5 +266,29 @@
         var status = ControllerHealthService.GetHealthStatus();
         _isControllerOnline = status.IsOnline;
         _connectionStatus = _isControllerOnline ? "Card Access Controller: Online" : "Card Access Controller: Offline";
+    }
+
+    private string GetSecurityBadgeClass()
+    {
+        return UserConnectionService.LocationType switch
+        {
+            LocationType.VPN => "status-secure",
+            LocationType.LAN => "status-secure",
+            LocationType.Local => "status-secure",
+            LocationType.Public => "status-public",
+            _ => "status-unknown"
+        };
+    }
+
+    private string GetSecurityBadgeText()
+    {
+        return UserConnectionService.LocationType switch
+        {
+            LocationType.VPN => "🔒 Secure (VPN)",
+            LocationType.LAN => "🔒 Secure (LAN)",
+            LocationType.Local => "🔒 Secure (Local)",
+            LocationType.Public => "⚠️ Public Web",
+            _ => "❓ Unknown Connection"
+        };
     }
 }

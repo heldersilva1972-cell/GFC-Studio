@@ -230,6 +230,8 @@ public class Program
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
 builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+builder.Services.AddScoped<IUrlHelperService, UrlHelperService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddSingleton<TunnelStatusService>();
 builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();

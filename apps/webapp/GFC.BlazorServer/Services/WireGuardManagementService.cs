@@ -98,7 +98,7 @@ namespace GFC.BlazorServer.Services
             config.AppendLine();
             config.AppendLine("[Peer]");
             config.AppendLine($"PublicKey = {settings.WireGuardServerPublicKey}");
-            config.AppendLine($"Endpoint = {settings.PublicDomain}:{settings.WireGuardPort}");
+            config.AppendLine($"Endpoint = {settings.PrimaryDomain}:{settings.WireGuardPort}");
             config.AppendLine($"AllowedIPs = {settings.WireGuardAllowedIPs}");
             config.AppendLine("PersistentKeepalive = 25");
 
