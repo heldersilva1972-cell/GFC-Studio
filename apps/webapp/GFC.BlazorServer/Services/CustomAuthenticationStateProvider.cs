@@ -1,3 +1,4 @@
+// [MODIFIED]
 using System;
 using System.Security.Claims;
 using GFC.BlazorServer.Auth;
@@ -5,6 +6,7 @@ using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
+using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Services;
 
@@ -12,17 +14,19 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
 {
     private readonly IAuthenticationService _authenticationService;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IUserSessionService _userSessionService;
 
-    // In-memory principal; Blazor Server app is per-connection so this is OK here.
     private ClaimsPrincipal _currentPrincipal = CreateUnauthenticatedPrincipal();
     private AppUser? _currentUser;
 
     public CustomAuthenticationStateProvider(
         IAuthenticationService authenticationService,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IUserSessionService userSessionService)
     {
         _authenticationService = authenticationService ?? throw new ArgumentNullException(nameof(authenticationService));
         _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
+        _userSessionService = userSessionService ?? throw new ArgumentNullException(nameof(userSessionService));
     }
 
     public override Task<AuthenticationState> GetAuthenticationStateAsync()
@@ -45,44 +49,51 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
             claims.Add(new Claim(ClaimTypes.Role, AppRoles.Admin));
         }
 
-        // Add more claims (e.g., roles) later if needed.
-
         var identity = new ClaimsIdentity(claims, authenticationType: "GfcAuth");
         return new ClaimsPrincipal(identity);
     }
 
-    public async Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null)
+    public async Task<LoginResult> LoginAsync(string username, string password, bool rememberDevice, string? ipAddress = null)
     {
-        // Delegate to AuthenticationService.LoginAsync (which already does all validation + history logging)
-        var result = await _authenticationService.LoginAsync(username, password, ipAddress);
-
+        var result = await _authenticationService.LoginAsync(username, password, ipAddress, rememberDevice);
+        if (result.Success)
+        {
+            _userSessionService.SetLoginTime(DateTime.UtcNow);
+        }
         RefreshFromAuthenticationService();
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+        return result;
+    }
 
+    public async Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null)
+    {
+        var result = await _authenticationService.LoginWithDeviceTokenAsync(token, ipAddress);
+        if (result.Success)
+        {
+            _userSessionService.SetLoginTime(DateTime.UtcNow);
+        }
+        RefreshFromAuthenticationService();
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
         return result;
     }
 
     public async Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null)
     {
         var result = await _authenticationService.VerifyMfaCodeAsync(userId, code, ipAddress);
-
+        if (result.Success)
+        {
+            _userSessionService.SetLoginTime(DateTime.UtcNow);
+        }
         RefreshFromAuthenticationService();
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
-
         return result;
     }
 
-    public void Logout()
+    public async Task LogoutAsync(string? deviceToken = null)
     {
-        _authenticationService.Logout();
+        await _authenticationService.LogoutAsync(deviceToken);
         RefreshFromAuthenticationService();
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
-    }
-
-    public async Task LogoutAsync()
-    {
-        Logout();
-        await Task.CompletedTask;
     }
 
     public AppUser? GetCurrentUser()
@@ -112,11 +123,9 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
                 _currentUser = serviceUser;
                 _currentPrincipal = BuildPrincipal(serviceUser);
             }
-
             return;
         }
 
-        // Allow development-only auto-admin principal to flow from middleware.
         if (IsDevPrincipal(_currentPrincipal))
         {
             return;

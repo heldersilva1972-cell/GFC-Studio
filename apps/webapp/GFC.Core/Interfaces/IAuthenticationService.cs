@@ -4,10 +4,11 @@ namespace GFC.Core.Interfaces;
 
 public interface IAuthenticationService
 {
-    Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null);
-    Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null);
+    Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false);
+    Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null);
+    Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false);
     MfaSetupInfo GenerateMfaSetup(AppUser user);
-    void Logout();
+    Task LogoutAsync(string? deviceToken = null);
     AppUser? GetCurrentUser();
 }
 
@@ -27,5 +28,6 @@ public class LoginResult
     public AppUser? User { get; set; }
     public bool PasswordChangeRequired { get; set; }
     public string? ErrorMessageForLog { get; set; }
+    public string? DeviceToken { get; set; }
 }
 

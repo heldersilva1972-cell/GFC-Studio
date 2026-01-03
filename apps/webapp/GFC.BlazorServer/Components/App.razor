@@ -1,33 +1,66 @@
-﻿@using GFC.BlazorServer.Components.Common
+// [MODIFIED]
+@using GFC.BlazorServer.Components.Common
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
 
 <CascadingAuthenticationState>
     <ErrorBoundary>
         <ChildContent>
-            <Router AppAssembly="@typeof(Program).Assembly">
-                <Found Context="routeData">
-                    @if (IsLoginRoute(routeData.PageType))
-                    {
-                        <RouteView RouteData="routeData" DefaultLayout="null" />
-                    }
-                    else if (IsFullPageRoute(routeData.PageType))
-                    {
-                        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.FullPageLayout)" />
-                    }
-                    else
-                    {
-                        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-                    }
-                    <FocusOnNavigate RouteData="routeData" Selector="h1" />
-                </Found>
-                <NotFound>
-                    <LayoutView Layout="typeof(Layout.MainLayout)">
-                        <div class="data-card">
-                            <h3>Page not found</h3>
-                            <p class="text-muted mb-0">The requested page does not exist.</p>
+            @if (_isAuthenticating)
+            {
+                <div class="app-shell">
+                    <div class="app-main" style="display: flex; justify-content: center; align-items: center; height: 100vh;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
                         </div>
-                    </LayoutView>
-                </NotFound>
-            </Router>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <Router AppAssembly="@typeof(Program).Assembly">
+                    <Found Context="routeData">
+                        @if (IsLoginRoute(routeData.PageType))
+                        {
+                            <RouteView RouteData="routeData" DefaultLayout="null" />
+                        }
+                        else if (IsFullPageRoute(routeData.PageType))
+                        {
+                            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.FullPageLayout)" />
+                        }
+                        else
+                        {
+                            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                                <NotAuthorized>
+                                    @{
+                                        var returnUrl = Navigation.ToBaseRelativePath(Navigation.Uri);
+                                        if (string.IsNullOrWhiteSpace(returnUrl))
+                                        {
+                                            Navigation.NavigateTo("/login", true);
+                                        }
+                                        else
+                                        {
+                                            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", true);
+                                        }
+                                    }
+                                </NotAuthorized>
+                            </AuthorizeRouteView>
+                        }
+                        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+                    </Found>
+                    <NotFound>
+                        <LayoutView Layout="typeof(Layout.MainLayout)">
+                            <div class="data-card">
+                                <h3>Page not found</h3>
+                                <p class="text-muted mb-0">The requested page does not exist.</p>
+                            </div>
+                        </LayoutView>
+                    </NotFound>
+                </Router>
+            }
         </ChildContent>
         <ErrorContent>
             <div class="app-error">
@@ -45,7 +78,36 @@
 </CascadingAuthenticationState>
 
 @code {
-    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    private bool _isAuthenticating = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
+        {
+            try
+            {
+                var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    var result = await AuthStateProvider.LoginWithDeviceTokenAsync(token);
+                    if (result.Success && !string.IsNullOrWhiteSpace(result.DeviceToken))
+                    {
+                        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
+                    }
+                    else if (!result.Success)
+                    {
+                        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+            }
+        }
+        _isAuthenticating = false;
+    }
 
     private static bool IsLoginRoute(System.Type? pageType) =>
         pageType == typeof(GFC.BlazorServer.Components.Pages.Login);

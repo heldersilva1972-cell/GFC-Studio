@@ -80,4 +80,14 @@ public class SystemSettings
 
     // Cloudflare & WireGuard Remote Access Settings (Phase 1)
     public string? LanSubnet { get; set; } = "192.168.1.0/24";
+
+    // Session Management
+    [DefaultValue(20)]
+    public int IdleTimeoutMinutes { get; set; } = 20;
+
+    [DefaultValue(1440)]
+    public int AbsoluteSessionMaxMinutes { get; set; } = 1440; // 24 hours
+
+    [DefaultValue(30)]
+    public int TrustedDeviceDurationDays { get; set; } = 30;
 }
