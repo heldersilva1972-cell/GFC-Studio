@@ -212,6 +212,7 @@ public class Program
 
         builder.Services.AddScoped<IDataProtectionService, DataProtectionService>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.Migration.IMigrationService, GFC.BlazorServer.Services.Migration.MigrationService>();
+        builder.Services.AddScoped<GFC.BlazorServer.Services.Migration.IMigrationReportService, GFC.BlazorServer.Services.Migration.MigrationReportService>();
 
         // Network Location Service (registered above as Scoped)
         builder.Services.AddScoped<IUserConnectionService, UserConnectionService>();

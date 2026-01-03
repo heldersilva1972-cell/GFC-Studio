@@ -1,0 +1,89 @@
+@page "/admin/system/migration/report/{ProfileId:int}"
+@using GFC.BlazorServer.Services.Migration
+@using GFC.Core.Helpers
+@using Microsoft.AspNetCore.Authorization
+@using GFC.BlazorServer.Components.Layout
+@inject IMigrationReportService ReportService
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@layout FullPageLayout
+
+<div class="report-container">
+    @if (_loading)
+    {
+        <div style="text-align:center; padding: 50px;">Generating Report View...</div>
+    }
+    else if (string.IsNullOrEmpty(_reportContent))
+    {
+        <div style="color: red; text-align: center;">Report not found for this profile.</div>
+    }
+    else
+    {
+        <pre class="report-content">@_reportContent</pre>
+        
+        <div class="print-actions no-print">
+            <button onclick="window.print()">Print / Save to PDF</button>
+            <button onclick="window.close()">Close</button>
+        </div>
+    }
+</div>
+
+<style>
+    body { 
+        font-family: 'Courier New', Courier, monospace; 
+        background-color: white;
+        margin: 0;
+        padding: 20px;
+    }
+    .report-content {
+        white-space: pre-wrap;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+    .no-print {
+        padding: 20px 0;
+        text-align: center;
+        background: #f0f0f0;
+        border-top: 1px solid #ccc;
+        margin-top: 20px;
+    }
+    button {
+        padding: 10px 20px;
+        margin: 0 10px;
+        cursor: pointer;
+        font-size: 16px;
+    }
+    @@media print {
+        .no-print { display: none; }
+        body { padding: 0; }
+        .report-content { font-size: 12px; }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public int ProfileId { get; set; }
+
+    private string? _reportContent;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Try getting existing first
+        _reportContent = await ReportService.GetFormattedReportAsync(ProfileId);
+        
+        // If empty (e.g. migration done before feature added, or error), try generating
+        if (string.IsNullOrEmpty(_reportContent))
+        {
+             try 
+             {
+                _reportContent = await ReportService.GenerateReportAsync(ProfileId);
+             }
+             catch
+             {
+                 // Ignore error, show not found
+             }
+        }
+        
+        _loading = false;
+    }
+}

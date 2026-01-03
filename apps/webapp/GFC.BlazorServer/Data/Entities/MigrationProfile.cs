@@ -27,6 +27,9 @@ public class MigrationProfile
     /// JSON string storing the state of each gate (e.g., {"VPN": true, "Backup": false})
     /// </summary>
     public string GatesStatusJson { get; set; } = "{}";
+
+    public string? ReportContentTxt { get; set; }
+    public DateTime? ReportGeneratedAtUtc { get; set; }
 }
 
 public class GateStatus

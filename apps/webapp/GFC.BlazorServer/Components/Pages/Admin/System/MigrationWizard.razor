@@ -5,6 +5,7 @@
 @using global::System.Text.Json
 @using GFC.Core.Interfaces
 @inject IMigrationService MigrationService
+@inject IMigrationReportService ReportService
 @inject IBlazorSystemSettingsService SettingsService
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
@@ -247,9 +248,26 @@
             <div class="card-footer p-4 text-center bg-light">
                 @if (_activeProfile.IsCompleted)
                 {
-                    <p class="text-success fw-bold mb-0">
-                        <i class="bi bi-rocket-takeoff-fill me-1"></i> System is LIVE in Production mode.
-                    </p>
+                    <div class="mb-3">
+                        <p class="text-success fw-bold fs-5 mb-2">
+                            <i class="bi bi-rocket-takeoff-fill me-1"></i> System is LIVE in Production mode.
+                        </p>
+                        @if (!string.IsNullOrEmpty(_activeProfile.ReportContentTxt))
+                        {
+                            <div class="d-flex justify-content-center gap-2 mt-3">
+                                <a href="@GetReportDataUri()" download="@GetReportFileName()" class="btn btn-outline-dark">
+                                    <i class="bi bi-file-text me-1"></i> Download Verification Report (TXT)
+                                </a>
+                                <a href="/admin/system/migration/report/@_activeProfile.Id" target="_blank" class="btn btn-primary">
+                                    <i class="bi bi-printer me-1"></i> View Formal Report
+                                </a>
+                            </div>
+                        }
+                        else
+                        {
+                            <span class="text-muted fst-italic">Generating verification report...</span>
+                        }
+                    </div>
                 }
                 else
                 {
@@ -313,14 +331,6 @@
     private async Task LoadEnvInfo()
     {
         var settings = await SettingsService.GetAsync();
-        // Since IBlazorSystemSettingsService returns entity or DTO with properties dynamically, we assume HostingEnvironment is available.
-        // If the DTO hasn't been updated in this context, we might check directly. 
-        // For this implementation, we will try to read it dynamically if possible, or fallback.
-        // Given recent updates to SystemSettings.cs, it should be available if the interface exposes it. 
-        // Interface update was not explicitly requested but entity was. 
-        // We'll rely on the DB Entity access in the service for the functional logic, here just display.
-        // We'll trust that SystemSettings entity has it.
-        // Note: We injected IBlazorSystemSettingsService which returns the Entity SystemSettings in the default implementation.
         if (settings != null)
         {
            _currentEnv = settings.HostingEnvironment; 
@@ -398,6 +408,9 @@
          
          if (success)
          {
+             // Generate Report
+             await ReportService.GenerateReportAsync(_activeProfile.Id);
+             
              await ReloadActiveProfile();
              await LoadEnvInfo();
          }
@@ -407,6 +420,19 @@
          }
          
          _isFinalizing = false;
+    }
+
+    private string GetReportDataUri()
+    {
+        if (_activeProfile == null || string.IsNullOrEmpty(_activeProfile.ReportContentTxt)) return "#";
+        // Encodes the content as a data URI for client-side downloading
+        return $"data:text/plain;charset=utf-8,{Uri.EscapeDataString(_activeProfile.ReportContentTxt)}";
+    }
+
+    private string GetReportFileName()
+    {
+        if (_activeProfile == null) return "report.txt";
+        return $"GFC_Deployment_Verified_{_activeProfile.Name.Replace(" ", "_")}_{DateTime.UtcNow:yyyyMMdd}.txt";
     }
 
     private Dictionary<string, GateStatus> GetGatesDictionary()
