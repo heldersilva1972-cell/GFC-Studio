@@ -88,7 +88,11 @@ public class SystemSettingsService : ISystemSettingsService
 
         // Remote Access Configuration
         existingSettings.CloudflareTunnelToken = settings.CloudflareTunnelToken;
-        existingSettings.PublicDomain = settings.PublicDomain;
+        existingSettings.PrimaryDomain = settings.PrimaryDomain;
+        existingSettings.AllowedDomains = settings.AllowedDomains;
+        existingSettings.DomainSwitchPending = settings.DomainSwitchPending;
+        existingSettings.DomainSwitchExpiryUtc = settings.DomainSwitchExpiryUtc;
+        existingSettings.LastConfirmedDomain = settings.LastConfirmedDomain;
         existingSettings.WireGuardPort = settings.WireGuardPort;
         existingSettings.WireGuardSubnet = settings.WireGuardSubnet;
         existingSettings.LanSubnet = settings.LanSubnet;
