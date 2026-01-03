@@ -1,0 +1,84 @@
+@page "/auth/magic-login"
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@inject NavigationManager Navigation
+@inject IMagicLinkService MagicLinkService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<MagicLogin> Logger
+
+<PageTitle>Verifying Login - GFC</PageTitle>
+
+<div class="d-flex min-vh-100 flex-column justify-content-center align-items-center bg-light">
+    <div class="card shadow-sm p-5 text-center" style="max-width: 500px; width: 100%;">
+        @if (_isLoading)
+        {
+            <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <h4 class="mb-2">Verifying Link</h4>
+            <p class="text-muted">Please wait while we log you in securely...</p>
+        }
+        else
+        {
+            <div class="text-danger mb-3">
+                <i class="bi bi-x-circle" style="font-size: 3rem;"></i>
+            </div>
+            <h4 class="text-danger mb-3">Login Failed</h4>
+            <p class="text-muted mb-4">@_errorMessage</p>
+            <a href="/login" class="btn btn-primary w-100">Return to Login</a>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? Token { get; set; }
+
+    private bool _isLoading = true;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Add a small delay for UX so the loading spinner isn't just a flash
+        await Task.Delay(500);
+
+        try 
+        {
+            if (string.IsNullOrWhiteSpace(Token))
+            {
+                _errorMessage = "Missing or invalid login token.";
+                _isLoading = false;
+                return;
+            }
+
+            var userId = await MagicLinkService.ValidateTokenAsync(Token);
+
+            if (userId.HasValue)
+            {
+                var result = await AuthStateProvider.LoginWithUserAsync(userId.Value);
+                if (result.Success)
+                {
+                    Navigation.NavigateTo("/", forceLoad: true);
+                    return;
+                }
+                else
+                {
+                    _errorMessage = "Login failed: " + (result.ErrorMessageForLog ?? "Account may be locked or inactive.");
+                }
+            }
+            else
+            {
+                _errorMessage = "This login link is invalid, expired, or has already been used.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Magic Login Processing Error");
+            _errorMessage = "An unexpected system error occurred.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+}

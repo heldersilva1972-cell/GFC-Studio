@@ -196,6 +196,7 @@ public class Program
         builder.Services.AddScoped<IMaintenanceService, GFC.BlazorServer.Services.Maintenance.MaintenanceService>();
         builder.Services.AddScoped<IDoorConfigService, DoorConfigService>();
         builder.Services.AddScoped<DoorConfigSyncService>();
+        builder.Services.AddScoped<IMagicLinkService, MagicLinkService>();
         builder.Services.AddScoped<AutoOpenAndAdvancedModesService>();
         builder.Services.AddScoped<IMemberAccessService, MemberAccessService>();
         builder.Services.AddScoped<IMemberPrivilegeSyncService, MemberPrivilegeSyncService>();

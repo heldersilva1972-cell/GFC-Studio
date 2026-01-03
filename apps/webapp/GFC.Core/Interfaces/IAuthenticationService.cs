@@ -7,6 +7,7 @@ public interface IAuthenticationService
     Task<LoginResult> LoginAsync(string username, string password, string? ipAddress = null, bool rememberDevice = false);
     Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null);
     Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false);
+    Task<LoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null);
     MfaSetupInfo GenerateMfaSetup(AppUser user);
     Task LogoutAsync(string? deviceToken = null);
     AppUser? GetCurrentUser();

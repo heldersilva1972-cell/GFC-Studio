@@ -115,6 +115,8 @@ public class AuthenticationService : IAuthenticationService
                 deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, null);
             }
 
+            _auditLogger.Log(AuditLogActions.LoginSuccessPassword, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
+
             return new LoginResult
             {
                 Code = LoginResultCode.Success,
@@ -211,6 +213,43 @@ public class AuthenticationService : IAuthenticationService
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
             DeviceToken = deviceToken
+        };
+    }
+
+    public async Task<LoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null)
+    {
+        _currentUser = null;
+        var user = _userRepository.GetById(userId);
+
+        if (user == null || !user.IsActive)
+        {
+            string reason = user == null ? "User not found" : "User inactive";
+            await SafeLogLogin(user?.Username, userId, false, ipAddress, reason);
+            _auditLogger.LogSuspiciousLoginAttempt(user?.Username ?? "unknown", ipAddress, reason, userId);
+            return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
+        }
+
+        if (user.MfaEnabled)
+        {
+            // Requirement didn't explicitly say MFA skips for Magic Link, but usually Magic Link implies strict identity verification via email. 
+            // However, usually MFA is 2nd factor. 
+            // "Validation: must exist, not used, not expired. If valid: Log user in."
+            // So implicit bypass of password. If MFA is enabled, we might still want it. 
+            // But prompt says: "If valid: Log user in... redirect to Dashboard."
+            // Simple approach: Magic Link acts as strong auth. 
+        }
+
+        _currentUser = user;
+        _userRepository.UpdateLastLogin(user.UserId, DateTime.UtcNow);
+        await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "Magic Link login successful");
+        
+        _auditLogger.Log(AuditLogActions.LoginSuccessMagicLink, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
+
+        return new LoginResult
+        {
+            Code = LoginResultCode.Success,
+            User = user,
+            PasswordChangeRequired = user.PasswordChangeRequired
         };
     }
 

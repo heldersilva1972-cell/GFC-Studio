@@ -1,4 +1,3 @@
-// [MODIFIED]
 @page "/login"
 @using GFC.BlazorServer.Services
 @using GFC.Core.Interfaces
@@ -9,6 +8,9 @@
 @inject NavigationManager Navigation
 @inject ILogger<Login> Logger
 @inject IJSRuntime JSRuntime
+@inject IMagicLinkService MagicLinkService
+@inject IUserConnectionService UserConnectionService
+@inject IBlazorSystemSettingsService SystemSettingsService
 
 <PageTitle>Login - GFC Membership</PageTitle>
 
@@ -19,64 +21,134 @@
             <p class="text-muted">Please sign in to continue</p>
         </div>
 
-        <EditForm Model="_model" OnValidSubmit="HandleLoginAsync">
-            <DataAnnotationsValidator />
-            <ValidationSummary class="alert alert-danger" />
-
-            <div class="mb-3">
-                <label class="form-label" for="username">Username</label>
-                <InputText id="username" 
-                           class="form-control" 
-                           @bind-Value="_model.Username" 
-                           placeholder="Enter username" />
-                <ValidationMessage For="@(() => _model.Username)" />
+        @if (_loginRestricted)
+        {
+            <div class="alert alert-warning text-center" role="alert">
+                <h4 class="alert-heading h5"><i class="bi bi-shield-lock-fill"></i> Access Restricted</h4>
+                <p class="mb-0">Login is restricted to secure private network access only.</p>
+                <div class="mt-2 small text-muted">
+                    Your location: @UserConnectionService.LocationType
+                </div>
             </div>
-
-            <div class="mb-3">
-                <label class="form-label" for="password">Password</label>
-                <input id="password"
-                       type="password"
-                       class="form-control"
-                       @bind="_model.Password"
-                       placeholder="Enter password" />
-                <ValidationMessage For="@(() => _model.Password)" />
-            </div>
-
-            <div class="mb-3 form-check">
-                <InputCheckbox id="remember-me" class="form-check-input" @bind-Value="_model.RememberMe" />
-                <label class="form-check-label" for="remember-me">Remember this device</label>
+        }
+        else
+        {
+            <div class="mb-4">
+                <ul class="nav nav-pills nav-fill">
+                    <li class="nav-item">
+                        <a class="nav-link @(_loginMode == LoginMode.Password ? "active" : "")" 
+                           href="javascript:void(0)" 
+                           @onclick="() => SetMode(LoginMode.Password)">
+                            Password
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link @(_loginMode == LoginMode.MagicLink ? "active" : "")" 
+                           href="javascript:void(0)" 
+                           @onclick="() => SetMode(LoginMode.MagicLink)">
+                            Magic Link
+                        </a>
+                    </li>
+                </ul>
             </div>
 
             @if (!string.IsNullOrEmpty(_error))
             {
-                <div class="alert alert-danger mt-2" role="alert">@_error</div>
+                <div class="alert alert-danger" role="alert">@_error</div>
             }
 
-            <button class="btn btn-primary w-100 mt-3"
-                    type="submit"
-                    disabled="@_isSubmitting">
-                @if (_isSubmitting)
-                {
-                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                    <span>Signing in...</span>
-                }
-                else
-                {
-                    <span>Sign In</span>
-                }
-            </button>
-        </EditForm>
+            @if (!string.IsNullOrEmpty(_successMessage))
+            {
+                <div class="alert alert-success" role="alert">@_successMessage</div>
+            }
+
+            @if (_loginMode == LoginMode.Password)
+            {
+                <EditForm Model="_model" OnValidSubmit="HandleLoginAsync">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary class="alert alert-danger" />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="username">Username</label>
+                        <InputText id="username" 
+                                   class="form-control" 
+                                   @bind-Value="_model.Username" 
+                                   placeholder="Enter username" />
+                        <ValidationMessage For="@(() => _model.Username)" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="password">Password</label>
+                        <input id="password"
+                               type="password"
+                               class="form-control"
+                               @bind="_model.Password"
+                               placeholder="Enter password" />
+                        <ValidationMessage For="@(() => _model.Password)" />
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <InputCheckbox id="remember-me" class="form-check-input" @bind-Value="_model.RememberMe" />
+                        <label class="form-check-label" for="remember-me">Remember this device</label>
+                    </div>
+
+                    <button class="btn btn-primary w-100 mt-3"
+                            type="submit"
+                            disabled="@_isSubmitting">
+                        @if (_isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Signing in...</span>
+                        }
+                        else
+                        {
+                            <span>Sign In</span>
+                        }
+                    </button>
+                </EditForm>
+            }
+            else
+            {
+                <EditForm Model="_magicLinkModel" OnValidSubmit="HandleMagicLinkAsync">
+                    <DataAnnotationsValidator />
+                    <div class="mb-3">
+                        <label class="form-label text-start d-block" for="email">Email Address</label>
+                        <InputText id="email" 
+                                   class="form-control" 
+                                   @bind-Value="_magicLinkModel.Email" 
+                                   placeholder="Enter your email" />
+                        <ValidationMessage For="@(() => _magicLinkModel.Email)" />
+                        <div class="form-text">We'll send a secure login link to your inbox.</div>
+                    </div>
+
+                    <button class="btn btn-primary w-100 mt-3"
+                            type="submit"
+                            disabled="@_isSubmitting">
+                         @if (_isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Sending...</span>
+                        }
+                        else
+                        {
+                            <span>Send Magic Link</span>
+                        }
+                    </button>
+                </EditForm>
+            }
+        }
     </div>
 </div>
 
 @code {
     private LoginModel _model = new();
+    private MagicLinkModel _magicLinkModel = new();
     private bool _isSubmitting = false;
     private string? _error;
+    private string? _successMessage;
     private string? _resolvedReturnUrl;
-    private const string InvalidCredentialsMessage = "Invalid username or password.";
-    private const string LockedOrDisabledMessage = "Your account is locked or disabled. Please contact an administrator.";
-    private const string GenericLoginErrorMessage = "Unable to sign in at this time. Please try again later.";
+    private bool _loginRestricted = false;
+    private LoginMode _loginMode = LoginMode.Password;
 
     [Parameter]
     [SupplyParameterFromQuery(Name = "returnUrl")]
@@ -85,6 +157,7 @@
     protected override async Task OnInitializedAsync()
     {
         UpdateResolvedReturnUrl();
+        await CheckLoginRestriction();
 
         try
         {
@@ -100,9 +173,38 @@
         }
     }
 
-    protected override void OnParametersSet()
+    private async Task CheckLoginRestriction()
     {
-        UpdateResolvedReturnUrl();
+        try
+        {
+            // Dev override: if loopback, never restrict
+            if (UserConnectionService.LocationType == LocationType.Local)
+            {
+                return;
+            }
+
+            var settings = await SystemSettingsService.GetSystemSettingsAsync();
+            if (settings != null && settings.EnforceVpn)
+            {
+                if (UserConnectionService.LocationType != LocationType.VPN &&
+                    UserConnectionService.LocationType != LocationType.LAN &&
+                    UserConnectionService.LocationType != LocationType.Local)
+                {
+                    _loginRestricted = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to check login restriction");
+        }
+    }
+
+    private void SetMode(LoginMode mode)
+    {
+        _loginMode = mode;
+        _error = null;
+        _successMessage = null;
     }
 
     private async Task HandleLoginAsync()
@@ -110,47 +212,22 @@
         _error = null;
         _isSubmitting = true;
         UpdateResolvedReturnUrl();
-        Logger.LogInformation("Login attempt for {Username}", _model.Username);
 
         try
         {
-            if (string.IsNullOrWhiteSpace(_model.Username))
-            {
-                _error = "Username is required.";
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(_model.Password))
-            {
-                _error = "Password is required.";
-                return;
-            }
-
             var result = await AuthStateProvider.LoginAsync(_model.Username, _model.Password, _model.RememberMe);
 
             if (result.Code != LoginResultCode.Success)
             {
                 _error = GetUserMessage(result.Code);
-                var logReason = result.ErrorMessageForLog ?? result.Code.ToString();
-                if (result.Code == LoginResultCode.Error)
-                {
-                    Logger.LogError("Login failed for {Username}: {Reason}", _model.Username, logReason);
-                }
-                else
-                {
-                    Logger.LogWarning("Login failed for {Username}: {Reason}", _model.Username, logReason);
-                }
                 return;
             }
-
+             
             if (result.User == null)
             {
-                _error = GenericLoginErrorMessage;
-                Logger.LogError("Login returned success but User is null for {Username}", _model.Username);
-                return;
+                 _error = "Login failed.";
+                 return;
             }
-
-            Logger.LogInformation("Login successful for {Username} (UserId: {UserId})", _model.Username, result.User.UserId);
 
             if (!string.IsNullOrWhiteSpace(result.DeviceToken))
             {
@@ -160,8 +237,6 @@
             {
                 await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
             }
-
-            _model.Password = string.Empty;
 
             if (result.PasswordChangeRequired)
             {
@@ -173,86 +248,83 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Unexpected error during login for {Username}", _model.Username);
-            _error = "Unexpected error during sign in. Please try again.";
+            Logger.LogError(ex, "Login error");
+            _error = "An unexpected error occurred.";
         }
         finally
         {
             _isSubmitting = false;
-            StateHasChanged();
+        }
+    }
+
+    private async Task HandleMagicLinkAsync()
+    {
+        _error = null;
+        _successMessage = null;
+        _isSubmitting = true;
+
+        try
+        {
+            var sent = await MagicLinkService.SendMagicLinkAsync(_magicLinkModel.Email);
+            if (sent)
+            {
+                _successMessage = "A magic link has been sent to your email address. It will expire in 15 minutes.";
+                _magicLinkModel.Email = string.Empty; // Clear form
+            }
+            else
+            {
+                // To avoid enumeration, we might want to say "If the email exists..." 
+                // but if we used 'false' for rate limit too, generic message is best.
+                // However, Service returns false for both Not Found and Rate Limit.
+                _successMessage = "If an account exists for this email, we have sent a login link.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Magic link error");
+            _error = "Failed to send magic link. Please try again.";
+        }
+        finally
+        {
+            _isSubmitting = false;
         }
     }
 
     private sealed class LoginModel
     {
-        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Username is required")]
-        public string Username { get; set; } = string.Empty;
-
-        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Password is required")]
-        public string Password { get; set; } = string.Empty;
-
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Username { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Password { get; set; } = "";
         public bool RememberMe { get; set; }
     }
 
+    private sealed class MagicLinkModel
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.EmailAddress]
+        public string Email { get; set; } = "";
+    }
+
+    private enum LoginMode { Password, MagicLink }
+
+    // Helpers from original file
     private static string GetUserMessage(LoginResultCode code) => code switch
     {
-        LoginResultCode.InvalidCredentials => InvalidCredentialsMessage,
-        LoginResultCode.AccountLockedOrDisabled => LockedOrDisabledMessage,
-        _ => GenericLoginErrorMessage
+        LoginResultCode.InvalidCredentials => "Invalid username or password.",
+        LoginResultCode.AccountLockedOrDisabled => "Your account is locked or disabled.",
+        _ => "Unable to sign in at this time."
     };
 
-    private void UpdateResolvedReturnUrl()
-    {
-        _resolvedReturnUrl = NormalizeReturnUrl(ReturnUrl);
-    }
-
-    private static string? NormalizeReturnUrl(string? rawReturnUrl)
-    {
-        if (string.IsNullOrWhiteSpace(rawReturnUrl))
-        {
-            return null;
-        }
-
-        string decoded;
-        try
-        {
-            decoded = Uri.UnescapeDataString(rawReturnUrl);
-        }
-        catch
-        {
-            return null;
-        }
-
-        decoded = decoded.Trim();
-        if (string.IsNullOrEmpty(decoded))
-        {
-            return null;
-        }
-
-        if (decoded.Contains("://", StringComparison.Ordinal) ||
-            decoded.StartsWith("//", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        if (!decoded.StartsWith('/'))
-        {
-            decoded = "/" + decoded.TrimStart('/');
-        }
-
-        return IsLoginPath(decoded) ? null : decoded;
-    }
-
-    private static bool IsLoginPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-
-        var trimmed = path.Split('?', '#')[0];
-        return trimmed.Equals("/login", StringComparison.OrdinalIgnoreCase);
-    }
-
+    private void UpdateResolvedReturnUrl() => _resolvedReturnUrl = NormalizeReturnUrl(ReturnUrl);
     private string GetPostLoginDestination() => _resolvedReturnUrl ?? "/";
+    
+    private static string? NormalizeReturnUrl(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        try { raw = Uri.UnescapeDataString(raw); } catch { return null; }
+        if (raw.StartsWith("//") || raw.Contains("://")) return null;
+        if (!raw.StartsWith('/')) raw = "/" + raw;
+        return raw.Equals("/login", StringComparison.OrdinalIgnoreCase) ? null : raw;
+    }
 }

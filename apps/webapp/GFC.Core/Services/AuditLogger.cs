@@ -91,6 +91,14 @@ public static class AuditLogActions
     public const string KeyCardEnabled = "KeyCardEnabled";
     public const string PhysicalKeyAssigned = "PhysicalKeyAssigned";
     public const string PhysicalKeyReturned = "PhysicalKeyReturned";
+    
+    // Auth & Session Actions
+    public const string MagicLinkSent = "MagicLinkSent";
+    public const string LoginSuccessPassword = "LoginSuccess (Password)";
+    public const string LoginSuccessMagicLink = "LoginSuccess (Magic Link)";
+    public const string LogoutIdle = "LogoutIdle";
+    public const string LogoutAbsolute = "LogoutAbsolute";
+    public const string SessionInvalidatedVpnLost = "SessionInvalidatedVpnLost";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -109,6 +117,12 @@ public static class AuditLogActions
         KeyCardDisabled,
         KeyCardEnabled,
         PhysicalKeyAssigned,
-        PhysicalKeyReturned
+        PhysicalKeyReturned,
+        MagicLinkSent,
+        LoginSuccessPassword,
+        LoginSuccessMagicLink,
+        LogoutIdle,
+        LogoutAbsolute,
+        SessionInvalidatedVpnLost
     };
 }
