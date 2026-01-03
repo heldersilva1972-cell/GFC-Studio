@@ -1289,6 +1289,11 @@ namespace GFC.BlazorServer.Data.Migrations
                     b.Property<bool>("EnableConnectionQualityAlerts")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("EnforceVpn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("EnableFailedLoginProtection")
                         .HasColumnType("bit");
 
