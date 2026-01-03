@@ -23,9 +23,9 @@ public interface ISystemSettingsService
     Task UpdateNvrCredentialsAsync(string nvrIpAddress, int nvrPort, string username, string password);
 
     /// <summary>
-    /// Updates the security-related system settings.
+    /// Updates the system settings.
     /// </summary>
     /// <param name="settings">The system settings object with updated values.</param>
-    Task UpdateSecuritySettingsAsync(SystemSettings settings);
+    Task UpdateAsync(SystemSettings settings);
 }
 
