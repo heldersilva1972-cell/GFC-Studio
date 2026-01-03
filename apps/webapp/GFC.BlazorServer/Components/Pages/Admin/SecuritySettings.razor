@@ -9,6 +9,8 @@
 @inject IVpnManagementService VpnManagementService
 @inject IJSRuntime JSRuntime
 @inject IUserManagementService UserManagementService
+@inject IUrlHelperService UrlHelperService
+@inject IEmailService EmailService
 
 <h3>Security & Remote Access <span class="badge bg-info gfc-new-tag">[NEW]</span></h3>
 
@@ -220,6 +222,52 @@ else
         </div>
     </EditForm>
 
+    @* Domain Management *@
+    <div class="form-card mt-4">
+        <div class="form-card-header">
+            <i class="bi bi-globe"></i>
+            <h5>Domain & URLs</h5>
+        </div>
+        <div class="form-card-body">
+            <div class="mb-3">
+                <label for="allowedDomains" class="form-label">Allowed Domains</label>
+                <div class="input-group mb-3">
+                    <InputText @bind-Value="_newAllowedDomain" class="form-control" placeholder="e.g., app.lovanow.com" />
+                    <button class="btn btn-outline-secondary" type="button" @onclick="AddAllowedDomain">Add</button>
+                </div>
+                <ul class="list-group">
+                    @foreach (var domain in _allowedDomains)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            @domain
+                            <button class="btn btn-danger btn-sm" @onclick="() => RemoveAllowedDomain(domain)">Remove</button>
+                        </li>
+                    }
+                </ul>
+            </div>
+            <div class="mb-3">
+                <label for="primaryDomain" class="form-label">Primary Domain</label>
+                <InputSelect id="primaryDomain" class="form-select" @bind-Value="_settings.PrimaryDomain">
+                    @foreach (var domain in _allowedDomains)
+                    {
+                        <option value="@domain">@domain</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Base URL Preview</label>
+                <p><code>https://@_settings.PrimaryDomain</code></p>
+            </div>
+            @if (!string.IsNullOrEmpty(_settings.DomainSwitchPending))
+            {
+                <div class="alert alert-warning">
+                    <p>You have changed the domain to <strong>@_settings.DomainSwitchPending</strong>. Please confirm this change within 10 minutes, or it will revert.</p>
+                    <button class="btn btn-warning" @onclick="ConfirmDomainChange">Confirm Domain</button>
+                </div>
+            }
+        </div>
+    </div>
+
     @* Emergency Lockdown *@
     <div class="form-card mt-4 border-danger">
         <div class="form-card-header bg-danger text-white">
@@ -243,14 +291,23 @@ else
     private List<UserListItemDto> _allUsers = new();
     private string _errorMessage;
     private string _successMessage;
+    private List<string> _allowedDomains = new();
+    private string _newAllowedDomain;
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _settings = await SystemSettingsService.GetAsync();
+            if (_settings.DomainSwitchExpiryUtc.HasValue && _settings.DomainSwitchExpiryUtc.Value < DateTime.UtcNow)
+            {
+                _settings.DomainSwitchPending = null;
+                _settings.DomainSwitchExpiryUtc = null;
+                await SystemSettingsService.UpdateSecuritySettingsAsync(_settings);
+            }
             _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
             _allUsers = UserManagementService.GetAllUsers();
+            _allowedDomains = _settings.AllowedDomains?.Split(',').ToList() ?? new List<string>();
         }
         catch (Exception ex)
         {
@@ -270,6 +327,45 @@ else
         catch (Exception ex)
         {
             _errorMessage = $"Error saving settings: {ex.Message}";
+        }
+    }
+
+    private void AddAllowedDomain()
+    {
+        if (!string.IsNullOrWhiteSpace(_newAllowedDomain) && !_allowedDomains.Contains(_newAllowedDomain))
+        {
+            _allowedDomains.Add(_newAllowedDomain);
+            _newAllowedDomain = string.Empty;
+        }
+    }
+
+    private void RemoveAllowedDomain(string domain)
+    {
+        if (domain == _settings.PrimaryDomain || domain == _settings.LastConfirmedDomain)
+        {
+            _errorMessage = "You cannot remove the active primary domain.";
+            return;
+        }
+        _allowedDomains.Remove(domain);
+    }
+
+    private async Task ConfirmDomainChange()
+    {
+        _errorMessage = null;
+        _successMessage = null;
+        try
+        {
+            _settings.LastConfirmedDomain = _settings.DomainSwitchPending;
+            _settings.PrimaryDomain = _settings.DomainSwitchPending;
+            _settings.DomainSwitchPending = null;
+            _settings.DomainSwitchExpiryUtc = null;
+            await SystemSettingsService.UpdateSecuritySettingsAsync(_settings);
+            _successMessage = "Domain change confirmed successfully!";
+            await EmailService.SendEmailAsync("admin@test.com", "Domain Change Confirmation", "The primary domain for the application has been successfully changed.");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error confirming domain change: {ex.Message}";
         }
     }
 
