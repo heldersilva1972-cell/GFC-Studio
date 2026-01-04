@@ -55,8 +55,8 @@
         ANDROID: {
             name: 'Android',
             downloadUrl: 'https://play.google.com/store/apps/details?id=com.wireguard.android',
-            certInstructions: 'Go to Settings -> Security -> Advanced -> Encryption & Credentials -> Install from storage -> CA certificate and select the file.',
-            configInstructions: 'When prompted, choose "Open with WireGuard" or find the file in your downloads and import it into the WireGuard app.',
+            certInstructions: '1. Download the cert. 2. Open Settings -> Security -> More Security Settings -> Encryption & credentials -> Install a certificate -> CA certificate. 3. Select "Install anyway" and choose the file. (On Samsung: Settings -> Biometrics and security -> Other security settings -> Install from device storage).',
+            configInstructions: 'Download the config file, then open the WireGuard app, tap (+), and choose "Import from file or archive". Select the downloaded .conf file.',
             isMobile: true
         },
         LINUX: {
@@ -97,6 +97,8 @@
         downloadWindowsSetup: document.getElementById('download-windows-setup'),
         appleOneClick: document.getElementById('apple-one-click-container'),
         downloadAppleProfile: document.getElementById('download-apple-profile'),
+        androidHelp: document.getElementById('android-help-container'),
+        androidStartWizard: document.getElementById('android-start-wizard'),
         year: document.getElementById('year')
     };
 
@@ -531,6 +533,8 @@
             elements.windowsOneClick.classList.remove('hidden');
         } else if (platform.name === 'macOS' || platform.name === 'iOS') {
             elements.appleOneClick.classList.remove('hidden');
+        } else if (platform.name === 'Android') {
+            elements.androidHelp.classList.remove('hidden');
         }
 
         // Setup event listeners
@@ -547,6 +551,7 @@
         elements.downloadConfig.addEventListener('click', downloadConfiguration);
         elements.downloadWindowsSetup.addEventListener('click', downloadWindowsSetup);
         elements.downloadAppleProfile.addEventListener('click', downloadAppleProfile);
+        elements.androidStartWizard.addEventListener('click', () => goToStep(2));
         elements.skipToTest.addEventListener('click', () => goToStep(4));
         elements.testConnection.addEventListener('click', testConnection);
     }
