@@ -1,0 +1,218 @@
+@inject IJSRuntime JS
+
+@if (_showInstallPrompt)
+{
+    <div class="pwa-install-card @CssClass">
+        <div class="pwa-install-header">
+            <i class="bi bi-phone-fill pwa-icon"></i>
+            <div class="pwa-text">
+                <h3>@Title</h3>
+                <p>@Description</p>
+            </div>
+        </div>
+        
+        @if (_canInstall)
+        {
+            <button class="btn btn-primary btn-install" @onclick="TriggerInstall" disabled="@_isInstalling">
+                @if (_isInstalling)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                    <span>Installing...</span>
+                }
+                else
+                {
+                    <i class="bi bi-download me-2"></i>
+                    <span>@ButtonText</span>
+                }
+            </button>
+        }
+        else if (!string.IsNullOrEmpty(_platformInstructions))
+        {
+            <div class="manual-instructions">
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <div>
+                        <strong>Manual Installation:</strong>
+                        <p class="mb-0 mt-1">@((MarkupString)_platformInstructions)</p>
+                    </div>
+                </div>
+            </div>
+        }
+        
+        @if (ShowDismiss)
+        {
+            <button class="btn btn-link btn-sm mt-2" @onclick="Dismiss">
+                Skip for now
+            </button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Title { get; set; } = "Install GFC App";
+    [Parameter] public string Description { get; set; } = "Add GFC to your home screen for quick, secure access";
+    [Parameter] public string ButtonText { get; set; } = "Add to Home Screen";
+    [Parameter] public bool ShowDismiss { get; set; } = true;
+    [Parameter] public string CssClass { get; set; } = "";
+    [Parameter] public EventCallback OnInstalled { get; set; }
+    [Parameter] public EventCallback OnDismissed { get; set; }
+    
+    private bool _showInstallPrompt = false;
+    private bool _canInstall = false;
+    private bool _isInstalling = false;
+    private string? _platformInstructions;
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckInstallability();
+        }
+    }
+    
+    private async Task CheckInstallability()
+    {
+        try
+        {
+            var result = await JS.InvokeAsync<InstallCheckResult>("pwaInstaller.checkInstallability");
+            
+            _canInstall = result.CanInstall;
+            _platformInstructions = result.Instructions;
+            _showInstallPrompt = result.CanInstall || !string.IsNullOrEmpty(result.Instructions);
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error checking PWA installability: {ex.Message}");
+            // Don't show prompt if we can't detect
+            _showInstallPrompt = false;
+        }
+    }
+    
+    private async Task TriggerInstall()
+    {
+        if (!_canInstall || _isInstalling) return;
+        
+        _isInstalling = true;
+        StateHasChanged();
+        
+        try
+        {
+            var installed = await JS.InvokeAsync<bool>("pwaInstaller.install");
+            
+            if (installed)
+            {
+                _showInstallPrompt = false;
+                await OnInstalled.InvokeAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error installing PWA: {ex.Message}");
+        }
+        finally
+        {
+            _isInstalling = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task Dismiss()
+    {
+        _showInstallPrompt = false;
+        await OnDismissed.InvokeAsync();
+        StateHasChanged();
+    }
+    
+    private class InstallCheckResult
+    {
+        public bool CanInstall { get; set; }
+        public string? Instructions { get; set; }
+    }
+}
+
+<style>
+    .pwa-install-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 16px;
+        padding: 24px;
+        color: white;
+        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+        margin: 20px 0;
+    }
+    
+    .pwa-install-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    
+    .pwa-icon {
+        font-size: 48px;
+        opacity: 0.9;
+        flex-shrink: 0;
+    }
+    
+    .pwa-text h3 {
+        margin: 0 0 8px 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+    
+    .pwa-text p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 0.95rem;
+    }
+    
+    .btn-install {
+        width: 100%;
+        padding: 12px 24px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border: none;
+        background: white;
+        color: #667eea;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-install:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        background: #f8f9fa;
+    }
+    
+    .btn-install:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+    
+    .manual-instructions {
+        margin-top: 16px;
+    }
+    
+    .manual-instructions .alert {
+        background: rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: white;
+        backdrop-filter: blur(10px);
+    }
+    
+    .manual-instructions .alert strong {
+        display: block;
+        margin-bottom: 4px;
+    }
+    
+    .btn-link {
+        color: rgba(255, 255, 255, 0.8);
+        text-decoration: none;
+    }
+    
+    .btn-link:hover {
+        color: white;
+        text-decoration: underline;
+    }
+</style>
