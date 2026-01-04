@@ -219,10 +219,13 @@ public class VpnConfigurationService : IVpnConfigurationService
     // Helpers
     private async Task<string> AllocateIpAddressAsync(GfcDbContext context)
     {
-        // Simple allocation logic: Find max IP in existing profiles and increment
-        // Format: 10.8.0.x
+        var settings = await _systemSettingsService.GetSystemSettingsAsync();
+        var subnet = settings?.WireGuardSubnet ?? "10.8.0.0/24";
+        var prefix = subnet.Substring(0, subnet.LastIndexOf('.') + 1); // e.g., "10.8.0."
+
+        // Find max IP in existing profiles and increment
         var profiles = await context.VpnProfiles
-            .Where(p => p.AssignedIP != null && p.AssignedIP.StartsWith("10.8.0."))
+            .Where(p => p.AssignedIP != null && p.AssignedIP.StartsWith(prefix))
             .ToListAsync();
 
         int maxLastOctet = 1; // .1 is usually server
@@ -238,7 +241,7 @@ public class VpnConfigurationService : IVpnConfigurationService
         if (maxLastOctet >= 254) 
             throw new InvalidOperationException("VPN IP pool exhausted");
 
-        return $"10.8.0.{maxLastOctet + 1}";
+        return $"{prefix}{maxLastOctet + 1}";
     }
 
     private static (string PrivateKey, string PublicKey) GenerateKeyPair()

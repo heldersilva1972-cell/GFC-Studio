@@ -56,9 +56,9 @@ public class SystemSettings
     public DateTime? DomainSwitchExpiryUtc { get; set; }
     public string? LastConfirmedDomain { get; set; }
     public int WireGuardPort { get; set; } = 51820;
-    public string WireGuardSubnet { get; set; } = "10.8.0.0/24";
+    public string WireGuardSubnet { get; set; } = "10.20.0.0/24";
     public string? WireGuardServerPublicKey { get; set; }
-    public string WireGuardAllowedIPs { get; set; } = "10.8.0.0/24, 192.168.1.0/24";
+    public string WireGuardAllowedIPs { get; set; } = "10.20.0.0/24";
     public int MaxSimultaneousViewers { get; set; } = 10;
     
     // Security Settings
