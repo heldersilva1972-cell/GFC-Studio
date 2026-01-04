@@ -170,6 +170,29 @@ public class VpnConfigurationService : IVpnConfigurationService
         return profile.PublicKey;
     }
 
+    public async Task<string> CreateReinstallTokenAsync(int userId, int durationHours = 1)
+    {
+        using var context = await _dbContextFactory.CreateDbContextAsync();
+        
+        // GUARDRAIL: Verify user already has active profiles
+        var hasDevices = await context.VpnProfiles
+            .AnyAsync(p => p.UserId == userId && p.RevokedAt == null);
+
+        if (!hasDevices)
+        {
+            _logger.LogWarning("Security Guardrail: User {UserId} attempted self-service onboarding without existing devices.", userId);
+            throw new InvalidOperationException("First-time onboarding unavailable via self-service. Contact Administrator.");
+        }
+
+        // Proceed to create token (short duration)
+        return await CreateOnboardingTokenAsync(userId, durationHours);
+    }
+
+    /// <summary>
+    /// SECURITY WARNING: This method allows first-time onboarding (0 devices).
+    /// MUST ONLY be triggered by Administrator action (Invite Link).
+    /// Do not expose to self-service endpoints for new users.
+    /// </summary>
     public async Task<string> CreateOnboardingTokenAsync(int userId, int durationHours = 48)
     {
         using var context = await _dbContextFactory.CreateDbContextAsync();

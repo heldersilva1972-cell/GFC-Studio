@@ -15,6 +15,13 @@ public interface IVpnConfigurationService
     /// Generates a new onboarding token for a user.
     /// </summary>
     Task<string> CreateOnboardingTokenAsync(int userId, int durationHours = 48);
+
+    /// <summary>
+    /// Generates a token ONLY if the user already has devices.
+    /// Prevents unauthorized first-time onboarding via self-service.
+    /// </summary>
+    Task<string> CreateReinstallTokenAsync(int userId, int durationHours = 1);
+
     
     /// <summary>
     /// Validates an onboarding token. Returns the UserId if valid, or null.
