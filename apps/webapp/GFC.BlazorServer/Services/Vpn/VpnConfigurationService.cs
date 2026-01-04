@@ -8,6 +8,7 @@ using GFC.BlazorServer.Data.Entities;
 using GFC.BlazorServer.Services;
 using GFC.Core.Interfaces;
 using GFC.Core.Services;
+using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -32,31 +33,21 @@ public class VpnConfigurationService : IVpnConfigurationService
         _logger = logger;
     }
 
-    public async Task<string> GenerateConfigForUserAsync(int userId)
+    public async Task<string> GenerateConfigForUserAsync(int userId, string? deviceName = null, string? deviceType = null)
     {
         var settings = await _systemSettingsService.GetSystemSettingsAsync();
-        
-        // Placeholder Logic: 
-        // Real implementation would fetch or generate KeyPair for this UserId from DB or Key Service.
-        // For MVP/Simulation, we generate a random key pair on fly so the config is structurally valid.
-        var clientPrivateKey = GenerateSimulatedKey();
-        var clientPublicKey = "SIMULATED_PUB_" + Convert.ToBase64String(Encoding.UTF8.GetBytes(Guid.NewGuid().ToString().Substring(0, 8))); // Derived...
+        var profile = await GetOrCreateProfileAsync(userId, deviceName, deviceType);
         
         // Use settings or defaults
         var serverPublicKey = settings?.WireGuardServerPublicKey ?? "SERVER_PUBLIC_KEY_PLACEHOLDER";
         var serverEndpoint = $"{settings?.PrimaryDomain ?? "vpn.gfc.local"}:{settings?.WireGuardPort ?? 51820}";
         var allowedIps = settings?.WireGuardAllowedIPs ?? "10.8.0.0/24, 192.168.1.0/24";
         
-        // Assign a simulated IP for the client (In real app, manage IP pool)
-        // Hashing UserId to get a deterministic-ish IP suffix for demo stability
-        var ipSuffix = (userId % 250) + 2; 
-        var clientIp = $"10.8.0.{ipSuffix}/32";
-
         var sb = new StringBuilder();
         sb.AppendLine("[Interface]");
-        sb.AppendLine($"PrivateKey = {clientPrivateKey}");
-        sb.AppendLine($"Address = {clientIp}");
-        sb.AppendLine("DNS = 1.1.1.1"); // Provide standard DNS
+        sb.AppendLine($"PrivateKey = {profile.PrivateKey}");
+        sb.AppendLine($"Address = {profile.AssignedIP}/32");
+        sb.AppendLine("DNS = 1.1.1.1");
         sb.AppendLine();
         sb.AppendLine("[Peer]");
         sb.AppendLine($"PublicKey = {serverPublicKey}");
@@ -64,7 +55,109 @@ public class VpnConfigurationService : IVpnConfigurationService
         sb.AppendLine($"Endpoint = {serverEndpoint}");
         sb.AppendLine("PersistentKeepalive = 25");
 
+        _logger.LogInformation("Configuration generated for profile {ProfileId} (User {UserId})", profile.Id, userId);
+
         return sb.ToString();
+    }
+
+    public async Task<VpnProfile> GetOrCreateProfileAsync(int userId, string? deviceName = null, string? deviceType = null)
+    {
+        using var context = await _dbContextFactory.CreateDbContextAsync();
+        
+        // Find existing active profile
+        var profile = await context.VpnProfiles
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.RevokedAt == null);
+
+        if (profile != null)
+        {
+            return profile;
+        }
+
+        // Create new profile
+        _logger.LogInformation("Creating new VPN profile for user {UserId}", userId);
+        
+        var keys = GenerateKeyPair();
+        var assignedIp = await AllocateIpAddressAsync(context);
+
+        profile = new VpnProfile
+        {
+            UserId = userId,
+            PublicKey = keys.PublicKey,
+            PrivateKey = keys.PrivateKey, // TODO: Encrypt this
+            AssignedIP = assignedIp,
+            CreatedAt = DateTime.UtcNow,
+            DeviceName = deviceName ?? "Generic Device",
+            DeviceType = deviceType ?? "Mobile/Desktop"
+        };
+
+        context.VpnProfiles.Add(profile);
+        await context.SaveChangesAsync();
+
+        return profile;
+    }
+
+    public async Task RevokeProfileAsync(int profileId, int revokedBy, string reason)
+    {
+        using var context = await _dbContextFactory.CreateDbContextAsync();
+        var profile = await context.VpnProfiles.FindAsync(profileId);
+        
+        if (profile != null && profile.RevokedAt == null)
+        {
+            profile.RevokedAt = DateTime.UtcNow;
+            profile.RevokedBy = revokedBy;
+            profile.RevokedReason = reason;
+
+            _logger.LogWarning("VPN Profile {ProfileId} revoked by {RevokedBy}. Reason: {Reason}", 
+                profileId, revokedBy, reason);
+
+            await context.SaveChangesAsync();
+        }
+    }
+
+    public async Task RevokeUserAccessAsync(int userId, int revokedBy, string reason)
+    {
+        using var context = await _dbContextFactory.CreateDbContextAsync();
+        var profiles = await context.VpnProfiles
+            .Where(p => p.UserId == userId && p.RevokedAt == null)
+            .ToListAsync();
+
+        foreach (var profile in profiles)
+        {
+            profile.RevokedAt = DateTime.UtcNow;
+            profile.RevokedBy = revokedBy;
+            profile.RevokedReason = reason;
+        }
+
+        // Also expire any onboarding tokens
+        var tokens = await context.VpnOnboardingTokens
+            .Where(t => t.UserId == userId && !t.IsUsed)
+            .ToListAsync();
+
+        foreach (var t in tokens)
+        {
+            t.ExpiresAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        }
+
+        await context.SaveChangesAsync();
+        _logger.LogWarning("All VPN access revoked for user {UserId} by {RevokedBy}", userId, revokedBy);
+    }
+
+    public async Task<string> RotateKeysAsync(int profileId)
+    {
+        using var context = await _dbContextFactory.CreateDbContextAsync();
+        var profile = await context.VpnProfiles.FindAsync(profileId);
+        
+        if (profile == null) throw new ArgumentException("Profile not found");
+
+        var keys = GenerateKeyPair();
+        profile.PublicKey = keys.PublicKey;
+        profile.PrivateKey = keys.PrivateKey;
+        profile.CreatedAt = DateTime.UtcNow; // Reset creation date for rotation tracking
+
+        await context.SaveChangesAsync();
+        _logger.LogInformation("Keys rotated for profile {ProfileId}", profileId);
+
+        return profile.PublicKey;
     }
 
     public async Task<string> CreateOnboardingTokenAsync(int userId, int durationHours = 48)
@@ -96,18 +189,8 @@ public class VpnConfigurationService : IVpnConfigurationService
         var record = await context.VpnOnboardingTokens
             .FirstOrDefaultAsync(t => t.Token == token);
 
-        if (record == null) return null;
-        if (record.IsUsed) return null; // Single use? Requirement didn't strictly say single use, but implied "IsUsed". 
-        // Actually, for multi-device (mobile + desktop), user might need to visit twice? 
-        // Requirement says "IsUsed (bool)". Usually onboarding links are single-shot or expire.
-        // Let's enforce expiry strictly, but maybe allow multiple reads within expiry? 
-        // No, model has IsUsed. Let's assume single-device setup per link for security.
-        // If user needs multiple devices, send multiple invites.
-        if (record.ExpiresAtUtc < DateTime.UtcNow) return null;
-
-        // Note: We don't mark used *here* (validate), we mark it used when they actually download config.
-        // But the Validate method usually just checks valid access to the page.
-        // Let's return UserId if valid.
+        if (record == null || record.IsUsed || record.ExpiresAtUtc < DateTime.UtcNow) 
+            return null;
         
         return record.UserId;
     }
@@ -120,38 +203,54 @@ public class VpnConfigurationService : IVpnConfigurationService
         return _userConnectionService.LocationType == LocationType.VPN;
     }
 
-    public async Task RevokeUserAccessAsync(int userId)
+    // Helper: Mark token as used
+    public async Task SetTokenUsedAsync(string token)
     {
-        // In a real implementation with a WireGuard management API (e.g., wg-easy or direct file manipulation),
-        // code here would:
-        // 1. Identify the peer config for this userId.
-        // 2. Remove the peer from the interface.
-        // 3. Restart/Reload the WireGuard interface.
-        
-        // For this MVP/simulation:
-        // We log the revocation. In the future, this would integrate with the actual VPN Controller.
-        _logger.LogWarning("VPN Access Revoked for User {UserId}. Keys invalidated.", userId);
-        
-        // We also explicitly expire any onboarding tokens for this user immediately, redundant to UserManagementService but safe.
         using var context = await _dbContextFactory.CreateDbContextAsync();
-        var tokens = await context.VpnOnboardingTokens.Where(t => t.UserId == userId && !t.IsUsed).ToListAsync();
-        foreach (var t in tokens)
+        var record = await context.VpnOnboardingTokens.FirstOrDefaultAsync(t => t.Token == token);
+        if (record != null)
         {
-            t.ExpiresAtUtc = DateTime.MinValue; // Expire immediately
+            record.IsUsed = true;
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Onboarding token marked as used");
         }
-        await context.SaveChangesAsync();
-        
-        await Task.CompletedTask;
     }
-    
+
     // Helpers
-    private static string GenerateSimulatedKey()
+    private async Task<string> AllocateIpAddressAsync(GfcDbContext context)
     {
-        // WireGuard keys are Base64 encoded 32-byte curve25519 keys.
-        // We simulate this format.
-        var bytes = new byte[32];
-        Random.Shared.NextBytes(bytes); // For key generation in real app use generic RNG
-        return Convert.ToBase64String(bytes);
+        // Simple allocation logic: Find max IP in existing profiles and increment
+        // Format: 10.8.0.x
+        var profiles = await context.VpnProfiles
+            .Where(p => p.AssignedIP != null && p.AssignedIP.StartsWith("10.8.0."))
+            .ToListAsync();
+
+        int maxLastOctet = 1; // .1 is usually server
+        foreach (var p in profiles)
+        {
+            var parts = p.AssignedIP.Split('.');
+            if (parts.Length == 4 && int.TryParse(parts[3], out int octet))
+            {
+                if (octet > maxLastOctet) maxLastOctet = octet;
+            }
+        }
+
+        if (maxLastOctet >= 254) 
+            throw new InvalidOperationException("VPN IP pool exhausted");
+
+        return $"10.8.0.{maxLastOctet + 1}";
+    }
+
+    private static (string PrivateKey, string PublicKey) GenerateKeyPair()
+    {
+        // Simulated Curve25519 generation for structural validity
+        var privBytes = new byte[32];
+        RandomNumberGenerator.Fill(privBytes);
+        
+        var pubBytes = new byte[32];
+        RandomNumberGenerator.Fill(pubBytes); // In reality, derived from private
+
+        return (Convert.ToBase64String(privBytes), Convert.ToBase64String(pubBytes));
     }
 
     private static string GenerateSecureTokenString()
@@ -164,4 +263,7 @@ public class VpnConfigurationService : IVpnConfigurationService
             .Replace("/", "_")
             .Replace("=", "");
     }
+
+    // Legacy support or internal use
+    public async Task RevokeUserAccessAsync(int userId) => await RevokeUserAccessAsync(userId, 0, "Self-revoked or system cleanup");
 }

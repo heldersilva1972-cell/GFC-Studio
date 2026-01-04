@@ -126,23 +126,41 @@ ELSE
 GO
 
 -- =============================================
--- 7. Clean Up Expired Tokens (Optional)
+-- 7. VpnProfile Database Enhancements
 -- =============================================
--- Uncomment to delete expired tokens older than 30 days
-/*
-DELETE FROM dbo.VpnOnboardingTokens
-WHERE ExpiresAtUtc < DATEADD(DAY, -30, GETUTCDATE());
-PRINT '✓ Cleaned up expired tokens';
-*/
+
+-- Index for UserID lookups
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_VpnProfiles_UserId' AND object_id = OBJECT_ID('dbo.VpnProfiles'))
+BEGIN
+    CREATE INDEX IX_VpnProfiles_UserId ON dbo.VpnProfiles(UserId);
+    PRINT '✓ Created index IX_VpnProfiles_UserId';
+END
+GO
+
+-- Index for PublicKey lookups (Critical for WireGuard server integration)
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_VpnProfiles_PublicKey' AND object_id = OBJECT_ID('dbo.VpnProfiles'))
+BEGIN
+    CREATE INDEX IX_VpnProfiles_PublicKey ON dbo.VpnProfiles(PublicKey);
+    PRINT '✓ Created index IX_VpnProfiles_PublicKey';
+END
+GO
+
+-- Filtered Index for Active Profiles
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_VpnProfiles_Active' AND object_id = OBJECT_ID('dbo.VpnProfiles'))
+BEGIN
+    CREATE INDEX IX_VpnProfiles_Active ON dbo.VpnProfiles(UserId) WHERE RevokedAt IS NULL;
+    PRINT '✓ Created filtered index for active VPN profiles';
+END
+GO
 
 PRINT ''
 PRINT '================================================'
-PRINT 'Onboarding Gateway Database Enhancements Complete!'
+PRINT 'Database Enhancements Complete!'
 PRINT '================================================'
 PRINT ''
 PRINT 'Next Steps:'
-PRINT '1. Deploy the onboarding gateway to https://setup.gfc.lovanow.com'
-PRINT '2. Update Program.cs with rate limiting configuration'
-PRINT '3. Test token generation and validation'
+PRINT '1. Deploy the onboarding gateway'
+PRINT '2. Update Program.cs with rate limiting'
+PRINT '3. Verify WireGuard server can query VpnProfiles'
 PRINT ''
 GO

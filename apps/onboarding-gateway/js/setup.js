@@ -232,7 +232,7 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), CONFIG.downloadTimeout);
 
-            const response = await fetch(`${CONFIG.apiBaseUrl}/api/onboarding/config?token=${encodeURIComponent(token)}`, {
+            const response = await fetch(`${CONFIG.apiBaseUrl}/api/onboarding/config?token=${encodeURIComponent(token)}&deviceName=${encodeURIComponent(navigator.platform)}&deviceType=${encodeURIComponent(platform.name)}`, {
                 method: 'GET',
                 signal: controller.signal
             });
@@ -297,6 +297,11 @@
             const isConnected = response.ok;
             showTestResult(isConnected);
 
+            if (isConnected) {
+                // Mark onboarding as complete in backend
+                await completeOnboarding();
+            }
+
         } catch (error) {
             console.error('Connection test error:', error);
             showTestResult(false);
@@ -304,6 +309,28 @@
             button.disabled = false;
             btnText.classList.remove('hidden');
             btnSpinner.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Notify backend that onboarding is complete
+     */
+    async function completeOnboarding() {
+        try {
+            const deviceInfo = `${navigator.platform} - ${navigator.userAgent.substring(0, 100)}`;
+            await fetch(`${CONFIG.apiBaseUrl}/api/onboarding/complete?token=${encodeURIComponent(token)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    deviceInfo: deviceInfo,
+                    platform: platform.name,
+                    testPassed: true
+                })
+            });
+        } catch (error) {
+            console.error('Error completing onboarding:', error);
         }
     }
 

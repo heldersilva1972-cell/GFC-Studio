@@ -113,7 +113,7 @@ namespace GFC.BlazorServer.Services
             // 4. VPN Revocation
             try 
             {
-                await _vpnConfigurationService.RevokeUserAccessAsync(userId);
+                await _vpnConfigurationService.RevokeUserAccessAsync(userId, performedByUserId, reason);
             }
             catch (Exception ex)
             {

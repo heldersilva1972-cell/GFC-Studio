@@ -86,13 +86,15 @@ public class OnboardingController : ControllerBase
     /// Generates and downloads a WireGuard configuration file for the user.
     /// </summary>
     /// <param name="token">The onboarding token</param>
+    /// <param name="deviceName">Optional device name</param>
+    /// <param name="deviceType">Optional device type</param>
     /// <returns>WireGuard configuration file</returns>
     [HttpGet("config")]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetConfiguration([Required] string token)
+    public async Task<IActionResult> GetConfiguration([Required] string token, string? deviceName = null, string? deviceType = null)
     {
         try
         {
@@ -102,19 +104,19 @@ public class OnboardingController : ControllerBase
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { error = "Onboarding is currently disabled" });
             }
-
-            // Validate token
+ 
+            // Validate token (must not be used yet)
             var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
             if (!userId.HasValue)
             {
-                return NotFound(new { error = "Invalid or expired token" });
+                return NotFound(new { error = "Invalid or already used token" });
             }
-
-            // Generate configuration
-            var configContent = await _vpnConfigService.GenerateConfigForUserAsync(userId.Value);
-
+ 
+            // Generate configuration (this creates/retrieves persistent VpnProfile)
+            var configContent = await _vpnConfigService.GenerateConfigForUserAsync(userId.Value, deviceName, deviceType);
+ 
             _logger.LogInformation("WireGuard config generated for user {UserId}", userId.Value);
-
+ 
             // Return as downloadable file
             var bytes = System.Text.Encoding.UTF8.GetBytes(configContent);
             return File(bytes, "application/x-wireguard-profile", "gfc-access.conf");
@@ -125,7 +127,7 @@ public class OnboardingController : ControllerBase
             return StatusCode(StatusCodes.Status500InternalServerError, new { error = "An error occurred while generating the configuration" });
         }
     }
-
+ 
     /// <summary>
     /// Downloads the internal GFC Root CA certificate.
     /// This establishes trust for the gfc.lovanow.com domain.
@@ -139,7 +141,6 @@ public class OnboardingController : ControllerBase
         try
         {
             // Assuming the CA cert is stored in a known location relative to the app
-            // In a real environment, this would be configured in SystemSettings
             var caPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "certs", "GFC_Root_CA.cer");
             
             // Fallback for development/testing
@@ -148,13 +149,13 @@ public class OnboardingController : ControllerBase
                 // Try the infrastructure path if we're in the source tree
                 caPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "infrastructure", "ca", "GFC_Root_CA.cer");
             }
-
+ 
             if (!System.IO.File.Exists(caPath))
             {
                 _logger.LogWarning("Root CA certificate not found at {Path}", caPath);
                 return NotFound("Certificate not found. Contact administrator.");
             }
-
+ 
             var bytes = await System.IO.File.ReadAllBytesAsync(caPath);
             return File(bytes, "application/x-x509-ca-cert", "GFC_Root_CA.cer");
         }
@@ -164,7 +165,7 @@ public class OnboardingController : ControllerBase
             return StatusCode(500, "Internal server error");
         }
     }
-
+ 
     /// <summary>
     /// Marks an onboarding token as used/completed.
     /// </summary>
@@ -187,17 +188,18 @@ public class OnboardingController : ControllerBase
             {
                 return NotFound(new { error = "Invalid or expired token" });
             }
-
-            // TODO: Mark token as used in database
-            // TODO: Log device information
-            // TODO: Send notification to admins (optional)
-
+ 
+            // Mark token as used in database
+            await _vpnConfigService.SetTokenUsedAsync(token);
+ 
             _logger.LogInformation(
-                "Onboarding completed for user {UserId}, Device: {DeviceInfo}",
+                "Onboarding completed for user {UserId}, Device: {DeviceInfo}, Platform: {Platform}, Success: {TestPassed}",
                 userId.Value,
-                request.DeviceInfo ?? "Unknown");
-
-            return Ok(new { success = true, message = "Onboarding completed successfully" });
+                request.DeviceInfo ?? "Unknown",
+                request.Platform ?? "Unknown",
+                request.TestPassed);
+ 
+            return Ok(new { success = true, message = "Onboarding marked as completed" });
         }
         catch (Exception ex)
         {
