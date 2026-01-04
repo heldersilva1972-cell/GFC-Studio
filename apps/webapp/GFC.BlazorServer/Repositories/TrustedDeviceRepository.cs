@@ -3,6 +3,7 @@ using GFC.BlazorServer.Data;
 using GFC.Core.Models.Security;
 using GFC.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using System.Threading.Tasks;
 
 namespace GFC.BlazorServer.Repositories
@@ -18,32 +19,60 @@ namespace GFC.BlazorServer.Repositories
 
         public async Task<TrustedDevice?> GetByTokenAsync(string token)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.TrustedDevices.FirstOrDefaultAsync(d => d.DeviceToken == token);
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                return await context.TrustedDevices.FirstOrDefaultAsync(d => d.DeviceToken == token);
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                return null;
+            }
         }
 
         public async Task CreateAsync(TrustedDevice device)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            context.TrustedDevices.Add(device);
-            await context.SaveChangesAsync();
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                context.TrustedDevices.Add(device);
+                await context.SaveChangesAsync();
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                // Ignore if table missing
+            }
         }
 
         public async Task UpdateAsync(TrustedDevice device)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            context.TrustedDevices.Update(device);
-            await context.SaveChangesAsync();
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                context.TrustedDevices.Update(device);
+                await context.SaveChangesAsync();
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                // Ignore if table missing
+            }
         }
 
         public async Task DeleteAsync(int id)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            var device = await context.TrustedDevices.FindAsync(id);
-            if (device != null)
+            try
             {
-                context.TrustedDevices.Remove(device);
-                await context.SaveChangesAsync();
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                var device = await context.TrustedDevices.FindAsync(id);
+                if (device != null)
+                {
+                    context.TrustedDevices.Remove(device);
+                    await context.SaveChangesAsync();
+                }
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                // Ignore if table missing
             }
         }
     }

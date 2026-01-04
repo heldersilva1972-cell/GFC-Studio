@@ -27,19 +27,26 @@ public class KeyCardRepository : IKeyCardRepository
 
     public KeyCard? GetById(int keyCardId)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
-            FROM dbo.KeyCards
-            WHERE KeyCardId = @KeyCardId";
+            const string sql = @"
+                SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
+                FROM dbo.KeyCards
+                WHERE KeyCardId = @KeyCardId";
 
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@KeyCardId", keyCardId);
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@KeyCardId", keyCardId);
 
-        using var reader = command.ExecuteReader();
-        return reader.Read() ? MapReader(reader, nameof(GetById)) : null;
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? MapReader(reader, nameof(GetById)) : null;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return null;
+        }
     }
 
     public KeyCard? GetByCardNumber(string cardNumber)
@@ -61,24 +68,31 @@ public class KeyCardRepository : IKeyCardRepository
 
     public List<KeyCard> GetAll()
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        const string sql = @"
-            SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
-            FROM dbo.KeyCards
-            ORDER BY KeyCardId DESC";
-
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-
-        var cards = new List<KeyCard>();
-        while (reader.Read())
+        try
         {
-            cards.Add(MapReader(reader, nameof(GetAll)));
-        }
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        return cards;
+            const string sql = @"
+                SELECT KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
+                FROM dbo.KeyCards
+                ORDER BY KeyCardId DESC";
+
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+
+            var cards = new List<KeyCard>();
+            while (reader.Read())
+            {
+                cards.Add(MapReader(reader, nameof(GetAll)));
+            }
+
+            return cards;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<KeyCard>();
+        }
     }
 
     public KeyCard Create(string cardNumber, int memberId, string? notes, string cardType = "Card")

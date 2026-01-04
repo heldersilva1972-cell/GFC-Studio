@@ -376,6 +376,58 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
             {
                 var dbContext = services.GetRequiredService<GfcDbContext>();
                 
+                // [AUTO-FIX 0] CRITICAL: Initialize Database Foundation if Missing
+                // This ensures the application can start even if the manual sqlcmd script failed
+                var initFinalPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "INITIALIZE_DATABASE_FINAL.sql");
+                if (File.Exists(initFinalPath))
+                {
+                    try 
+                    {
+                        var checkTableSql = "SELECT COUNT(*) FROM sys.tables WHERE name = 'Members'";
+                        // safely check if we need to run init
+                        var tableCount = -1;
+                        try {
+                             // Use raw connection to avoid EF model issues if table missing
+                             using var cmd = dbContext.Database.GetDbConnection().CreateCommand();
+                             cmd.CommandText = checkTableSql;
+                             dbContext.Database.OpenConnection();
+                             tableCount = (int)(cmd.ExecuteScalar() ?? 0);
+                             dbContext.Database.CloseConnection();
+                        } catch { 
+                             // If completely broken, assume 0
+                             tableCount = 0; 
+                        }
+
+                        if (tableCount == 0)
+                        {
+                            Console.WriteLine($">>> CRITICAL: Core Tables Missing. Applying Foundation from: {initFinalPath}");
+                            var initSql = File.ReadAllText(initFinalPath);
+                            var initBatches = System.Text.RegularExpressions.Regex.Split(initSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            
+                            foreach (var batch in initBatches)
+                            {
+                                if (!string.IsNullOrWhiteSpace(batch))
+                                {
+                                    try {
+                                        dbContext.Database.ExecuteSqlRaw(batch);
+                                    } catch (Exception ex) {
+                                        Console.WriteLine($"Error executing foundation init batch: {ex.Message}");
+                                    }
+                                }
+                            }
+                            Console.WriteLine(">>> CRITICAL: Database Foundation Applied Successfully.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($">>> Error checking/applying foundation init: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Initialization script not found at {initFinalPath}");
+                }
+
                 // [CRITICAL FIX] Force-Fix NULL values in WebsiteSettings preventing app load
                 // We run this directly to ensure it happens regardless of external script parsing
                 try 

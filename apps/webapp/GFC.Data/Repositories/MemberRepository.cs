@@ -61,20 +61,27 @@ public class MemberRepository : IMemberRepository
     {
         var members = new List<Member>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        var sql = $@"
-            SELECT {MemberSelectColumns}
-            FROM Members
-            ORDER BY LastName, FirstName";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            members.Add(MapReaderToMember(reader, nameof(GetAllMembers)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            var sql = $@"
+                SELECT {MemberSelectColumns}
+                FROM Members
+                ORDER BY LastName, FirstName";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
+            {
+                members.Add(MapReaderToMember(reader, nameof(GetAllMembers)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<Member>();
         }
         
         return members;
@@ -107,28 +114,35 @@ public class MemberRepository : IMemberRepository
 
     public (int newMembers, int deactivatedMembers) GetMemberChangeSummaryForYear(int year)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        const string sql = @"
+            const string sql = @"
 SELECT
     SUM(CASE WHEN AcceptedDate >= @StartDate AND AcceptedDate < @EndDate THEN 1 ELSE 0 END) AS NewMembers,
     SUM(CASE WHEN Status = 'INACTIVE' AND InactiveDate >= @StartDate AND InactiveDate < @EndDate THEN 1 ELSE 0 END) AS DeactivatedMembers
 FROM Members;";
 
-        var startDate = new DateTime(year, 1, 1);
-        var endDate = startDate.AddYears(1);
+            var startDate = new DateTime(year, 1, 1);
+            var endDate = startDate.AddYears(1);
 
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@StartDate", startDate);
-        command.Parameters.AddWithValue("@EndDate", endDate);
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@StartDate", startDate);
+            command.Parameters.AddWithValue("@EndDate", endDate);
 
-        using var reader = command.ExecuteReader();
-        if (reader.Read())
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                var newMembers = reader["NewMembers"] is DBNull ? 0 : (int)reader["NewMembers"];
+                var deactivated = reader["DeactivatedMembers"] is DBNull ? 0 : (int)reader["DeactivatedMembers"];
+                return (newMembers, deactivated);
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
         {
-            var newMembers = reader["NewMembers"] is DBNull ? 0 : (int)reader["NewMembers"];
-            var deactivated = reader["DeactivatedMembers"] is DBNull ? 0 : (int)reader["DeactivatedMembers"];
-            return (newMembers, deactivated);
+            return (0, 0);
         }
 
         return (0, 0);
@@ -249,22 +263,29 @@ FROM Members;";
     {
         var counts = new Dictionary<string, int>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT Status, COUNT(*) AS Count
-            FROM Members
-            GROUP BY Status";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            var status = reader["Status"].ToString() ?? "UNKNOWN";
-            var count = Convert.ToInt32(reader["Count"]);
-            counts[status] = count;
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT Status, COUNT(*) AS Count
+                FROM Members
+                GROUP BY Status";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
+            {
+                var status = reader["Status"].ToString() ?? "UNKNOWN";
+                var count = Convert.ToInt32(reader["Count"]);
+                counts[status] = count;
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new Dictionary<string, int>();
         }
         
         return counts;
@@ -275,15 +296,22 @@ FROM Members;";
     /// </summary>
     public int GetTotalMemberCount()
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = "SELECT COUNT(*) FROM Members";
-        
-        using var command = new SqlCommand(sql, connection);
-        var count = (int)command.ExecuteScalar();
-        
-        return count;
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = "SELECT COUNT(*) FROM Members";
+            
+            using var command = new SqlCommand(sql, connection);
+            var count = (int)command.ExecuteScalar();
+            
+            return count;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return 0;
+        }
     }
 
     /// <summary>
@@ -425,25 +453,32 @@ FROM Members;";
     {
         var cities = new List<string>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT DISTINCT City 
-            FROM Members 
-            WHERE City IS NOT NULL AND City <> '' 
-            ORDER BY City";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            var city = reader["City"].ToString();
-            if (!string.IsNullOrWhiteSpace(city))
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT DISTINCT City 
+                FROM Members 
+                WHERE City IS NOT NULL AND City <> '' 
+                ORDER BY City";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
             {
-                cities.Add(city);
+                var city = reader["City"].ToString();
+                if (!string.IsNullOrWhiteSpace(city))
+                {
+                    cities.Add(city);
+                }
             }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<string>();
         }
         
         return cities;
@@ -456,25 +491,32 @@ FROM Members;";
     {
         var states = new List<string>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT DISTINCT State 
-            FROM Members 
-            WHERE State IS NOT NULL AND State <> '' 
-            ORDER BY State";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            var state = reader["State"].ToString();
-            if (!string.IsNullOrWhiteSpace(state))
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT DISTINCT State 
+                FROM Members 
+                WHERE State IS NOT NULL AND State <> '' 
+                ORDER BY State";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
             {
-                states.Add(state);
+                var state = reader["State"].ToString();
+                if (!string.IsNullOrWhiteSpace(state))
+                {
+                    states.Add(state);
+                }
             }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<string>();
         }
         
         return states;
@@ -487,25 +529,32 @@ FROM Members;";
     {
         var postalCodes = new List<string>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT DISTINCT PostalCode 
-            FROM Members 
-            WHERE PostalCode IS NOT NULL AND PostalCode <> '' 
-            ORDER BY PostalCode";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            var postalCode = reader["PostalCode"].ToString();
-            if (!string.IsNullOrWhiteSpace(postalCode))
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT DISTINCT PostalCode 
+                FROM Members 
+                WHERE PostalCode IS NOT NULL AND PostalCode <> '' 
+                ORDER BY PostalCode";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
             {
-                postalCodes.Add(postalCode);
+                var postalCode = reader["PostalCode"].ToString();
+                if (!string.IsNullOrWhiteSpace(postalCode))
+                {
+                    postalCodes.Add(postalCode);
+                }
             }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<string>();
         }
         
         return postalCodes;
@@ -516,18 +565,25 @@ FROM Members;";
     /// </summary>
     public int GetNonPortugueseRegularCount()
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT COUNT(*) 
-            FROM Members 
-            WHERE Status = 'REGULAR' AND IsNonPortugueseOrigin = 1";
-        
-        using var command = new SqlCommand(sql, connection);
-        var count = (int)command.ExecuteScalar();
-        
-        return count;
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT COUNT(*) 
+                FROM Members 
+                WHERE Status = 'REGULAR' AND IsNonPortugueseOrigin = 1";
+            
+            using var command = new SqlCommand(sql, connection);
+            var count = (int)command.ExecuteScalar();
+            
+            return count;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return 0;
+        }
     }
 
     /// <summary>
@@ -549,29 +605,36 @@ FROM Members;";
     {
         var queue = new List<MemberQueueItem>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT MemberID, LastName, FirstName, AcceptedDate
-            FROM Members
-            WHERE Status = 'GUEST' AND IsNonPortugueseOrigin = 1
-            ORDER BY AcceptedDate, LastName, FirstName";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        int position = 1;
-        while (reader.Read())
+        try
         {
-            queue.Add(new MemberQueueItem
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT MemberID, LastName, FirstName, AcceptedDate
+                FROM Members
+                WHERE Status = 'GUEST' AND IsNonPortugueseOrigin = 1
+                ORDER BY AcceptedDate, LastName, FirstName";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            int position = 1;
+            while (reader.Read())
             {
-                MemberID = (int)reader["MemberID"],
-                LastName = reader["LastName"].ToString() ?? string.Empty,
-                FirstName = reader["FirstName"].ToString() ?? string.Empty,
-                AcceptedDate = reader["AcceptedDate"] as DateTime?,
-                Position = position++
-            });
+                queue.Add(new MemberQueueItem
+                {
+                    MemberID = (int)reader["MemberID"],
+                    LastName = reader["LastName"].ToString() ?? string.Empty,
+                    FirstName = reader["FirstName"].ToString() ?? string.Empty,
+                    AcceptedDate = reader["AcceptedDate"] as DateTime?,
+                    Position = position++
+                });
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<MemberQueueItem>();
         }
         
         return queue;
@@ -586,18 +649,25 @@ FROM Members;";
     /// </summary>
     public int GetNonPortugueseQueueCount()
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        const string sql = @"
-            SELECT COUNT(*)
-            FROM Members
-            WHERE Status = 'GUEST'
-              AND IsNonPortugueseOrigin = 1";
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM Members
+                WHERE Status = 'GUEST'
+                  AND IsNonPortugueseOrigin = 1";
 
-        using var command = new SqlCommand(sql, connection);
-        var count = (int)command.ExecuteScalar();
-        return count;
+            using var command = new SqlCommand(sql, connection);
+            var count = (int)command.ExecuteScalar();
+            return count;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return 0;
+        }
     }
 
     /// <summary>
@@ -607,21 +677,28 @@ FROM Members;";
     {
         var members = new List<Member>();
 
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        var sql = $@"
-            SELECT {MemberSelectColumns}
-            FROM Members
-            WHERE UPPER(Status) IN ('LIFE', 'LIFE MEMBER')
-            ORDER BY LastName, FirstName";
-
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-
-        while (reader.Read())
+        try
         {
-            members.Add(MapReaderToMember(reader, nameof(GetLifeMembers)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            var sql = $@"
+                SELECT {MemberSelectColumns}
+                FROM Members
+                WHERE UPPER(Status) IN ('LIFE', 'LIFE MEMBER')
+                ORDER BY LastName, FirstName";
+
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+
+            while (reader.Read())
+            {
+                members.Add(MapReaderToMember(reader, nameof(GetLifeMembers)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<Member>();
         }
 
         return members;
@@ -638,9 +715,15 @@ FROM Members;";
     /// <returns>Count of eligible members</returns>
     public int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null)
     {
-        // Use the same logic as GetLifeEligibleMembers for consistency
-        var eligibleMembers = GetLifeEligibleMembers(asOfDate, historyRepository);
-        return eligibleMembers.Count;
+        try
+        {
+            var eligibleMembers = GetLifeEligibleMembers(asOfDate, historyRepository);
+            return eligibleMembers.Count;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return 0;
+        }
     }
 
     /// <summary>
@@ -799,21 +882,28 @@ FROM Members;";
     {
         var members = new List<Member>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        var sql = $@"
-            SELECT {MemberSelectColumns}
-            FROM Members
-            WHERE Status IN ('REGULAR', 'GUEST', 'LIFE MEMBER', 'LIFE')
-            ORDER BY LastName, FirstName";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            members.Add(MapReaderToMember(reader, nameof(GetActiveMembers)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            var sql = $@"
+                SELECT {MemberSelectColumns}
+                FROM Members
+                WHERE Status IN ('REGULAR', 'GUEST', 'LIFE MEMBER', 'LIFE')
+                ORDER BY LastName, FirstName";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
+            {
+                members.Add(MapReaderToMember(reader, nameof(GetActiveMembers)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<Member>();
         }
         
         return members;
@@ -826,21 +916,28 @@ FROM Members;";
     {
         var members = new List<Member>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        var sql = $@"
-            SELECT {MemberSelectColumns}
-            FROM Members
-            WHERE Status = 'INACTIVE'
-            ORDER BY LastName, FirstName";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            members.Add(MapReaderToMember(reader, nameof(GetInactiveMembers)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            var sql = $@"
+                SELECT {MemberSelectColumns}
+                FROM Members
+                WHERE Status = 'INACTIVE'
+                ORDER BY LastName, FirstName";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
+            {
+                members.Add(MapReaderToMember(reader, nameof(GetInactiveMembers)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<Member>();
         }
         
         return members;
@@ -853,21 +950,28 @@ FROM Members;";
     {
         var members = new List<Member>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        var sql = $@"
-            SELECT {MemberSelectColumns}
-            FROM Members
-            WHERE Status = 'DECEASED'
-            ORDER BY LastName, FirstName";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            members.Add(MapReaderToMember(reader, nameof(GetDeceasedMembers)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            var sql = $@"
+                SELECT {MemberSelectColumns}
+                FROM Members
+                WHERE Status = 'DECEASED'
+                ORDER BY LastName, FirstName";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
+            {
+                members.Add(MapReaderToMember(reader, nameof(GetDeceasedMembers)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<Member>();
         }
         
         return members;

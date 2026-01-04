@@ -26,23 +26,30 @@ namespace GFC.Data.Repositories
         public List<PhysicalKey> GetAllKeys()
         {
             var keys = new List<PhysicalKey>();
-            using var connection = Db.GetConnection();
-            connection.Open();
-
-            const string sql = @"
-                SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
-                       pk.IssuedBy, pk.ReturnedBy, pk.Notes,
-                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
-                FROM dbo.PhysicalKeys pk
-                INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
-                ORDER BY pk.IssuedDate DESC";
-
-            using var command = new SqlCommand(sql, connection);
-            using var reader = command.ExecuteReader();
-
-            while (reader.Read())
+            try
             {
-                keys.Add(MapReader(reader, nameof(GetAllKeys)));
+                using var connection = Db.GetConnection();
+                connection.Open();
+
+                const string sql = @"
+                    SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
+                           pk.IssuedBy, pk.ReturnedBy, pk.Notes,
+                           m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
+                    FROM dbo.PhysicalKeys pk
+                    INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
+                    ORDER BY pk.IssuedDate DESC";
+
+                using var command = new SqlCommand(sql, connection);
+                using var reader = command.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    keys.Add(MapReader(reader, nameof(GetAllKeys)));
+                }
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                return new List<PhysicalKey>();
             }
 
             return keys;
@@ -51,24 +58,31 @@ namespace GFC.Data.Repositories
         public List<PhysicalKey> GetActiveKeys()
         {
             var keys = new List<PhysicalKey>();
-            using var connection = Db.GetConnection();
-            connection.Open();
-
-            const string sql = @"
-                SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
-                       pk.IssuedBy, pk.ReturnedBy, pk.Notes,
-                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
-                FROM dbo.PhysicalKeys pk
-                INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
-                WHERE pk.ReturnedDate IS NULL
-                ORDER BY pk.IssuedDate DESC";
-
-            using var command = new SqlCommand(sql, connection);
-            using var reader = command.ExecuteReader();
-
-            while (reader.Read())
+            try
             {
-                keys.Add(MapReader(reader, nameof(GetActiveKeys)));
+                using var connection = Db.GetConnection();
+                connection.Open();
+
+                const string sql = @"
+                    SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
+                           pk.IssuedBy, pk.ReturnedBy, pk.Notes,
+                           m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
+                    FROM dbo.PhysicalKeys pk
+                    INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
+                    WHERE pk.ReturnedDate IS NULL
+                    ORDER BY pk.IssuedDate DESC";
+
+                using var command = new SqlCommand(sql, connection);
+                using var reader = command.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    keys.Add(MapReader(reader, nameof(GetActiveKeys)));
+                }
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                return new List<PhysicalKey>();
             }
 
             return keys;

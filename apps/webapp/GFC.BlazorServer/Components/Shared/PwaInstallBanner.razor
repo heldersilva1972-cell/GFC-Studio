@@ -1,0 +1,330 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<style>
+    .pwa-install-banner {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 9999;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        transform: translateY(-100%);
+        transition: transform 0.3s ease-in-out;
+    }
+
+    .pwa-install-banner.show {
+        transform: translateY(0);
+    }
+
+    .pwa-banner-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .pwa-banner-text {
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .pwa-banner-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0 0 0.25rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .pwa-banner-description {
+        font-size: 0.9rem;
+        opacity: 0.95;
+        margin: 0;
+    }
+
+    .pwa-banner-actions {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+    }
+
+    .pwa-install-btn {
+        background: white;
+        color: #667eea;
+        border: none;
+        padding: 0.625rem 1.5rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.95rem;
+    }
+
+    .pwa-install-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    .pwa-learn-more-btn {
+        background: transparent;
+        color: white;
+        border: 2px solid white;
+        padding: 0.5rem 1.25rem;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.9rem;
+    }
+
+    .pwa-learn-more-btn:hover {
+        background: rgba(255,255,255,0.1);
+    }
+
+    .pwa-close-btn {
+        background: transparent;
+        border: none;
+        color: white;
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+        line-height: 1;
+    }
+
+    .pwa-close-btn:hover {
+        opacity: 1;
+    }
+
+    .pwa-instructions {
+        background: rgba(255,255,255,0.1);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-top: 0.75rem;
+    }
+
+    .pwa-instructions h4 {
+        margin: 0 0 0.75rem 0;
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    .pwa-instructions ol {
+        margin: 0;
+        padding-left: 1.5rem;
+    }
+
+    .pwa-instructions li {
+        margin-bottom: 0.5rem;
+        line-height: 1.5;
+    }
+
+    @@media (max-width: 768px) {
+        .pwa-banner-content {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .pwa-banner-actions {
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .pwa-install-btn,
+        .pwa-learn-more-btn {
+            width: 100%;
+            text-align: center;
+        }
+    }
+</style>
+
+@if (showBanner)
+{
+    <div class="pwa-install-banner @(isVisible ? "show" : "")">
+        <div class="pwa-banner-content">
+            <div class="pwa-banner-text">
+                <h3 class="pwa-banner-title">
+                    <i class="bi bi-phone"></i>
+                    Install GFC App
+                </h3>
+                <p class="pwa-banner-description">
+                    Get quick access with one tap - no app store needed!
+                </p>
+                
+                @if (showInstructions && !string.IsNullOrEmpty(platformInstructions))
+                {
+                    <div class="pwa-instructions">
+                        <h4>How to Install:</h4>
+                        @((MarkupString)platformInstructions)
+                    </div>
+                }
+            </div>
+
+            <div class="pwa-banner-actions">
+                @if (canTriggerInstall)
+                {
+                    <button class="pwa-install-btn" @onclick="InstallApp">
+                        <i class="bi bi-download"></i> Install Now
+                    </button>
+                }
+                else if (!string.IsNullOrEmpty(platformInstructions))
+                {
+                    <button class="pwa-learn-more-btn" @onclick="ToggleInstructions">
+                        @(showInstructions ? "Hide Instructions" : "Show Instructions")
+                    </button>
+                }
+                
+                <button class="pwa-close-btn" @onclick="DismissBanner" title="Dismiss">
+                    ×
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool showBanner = false;
+    private bool isVisible = false;
+    private bool canTriggerInstall = false;
+    private bool showInstructions = false;
+    private string? platformInstructions = null;
+    private IJSObjectReference? jsModule;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Import the PWA installer module
+                jsModule = await JS.InvokeAsync<IJSObjectReference>(
+                    "import", "./js/pwa-installer.js");
+
+                // Check if we should show the banner
+                await CheckInstallability();
+
+                // Show banner with animation after a short delay
+                if (showBanner)
+                {
+                    await Task.Delay(1000);
+                    isVisible = true;
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PWA Banner] Error initializing: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task CheckInstallability()
+    {
+        try
+        {
+            // Check if banner was dismissed recently
+            var dismissed = await JS.InvokeAsync<string>("localStorage.getItem", "pwa-banner-dismissed");
+            if (!string.IsNullOrEmpty(dismissed))
+            {
+                var dismissedDate = DateTime.Parse(dismissed);
+                if ((DateTime.Now - dismissedDate).TotalDays < 7)
+                {
+                    // Don't show banner if dismissed within last 7 days
+                    return;
+                }
+            }
+
+            // Check if app is already installed
+            var isStandalone = await JS.InvokeAsync<bool>("eval", 
+                "window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true");
+            
+            if (isStandalone)
+            {
+                // Already installed, don't show banner
+                return;
+            }
+
+            // Check installability via pwaInstaller
+            var result = await JS.InvokeAsync<InstallabilityResult>(
+                "pwaInstaller.checkInstallability");
+
+            if (result != null)
+            {
+                canTriggerInstall = result.CanInstall;
+                platformInstructions = result.Instructions;
+                
+                // Show banner if we can install OR have manual instructions
+                showBanner = canTriggerInstall || !string.IsNullOrEmpty(platformInstructions);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PWA Banner] Error checking installability: {ex.Message}");
+        }
+    }
+
+    private async Task InstallApp()
+    {
+        try
+        {
+            var installed = await JS.InvokeAsync<bool>("pwaInstaller.install");
+            
+            if (installed)
+            {
+                // Hide banner after successful install
+                showBanner = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PWA Banner] Error installing: {ex.Message}");
+        }
+    }
+
+    private void ToggleInstructions()
+    {
+        showInstructions = !showInstructions;
+    }
+
+    private async Task DismissBanner()
+    {
+        // Animate out
+        isVisible = false;
+        StateHasChanged();
+        
+        await Task.Delay(300);
+        
+        // Hide completely
+        showBanner = false;
+        
+        // Remember dismissal for 7 days
+        await JS.InvokeVoidAsync("localStorage.setItem", 
+            "pwa-banner-dismissed", DateTime.Now.ToString("o"));
+        
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (jsModule != null)
+        {
+            await jsModule.DisposeAsync();
+        }
+    }
+
+    private class InstallabilityResult
+    {
+        public bool CanInstall { get; set; }
+        public string? Instructions { get; set; }
+    }
+}

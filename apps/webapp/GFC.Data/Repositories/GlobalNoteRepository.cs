@@ -53,28 +53,35 @@ public class GlobalNoteRepository : IGlobalNoteRepository
     {
         var notes = new List<GlobalNote>();
 
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        const string sql = @"
-            SELECT GlobalNoteID, NoteDate, Category, Text
-            FROM GlobalNotes
-            WHERE Category = @Category
-            ORDER BY NoteDate DESC, GlobalNoteID DESC";
-
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@Category", category);
-
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        try
         {
-            notes.Add(new GlobalNote
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                SELECT GlobalNoteID, NoteDate, Category, Text
+                FROM GlobalNotes
+                WHERE Category = @Category
+                ORDER BY NoteDate DESC, GlobalNoteID DESC";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@Category", category);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
             {
-                GlobalNoteID = (int)reader["GlobalNoteID"],
-                NoteDate = (DateTime)reader["NoteDate"],
-                Category = reader["Category"] as string,
-                Text = reader["Text"].ToString() ?? string.Empty
-            });
+                notes.Add(new GlobalNote
+                {
+                    GlobalNoteID = (int)reader["GlobalNoteID"],
+                    NoteDate = (DateTime)reader["NoteDate"],
+                    Category = reader["Category"] as string,
+                    Text = reader["Text"].ToString() ?? string.Empty
+                });
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<GlobalNote>();
         }
 
         return notes;

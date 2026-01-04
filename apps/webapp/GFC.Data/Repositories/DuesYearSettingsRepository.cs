@@ -15,30 +15,37 @@ public class DuesYearSettingsRepository : IDuesYearSettingsRepository
     /// </summary>
     public DuesYearSettings? GetSettingsForYear(int year)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        const string sql = @"
-            SELECT [Year],
-                   StandardDues,
-                   GraceEndApplied,
-                   GraceEndDate
-            FROM dbo.DuesYearSettings
-            WHERE [Year] = @Year";
-
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@Year", year);
-
-        using var reader = command.ExecuteReader();
-        if (reader.Read())
+        try
         {
-            return new DuesYearSettings
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                SELECT [Year],
+                       StandardDues,
+                       GraceEndApplied,
+                       GraceEndDate
+                FROM dbo.DuesYearSettings
+                WHERE [Year] = @Year";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@Year", year);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
             {
-                Year = (int)reader["Year"],
-                StandardDues = (decimal)reader["StandardDues"],
-                GraceEndApplied = reader["GraceEndApplied"] is DBNull ? false : (bool)reader["GraceEndApplied"],
-                GraceEndDate = reader["GraceEndDate"] is DBNull ? null : (DateTime?)reader["GraceEndDate"]
-            };
+                return new DuesYearSettings
+                {
+                    Year = (int)reader["Year"],
+                    StandardDues = (decimal)reader["StandardDues"],
+                    GraceEndApplied = reader["GraceEndApplied"] is DBNull ? false : (bool)reader["GraceEndApplied"],
+                    GraceEndDate = reader["GraceEndDate"] is DBNull ? null : (DateTime?)reader["GraceEndDate"]
+                };
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return null;
         }
 
         return null;

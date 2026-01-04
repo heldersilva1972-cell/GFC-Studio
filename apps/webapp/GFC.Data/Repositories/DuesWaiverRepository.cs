@@ -27,22 +27,29 @@ public class DuesWaiverRepository : IDuesWaiverRepository
     {
         var waivers = new List<DuesWaiverPeriod>();
 
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        const string sql = @"
-            SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
-            FROM DuesWaiverPeriods
-            WHERE MemberId = @MemberId
-            ORDER BY StartYear";
-
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@MemberId", memberId);
-
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        try
         {
-            waivers.Add(MapReader(reader, nameof(GetWaiversForMember)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
+                FROM DuesWaiverPeriods
+                WHERE MemberId = @MemberId
+                ORDER BY StartYear";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@MemberId", memberId);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                waivers.Add(MapReader(reader, nameof(GetWaiversForMember)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<DuesWaiverPeriod>();
         }
 
         return waivers;
@@ -52,21 +59,28 @@ public class DuesWaiverRepository : IDuesWaiverRepository
     {
         var waivers = new List<DuesWaiverPeriod>();
 
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        const string sql = @"
-            SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
-            FROM DuesWaiverPeriods
-            WHERE @Year BETWEEN StartYear AND EndYear";
-
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@Year", year);
-
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        try
         {
-            waivers.Add(MapReader(reader, nameof(GetWaiversForYear)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
+                FROM DuesWaiverPeriods
+                WHERE @Year BETWEEN StartYear AND EndYear";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@Year", year);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                waivers.Add(MapReader(reader, nameof(GetWaiversForYear)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<DuesWaiverPeriod>();
         }
 
         return waivers;
@@ -76,20 +90,27 @@ public class DuesWaiverRepository : IDuesWaiverRepository
     {
         var waivers = new List<DuesWaiverPeriod>();
 
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        const string sql = @"
-            SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
-            FROM DuesWaiverPeriods
-            ORDER BY MemberId, StartYear";
-
-        using var command = new SqlCommand(sql, connection);
-
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        try
         {
-            waivers.Add(MapReader(reader, nameof(GetAllWaivers)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+                SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
+                FROM DuesWaiverPeriods
+                ORDER BY MemberId, StartYear";
+
+            using var command = new SqlCommand(sql, connection);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                waivers.Add(MapReader(reader, nameof(GetAllWaivers)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<DuesWaiverPeriod>();
         }
 
         return waivers;

@@ -32,25 +32,32 @@ public class BoardRepository : IBoardRepository
     {
         var positions = new List<BoardPosition>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT PositionID, PositionName, MaxSeats
-            FROM BoardPositions
-            ORDER BY PositionName";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            positions.Add(new BoardPosition
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT PositionID, PositionName, MaxSeats
+                FROM BoardPositions
+                ORDER BY PositionName";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
             {
-                PositionID = (int)reader["PositionID"],
-                PositionName = reader["PositionName"].ToString() ?? string.Empty,
-                MaxSeats = (int)reader["MaxSeats"]
-            });
+                positions.Add(new BoardPosition
+                {
+                    PositionID = (int)reader["PositionID"],
+                    PositionName = reader["PositionName"].ToString() ?? string.Empty,
+                    MaxSeats = (int)reader["MaxSeats"]
+                });
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<BoardPosition>();
         }
         
         return positions;
@@ -61,26 +68,33 @@ public class BoardRepository : IBoardRepository
     /// </summary>
     public BoardPosition? GetPositionById(int positionId)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT PositionID, PositionName, MaxSeats
-            FROM BoardPositions
-            WHERE PositionID = @PositionID";
-        
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@PositionID", positionId);
-        
-        using var reader = command.ExecuteReader();
-        if (reader.Read())
+        try
         {
-            return new BoardPosition
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT PositionID, PositionName, MaxSeats
+                FROM BoardPositions
+                WHERE PositionID = @PositionID";
+            
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@PositionID", positionId);
+            
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
             {
-                PositionID = (int)reader["PositionID"],
-                PositionName = reader["PositionName"].ToString() ?? string.Empty,
-                MaxSeats = (int)reader["MaxSeats"]
-            };
+                return new BoardPosition
+                {
+                    PositionID = (int)reader["PositionID"],
+                    PositionName = reader["PositionName"].ToString() ?? string.Empty,
+                    MaxSeats = (int)reader["MaxSeats"]
+                };
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return null;
         }
         
         return null;
@@ -93,25 +107,32 @@ public class BoardRepository : IBoardRepository
     {
         var assignments = new List<BoardAssignment>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
-                   ba.StartDate, ba.EndDate, ba.Notes,
-                   m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
-                   bp.PositionName
-            FROM BoardAssignments ba
-            INNER JOIN Members m ON ba.MemberID = m.MemberID
-            INNER JOIN BoardPositions bp ON ba.PositionID = bp.PositionID
-            ORDER BY ba.TermYear DESC, bp.PositionName, m.LastName, m.FirstName";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            assignments.Add(MapReaderToBoardAssignment(reader, nameof(GetAllAssignments)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
+                       ba.StartDate, ba.EndDate, ba.Notes,
+                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
+                       bp.PositionName
+                FROM BoardAssignments ba
+                INNER JOIN Members m ON ba.MemberID = m.MemberID
+                INNER JOIN BoardPositions bp ON ba.PositionID = bp.PositionID
+                ORDER BY ba.TermYear DESC, bp.PositionName, m.LastName, m.FirstName";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
+            {
+                assignments.Add(MapReaderToBoardAssignment(reader, nameof(GetAllAssignments)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<BoardAssignment>();
         }
         
         return assignments;
@@ -124,27 +145,34 @@ public class BoardRepository : IBoardRepository
     {
         var assignments = new List<BoardAssignment>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
-                   ba.StartDate, ba.EndDate, ba.Notes,
-                   m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
-                   bp.PositionName
-            FROM BoardAssignments ba
-            INNER JOIN Members m ON ba.MemberID = m.MemberID
-            INNER JOIN BoardPositions bp ON ba.PositionID = bp.PositionID
-            WHERE ba.TermYear = @TermYear
-            ORDER BY bp.PositionName, m.LastName, m.FirstName";
-        
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@TermYear", termYear);
-        
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        try
         {
-            assignments.Add(MapReaderToBoardAssignment(reader, nameof(GetAssignmentsByYear)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
+                       ba.StartDate, ba.EndDate, ba.Notes,
+                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
+                       bp.PositionName
+                FROM BoardAssignments ba
+                INNER JOIN Members m ON ba.MemberID = m.MemberID
+                INNER JOIN BoardPositions bp ON ba.PositionID = bp.PositionID
+                WHERE ba.TermYear = @TermYear
+                ORDER BY bp.PositionName, m.LastName, m.FirstName";
+            
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@TermYear", termYear);
+            
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                assignments.Add(MapReaderToBoardAssignment(reader, nameof(GetAssignmentsByYear)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<BoardAssignment>();
         }
         
         return assignments;
@@ -155,18 +183,25 @@ public class BoardRepository : IBoardRepository
     /// </summary>
     public int? GetMostRecentTermYear()
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT TOP 1 TermYear
-            FROM BoardAssignments
-            ORDER BY TermYear DESC";
-        
-        using var command = new SqlCommand(sql, connection);
-        var result = command.ExecuteScalar();
-        
-        return result as int?;
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT TOP 1 TermYear
+                FROM BoardAssignments
+                ORDER BY TermYear DESC";
+            
+            using var command = new SqlCommand(sql, connection);
+            var result = command.ExecuteScalar();
+            
+            return result as int?;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -176,20 +211,27 @@ public class BoardRepository : IBoardRepository
     {
         var years = new List<int>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT DISTINCT TermYear
-            FROM BoardAssignments
-            ORDER BY TermYear DESC";
-        
-        using var command = new SqlCommand(sql, connection);
-        using var reader = command.ExecuteReader();
-        
-        while (reader.Read())
+        try
         {
-            years.Add((int)reader["TermYear"]);
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT DISTINCT TermYear
+                FROM BoardAssignments
+                ORDER BY TermYear DESC";
+            
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            
+            while (reader.Read())
+            {
+                years.Add((int)reader["TermYear"]);
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<int>();
         }
         
         return years;
@@ -202,27 +244,34 @@ public class BoardRepository : IBoardRepository
     {
         var assignments = new List<BoardAssignment>();
         
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
-                   ba.StartDate, ba.EndDate, ba.Notes,
-                   m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
-                   bp.PositionName
-            FROM BoardAssignments ba
-            INNER JOIN Members m ON ba.MemberID = m.MemberID
-            INNER JOIN BoardPositions bp ON ba.PositionID = bp.PositionID
-            WHERE ba.MemberID = @MemberID
-            ORDER BY ba.TermYear DESC, bp.PositionName";
-        
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@MemberID", memberId);
-        
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        try
         {
-            assignments.Add(MapReaderToBoardAssignment(reader, nameof(GetAssignmentsByMember)));
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
+                       ba.StartDate, ba.EndDate, ba.Notes,
+                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
+                       bp.PositionName
+                FROM BoardAssignments ba
+                INNER JOIN Members m ON ba.MemberID = m.MemberID
+                INNER JOIN BoardPositions bp ON ba.PositionID = bp.PositionID
+                WHERE ba.MemberID = @MemberID
+                ORDER BY ba.TermYear DESC, bp.PositionName";
+            
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@MemberID", memberId);
+            
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                assignments.Add(MapReaderToBoardAssignment(reader, nameof(GetAssignmentsByMember)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return new List<BoardAssignment>();
         }
         
         return assignments;
@@ -233,21 +282,28 @@ public class BoardRepository : IBoardRepository
     /// </summary>
     public bool IsBoardMemberForYear(int memberId, int termYear)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        const string sql = @"
-            SELECT COUNT(*)
-            FROM BoardAssignments
-            WHERE MemberID = @MemberID
-              AND TermYear = @TermYear";
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM BoardAssignments
+                WHERE MemberID = @MemberID
+                  AND TermYear = @TermYear";
 
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@MemberID", memberId);
-        command.Parameters.AddWithValue("@TermYear", termYear);
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@MemberID", memberId);
+            command.Parameters.AddWithValue("@TermYear", termYear);
 
-        var count = (int)command.ExecuteScalar();
-        return count > 0;
+            var count = (int)command.ExecuteScalar();
+            return count > 0;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -256,19 +312,26 @@ public class BoardRepository : IBoardRepository
     /// </summary>
     public bool HasAssignmentsForMember(int memberId)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        const string sql = @"
-            SELECT TOP 1 1
-            FROM BoardAssignments
-            WHERE MemberID = @MemberID";
+            const string sql = @"
+                SELECT TOP 1 1
+                FROM BoardAssignments
+                WHERE MemberID = @MemberID";
 
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@MemberID", memberId);
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@MemberID", memberId);
 
-        var result = command.ExecuteScalar();
-        return result != null;
+            var result = command.ExecuteScalar();
+            return result != null;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -276,19 +339,26 @@ public class BoardRepository : IBoardRepository
     /// </summary>
     public int GetAssignmentCount(int positionId, int termYear)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-        
-        const string sql = @"
-            SELECT COUNT(*)
-            FROM BoardAssignments
-            WHERE PositionID = @PositionID AND TermYear = @TermYear";
-        
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@PositionID", positionId);
-        command.Parameters.AddWithValue("@TermYear", termYear);
-        
-        return Convert.ToInt32(command.ExecuteScalar());
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM BoardAssignments
+                WHERE PositionID = @PositionID AND TermYear = @TermYear";
+            
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@PositionID", positionId);
+            command.Parameters.AddWithValue("@TermYear", termYear);
+            
+            return Convert.ToInt32(command.ExecuteScalar());
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return 0;
+        }
     }
 
     /// <summary>

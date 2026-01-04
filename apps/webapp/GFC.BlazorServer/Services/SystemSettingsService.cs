@@ -22,25 +22,37 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
 
     public async Task<SystemSettings> GetAsync()
     {
-        await using var dbContext = await _contextFactory.CreateDbContextAsync();
-        var settings = await dbContext.SystemSettings.FindAsync(1);
-        
-        if (settings == null)
+        try
         {
-            // Create default settings if none exist
-            settings = new SystemSettings
-            {
-                Id = 1,
-
-                LastUpdatedUtc = null
-            };
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+            var settings = await dbContext.SystemSettings.FindAsync(1);
             
-            dbContext.SystemSettings.Add(settings);
-            await dbContext.SaveChangesAsync();
-            _logger.LogInformation("Created default SystemSettings");
+            if (settings == null)
+            {
+                // Create default settings if none exist
+                settings = new SystemSettings
+                {
+                    Id = 1,
+                    LastUpdatedUtc = null
+                };
+                
+                dbContext.SystemSettings.Add(settings);
+                await dbContext.SaveChangesAsync();
+                _logger.LogInformation("Created default SystemSettings");
+            }
+            
+            return settings;
         }
-        
-        return settings;
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) // Invalid object name
+        {
+            _logger.LogWarning(ex, "SystemSettings table missing. Returning default settings.");
+            return new SystemSettings { Id = 1 };
+        }
+        catch (Exception ex)
+        {
+             _logger.LogError(ex, "Error retrieving SystemSettings");
+             return new SystemSettings { Id = 1 };
+        }
     }
 
     public async Task<SystemSettings> GetSystemSettingsAsync() => await GetAsync();
@@ -59,24 +71,37 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
 
     public SystemSettings GetSettings()
     {
-        using var dbContext = _contextFactory.CreateDbContext();
-        var settings = dbContext.SystemSettings.Find(1);
-        
-        if (settings == null)
+        try
         {
-            // Create default settings if none exist
-            settings = new SystemSettings
-            {
-                Id = 1,
-                LastUpdatedUtc = null
-            };
+            using var dbContext = _contextFactory.CreateDbContext();
+            var settings = dbContext.SystemSettings.Find(1);
             
-            dbContext.SystemSettings.Add(settings);
-            dbContext.SaveChanges();
-            _logger.LogInformation("Created default SystemSettings");
+            if (settings == null)
+            {
+                // Create default settings if none exist
+                settings = new SystemSettings
+                {
+                    Id = 1,
+                    LastUpdatedUtc = null
+                };
+                
+                dbContext.SystemSettings.Add(settings);
+                dbContext.SaveChanges();
+                _logger.LogInformation("Created default SystemSettings");
+            }
+            
+            return settings;
         }
-        
-        return settings;
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) // Invalid object name
+        {
+            _logger.LogWarning(ex, "SystemSettings table missing. Returning default settings.");
+            return new SystemSettings { Id = 1 };
+        }
+        catch (Exception ex)
+        {
+             _logger.LogError(ex, "Error retrieving SystemSettings");
+             return new SystemSettings { Id = 1 };
+        }
     }
 
     public async Task UpdateNvrCredentialsAsync(string nvrIpAddress, int nvrPort, string username, string password)

@@ -26,41 +26,61 @@ namespace GFC.BlazorServer.Services
 
         public async Task<HallRentalRequest> GetRentalRequestAsync(int id)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.HallRentalRequests.FindAsync(id);
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                return await context.HallRentalRequests.FindAsync(id);
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return null; }
         }
 
         public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsAsync()
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.HallRentalRequests.ToListAsync();
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                return await context.HallRentalRequests.ToListAsync();
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return Enumerable.Empty<HallRentalRequest>(); }
         }
 
         public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsByStatusAsync(string status)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.HallRentalRequests.Where(r => r.Status == status).ToListAsync();
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                return await context.HallRentalRequests.Where(r => r.Status == status).ToListAsync();
+             }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return Enumerable.Empty<HallRentalRequest>(); }
         }
 
         public async Task<IEnumerable<HallRentalRequest>> GetRentalRequestsByDateRangeAsync(DateTime startDate, DateTime endDate)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.HallRentalRequests
-                .Where(r => r.RequestedDate.Date >= startDate.Date && r.RequestedDate.Date <= endDate.Date)
-                .ToListAsync();
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                return await context.HallRentalRequests
+                    .Where(r => r.RequestedDate.Date >= startDate.Date && r.RequestedDate.Date <= endDate.Date)
+                    .ToListAsync();
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return Enumerable.Empty<HallRentalRequest>(); }
         }
 
         public async Task<bool> IsDateAlreadyBookedAsync(DateTime date)
         {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            
-            var rentalExists = await context.HallRentalRequests
-                .AnyAsync(r => r.RequestedDate.Date == date.Date && r.Status == RentalStatus.Approved);
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
                 
-            var calendarExists = await context.AvailabilityCalendars
-                .AnyAsync(c => c.Date.Date == date.Date && (c.Status == "Club Event" || c.Status == "Blackout" || c.Status == "Booked"));
-                
-            return rentalExists || calendarExists;
+                var rentalExists = await context.HallRentalRequests
+                    .AnyAsync(r => r.RequestedDate.Date == date.Date && r.Status == RentalStatus.Approved);
+                    
+                var calendarExists = await context.AvailabilityCalendars
+                    .AnyAsync(c => c.Date.Date == date.Date && (c.Status == "Club Event" || c.Status == "Blackout" || c.Status == "Booked"));
+                    
+                return rentalExists || calendarExists;
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return false; }
         }
 
         public async Task CreateRentalRequestAsync(HallRentalRequest request)

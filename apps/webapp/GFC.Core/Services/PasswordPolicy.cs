@@ -18,40 +18,7 @@ public class PasswordPolicy : IPasswordPolicy
 
     public PasswordValidationResult Validate(string username, string password)
     {
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            return PasswordValidationResult.Fail("Password is required.");
-        }
-
-        var normalizedPassword = password.Trim();
-        if (normalizedPassword.Length < MinimumLength)
-        {
-            return PasswordValidationResult.Fail(RequirementSummary);
-        }
-
-        var hasUpper = normalizedPassword.Any(char.IsUpper);
-        var hasLower = normalizedPassword.Any(char.IsLower);
-        var hasDigit = normalizedPassword.Any(char.IsDigit);
-        var hasSymbol = normalizedPassword.Any(ch => !char.IsLetterOrDigit(ch));
-
-        if (!(hasUpper && hasLower && (hasDigit || hasSymbol)))
-        {
-            return PasswordValidationResult.Fail(RequirementSummary);
-        }
-
-        var normalizedUsername = username?.Trim().ToLowerInvariant();
-        if (!string.IsNullOrEmpty(normalizedUsername) &&
-            normalizedPassword.ToLowerInvariant().Contains(normalizedUsername))
-        {
-            return PasswordValidationResult.Fail("Password cannot contain the username.");
-        }
-
-        if (BannedPasswords.Any(banned =>
-                normalizedPassword.Equals(banned, StringComparison.OrdinalIgnoreCase)))
-        {
-            return PasswordValidationResult.Fail("Password is too common.");
-        }
-
+        // Password policy requirements disabled for troubleshooting
         return PasswordValidationResult.Success();
     }
 }

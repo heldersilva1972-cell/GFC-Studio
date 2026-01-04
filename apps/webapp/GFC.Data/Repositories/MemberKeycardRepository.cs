@@ -27,27 +27,34 @@ public class MemberKeycardRepository : IMemberKeycardRepository
 
     public MemberKeycardAssignment? GetCurrentAssignmentForMember(int memberId)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        const string sql = @"
-            SELECT TOP 1 AssignmentId, MemberId, KeyCardId, FromDate, ToDate, Reason, ChangedBy
-            FROM dbo.MemberKeycardAssignments
-            WHERE MemberId = @MemberId AND ToDate IS NULL
-            ORDER BY FromDate DESC";
+            const string sql = @"
+                SELECT TOP 1 AssignmentId, MemberId, KeyCardId, FromDate, ToDate, Reason, ChangedBy
+                FROM dbo.MemberKeycardAssignments
+                WHERE MemberId = @MemberId AND ToDate IS NULL
+                ORDER BY FromDate DESC";
 
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@MemberId", memberId);
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@MemberId", memberId);
 
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
+            using var reader = command.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var assignment = MapReader(reader, nameof(GetCurrentAssignmentForMember));
+            assignment.KeyCard = _keyCardRepository.GetById(assignment.KeyCardId);
+            return assignment;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
         {
             return null;
         }
-
-        var assignment = MapReader(reader, nameof(GetCurrentAssignmentForMember));
-        assignment.KeyCard = _keyCardRepository.GetById(assignment.KeyCardId);
-        return assignment;
     }
 
     public MemberKeycardAssignment? GetCurrentAssignmentForCard(int keyCardId)
@@ -149,17 +156,24 @@ public class MemberKeycardRepository : IMemberKeycardRepository
 
     public int GetActiveAssignmentCount()
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
 
-        const string sql = @"
-            SELECT COUNT(*)
-            FROM dbo.MemberKeycardAssignments
-            WHERE ToDate IS NULL";
+            const string sql = @"
+                SELECT COUNT(*)
+                FROM dbo.MemberKeycardAssignments
+                WHERE ToDate IS NULL";
 
-        using var command = new SqlCommand(sql, connection);
-        var result = command.ExecuteScalar();
-        return Convert.ToInt32(result);
+            using var command = new SqlCommand(sql, connection);
+            var result = command.ExecuteScalar();
+            return Convert.ToInt32(result);
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            return 0;
+        }
     }
 
     private static MemberKeycardAssignment MapReader(SqlDataReader reader, string context)
