@@ -60,4 +60,9 @@ public interface IVpnConfigurationService
     /// Generates a .mobileconfig profile for Apple devices.
     /// </summary>
     Task<byte[]> GenerateAppleProfileAsync(int userId);
+
+    /// <summary>
+    /// Gets all active VPN profiles for a specific user.
+    /// </summary>
+    Task<System.Collections.Generic.List<VpnProfile>> GetUserProfilesAsync(int userId);
 }

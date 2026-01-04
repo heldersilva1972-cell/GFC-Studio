@@ -6,6 +6,7 @@ namespace GFC.BlazorServer.Auth;
 public static class AppRoles
 {
     public const string Admin = "Admin";
+    public const string Director = "Director";
     public const string StudioUnlock = "StudioUnlock";
 }
 

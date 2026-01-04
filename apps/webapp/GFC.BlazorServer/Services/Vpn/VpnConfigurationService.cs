@@ -384,4 +384,13 @@ public class VpnConfigurationService : IVpnConfigurationService
 
         return Encoding.UTF8.GetBytes(xml);
     }
+
+    public async Task<System.Collections.Generic.List<VpnProfile>> GetUserProfilesAsync(int userId)
+    {
+        using var context = await _dbContextFactory.CreateDbContextAsync();
+        return await context.VpnProfiles
+            .Where(p => p.UserId == userId && p.RevokedAt == null)
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync();
+    }
 }

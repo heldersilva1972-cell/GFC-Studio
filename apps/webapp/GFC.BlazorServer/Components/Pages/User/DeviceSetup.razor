@@ -1,0 +1,506 @@
+@page "/my-devices"
+@using GFC.BlazorServer.Services.Vpn
+@using GFC.Core.Models
+@using GFC.BlazorServer.Auth
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = AppRoles.Admin + "," + AppRoles.Director)]
+@inject IVpnConfigurationService VpnService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<DeviceSetup> Logger
+
+<div class="device-setup-container">
+    <div class="page-header">
+        <div class="header-content">
+            <i class="bi bi-shield-lock-fill header-icon"></i>
+            <div>
+                <h1>Secure Access & Devices</h1>
+                <p class="subtitle">Manage your VPN profiles and security credentials</p>
+            </div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading your secure profiles...</p>
+        </div>
+    }
+    else
+    {
+        <div class="profiles-grid">
+            @if (_profiles.Count == 0)
+            {
+                <div class="empty-state">
+                    <i class="bi bi-laptop"></i>
+                    <h3>No Active Devices</h3>
+                    <p>You don't have any active VPN profiles associated with your account.</p>
+                    <p class="help-text">Contact an administrator if you believe this is an error.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var profile in _profiles)
+                {
+                    <div class="device-card">
+                        <div class="card-status @(profile.LastUsedAt.HasValue && (DateTime.UtcNow - profile.LastUsedAt.Value).TotalDays < 1 ? "status-online" : "status-offline")">
+                            @(profile.LastUsedAt.HasValue && (DateTime.UtcNow - profile.LastUsedAt.Value).TotalDays < 1 ? "Connected recently" : "Inactive")
+                        </div>
+                        <div class="card-header">
+                            <div class="device-type-icon">
+                                @if (profile.DeviceType?.Contains("iOS") == true || profile.DeviceType?.Contains("Apple") == true)
+                                {
+                                    <i class="bi bi-apple"></i>
+                                }
+                                else if (profile.DeviceType?.Contains("Windows") == true)
+                                {
+                                    <i class="bi bi-windows"></i>
+                                }
+                                else if (profile.DeviceType?.Contains("Android") == true)
+                                {
+                                    <i class="bi bi-phone"></i>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-pc-display"></i>
+                                }
+                            </div>
+                            <div class="device-info">
+                                <h3>@profile.DeviceName</h3>
+                                <span class="assigned-ip">@profile.AssignedIP</span>
+                            </div>
+                        </div>
+
+                        <div class="card-body">
+                            <div class="info-row">
+                                <span class="label">Public Key</span>
+                                <span class="value code">@TruncateKey(profile.PublicKey)</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Created</span>
+                                <span class="value">@profile.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy")</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Last Seen</span>
+                                <span class="value">@(profile.LastUsedAt?.ToLocalTime().ToString("g") ?? "Never")</span>
+                            </div>
+                        </div>
+
+                        <div class="card-actions">
+                            <div class="dropdown-group">
+                                <button class="btn btn-download" @onclick="() => DownloadConfig(profile)">
+                                    <i class="bi bi-download"></i> Download Config
+                                </button>
+                                <div class="action-menu">
+                                    <button class="btn btn-icon" title="Rotate Keys" @onclick="() => ConfirmRotateKeys(profile)">
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    </button>
+                                    <button class="btn btn-icon btn-danger" title="Revoke Device" @onclick="() => ConfirmRevoke(profile)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+        
+        <div class="onboarding-support">
+            <h3>Download Onboarding Tools</h3>
+            <div class="tools-grid">
+                <a href="/api/onboarding/windows-setup?token=LEGACY_REQUEST" class="tool-link">
+                    <i class="bi bi-windows"></i>
+                    <span>Windows One-Click</span>
+                </a>
+                <a href="/api/onboarding/apple-profile?token=LEGACY_REQUEST" class="tool-link">
+                    <i class="bi bi-apple"></i>
+                    <span>Apple Profile</span>
+                </a>
+                <a href="/api/onboarding/ca-cert" class="tool-link">
+                    <i class="bi bi-shield-check"></i>
+                    <span>Root CA Cert</span>
+                </a>
+            </div>
+            <p class="tool-note">Note: Token links usually require a fresh invite. Use the manual config download from your device card if you already have the app installed.</p>
+        </div>
+    }
+</div>
+
+<style>
+    .device-setup-container {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+
+    .page-header {
+        margin-bottom: 2.5rem;
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+        padding: 2rem;
+        border-radius: 1rem;
+        color: white;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+
+    .header-content {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+    }
+
+    .header-icon {
+        font-size: 3rem;
+        opacity: 0.9;
+    }
+
+    .page-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+
+    .subtitle {
+        margin: 0.5rem 0 0 0;
+        opacity: 0.8;
+    }
+
+    /* Grid & Cards */
+    .profiles-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 2rem;
+        margin-bottom: 3rem;
+    }
+
+    .device-card {
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e0e0e0);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        position: relative;
+        transition: transform 0.2s, box-shadow 0.2s;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .device-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+    }
+
+    .card-status {
+        position: absolute;
+        top: 1rem;
+        right: 1.5rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.25rem 0.6rem;
+        border-radius: 1rem;
+    }
+
+    .status-online {
+        background: #D1FAE5;
+        color: #065F46;
+    }
+
+    .status-offline {
+        background: #F3F4F6;
+        color: #6B7280;
+    }
+
+    .card-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+        padding-top: 0.5rem;
+    }
+
+    .device-type-icon {
+        width: 48px;
+        height: 48px;
+        background: var(--gray-100);
+        border-radius: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: var(--primary);
+    }
+
+    .device-info h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: var(--text-primary);
+    }
+
+    .assigned-ip {
+        font-family: var(--font-mono);
+        color: var(--primary);
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .card-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+    }
+
+    .label {
+        color: var(--gray-500);
+    }
+
+    .value {
+        font-weight: 500;
+        color: var(--gray-800);
+    }
+
+    .value.code {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+    }
+
+    .card-actions {
+        border-top: 1px solid var(--gray-100);
+        padding-top: 1rem;
+    }
+
+    .dropdown-group {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn {
+        padding: 0.6rem 1rem;
+        border-radius: 0.5rem;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        border: none;
+        transition: background 0.2s;
+    }
+
+    .btn-download {
+        background: var(--primary);
+        color: white;
+        flex: 1;
+    }
+
+    .btn-download:hover {
+        background: var(--primary-dark);
+    }
+
+    .btn-icon {
+        background: var(--gray-100);
+        color: var(--gray-700);
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .btn-icon:hover {
+        background: var(--gray-200);
+    }
+
+    .btn-danger:hover {
+        background: #FEE2E2;
+        color: var(--error);
+    }
+
+    .action-menu {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    /* Onboarding Tools */
+    .onboarding-support {
+        background: var(--gray-50);
+        padding: 2rem;
+        border-radius: 1rem;
+        border: 1px dashed var(--gray-300);
+    }
+
+    .onboarding-support h3 {
+        margin-top: 0;
+        margin-bottom: 1.5rem;
+        font-size: 1.2rem;
+    }
+
+    .tools-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .tool-link {
+        background: white;
+        padding: 1rem;
+        border-radius: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        text-decoration: none;
+        color: var(--gray-800);
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        border: 1px solid var(--gray-100);
+        transition: all 0.2s;
+    }
+
+    .tool-link:hover {
+        transform: translateY(-2px);
+        border-color: var(--primary);
+    }
+
+    .tool-link i {
+        font-size: 1.5rem;
+        color: var(--primary);
+    }
+
+    .tool-note {
+        font-size: 0.75rem;
+        color: var(--gray-500);
+    }
+
+    .empty-state {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--gray-500);
+    }
+
+    .empty-state i {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        display: block;
+    }
+
+    .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--gray-200);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1rem;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+
+@code {
+    private List<VpnProfile> _profiles = new();
+    private bool _loading = true;
+    private int _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProfiles();
+    }
+
+    private async Task LoadProfiles()
+    {
+        _loading = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var uidClaim = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (uidClaim != null && int.TryParse(uidClaim.Value, out int uid))
+            {
+                _currentUserId = uid;
+                _profiles = await VpnService.GetUserProfilesAsync(uid);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading VPN profiles");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string TruncateKey(string key)
+    {
+        if (string.IsNullOrEmpty(key) || key.Length <= 12) return key;
+        return key.Substring(0, 8) + "..." + key.Substring(key.Length - 4);
+    }
+
+    private async Task DownloadConfig(VpnProfile profile)
+    {
+        try
+        {
+            var configContent = await VpnService.GenerateConfigForUserAsync(_currentUserId, profile.DeviceName, profile.DeviceType);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(configContent);
+            var base64 = Convert.ToBase64String(bytes);
+            await JSRuntime.InvokeVoidAsync("downloadFile", "gfc-access.conf", "text/plain", base64);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading config");
+            await JSRuntime.InvokeVoidAsync("alert", "Failed to download configuration.");
+        }
+    }
+
+    private async Task ConfirmRotateKeys(VpnProfile profile)
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to rotate keys for '{profile.DeviceName}'? This will invalidate your current WireGuard connection on that device until you update it with the new config.");
+        
+        if (confirmed)
+        {
+            try
+            {
+                await VpnService.RotateKeysAsync(profile.Id);
+                await LoadProfiles();
+                StateHasChanged();
+                await JSRuntime.InvokeVoidAsync("alert", "Keys rotated successfully. Please download the new config and update your device.");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error rotating keys");
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to rotate keys.");
+            }
+        }
+    }
+
+    private async Task ConfirmRevoke(VpnProfile profile)
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Permanently revoke access for '{profile.DeviceName}'? You will lose secure access from this device immediately.");
+        
+        if (confirmed)
+        {
+            try
+            {
+                await VpnService.RevokeProfileAsync(profile.Id, _currentUserId, "Userself-revoked via portal");
+                await LoadProfiles();
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error revoking profile");
+                await JSRuntime.InvokeVoidAsync("alert", "Failed to revoke profile.");
+            }
+        }
+    }
+}
