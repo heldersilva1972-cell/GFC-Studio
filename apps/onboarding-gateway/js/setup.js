@@ -34,37 +34,43 @@
         WINDOWS: {
             name: 'Windows',
             downloadUrl: 'https://download.wireguard.com/windows-client/wireguard-installer.exe',
-            instructions: 'After downloading, open WireGuard and click "Import Tunnel(s) from File". Select the downloaded .conf file.',
+            certInstructions: 'Open "GFC_Root_CA.cer", click "Install Certificate", select "Local Machine", and place in "Trusted Root Certification Authorities".',
+            configInstructions: 'After downloading, open WireGuard and click "Import Tunnel(s) from File". Select the downloaded .conf file.',
             isMobile: false
         },
         MACOS: {
             name: 'macOS',
             downloadUrl: 'https://apps.apple.com/us/app/wireguard/id1451685025',
-            instructions: 'After downloading, open WireGuard and click "Import Tunnel(s) from File". Select the downloaded .conf file.',
+            certInstructions: 'Open the file, add to "System" keychain in Keychain Access, double-click it, and set "Always Trust" under the Trust section.',
+            configInstructions: 'After downloading, open WireGuard and click "Import Tunnel(s) from File". Select the downloaded .conf file.',
             isMobile: false
         },
         IOS: {
             name: 'iOS',
             downloadUrl: 'https://apps.apple.com/us/app/wireguard/id1441195209',
-            instructions: 'When prompted, choose "Open with WireGuard" or find the file in your downloads and import it into the WireGuard app.',
+            certInstructions: 'Install profile in Settings -> General -> VPN & Device Management. Then enable "Full Trust" in Settings -> General -> About -> Certificate Trust Settings.',
+            configInstructions: 'When prompted, choose "Open with WireGuard" or find the file in your downloads and import it into the WireGuard app.',
             isMobile: true
         },
         ANDROID: {
             name: 'Android',
             downloadUrl: 'https://play.google.com/store/apps/details?id=com.wireguard.android',
-            instructions: 'When prompted, choose "Open with WireGuard" or find the file in your downloads and import it into the WireGuard app.',
+            certInstructions: 'Go to Settings -> Security -> Advanced -> Encryption & Credentials -> Install from storage -> CA certificate and select the file.',
+            configInstructions: 'When prompted, choose "Open with WireGuard" or find the file in your downloads and import it into the WireGuard app.',
             isMobile: true
         },
         LINUX: {
             name: 'Linux',
             downloadUrl: 'https://www.wireguard.com/install/',
-            instructions: 'After downloading the config, import it using: wg-quick up /path/to/gfc-access.conf',
+            certInstructions: 'Copy to /usr/local/share/ca-certificates/ and run: sudo update-ca-certificates',
+            configInstructions: 'After downloading the config, import it using: wg-quick up /path/to/gfc-access.conf',
             isMobile: false
         },
         UNKNOWN: {
             name: 'Unknown',
             downloadUrl: 'https://www.wireguard.com/install/',
-            instructions: 'Please refer to WireGuard documentation for your platform.',
+            certInstructions: 'Please refer to your OS documentation for installing a Root CA certificate.',
+            configInstructions: 'Please refer to WireGuard documentation for your platform.',
             isMobile: false
         }
     };
@@ -77,8 +83,11 @@
         wizard: document.getElementById('wizard'),
         platformName: document.getElementById('platform-name'),
         downloadLink: document.getElementById('download-link'),
+        certInstructions: document.getElementById('cert-instructions'),
         platformInstructions: document.getElementById('platform-instructions'),
         nextStep1: document.getElementById('next-step-1'),
+        downloadCert: document.getElementById('download-cert'),
+        nextStep2: document.getElementById('next-step-2'),
         downloadConfig: document.getElementById('download-config'),
         skipToTest: document.getElementById('skip-to-test'),
         testConnection: document.getElementById('test-connection'),
@@ -175,6 +184,40 @@
     }
 
     /**
+     * Download Root CA Certificate
+     */
+    async function downloadCertificate() {
+        try {
+            const button = elements.downloadCert;
+            button.disabled = true;
+
+            const response = await fetch(`${CONFIG.apiBaseUrl}/api/onboarding/ca-cert`, {
+                method: 'GET'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'GFC_Root_CA.cer';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            button.disabled = false;
+        } catch (error) {
+            console.error('Certificate download error:', error);
+            alert('Failed to download certificate. Please try again.');
+            elements.downloadCert.disabled = false;
+        }
+    }
+
+    /**
      * Download WireGuard configuration
      */
     async function downloadConfiguration() {
@@ -212,7 +255,7 @@
 
             btnText.textContent = 'Downloaded!';
             setTimeout(() => {
-                goToStep(3);
+                goToStep(4);
             }, 1000);
 
         } catch (error) {
@@ -371,7 +414,8 @@
         platform = detectPlatform();
         elements.platformName.textContent = platform.name;
         elements.downloadLink.href = platform.downloadUrl;
-        elements.platformInstructions.textContent = platform.instructions;
+        elements.certInstructions.textContent = platform.certInstructions;
+        elements.platformInstructions.textContent = platform.configInstructions;
 
         // Get token from URL
         token = getTokenFromUrl();
@@ -408,8 +452,10 @@
      */
     function setupEventListeners() {
         elements.nextStep1.addEventListener('click', () => goToStep(2));
+        elements.downloadCert.addEventListener('click', downloadCertificate);
+        elements.nextStep2.addEventListener('click', () => goToStep(3));
         elements.downloadConfig.addEventListener('click', downloadConfiguration);
-        elements.skipToTest.addEventListener('click', () => goToStep(3));
+        elements.skipToTest.addEventListener('click', () => goToStep(4));
         elements.testConnection.addEventListener('click', testConnection);
     }
 

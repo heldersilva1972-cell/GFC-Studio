@@ -16,10 +16,16 @@
 - [ ] HealthController.cs deployed
 - [ ] VpnConfigurationService tested
 
-### 3. Gateway Files
-- [ ] index.html reviewed
+### 3. Internal CA & Trust Chain
+- [ ] Run `infrastructure\scripts\Generate-GfcCerts.ps1` to create CA and server certificates
+- [ ] Install `GFC_Server.pfx` in IIS and bind to `gfc.lovanow.com`
+- [ ] Copy `GFC_Root_CA.cer` to `wwwroot/certs/` (or designated path)
+- [ ] Verify `OnboardingController` can serve the CA certificate
+
+### 4. Gateway Files
+- [ ] index.html reviewed (4-step flow)
 - [ ] styles.css reviewed
-- [ ] setup.js reviewed
+- [ ] setup.js reviewed (cert trust instructions added)
 - [ ] API URL configured in setup.js
 - [ ] Logo SVG included
 - [ ] Security headers configured
@@ -194,6 +200,10 @@ SELECT 'https://setup.gfc.lovanow.com?token=' + @Token AS TestLink;
 - [ ] Visit generated link
 - [ ] Verify OS detected correctly
 - [ ] Click "I have the app installed"
+- [ ] Click "Download GFC Root Certificate"
+- [ ] Verify .cer file downloaded
+- [ ] Follow instructions to trust certificate
+- [ ] Click "Certificate Trusted"
 - [ ] Click "Download Secure Access Profile"
 - [ ] Verify .conf file downloaded
 - [ ] Open .conf file, verify contents
@@ -201,6 +211,7 @@ SELECT 'https://setup.gfc.lovanow.com?token=' + @Token AS TestLink;
 - [ ] Enable VPN
 - [ ] Click "Test Connection"
 - [ ] Verify success message
+- [ ] **Verify browser shows green lock** for `https://gfc.lovanow.com` (no warnings)
 
 ### Test 4: Rate Limiting
 ```bash

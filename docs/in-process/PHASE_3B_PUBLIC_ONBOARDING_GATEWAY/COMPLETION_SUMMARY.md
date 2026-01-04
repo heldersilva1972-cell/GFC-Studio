@@ -1,6 +1,6 @@
-# 🎯 ISSUE 1 — Public Onboarding Gateway - COMPLETE
+# 🎯 PHASE 3B — Onboarding Gateway & Trust Chain - COMPLETE
 
-## ✅ Implementation Status: READY FOR DEPLOYMENT
+## ✅ Status: READY FOR DEPLOYMENT (Issue 1 & 2)
 
 ---
 
@@ -12,11 +12,11 @@ All files created and ready for deployment:
 
 ```
 apps/onboarding-gateway/
-├── index.html                  ✅ Main landing page with 3-step wizard
+├── index.html                  ✅ Main landing page with 4-step wizard
 ├── css/
 │   └── styles.css             ✅ Modern, premium design
 ├── js/
-│   └── setup.js               ✅ OS detection, token validation
+│   └── setup.js               ✅ OS detection, token validation, CA instructions
 ├── assets/
 │   └── logo.svg               ✅ GFC shield logo
 ├── _headers                    ✅ Cloudflare Pages security headers
@@ -28,17 +28,40 @@ apps/onboarding-gateway/
 
 ```
 apps/webapp/GFC.BlazorServer/Controllers/
-├── OnboardingController.cs     ✅ Token validation, config generation
+├── OnboardingController.cs     ✅ Token validation, config generation, CA delivery
 └── HealthController.cs         ✅ VPN connection testing
 ```
 
 **Endpoints Created:**
 - `GET /api/onboarding/validate?token={token}` - Validate token
+- `GET /api/onboarding/ca-cert` - **[NEW]** Download Root CA certificate
 - `GET /api/onboarding/config?token={token}` - Download config
 - `POST /api/onboarding/complete?token={token}` - Mark complete
 - `GET /api/health` - Health check
 - `GET /api/health/vpn-check` - VPN test
-- `GET /api/health/connection-info` - Connection details
+
+### 3. **Internal CA & Certificate Management**
+```
+infrastructure/
+├── ca/
+│   ├── GFC_Root_CA.cer        ✅ Public Root CA for distribution
+│   ├── GFC_Root_CA.pfx        ✅ Root CA with private key (backup)
+│   └── GFC_Server.pfx         ✅ TLS Leaf certificate for IIS
+└── scripts/
+    └── Generate-GfcCerts.ps1  ✅ Automation script for certificate management
+```
+
+### 4. **Documentation**
+
+```
+docs/in-process/PHASE_3B_PUBLIC_ONBOARDING_GATEWAY/
+├── ISSUE_1_PUBLIC_ONBOARDING_GATEWAY.md
+├── ISSUE_2_INTERNAL_CA.md             ✅ **[NEW]** Trust chain specification
+├── ROOT_CA_RENEWAL.md                  ✅ **[NEW]** Renewal process guide
+├── IMPLEMENTATION_SUMMARY.md
+├── QUICK_START.md
+└── DEPLOYMENT_CHECKLIST.md
+```
 
 ### 3. **Backend Updates**
 
@@ -153,6 +176,8 @@ docs/in-process/PHASE_3B_PUBLIC_ONBOARDING_GATEWAY/
 ## 🔒 Security Features
 
 ✅ **HTTPS Only** - No HTTP access  
+✅ **Internal CA** - Private Root CA for trusted connections  
+✅ **Trust Chain** - Secure distribution of Root CA during onboarding  
 ✅ **Rate Limiting** - 10 req/min per IP  
 ✅ **Token Expiry** - 48 hours default  
 ✅ **CORS Restrictions** - Authorized domains only  
@@ -175,16 +200,19 @@ docs/in-process/PHASE_3B_PUBLIC_ONBOARDING_GATEWAY/
 - [x] Displays platform-specific instructions
 - [x] Provides correct download links
 
+### **HTTPS Trust Chain**
+- [x] Root CA downloadable during onboarding
+- [x] Platform-specific trust instructions provided
+- [x] Leaf cert successfully installed in IIS
+- [x] **Browser shows green lock (Trusted)** for internal domain
+
 ### Token Validation
 - [x] Valid token allows access
-- [x] Expired token shows error
-- [x] Used token shows error
-- [x] Invalid token shows error
+- [x] Expired/Used/Invalid tokens rejected
 
 ### Config Download
-- [x] Generates WireGuard config
-- [x] Correct MIME type
-- [x] Valid WireGuard settings
+- [x] Generates valid WireGuard config
+- [x] Correct MIME types for both .conf and .cer
 - [x] Unique per user
 
 ### Security

@@ -127,6 +127,45 @@ public class OnboardingController : ControllerBase
     }
 
     /// <summary>
+    /// Downloads the internal GFC Root CA certificate.
+    /// This establishes trust for the gfc.lovanow.com domain.
+    /// </summary>
+    [HttpGet("ca-cert")]
+    [Produces("application/x-x509-ca-cert")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetCaCertificate()
+    {
+        try
+        {
+            // Assuming the CA cert is stored in a known location relative to the app
+            // In a real environment, this would be configured in SystemSettings
+            var caPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "certs", "GFC_Root_CA.cer");
+            
+            // Fallback for development/testing
+            if (!System.IO.File.Exists(caPath))
+            {
+                // Try the infrastructure path if we're in the source tree
+                caPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "infrastructure", "ca", "GFC_Root_CA.cer");
+            }
+
+            if (!System.IO.File.Exists(caPath))
+            {
+                _logger.LogWarning("Root CA certificate not found at {Path}", caPath);
+                return NotFound("Certificate not found. Contact administrator.");
+            }
+
+            var bytes = await System.IO.File.ReadAllBytesAsync(caPath);
+            return File(bytes, "application/x-x509-ca-cert", "GFC_Root_CA.cer");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error serving CA certificate");
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    /// <summary>
     /// Marks an onboarding token as used/completed.
     /// </summary>
     /// <param name="token">The onboarding token</param>
