@@ -16,10 +16,70 @@
             <i class="bi bi-shield-lock-fill header-icon"></i>
             <div>
                 <h1>Secure Access & Devices</h1>
-                <p class="subtitle">Manage your VPN profiles and security credentials</p>
+                <p class="subtitle">
+                    @if (_isAdmin)
+                    {
+                        <span>Administrator View - Manage all access and devices</span>
+                    }
+                    else if (_profiles.Count > 0)
+                    {
+                        <span>Manage your VPN profiles and security credentials</span>
+                    }
+                    else
+                    {
+                        <span>Request secure access to the GFC network</span>
+                    }
+                </p>
             </div>
         </div>
+        
+        @* Access State Indicator *@
+        <div class="access-state-badge">
+            @if (_isAdmin)
+            {
+                <span class="badge badge-admin">
+                    <i class="bi bi-shield-fill-check me-1"></i>
+                    Administrator
+                </span>
+            }
+            else if (_profiles.Count > 0)
+            {
+                <span class="badge badge-active">
+                    <i class="bi bi-check-circle-fill me-1"></i>
+                    Active Access (@_profiles.Count @(_profiles.Count == 1 ? "Device" : "Devices"))
+                </span>
+            }
+            else
+            {
+                <span class="badge badge-pending">
+                    <i class="bi bi-hourglass-split me-1"></i>
+                    No Access
+                </span>
+            }
+        </div>
     </div>
+    
+    @* Admin-Only Actions *@
+    @if (_isAdmin)
+    {
+        <div class="admin-actions-bar">
+            <h3><i class="bi bi-tools me-2"></i>Admin Tools</h3>
+            <div class="admin-buttons">
+                <button class="btn btn-primary" @onclick="ShowGenerateInviteModal">
+                    <i class="bi bi-envelope-plus me-2"></i>
+                    Generate Invite Link
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="NavigateToAuditLog">
+                    <i class="bi bi-list-check me-2"></i>
+                    View Audit Log
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="NavigateToVpnManagement">
+                    <i class="bi bi-diagram-3 me-2"></i>
+                    VPN Management
+                </button>
+            </div>
+        </div>
+    }
 
     @if (_loading)
     {
@@ -185,6 +245,7 @@
         border-radius: 1rem;
         color: white;
         box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        position: relative;
     }
 
     .header-content {
@@ -207,6 +268,91 @@
     .subtitle {
         margin: 0.5rem 0 0 0;
         opacity: 0.8;
+    }
+
+    /* Access State Badge */
+    .access-state-badge {
+        position: absolute;
+        top: 2rem;
+        right: 2rem;
+    }
+
+    .access-state-badge .badge {
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        border-radius: 2rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .badge-admin {
+        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+        color: #78350f;
+        box-shadow: 0 4px 12px rgba(251, 191, 36, 0.4);
+    }
+
+    .badge-active {
+        background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+        color: #064e3b;
+        box-shadow: 0 4px 12px rgba(52, 211, 153, 0.4);
+    }
+
+    .badge-pending {
+        background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+        color: #1e293b;
+        box-shadow: 0 4px 12px rgba(148, 163, 184, 0.4);
+    }
+
+    /* Admin Actions Bar */
+    .admin-actions-bar {
+        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+        border: 2px solid #fbbf24;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .admin-actions-bar h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.2rem;
+        color: #78350f;
+        display: flex;
+        align-items: center;
+    }
+
+    .admin-buttons {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .admin-buttons .btn {
+        font-weight: 600;
+    }
+
+    .admin-buttons .btn-primary {
+        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+        border: none;
+        color: #78350f;
+    }
+
+    .admin-buttons .btn-primary:hover {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(251, 191, 36, 0.4);
+    }
+
+    .admin-buttons .btn-outline-secondary {
+        border-color: #f59e0b;
+        color: #78350f;
+    }
+
+    .admin-buttons .btn-outline-secondary:hover {
+        background: #f59e0b;
+        color: white;
+        border-color: #f59e0b;
     }
 
     /* Grid & Cards */
@@ -517,13 +663,21 @@
 </style>
 
 @code {
+    // Access State Properties
     private List<VpnProfile> _profiles = new();
     private bool _loading = true;
     private int _currentUserId;
+    private bool _isAdmin = false;
+    
+    // Computed Access State
+    private AccessState CurrentState => _isAdmin ? AccessState.Admin : 
+                                        _profiles.Count > 0 ? AccessState.HasDevices : 
+                                        AccessState.NoDevices;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadProfiles();
+        await CheckAdminStatus();
     }
 
     private async Task LoadProfiles()
@@ -626,4 +780,64 @@
         Logger.LogInformation("User dismissed PWA install prompt");
         _pwaInstallDismissed = true;
     }
+    
+    // Access State Management
+    private async Task CheckAdminStatus()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _isAdmin = authState.User.IsInRole(AppRoles.Admin);
+            Logger.LogInformation($"User admin status: {_isAdmin}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error checking admin status");
+            _isAdmin = false;
+        }
+    }
+    
+    // Admin-Only Methods
+    private void ShowGenerateInviteModal()
+    {
+        if (!_isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Generate Invite");
+            return;
+        }
+        
+        // TODO: Implement invite generation modal
+        JSRuntime.InvokeVoidAsync("alert", "Invite generation feature coming soon. For now, use the VPN Management page.");
+        NavigateToVpnManagement();
+    }
+    
+    private void NavigateToAuditLog()
+    {
+        if (!_isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access Audit Log");
+            return;
+        }
+        
+        Navigation.NavigateTo("/admin/audit-log");
+    }
+    
+    private void NavigateToVpnManagement()
+    {
+        if (!_isAdmin)
+        {
+            Logger.LogWarning("Non-admin user attempted to access VPN Management");
+            return;
+        }
+        
+        Navigation.NavigateTo("/admin/vpn");
+    }
+}
+
+// Access State Enum
+public enum AccessState
+{
+    NoDevices,   // State 1: First-time user, no devices
+    HasDevices,  // State 2: Managed user, has devices
+    Admin        // State 3: Administrator
 }
