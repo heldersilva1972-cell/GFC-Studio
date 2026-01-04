@@ -1,0 +1,305 @@
+@using GFC.BlazorServer.Services.Vpn
+@inject IJSRuntime JS
+
+<div class="modal @(_show ? "show d-block" : "")" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-envelope-plus me-2"></i>
+                    Generate Setup Link
+                </h5>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+            
+            <div class="modal-body">
+                @if (_generating)
+                {
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">Generating...</span>
+                        </div>
+                        <p>Generating secure invite link...</p>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(_generatedLink))
+                {
+                    <div class="success-state">
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle-fill me-2"></i>
+                            <strong>Setup link generated successfully!</strong>
+                        </div>
+                        
+                        <div class="link-display">
+                            <label class="form-label fw-bold">Invite Link:</label>
+                            <div class="input-group mb-3">
+                                <input type="text" class="form-control font-monospace" 
+                                       value="@_generatedLink" readonly id="inviteLink" />
+                                <button class="btn btn-outline-secondary" type="button" @onclick="CopyLink">
+                                    <i class="bi bi-clipboard"></i> Copy
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="link-info">
+                            <h6><i class="bi bi-info-circle me-2"></i>Important Information</h6>
+                            <ul class="small">
+                                <li><strong>Recipient:</strong> @_selectedUserEmail</li>
+                                <li><strong>Expires:</strong> @_expirationTime</li>
+                                <li><strong>One-time use:</strong> Link becomes invalid after first use</li>
+                                <li><strong>Security:</strong> Send via secure channel (email, encrypted message)</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            <small>This link grants secure access to the GFC network. Do not share publicly.</small>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-state">
+                        <div class="mb-3">
+                            <label for="userSelect" class="form-label fw-bold">Select User</label>
+                            <select class="form-select" id="userSelect" @bind="_selectedUserId">
+                                <option value="0">-- Select a user --</option>
+                                @foreach (var user in AvailableUsers)
+                                {
+                                    <option value="@user.Id">@user.Username (@user.Email)</option>
+                                }
+                            </select>
+                            <div class="form-text">Choose the user who will receive this setup link</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="expirationSelect" class="form-label fw-bold">Link Expiration</label>
+                            <select class="form-select" id="expirationSelect" @bind="_expirationHours">
+                                <option value="24">24 hours (1 day)</option>
+                                <option value="48" selected>48 hours (2 days)</option>
+                                <option value="72">72 hours (3 days)</option>
+                            </select>
+                            <div class="form-text">Link will expire after this duration</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="deviceName" class="form-label fw-bold">Device Name (Optional)</label>
+                            <input type="text" class="form-control" id="deviceName" 
+                                   @bind="_deviceName" placeholder="e.g., John's iPhone" />
+                            <div class="form-text">Helps identify the device in the system</div>
+                        </div>
+                        
+                        @if (!string.IsNullOrEmpty(_errorMessage))
+                        {
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-circle me-2"></i>
+                                @_errorMessage
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            
+            <div class="modal-footer">
+                @if (!string.IsNullOrEmpty(_generatedLink))
+                {
+                    <button type="button" class="btn btn-secondary" @onclick="Reset">
+                        <i class="bi bi-arrow-left me-2"></i>
+                        Generate Another
+                    </button>
+                    <button type="button" class="btn btn-primary" @onclick="Close">
+                        <i class="bi bi-check-lg me-2"></i>
+                        Done
+                    </button>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-secondary" @onclick="Close" disabled="@_generating">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-primary" @onclick="GenerateLink" 
+                            disabled="@(_generating || _selectedUserId == 0)">
+                        <i class="bi bi-link-45deg me-2"></i>
+                        Generate Link
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public EventCallback<bool> ShowChanged { get; set; }
+    [Parameter] public List<UserInfo> AvailableUsers { get; set; } = new();
+    [Parameter] public EventCallback<InviteLinkGenerated> OnLinkGenerated { get; set; }
+    
+    [Inject] private IVpnConfigurationService? VpnService { get; set; }
+    [Inject] private ILogger<GenerateInviteModal>? Logger { get; set; }
+    [Inject] private NavigationManager? Navigation { get; set; }
+    
+    private bool _show => Show;
+    private bool _generating = false;
+    private int _selectedUserId = 0;
+    private int _expirationHours = 48;
+    private string _deviceName = "";
+    private string _generatedLink = "";
+    private string _errorMessage = "";
+    private string _selectedUserEmail = "";
+    private string _expirationTime = "";
+    
+    private async Task GenerateLink()
+    {
+        if (_selectedUserId == 0 || VpnService == null)
+        {
+            _errorMessage = "Please select a user";
+            return;
+        }
+        
+        _generating = true;
+        _errorMessage = "";
+        StateHasChanged();
+        
+        try
+        {
+            // Get user info
+            var selectedUser = AvailableUsers.FirstOrDefault(u => u.Id == _selectedUserId);
+            if (selectedUser == null)
+            {
+                _errorMessage = "Selected user not found";
+                return;
+            }
+            
+            _selectedUserEmail = selectedUser.Email ?? selectedUser.Username;
+            
+            // Generate onboarding token
+            var token = await VpnService.CreateOnboardingTokenAsync(_selectedUserId, _expirationHours);
+            
+            // Build full invite URL
+            var baseUrl = Navigation?.BaseUri ?? "https://gfc.local/";
+            _generatedLink = $"{baseUrl}onboarding/setup?token={token}";
+            
+            // Calculate expiration time
+            var expiresAt = DateTime.UtcNow.AddHours(_expirationHours);
+            _expirationTime = expiresAt.ToLocalTime().ToString("MMM dd, yyyy 'at' h:mm tt");
+            
+            // Log the generation
+            Logger?.LogInformation(
+                "Admin generated invite link for user {UserId} ({Email}), expires in {Hours} hours",
+                _selectedUserId, _selectedUserEmail, _expirationHours
+            );
+            
+            // Notify parent component
+            await OnLinkGenerated.InvokeAsync(new InviteLinkGenerated
+            {
+                UserId = _selectedUserId,
+                UserEmail = _selectedUserEmail,
+                Token = token,
+                ExpiresAt = expiresAt,
+                InviteUrl = _generatedLink
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "Error generating invite link for user {UserId}", _selectedUserId);
+            _errorMessage = $"Failed to generate link: {ex.Message}";
+            _generatedLink = "";
+        }
+        finally
+        {
+            _generating = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task CopyLink()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _generatedLink);
+            await JS.InvokeVoidAsync("alert", "Link copied to clipboard!");
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "Error copying link to clipboard");
+            await JS.InvokeVoidAsync("alert", "Failed to copy link. Please copy manually.");
+        }
+    }
+    
+    private void Reset()
+    {
+        _selectedUserId = 0;
+        _expirationHours = 48;
+        _deviceName = "";
+        _generatedLink = "";
+        _errorMessage = "";
+        _selectedUserEmail = "";
+        _expirationTime = "";
+    }
+    
+    private async Task Close()
+    {
+        Reset();
+        await ShowChanged.InvokeAsync(false);
+    }
+    
+    public class UserInfo
+    {
+        public int Id { get; set; }
+        public string Username { get; set; } = "";
+        public string? Email { get; set; }
+    }
+    
+    public class InviteLinkGenerated
+    {
+        public int UserId { get; set; }
+        public string UserEmail { get; set; } = "";
+        public string Token { get; set; } = "";
+        public DateTime ExpiresAt { get; set; }
+        public string InviteUrl { get; set; } = "";
+    }
+}
+
+<style>
+    .link-display {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .link-display .form-control {
+        font-size: 0.9rem;
+        background: white;
+    }
+    
+    .link-info {
+        background: #e7f3ff;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #0d6efd;
+        margin-bottom: 1rem;
+    }
+    
+    .link-info h6 {
+        margin-bottom: 0.75rem;
+        color: #0d6efd;
+    }
+    
+    .link-info ul {
+        margin-bottom: 0;
+        padding-left: 1.5rem;
+    }
+    
+    .link-info li {
+        margin-bottom: 0.5rem;
+    }
+    
+    .success-state .alert-success {
+        border-left: 4px solid #198754;
+    }
+    
+    .modal.show {
+        display: block !important;
+    }
+</style>

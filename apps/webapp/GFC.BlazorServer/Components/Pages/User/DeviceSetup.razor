@@ -9,6 +9,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @inject ILogger<DeviceSetup> Logger
+@inject GFC.Core.Interfaces.IUserRepository UserRepository
 
 <div class="device-setup-container">
     <div class="page-header">
@@ -228,6 +229,16 @@
                 </div>
             }
         </div>
+    }
+    
+    @* Admin-Only: Generate Invite Modal *@
+    @if (_isAdmin)
+    {
+        <GenerateInviteModal 
+            Show="_showInviteModal" 
+            ShowChanged="HandleInviteModalClosed"
+            AvailableUsers="_availableUsers"
+            OnLinkGenerated="HandleLinkGenerated" />
     }
 </div>
 
@@ -657,7 +668,7 @@
         margin: 0 auto 1rem;
     }
 
-    @keyframes spin {
+    @@keyframes spin {
         to { transform: rotate(360deg); }
     }
 </style>
@@ -678,6 +689,11 @@
     {
         await LoadProfiles();
         await CheckAdminStatus();
+        
+        if (_isAdmin)
+        {
+            await LoadAvailableUsers();
+        }
     }
 
     private async Task LoadProfiles()
@@ -798,6 +814,9 @@
     }
     
     // Admin-Only Methods
+    private bool _showInviteModal = false;
+    private List<GenerateInviteModal.UserInfo> _availableUsers = new();
+    
     private void ShowGenerateInviteModal()
     {
         if (!_isAdmin)
@@ -806,9 +825,53 @@
             return;
         }
         
-        // TODO: Implement invite generation modal
-        JSRuntime.InvokeVoidAsync("alert", "Invite generation feature coming soon. For now, use the VPN Management page.");
-        NavigateToVpnManagement();
+        _showInviteModal = true;
+        StateHasChanged();
+    }
+    
+    private async Task LoadAvailableUsers()
+    {
+        try
+        {
+            // Get all users who are Directors (potential invite recipients)
+            var allUsers = UserRepository.GetAllUsers();
+            _availableUsers = allUsers
+                .Where(u => u.IsActive && !u.IsAdmin) // Only active, non-admin users
+                .Select(u => new GenerateInviteModal.UserInfo
+                {
+                    Id = u.UserId,
+                    Username = u.Username,
+                    Email = u.Email
+                })
+                .OrderBy(u => u.Username)
+                .ToList();
+                
+            Logger.LogInformation($"Loaded {_availableUsers.Count} available users for invite generation");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading available users");
+            _availableUsers = new();
+        }
+    }
+    
+    private void HandleInviteModalClosed(bool show)
+    {
+        _showInviteModal = show;
+        StateHasChanged();
+    }
+    
+    private void HandleLinkGenerated(GenerateInviteModal.InviteLinkGenerated linkInfo)
+    {
+        Logger.LogInformation(
+            "Invite link generated: User={UserId}, Email={Email}, Expires={ExpiresAt}",
+            linkInfo.UserId, linkInfo.UserEmail, linkInfo.ExpiresAt
+        );
+        
+        // Could add additional logic here:
+        // - Send email notification
+        // - Update user record
+        // - Track invite in database
     }
     
     private void NavigateToAuditLog()
@@ -832,12 +895,12 @@
         
         Navigation.NavigateTo("/admin/vpn");
     }
-}
-
-// Access State Enum
-public enum AccessState
-{
-    NoDevices,   // State 1: First-time user, no devices
-    HasDevices,  // State 2: Managed user, has devices
-    Admin        // State 3: Administrator
+    
+    // Access State Enum
+    public enum AccessState
+    {
+        NoDevices,   // State 1: First-time user, no devices
+        HasDevices,  // State 2: Managed user, has devices
+        Admin        // State 3: Administrator
+    }
 }
