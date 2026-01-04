@@ -93,6 +93,8 @@
         testConnection: document.getElementById('test-connection'),
         testResult: document.getElementById('test-result'),
         successActions: document.getElementById('success-actions'),
+        windowsOneClick: document.getElementById('windows-one-click-container'),
+        downloadWindowsSetup: document.getElementById('download-windows-setup'),
         year: document.getElementById('year')
     };
 
@@ -214,6 +216,32 @@
             console.error('Certificate download error:', error);
             alert('Failed to download certificate. Please try again.');
             elements.downloadCert.disabled = false;
+        }
+    }
+
+    /**
+     * Download Windows One-Click Setup Script
+     */
+    async function downloadWindowsSetup() {
+        try {
+            const button = elements.downloadWindowsSetup;
+            button.disabled = true;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<span class="btn-spinner"></span> Downloading...';
+
+            window.location.href = `${CONFIG.apiBaseUrl}/api/onboarding/windows-setup?token=${encodeURIComponent(token)}`;
+
+            setTimeout(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+                // Move to connection test step since the script is supposed to handle everything
+                goToStep(4);
+            }, 3000);
+
+        } catch (error) {
+            console.error('Setup script download error:', error);
+            alert('Failed to download setup script. Please try the manual steps or contact support.');
+            elements.downloadWindowsSetup.disabled = false;
         }
     }
 
@@ -470,6 +498,11 @@
         showState('wizard');
         goToStep(1);
 
+        // Show Windows One-Click if on Windows
+        if (platform.name === 'Windows') {
+            elements.windowsOneClick.classList.remove('hidden');
+        }
+
         // Setup event listeners
         setupEventListeners();
     }
@@ -482,6 +515,7 @@
         elements.downloadCert.addEventListener('click', downloadCertificate);
         elements.nextStep2.addEventListener('click', () => goToStep(3));
         elements.downloadConfig.addEventListener('click', downloadConfiguration);
+        elements.downloadWindowsSetup.addEventListener('click', downloadWindowsSetup);
         elements.skipToTest.addEventListener('click', () => goToStep(4));
         elements.testConnection.addEventListener('click', testConnection);
     }

@@ -129,6 +129,72 @@ public class OnboardingController : ControllerBase
     }
  
     /// <summary>
+    /// Downloads the Windows one-click setup script.
+    /// Injects the token and API URL into the script.
+    /// </summary>
+    [HttpGet("windows-setup")]
+    [Produces("application/x-powershell")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetWindowsSetupScript([Required] string token)
+    {
+        try
+        {
+            // Validate token
+            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (!userId.HasValue)
+            {
+                return NotFound(new { error = "Invalid or expired token" });
+            }
+
+            var scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "infrastructure", "scripts", "Install-GfcVpn.ps1");
+            
+            if (!System.IO.File.Exists(scriptPath))
+            {
+                // Try alternate path (deployment)
+                scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "scripts", "Install-GfcVpn.ps1");
+            }
+
+            if (!System.IO.File.Exists(scriptPath))
+            {
+                _logger.LogError("Setup script template not found at {Path}", scriptPath);
+                return NotFound("Setup script template not found.");
+            }
+
+            var scriptContent = await System.IO.File.ReadAllTextAsync(scriptPath);
+            
+            // Inject values (simple string replacement or regex if needed)
+            // The template uses mandatory parameters, so we can just append a call at the bottom
+            // or modify the default values.
+            
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var finalScript = scriptContent
+                .Replace("param(", "param(\n    [string]$Token = \"" + token + "\",\n    [string]$ApiUrl = \"" + baseUrl + "\",")
+                .Replace("[Parameter(Mandatory=$true)]\n    [string]$Token,", "")
+                .Replace("[Parameter(Mandatory=$false)]\n    [string]$ApiUrl = \"https://gfc.lovanow.com\"", "");
+
+            // Note: The above replacement is a bit brittle, let's just prepend the variables
+            // and remove the Param block or make parameters optional.
+            // Actually, the template I wrote has parameters. Let's just append the execution line.
+            
+            var footer = $"\n\n# Auto-generated execution call\nInstall-GfcVpn -Token \"{token}\" -ApiUrl \"{baseUrl}\"";
+            // Wait, my template is not a function. It's a script. 
+            // So I should just modify the parameter defaults.
+            
+            var bytes = System.Text.Encoding.UTF8.GetBytes(scriptContent
+                .Replace("$Token,", $"$Token = \"{token}\",")
+                .Replace("$ApiUrl = \"https://gfc.lovanow.com\"", $"$ApiUrl = \"{baseUrl}\""));
+
+            return File(bytes, "application/x-powershell", "Setup-GFC-VPN.ps1");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error serving setup script");
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    /// <summary>
     /// Downloads the internal GFC Root CA certificate.
     /// This establishes trust for the gfc.lovanow.com domain.
     /// </summary>
