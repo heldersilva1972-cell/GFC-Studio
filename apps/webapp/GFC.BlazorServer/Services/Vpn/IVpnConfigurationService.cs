@@ -55,4 +55,9 @@ public interface IVpnConfigurationService
     /// Marks an onboarding token as used.
     /// </summary>
     Task SetTokenUsedAsync(string token);
+
+    /// <summary>
+    /// Generates a .mobileconfig profile for Apple devices.
+    /// </summary>
+    Task<byte[]> GenerateAppleProfileAsync(int userId);
 }

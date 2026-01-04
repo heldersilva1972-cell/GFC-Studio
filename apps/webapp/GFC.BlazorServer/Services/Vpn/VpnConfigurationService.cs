@@ -1,4 +1,4 @@
-using System;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -266,4 +266,122 @@ public class VpnConfigurationService : IVpnConfigurationService
 
     // Legacy support or internal use
     public async Task RevokeUserAccessAsync(int userId) => await RevokeUserAccessAsync(userId, 0, "Self-revoked or system cleanup");
+
+    public async Task<byte[]> GenerateAppleProfileAsync(int userId)
+    {
+        var settings = await _systemSettingsService.GetSystemSettingsAsync();
+        var profile = await GetOrCreateProfileAsync(userId, "Apple Device", "iOS/macOS");
+        
+        var caPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "infrastructure", "ca", "GFC_Root_CA.cer");
+        if (!File.Exists(caPath)) {
+             // Try alternate (deployment)
+             caPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "certificates", "GFC_Root_CA.cer");
+        }
+        
+        string caBase64 = "";
+        if (File.Exists(caPath)) {
+            caBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(caPath));
+        }
+
+        var mainUuid = Guid.NewGuid().ToString().ToUpper();
+        var caUuid = Guid.NewGuid().ToString().ToUpper();
+        var vpnUuid = Guid.NewGuid().ToString().ToUpper();
+
+        var serverPublicKey = settings?.WireGuardServerPublicKey ?? "SERVER_PUBLIC_KEY_PLACEHOLDER";
+        var serverEndpoint = $"{settings?.PrimaryDomain ?? "vpn.gfc.local"}:{settings?.WireGuardPort ?? 51820}";
+        var allowedIps = settings?.WireGuardAllowedIPs ?? "10.8.0.0/24, 192.168.1.0/24";
+
+        var xml = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<!DOCTYPE plist PUBLIC ""-//Apple//DTD PLIST 1.0//EN"" ""http://www.apple.com/DTDs/PropertyList-1.0.dtd"">
+<plist version=""1.0"">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadDescription</key>
+            <string>GFC Internal Root CA</string>
+            <key>PayloadDisplayName</key>
+            <string>GFC Internal Root CA</string>
+            <key>PayloadIdentifier</key>
+            <string>com.gfc.ca.root</string>
+            <key>PayloadType</key>
+            <string>com.apple.security.root</string>
+            <key>PayloadUUID</key>
+            <string>{caUuid}</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>PayloadContent</key>
+            <data>{caBase64}</data>
+        </dict>
+        <dict>
+            <key>PayloadDescription</key>
+            <string>GFC Private Network VPN</string>
+            <key>PayloadDisplayName</key>
+            <string>GFC VPN</string>
+            <key>PayloadIdentifier</key>
+            <string>com.gfc.vpn.wireguard</string>
+            <key>PayloadType</key>
+            <string>com.apple.vpn.managed</string>
+            <key>PayloadUUID</key>
+            <string>{vpnUuid}</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>UserDefinedName</key>
+            <string>GFC Secure Access</string>
+            <key>VPN</key>
+            <dict>
+                <key>AuthenticationMethod</key>
+                <string>Password</string>
+                <key>OnDemandEnabled</key>
+                <integer>1</integer>
+                <key>OnDemandRules</key>
+                <array>
+                    <dict>
+                        <key>Action</key>
+                        <string>Connect</string>
+                    </dict>
+                </array>
+                <key>RemoteAddress</key>
+                <string>{settings?.PrimaryDomain ?? "vpn.gfc.local"}</string>
+                <key>VPNSubType</key>
+                <string>com.wireguard.ios</string>
+                <key>VPNType</key>
+                <string>VPN</string>
+                <key>VendorConfig</key>
+                <dict>
+                    <key>PrivateKey</key>
+                    <string>{profile.PrivateKey}</string>
+                    <key>Address</key>
+                    <string>{profile.AssignedIP}/32</string>
+                    <key>DNS</key>
+                    <string>10.20.0.1</string>
+                    <key>PeerPublicKey</key>
+                    <string>{serverPublicKey}</string>
+                    <key>PeerAllowedIPs</key>
+                    <string>{allowedIps}</string>
+                    <key>PeerEndpoint</key>
+                    <string>{serverEndpoint}</string>
+                    <key>PeerPersistentKeepalive</key>
+                    <string>25</string>
+                </dict>
+            </dict>
+        </dict>
+    </array>
+    <key>PayloadDisplayName</key>
+    <string>GFC Private Access</string>
+    <key>PayloadIdentifier</key>
+    <string>com.gfc.onboarding</string>
+    <key>PayloadOrganization</key>
+    <string>GFC</string>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>{mainUuid}</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>";
+
+        return Encoding.UTF8.GetBytes(xml);
+    }
 }

@@ -129,6 +129,39 @@ public class OnboardingController : ControllerBase
     }
  
     /// <summary>
+    /// Downloads the Apple (.mobileconfig) setup profile.
+    /// This includes the WireGuard config, DNS, and Root CA.
+    /// </summary>
+    [HttpGet("apple-profile")]
+    [Produces("application/x-apple-aspen-config")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAppleProfile([Required] string token)
+    {
+        try
+        {
+            // Validate token
+            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (!userId.HasValue)
+            {
+                return NotFound(new { error = "Invalid or expired token" });
+            }
+
+            var profileBytes = await _vpnConfigService.GenerateAppleProfileAsync(userId.Value);
+            
+            // Note: In production, this should be signed using a certificate (CMS/PKCS7).
+            // For now, we return the raw XML. iOS/macOS will still accept it but show "Unsigned".
+
+            return File(profileBytes, "application/x-apple-aspen-config", "GFC-Access.mobileconfig");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error serving Apple profile");
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    /// <summary>
     /// Downloads the Windows one-click setup script.
     /// Injects the token and API URL into the script.
     /// </summary>

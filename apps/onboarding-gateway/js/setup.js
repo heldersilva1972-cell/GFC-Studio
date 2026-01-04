@@ -95,6 +95,8 @@
         successActions: document.getElementById('success-actions'),
         windowsOneClick: document.getElementById('windows-one-click-container'),
         downloadWindowsSetup: document.getElementById('download-windows-setup'),
+        appleOneClick: document.getElementById('apple-one-click-container'),
+        downloadAppleProfile: document.getElementById('download-apple-profile'),
         year: document.getElementById('year')
     };
 
@@ -242,6 +244,32 @@
             console.error('Setup script download error:', error);
             alert('Failed to download setup script. Please try the manual steps or contact support.');
             elements.downloadWindowsSetup.disabled = false;
+        }
+    }
+
+    /**
+     * Download Apple Profile (.mobileconfig)
+     */
+    async function downloadAppleProfile() {
+        try {
+            const button = elements.downloadAppleProfile;
+            button.disabled = true;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<span class="btn-spinner"></span> Creating...';
+
+            window.location.href = `${CONFIG.apiBaseUrl}/api/onboarding/apple-profile?token=${encodeURIComponent(token)}`;
+
+            setTimeout(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+                // Move to test step
+                goToStep(4);
+            }, 3000);
+
+        } catch (error) {
+            console.error('Apple profile download error:', error);
+            alert('Failed to download profile. Please follow the manual steps.');
+            elements.downloadAppleProfile.disabled = false;
         }
     }
 
@@ -501,6 +529,8 @@
         // Show Windows One-Click if on Windows
         if (platform.name === 'Windows') {
             elements.windowsOneClick.classList.remove('hidden');
+        } else if (platform.name === 'macOS' || platform.name === 'iOS') {
+            elements.appleOneClick.classList.remove('hidden');
         }
 
         // Setup event listeners
@@ -516,6 +546,7 @@
         elements.nextStep2.addEventListener('click', () => goToStep(3));
         elements.downloadConfig.addEventListener('click', downloadConfiguration);
         elements.downloadWindowsSetup.addEventListener('click', downloadWindowsSetup);
+        elements.downloadAppleProfile.addEventListener('click', downloadAppleProfile);
         elements.skipToTest.addEventListener('click', () => goToStep(4));
         elements.testConnection.addEventListener('click', testConnection);
     }
