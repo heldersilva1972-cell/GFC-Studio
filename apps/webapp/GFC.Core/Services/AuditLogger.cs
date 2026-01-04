@@ -100,6 +100,17 @@ public static class AuditLogActions
     public const string LogoutAbsolute = "LogoutAbsolute";
     public const string SessionInvalidatedVpnLost = "SessionInvalidatedVpnLost";
     public const string AccessRevoked = "AccessRevoked";
+    
+    // VPN & Onboarding Actions
+    public const string VpnOnboardingStarted = "VpnOnboardingStarted";
+    public const string VpnConfigDownloaded = "VpnConfigDownloaded";
+    public const string VpnAppleProfileDownloaded = "VpnAppleProfileDownloaded";
+    public const string VpnWindowsSetupDownloaded = "VpnWindowsSetupDownloaded";
+    public const string VpnCaCertDownloaded = "VpnCaCertDownloaded";
+    public const string VpnProfileCreated = "VpnProfileCreated";
+    public const string VpnProfileRevoked = "VpnProfileRevoked";
+    public const string VpnKeyRotated = "VpnKeyRotated";
+    public const string VpnOnboardingCompleted = "VpnOnboardingCompleted";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -125,6 +136,15 @@ public static class AuditLogActions
         LogoutIdle,
         LogoutAbsolute,
         SessionInvalidatedVpnLost,
-        AccessRevoked
+        AccessRevoked,
+        VpnOnboardingStarted,
+        VpnConfigDownloaded,
+        VpnAppleProfileDownloaded,
+        VpnWindowsSetupDownloaded,
+        VpnCaCertDownloaded,
+        VpnProfileCreated,
+        VpnProfileRevoked,
+        VpnKeyRotated,
+        VpnOnboardingCompleted
     };
 }

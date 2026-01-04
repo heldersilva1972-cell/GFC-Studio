@@ -19,17 +19,20 @@ public class VpnConfigurationService : IVpnConfigurationService
     private readonly IDbContextFactory<GfcDbContext> _dbContextFactory;
     private readonly IBlazorSystemSettingsService _systemSettingsService;
     private readonly IUserConnectionService _userConnectionService;
+    private readonly IAuditLogger _auditLogger;
     private readonly ILogger<VpnConfigurationService> _logger;
 
     public VpnConfigurationService(
         IDbContextFactory<GfcDbContext> dbContextFactory,
         IBlazorSystemSettingsService systemSettingsService,
         IUserConnectionService userConnectionService,
+        IAuditLogger auditLogger,
         ILogger<VpnConfigurationService> logger)
     {
         _dbContextFactory = dbContextFactory;
         _systemSettingsService = systemSettingsService;
         _userConnectionService = userConnectionService;
+        _auditLogger = auditLogger;
         _logger = logger;
     }
 
@@ -41,13 +44,13 @@ public class VpnConfigurationService : IVpnConfigurationService
         // Use settings or defaults
         var serverPublicKey = settings?.WireGuardServerPublicKey ?? "SERVER_PUBLIC_KEY_PLACEHOLDER";
         var serverEndpoint = $"{settings?.PrimaryDomain ?? "vpn.gfc.local"}:{settings?.WireGuardPort ?? 51820}";
-        var allowedIps = settings?.WireGuardAllowedIPs ?? "10.8.0.0/24, 192.168.1.0/24";
+        var allowedIps = settings?.WireGuardAllowedIPs ?? "10.20.0.0/24";
         
         var sb = new StringBuilder();
         sb.AppendLine("[Interface]");
         sb.AppendLine($"PrivateKey = {profile.PrivateKey}");
         sb.AppendLine($"Address = {profile.AssignedIP}/32");
-        sb.AppendLine("DNS = 1.1.1.1");
+        sb.AppendLine("DNS = 10.20.0.1");
         sb.AppendLine();
         sb.AppendLine("[Peer]");
         sb.AppendLine($"PublicKey = {serverPublicKey}");
@@ -56,6 +59,7 @@ public class VpnConfigurationService : IVpnConfigurationService
         sb.AppendLine("PersistentKeepalive = 25");
 
         _logger.LogInformation("Configuration generated for profile {ProfileId} (User {UserId})", profile.Id, userId);
+        _auditLogger.Log(AuditLogActions.VpnConfigDownloaded, userId, userId, $"Config generated for {deviceName ?? "unknown device"} (IP: {profile.AssignedIP})");
 
         return sb.ToString();
     }
@@ -93,6 +97,8 @@ public class VpnConfigurationService : IVpnConfigurationService
         context.VpnProfiles.Add(profile);
         await context.SaveChangesAsync();
 
+        _auditLogger.Log(AuditLogActions.VpnProfileCreated, null, userId, $"New VPN profile created: {deviceName} ({deviceType}) with IP {assignedIp}");
+
         return profile;
     }
 
@@ -110,6 +116,8 @@ public class VpnConfigurationService : IVpnConfigurationService
             _logger.LogWarning("VPN Profile {ProfileId} revoked by {RevokedBy}. Reason: {Reason}", 
                 profileId, revokedBy, reason);
 
+            _auditLogger.Log(AuditLogActions.VpnProfileRevoked, revokedBy, profile.UserId, $"Revoked device '{profile.DeviceName}' (IP: {profile.AssignedIP}). Reason: {reason}");
+
             await context.SaveChangesAsync();
         }
     }
@@ -126,6 +134,7 @@ public class VpnConfigurationService : IVpnConfigurationService
             profile.RevokedAt = DateTime.UtcNow;
             profile.RevokedBy = revokedBy;
             profile.RevokedReason = reason;
+            _auditLogger.Log(AuditLogActions.VpnProfileRevoked, revokedBy, userId, $"Revoked device '{profile.DeviceName}' via bulk user revocation. Reason: {reason}");
         }
 
         // Also expire any onboarding tokens
@@ -156,6 +165,7 @@ public class VpnConfigurationService : IVpnConfigurationService
 
         await context.SaveChangesAsync();
         _logger.LogInformation("Keys rotated for profile {ProfileId}", profileId);
+        _auditLogger.Log(AuditLogActions.VpnKeyRotated, null, profile.UserId, $"Keys rotated for device '{profile.DeviceName}'");
 
         return profile.PublicKey;
     }

@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using GFC.BlazorServer.Services;
 using GFC.BlazorServer.Services.Vpn;
+using GFC.Core.Interfaces;
+using GFC.Core.Services;
 using System.ComponentModel.DataAnnotations;
 
 namespace GFC.BlazorServer.Controllers;
@@ -17,15 +19,18 @@ public class OnboardingController : ControllerBase
 {
     private readonly IVpnConfigurationService _vpnConfigService;
     private readonly IBlazorSystemSettingsService _systemSettingsService;
+    private readonly IAuditLogger _auditLogger;
     private readonly ILogger<OnboardingController> _logger;
 
     public OnboardingController(
         IVpnConfigurationService vpnConfigService,
         IBlazorSystemSettingsService systemSettingsService,
+        IAuditLogger auditLogger,
         ILogger<OnboardingController> logger)
     {
         _vpnConfigService = vpnConfigService;
         _systemSettingsService = systemSettingsService;
+        _auditLogger = auditLogger;
         _logger = logger;
     }
 
@@ -67,6 +72,7 @@ public class OnboardingController : ControllerBase
             }
 
             _logger.LogInformation("Token validated successfully for user {UserId}", userId.Value);
+            _auditLogger.Log(AuditLogActions.VpnOnboardingStarted, null, userId.Value, $"Onboarding initiated via gateway. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
 
             return Ok(new TokenValidationResponse
             {
@@ -152,6 +158,7 @@ public class OnboardingController : ControllerBase
             // Note: In production, this should be signed using a certificate (CMS/PKCS7).
             // For now, we return the raw XML. iOS/macOS will still accept it but show "Unsigned".
 
+            _auditLogger.Log(AuditLogActions.VpnAppleProfileDownloaded, userId.Value, userId.Value, $"Apple .mobileconfig profile downloaded. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
             return File(profileBytes, "application/x-apple-aspen-config", "GFC-Access.mobileconfig");
         }
         catch (Exception ex)
@@ -218,6 +225,7 @@ public class OnboardingController : ControllerBase
                 .Replace("$Token,", $"$Token = \"{token}\",")
                 .Replace("$ApiUrl = \"https://gfc.lovanow.com\"", $"$ApiUrl = \"{baseUrl}\""));
 
+            _auditLogger.Log(AuditLogActions.VpnWindowsSetupDownloaded, userId.Value, userId.Value, $"Windows One-Click setup script downloaded. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
             return File(bytes, "application/x-powershell", "Setup-GFC-VPN.ps1");
         }
         catch (Exception ex)
@@ -255,6 +263,7 @@ public class OnboardingController : ControllerBase
                 return NotFound("Certificate not found. Contact administrator.");
             }
  
+            _auditLogger.Log(AuditLogActions.VpnCaCertDownloaded, null, null, $"Root CA Certificate downloaded from onboarding gateway. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
             var bytes = await System.IO.File.ReadAllBytesAsync(caPath);
             return File(bytes, "application/x-x509-ca-cert", "GFC_Root_CA.cer");
         }
@@ -297,6 +306,8 @@ public class OnboardingController : ControllerBase
                 request.DeviceInfo ?? "Unknown",
                 request.Platform ?? "Unknown",
                 request.TestPassed);
+ 
+            _auditLogger.Log(AuditLogActions.VpnOnboardingCompleted, null, userId.Value, $"Gateway wizard finished. Platform: {request.Platform}, Device: {request.DeviceInfo}");
  
             return Ok(new { success = true, message = "Onboarding marked as completed" });
         }
