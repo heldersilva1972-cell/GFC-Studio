@@ -355,10 +355,10 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         app.UseCors("AllowNextJs");
 
         // IMPORTANT: DevAuth must run after UseRouting and before authorization policies.
-        if (app.Environment.IsDevelopment())
-        {
-            app.UseDevAuthAutoAdmin();
-        }
+        // if (app.Environment.IsDevelopment())
+        // {
+        //     app.UseDevAuthAutoAdmin();
+        // }
 
         app.UseAuthentication();
         app.UseAuthorization();

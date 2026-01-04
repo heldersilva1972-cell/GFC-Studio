@@ -78,13 +78,9 @@ public class AuthenticationService : IAuthenticationService
                 return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
             }
 
-            if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin)
-            {
-                const string reason = "System is in Safe Mode. Access restricted to Administrators.";
-                await SafeLogLogin(username, user.UserId, false, ipAddress, reason);
-                _logger.LogWarning("Login blocked for {Username}: {Reason}", username, reason);
-                return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
-            }
+            // [REMOVED] Safe Mode check removed to prevent crash if SystemSettings missing
+            // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin)
+            // { ... }
 
             if (!PasswordHelper.VerifyPassword(password, user.PasswordHash))
             {
@@ -172,12 +168,8 @@ public class AuthenticationService : IAuthenticationService
             return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
         }
 
-        if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin)
-        {
-            const string reason = "System is in Safe Mode. Access restricted to Administrators.";
-            await SafeLogLogin(user.Username, user.UserId, false, ipAddress, reason);
-            return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
-        }
+        // [REMOVED] Safe Mode check removed
+        // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin) { ... }
 
         _currentUser = user;
         var (newToken, _) = await RotateDeviceTokenAsync(trustedDevice);
@@ -202,12 +194,8 @@ public class AuthenticationService : IAuthenticationService
             return CreateFailure(LoginResultCode.Error, "MFA not enabled for user");
         }
 
-        if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin)
-        {
-            const string reason = "System is in Safe Mode. Access restricted to Administrators.";
-            await SafeLogLogin(user.Username, user.UserId, false, ipAddress, reason);
-            return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
-        }
+        // [REMOVED] Safe Mode check removed
+        // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin) { ... }
 
         var tfa = new TwoFactorAuthenticator();
         var decryptedSecretKey = _encryptionService.Decrypt(user.MfaSecretKey);
@@ -251,12 +239,8 @@ public class AuthenticationService : IAuthenticationService
             return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
         }
 
-        if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin)
-        {
-            const string reason = "System is in Safe Mode. Access restricted to Administrators.";
-            await SafeLogLogin(user.Username, user.UserId, false, ipAddress, reason);
-            return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
-        }
+        // [REMOVED] Safe Mode check removed
+        // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin) { ... }
 
         if (user.MfaEnabled)
         {
