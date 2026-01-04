@@ -55,45 +55,78 @@
 
 @if (selectedSubmission != null)
 {
-    <div class="modal" style="display:block" role="dialog">
+    <div class="modal fade show" style="display:block" role="dialog">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Submission Details</h5>
-                    <button type="button" class="close" @onclick="() => selectedSubmission = null">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" @onclick="() => selectedSubmission = null"></button>
                 </div>
                 <div class="modal-body">
                     <ul>
-                        @foreach (var data in global::System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(selectedSubmission.SubmissionData))
+                        @if (!string.IsNullOrWhiteSpace(selectedSubmission.SubmissionData))
                         {
-                            <li><strong>@data.Key:</strong> @data.Value</li>
+                            try 
+                            {
+                                var dataMap = global::System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(selectedSubmission.SubmissionData);
+                                if (dataMap != null)
+                                {
+                                    @foreach (var data in dataMap)
+                                    {
+                                        <li><strong>@data.Key:</strong> @data.Value</li>
+                                    }
+                                }
+                            }
+                            catch 
+                            {
+                                <li class="text-danger">Error: Could not parse submission data.</li>
+                            }
+                        }
+                        else
+                        {
+                            <li>No data submitted.</li>
                         }
                     </ul>
                 </div>
             </div>
         </div>
     </div>
+    <div class="modal-backdrop fade show"></div>
 }
 
 @code {
     private List<Form> forms = new List<Form>();
-    private List<FormSubmission> submissions;
-    private FormSubmission selectedSubmission;
+    private List<FormSubmission>? submissions;
+    private FormSubmission? selectedSubmission;
     private int selectedFormId;
 
     protected override async Task OnInitializedAsync()
     {
-        forms = await FormService.GetAllFormsAsync();
+        try 
+        {
+            forms = await FormService.GetAllFormsAsync() ?? new List<Form>();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading forms: {ex.Message}");
+            forms = new List<Form>();
+        }
     }
 
     private async Task OnSelectedFormIdChanged(ChangeEventArgs e)
     {
-        if (int.TryParse(e.Value.ToString(), out int formId) && formId > 0)
+        if (int.TryParse(e.Value?.ToString(), out int formId) && formId > 0)
         {
             selectedFormId = formId;
-            submissions = await FormService.GetSubmissionsByFormIdAsync(selectedFormId);
+            try 
+            {
+                submissions = await FormService.GetSubmissionsByFormIdAsync(selectedFormId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading submissions: {ex.Message}");
+                submissions = new List<FormSubmission>();
+            }
         }
         else
         {
@@ -108,8 +141,15 @@
 
     private async Task UpdateSubmissionStatus(FormSubmission submission, string status)
     {
-        submission.Status = status;
-        await FormService.UpdateSubmissionStatusAsync(submission.Id, status);
+        try 
+        {
+            submission.Status = status;
+            await FormService.UpdateSubmissionStatusAsync(submission.Id, status);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating status: {ex.Message}");
+        }
     }
 
     private async Task ExportToCsv()
@@ -124,8 +164,8 @@
 
         foreach (var submission in submissions)
         {
-            var data = submission.SubmissionData.Replace("\"", "\"\"");
-            csv.AppendLine($"\"{submission.SubmittedAt}\",\"{submission.Status}\",\"{data}\"");
+            var data = (submission.SubmissionData ?? "").Replace("\"", "\"\"");
+            csv.AppendLine($"\"{submission.SubmittedAt}\",\"{submission.Status ?? "Pending"}\",\"{data}\"");
         }
 
         var fileName = $"form-submissions-{selectedFormId}-{DateTime.Now:yyyyMMdd}.csv";
