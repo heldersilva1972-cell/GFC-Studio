@@ -1,40 +1,59 @@
 // [MODIFIED]
 window.sessionMonitor = {
-    dotNetRef: null,
-    idleTimeout: 0,
-    warningTimeout: 0,
-    logoutTimeoutId: 0,
-    warningTimeoutId: 0,
+    isWarningActive: false,
+    lastActivityTime: 0,
 
     init: function (dotNetReference, idleMinutes, warningMinutes) {
         this.dotNetRef = dotNetReference;
         this.idleTimeout = idleMinutes * 60 * 1000;
         this.warningTimeout = warningMinutes * 60 * 1000;
+        this.isWarningActive = false;
+        this.lastActivityTime = Date.now();
 
         this.addEventListeners();
-        this.resetTimer();
+        this.startTimers();
     },
 
-    resetTimer: function () {
+    startTimers: function () {
         clearTimeout(this.warningTimeoutId);
         clearTimeout(this.logoutTimeoutId);
 
-        if (this.dotNetRef) {
-            this.dotNetRef.invokeMethodAsync('ResetFromJavaScript');
-            this.warningTimeoutId = setTimeout(() => this.showWarning(), this.warningTimeout);
-            this.logoutTimeoutId = setTimeout(() => this.performLogout(), this.idleTimeout);
+        this.warningTimeoutId = setTimeout(() => this.showWarning(), this.warningTimeout);
+        this.logoutTimeoutId = setTimeout(() => this.performLogout(), this.idleTimeout);
+    },
+
+    resetTimer: function () {
+        // Throttle activity resets to once every 2 seconds unless warning is active
+        const now = Date.now();
+        if (!this.isWarningActive && (now - this.lastActivityTime < 2000)) {
+            return;
         }
+        this.lastActivityTime = now;
+
+        clearTimeout(this.warningTimeoutId);
+        clearTimeout(this.logoutTimeoutId);
+
+        if (this.isWarningActive) {
+            this.isWarningActive = false;
+            if (this.dotNetRef) {
+                this.dotNetRef.invokeMethodAsync('ResetFromJavaScript').catch(err => console.log("Session ignored: Ref disposed"));
+            }
+        }
+
+        this.warningTimeoutId = setTimeout(() => this.showWarning(), this.warningTimeout);
+        this.logoutTimeoutId = setTimeout(() => this.performLogout(), this.idleTimeout);
     },
 
     showWarning: function () {
         if (this.dotNetRef) {
-            this.dotNetRef.invokeMethodAsync('ShowIdleWarning');
+            this.isWarningActive = true;
+            this.dotNetRef.invokeMethodAsync('ShowIdleWarning').catch(err => console.log("Session warning ignored: Ref disposed"));
         }
     },
 
     performLogout: function () {
         if (this.dotNetRef) {
-            this.dotNetRef.invokeMethodAsync('LogoutUser');
+            this.dotNetRef.invokeMethodAsync('LogoutUser').catch(err => console.log("Logout ignored: Ref disposed"));
             this.cleanup();
         }
     },
