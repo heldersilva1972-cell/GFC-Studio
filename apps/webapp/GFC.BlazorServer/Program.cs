@@ -25,6 +25,7 @@ using GFC.BlazorServer.Hubs; // Add this using directive
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -56,16 +57,32 @@ public class Program
         builder.Services.AddServerSideBlazor().AddHubOptions(options => options.ClientTimeoutInterval = TimeSpan.FromSeconds(60)).AddCircuitOptions(options => options.DetailedErrors = true);
         builder.Services.AddSignalR(); // Add SignalR
         
-        // Add CORS for Next.js frontend
+        // Add CORS for Next.js frontend and Onboarding Gateway
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("AllowNextJs", policy =>
             {
-                policy.WithOrigins("http://localhost:3000")
+                policy.WithOrigins(
+                        "http://localhost:3000",
+                        "https://setup.gfc.lovanow.com") // Onboarding gateway
                       .AllowAnyMethod()
                       .AllowAnyHeader()
                       .AllowCredentials();
             });
+        });
+        
+        // Add Rate Limiting for Onboarding API
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.AddFixedWindowLimiter("onboarding", opt =>
+            {
+                opt.Window = TimeSpan.FromMinutes(1);
+                opt.PermitLimit = 10; // 10 requests per minute per IP
+                opt.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
+                opt.QueueLimit = 5;
+            });
+            
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         });
         
         builder.Services.AddControllers();
@@ -328,6 +345,7 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
 
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseRateLimiter(); // Enable rate limiting
 
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseMiddleware<VideoAccessGuardMiddleware>();
