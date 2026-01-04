@@ -5,6 +5,7 @@ using GFC.BlazorServer.Services.Vpn;
 using GFC.Core.Interfaces;
 using GFC.Core.Services;
 using System.ComponentModel.DataAnnotations;
+using GFC.BlazorServer.Auth;
 
 namespace GFC.BlazorServer.Controllers;
 
@@ -242,9 +243,40 @@ public class OnboardingController : ControllerBase
     [HttpGet("ca-cert")]
     [Produces("application/x-x509-ca-cert")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetCaCertificate()
+    public async Task<IActionResult> GetCaCertificate([FromQuery] string? token = null)
     {
+        // Check Access
+        bool isAuthorized = false;
+
+        // 1. Check if user is Admin (cookie auth)
+        if (User.Identity?.IsAuthenticated == true && User.IsInRole(AppRoles.Admin))
+        {
+            isAuthorized = true;
+        }
+        // 2. Check if valid token provided
+        else if (!string.IsNullOrEmpty(token))
+        {
+            // We use ValidateOnboardingTokenAsync purely to check validity.
+            // This token is NOT marked as used here, just checked.
+            // Setup scripts will use the token later for 'config', which validates it again.
+            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (userId.HasValue)
+            {
+                isAuthorized = true;
+            }
+        }
+
+        if (!isAuthorized)
+        {
+            _logger.LogWarning("Unauthorized attempt to download Root CA. Token provided: {HasToken}, User: {User}, IP: {IP}", 
+                !string.IsNullOrEmpty(token), 
+                User.Identity?.Name ?? "Anonymous",
+                Request.HttpContext.Connection.RemoteIpAddress);
+            return StatusCode(StatusCodes.Status403Forbidden, "Access denied. Admin rights or valid token required.");
+        }
+
         try
         {
             // Assuming the CA cert is stored in a known location relative to the app

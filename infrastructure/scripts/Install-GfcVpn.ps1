@@ -50,7 +50,7 @@ if (-not (Test-Path $wgPath)) {
 
 # 3. Download and Install Root CA
 Write-Host "[2/4] Configuring Security Trust (GFC Root CA)..." -ForegroundColor Cyan
-$caUrl = "$ApiUrl/api/onboarding/ca-cert"
+$caUrl = "$ApiUrl/api/onboarding/ca-cert?token=$Token"
 $caPath = Join-Path $env:TEMP "GFC_Root_CA.cer"
 
 try {
