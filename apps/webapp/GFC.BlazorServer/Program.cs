@@ -330,7 +330,24 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         }
 
         app.UseHttpsRedirection();
-        app.UseStaticFiles();
+        
+        // Configure static files with proper MIME types for PWA
+        var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+        provider.Mappings[".webmanifest"] = "application/manifest+json";
+        provider.Mappings[".json"] = "application/json";
+        
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            ContentTypeProvider = provider,
+            OnPrepareResponse = ctx =>
+            {
+                // Set proper cache headers for PWA files
+                if (ctx.File.Name == "manifest.json" || ctx.File.Name == "service-worker.js")
+                {
+                    ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
+                }
+            }
+        });
 
         app.UseRouting();
         
