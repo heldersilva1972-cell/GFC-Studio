@@ -106,6 +106,60 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'WatermarkPosition')
     ALTER TABLE [dbo].[SystemSettings] ADD [WatermarkPosition] NVARCHAR(50) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'AbsoluteSessionMaxMinutes')
+    ALTER TABLE [dbo].[SystemSettings] ADD [AbsoluteSessionMaxMinutes] INT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'AccessMode')
+    ALTER TABLE [dbo].[SystemSettings] ADD [AccessMode] NVARCHAR(50) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'AllowedDomains')
+    ALTER TABLE [dbo].[SystemSettings] ADD [AllowedDomains] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'BackupFrequencyHours')
+    ALTER TABLE [dbo].[SystemSettings] ADD [BackupFrequencyHours] INT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'BackupMethod')
+    ALTER TABLE [dbo].[SystemSettings] ADD [BackupMethod] NVARCHAR(50) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'DomainSwitchExpiryUtc')
+    ALTER TABLE [dbo].[SystemSettings] ADD [DomainSwitchExpiryUtc] DATETIME2 NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'DomainSwitchPending')
+    ALTER TABLE [dbo].[SystemSettings] ADD [DomainSwitchPending] NVARCHAR(255) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnableOnboarding')
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnableOnboarding] BIT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EnforceVpn')
+    ALTER TABLE [dbo].[SystemSettings] ADD [EnforceVpn] BIT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'HostingEnvironment')
+    ALTER TABLE [dbo].[SystemSettings] ADD [HostingEnvironment] NVARCHAR(50) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'IdleTimeoutMinutes')
+    ALTER TABLE [dbo].[SystemSettings] ADD [IdleTimeoutMinutes] INT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LastConfirmedDomain')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LastConfirmedDomain] NVARCHAR(255) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LastRestoreTestUtc')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LastRestoreTestUtc] DATETIME2 NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'LastSuccessfulBackupUtc')
+    ALTER TABLE [dbo].[SystemSettings] ADD [LastSuccessfulBackupUtc] DATETIME2 NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MagicLinkEnabled')
+    ALTER TABLE [dbo].[SystemSettings] ADD [MagicLinkEnabled] BIT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PrimaryDomain')
+    ALTER TABLE [dbo].[SystemSettings] ADD [PrimaryDomain] NVARCHAR(255) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SafeModeEnabled')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SafeModeEnabled] BIT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TrustedDeviceDurationDays')
+    ALTER TABLE [dbo].[SystemSettings] ADD [TrustedDeviceDurationDays] INT NULL;
 GO
 
 -- Step D: Populate existing NULLs with defaults
@@ -130,7 +184,21 @@ UPDATE [dbo].[SystemSettings] SET
     [RemoteQualityMaxBitrate] = ISNULL([RemoteQualityMaxBitrate], 2000),
     [SessionTimeoutMinutes] = ISNULL([SessionTimeoutMinutes], 30),
     [WatermarkPosition] = ISNULL([WatermarkPosition], 'BottomRight'),
-    [LanSubnet] = ISNULL([LanSubnet], '192.168.1.0/24')
+    [LanSubnet] = ISNULL([LanSubnet], '192.168.1.0/24'),
+    
+    -- New Columns Defaults
+    [AbsoluteSessionMaxMinutes] = ISNULL([AbsoluteSessionMaxMinutes], 1440),
+    [AccessMode] = ISNULL([AccessMode], 'Open'),
+    [AllowedDomains] = ISNULL([AllowedDomains], ''),
+    [BackupFrequencyHours] = ISNULL([BackupFrequencyHours], 24),
+    [BackupMethod] = ISNULL([BackupMethod], 'Native'),
+    [EnableOnboarding] = ISNULL([EnableOnboarding], 0),
+    [EnforceVpn] = ISNULL([EnforceVpn], 0),
+    [HostingEnvironment] = ISNULL([HostingEnvironment], 'Production'),
+    [IdleTimeoutMinutes] = ISNULL([IdleTimeoutMinutes], 60),
+    [MagicLinkEnabled] = ISNULL([MagicLinkEnabled], 1),
+    [SafeModeEnabled] = ISNULL([SafeModeEnabled], 0),
+    [TrustedDeviceDurationDays] = ISNULL([TrustedDeviceDurationDays], 30)
 WHERE Id = 1;
 GO
 

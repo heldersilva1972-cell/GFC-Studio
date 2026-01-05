@@ -11,6 +11,7 @@ using GFC.BlazorServer.Services.Members;
 using GFC.BlazorServer.Services.Controllers;
 using GFC.BlazorServer.Services.Diagnostics;
 using GFC.BlazorServer.Services.DataProtection;
+using GFC.BlazorServer.Services.Operations;
 using GFC.BlazorServer.Data.Repositories;
 using GFC.BlazorServer.Repositories;
 using GFC.Data;
@@ -243,6 +244,7 @@ public class Program
         builder.Services.AddScoped<ReceiptStorageService>();
         builder.Services.AddScoped<ReimbursementService>();
         builder.Services.AddScoped<ThemeService>();
+        builder.Services.AddScoped<IOperationsService, OperationsService>();
         builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 
 
@@ -501,6 +503,37 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
                 else
                 {
                     Console.WriteLine($">>> WARNING: Schema repair script not found at {scriptPath}");
+                }
+
+                // [CRITICAL FIX 2] Force-Fix NULLs for new SystemSettings columns (AccessMode, etc.)
+                // This ensures "Data is Null" errors don't prevent app startup/operations
+                try 
+                {
+                    var fixNullsSysSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
+                        BEGIN
+                            UPDATE [dbo].[SystemSettings] SET 
+                                [AccessMode] = 'Open' WHERE [AccessMode] IS NULL OR [AccessMode] = 'Standard';
+                            UPDATE [dbo].[SystemSettings] SET 
+                                [EnableOnboarding] = 0 WHERE [EnableOnboarding] IS NULL;
+                            UPDATE [dbo].[SystemSettings] SET 
+                                [EnforceVpn] = 0 WHERE [EnforceVpn] IS NULL;
+                            UPDATE [dbo].[SystemSettings] SET 
+                                [SafeModeEnabled] = 0 WHERE [SafeModeEnabled] IS NULL;
+                            UPDATE [dbo].[SystemSettings] SET 
+                                [MagicLinkEnabled] = 1 WHERE [MagicLinkEnabled] IS NULL;
+                            UPDATE [dbo].[SystemSettings] SET 
+                                [HostingEnvironment] = 'Production' WHERE [HostingEnvironment] IS NULL;
+                             UPDATE [dbo].[SystemSettings] SET 
+                                [BackupFrequencyHours] = 24 WHERE [BackupFrequencyHours] IS NULL;
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(fixNullsSysSql);
+                    Console.WriteLine(">>> CRITICAL: Applied direct NULL fix for SystemSettings (AccessMode, etc).");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error applying critical SystemSettings NULL fix: {ex.Message}");
                 }
 
                 // [AUTO-FIX 2] Run the Video Security Tables script

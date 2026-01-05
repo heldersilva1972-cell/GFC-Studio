@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using GFC.Core.Interfaces;
+using GFC.BlazorServer.Services.Operations;
+using GFC.BlazorServer.Auth;
 
 namespace GFC.BlazorServer.Controllers;
 
@@ -11,28 +14,69 @@ namespace GFC.BlazorServer.Controllers;
 public class HealthController : ControllerBase
 {
     private readonly IUserConnectionService _connectionService;
+    private readonly IOperationsService _operationsService;
     private readonly ILogger<HealthController> _logger;
 
     public HealthController(
         IUserConnectionService connectionService,
+        IOperationsService operationsService,
         ILogger<HealthController> logger)
     {
         _connectionService = connectionService;
+        _operationsService = operationsService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Basic health check endpoint
+    /// Basic health check endpoint (Public Safe)
+    /// </summary>
+    [HttpGet("/health")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetHealth()
+    {
+        try 
+        {
+            var info = await _operationsService.GetHealthInfoAsync();
+            if (info.IsHealthy)
+            {
+                return Ok("OK");
+            }
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "FAIL");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Health check failed");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "FAIL");
+        }
+    }
+
+    /// <summary>
+    /// Detailed health check endpoint (Admin Only)
+    /// </summary>
+    [HttpGet("/health/details")]
+    [Authorize(Policy = AppPolicies.RequireAdmin)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetHealthDetails()
+    {
+        var info = await _operationsService.GetHealthInfoAsync();
+        return Ok(info);
+    }
+
+    /// <summary>
+    /// Legacy API endpoint
     /// </summary>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public IActionResult Get()
+    public async Task<IActionResult> Get()
     {
+        // For backward compatibility, return a simple JSON
+        var info = await _operationsService.GetHealthInfoAsync();
         return Ok(new
         {
-            status = "healthy",
+            status = info.IsHealthy ? "healthy" : "unhealthy",
             timestamp = DateTime.UtcNow,
-            version = "1.0.0"
+            version = info.AppVersion
         });
     }
 

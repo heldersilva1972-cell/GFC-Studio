@@ -1,0 +1,437 @@
+@page "/admin/operations"
+@using GFC.BlazorServer.Auth
+@using GFC.BlazorServer.Services.Operations
+
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@inject IOperationsService OperationsService
+@inject IJSRuntime JS
+@inject ILogger<OperationsCenter> Logger
+
+<PageTitle>Operations Center</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-activity"></i> Operations Center</h2>
+            <p class="text-muted mb-0">System health, infrastructure status, and disaster recovery.</p>
+        </div>
+        <div>
+            <button class="btn btn-outline-primary me-2" @onclick="LoadDataAsync" disabled="@_isLoading">
+                <i class="bi bi-arrow-clockwise @(_isLoading ? "spin" : "")"></i> Refresh
+            </button>
+            <button class="btn btn-danger" @onclick="DownloadRecoveryPackAsync" disabled="@(_isGeneratingPack || _isLoading)">
+                @if (_isGeneratingPack)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <span>Generating...</span>
+                }
+                else
+                {
+                    <i class="bi bi-archive-fill me-2"></i>
+                    <span>Download Recovery Pack</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> @_error
+        </div>
+    }
+
+    <ul class="nav nav-tabs mb-4" id="opsTabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "overview" ? "active" : "")" @onclick="@(() => SetTab("overview"))">Overview</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "health" ? "active" : "")" @onclick="@(() => SetTab("health"))">Health</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "public" ? "active" : "")" @onclick="@(() => SetTab("public"))">Public Access</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "hosting" ? "active" : "")" @onclick="@(() => SetTab("hosting"))">Hosting</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "database" ? "active" : "")" @onclick="@(() => SetTab("database"))">Database</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "network" ? "active" : "")" @onclick="@(() => SetTab("network"))">Networking</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <!-- OVERVIEW TAB -->
+        @if (_activeTab == "overview")
+        {
+            <div class="row">
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-muted">System Health</h5>
+                            @if (_healthInfo != null)
+                            {
+                                <div class="display-4 my-3 @(_healthInfo.IsHealthy ? "text-success" : "text-danger")">
+                                    <i class="bi @(_healthInfo.IsHealthy ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
+                                </div>
+                                <p class="lead">@(_healthInfo.IsHealthy ? "Operational" : "Attention Needed")</p>
+                            }
+                            else
+                            {
+                                <p class="text-muted">Loading...</p>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-muted">Public Access</h5>
+                            @if (_publicInfo != null)
+                            {
+                                <div class="display-4 my-3 @(_publicInfo.IsCloudflaredRunning ? "text-success" : "text-warning")">
+                                    <i class="bi @(_publicInfo.IsCloudflaredRunning ? "bi-cloud-check-fill" : "bi-cloud-slash-fill")"></i>
+                                </div>
+                                <p class="lead">@(_publicInfo.IsCloudflaredRunning ? "Tunnel Active" : "Tunnel Inactive")</p>
+                            }
+                             else
+                            {
+                                <p class="text-muted">Loading...</p>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-muted">Database</h5>
+                            @if (_healthInfo != null)
+                            {
+                                <div class="display-4 my-3 @(_healthInfo.DatabaseConnected ? "text-success" : "text-danger")">
+                                    <i class="bi @(_healthInfo.DatabaseConnected ? "bi-database-check" : "bi-database-x")"></i>
+                                </div>
+                                <p class="lead">@(_healthInfo.DatabaseConnected ? "Connected" : "Disconnected")</p>
+                            }
+                             else
+                            {
+                                <p class="text-muted">Loading...</p>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="alert alert-info border-0 shadow-sm">
+                <div class="d-flex">
+                    <div class="me-3 display-6"><i class="bi bi-life-preserver"></i></div>
+                    <div>
+                        <h5 class="alert-heading">Disaster Recovery Readiness</h5>
+                        <p class="mb-0">
+                            Use the <strong>"Download Recovery Pack"</strong> button above to download a comprehensive zip file containing
+                            all scripts, configurations, and documentation needed to restore this server from scratch.
+                            Store this file in a secure, off-site location.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- HEALTH TAB -->
+        @if (_activeTab == "health")
+        {
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">System Health Details</h5>
+                </div>
+                <div class="card-body">
+                    @if (_healthInfo != null)
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <tbody>
+                                    <tr>
+                                        <th style="width: 30%">Environment</th>
+                                        <td><span class="badge bg-primary">@_healthInfo.EnvironmentName</span></td>
+                                    </tr>
+                                    <tr>
+                                        <th>App Version</th>
+                                        <td>@_healthInfo.AppVersion (Built: @_healthInfo.BuildDate.ToLocalTime())</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Database Status</th>
+                                        <td>
+                                            @if (_healthInfo.DatabaseConnected)
+                                            {
+                                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Connected</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Disconnected</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Disk Space</th>
+                                        <td>@_healthInfo.DiskSpaceMessage</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Cloudflare Tunnel Process</th>
+                                        <td>
+                                            @if (_healthInfo.CloudflaredRunning)
+                                            {
+                                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Running</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Not Detected</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>HTTPS / Proxy</th>
+                                        <td>
+                                            <div>HTTPS: @if(_healthInfo.IsHttps) { <span class="text-success">Yes</span> } else { <span class="text-warning">No</span> }</div>
+                                            <div>Reverse Proxy Header: @if(_healthInfo.IsReverseProxyDetected) { <span class="text-success">Detected (X-Forwarded-Proto)</span> } else { <span class="text-warning">Not Detected</span> }</div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <h6>Public Health Endpoint</h6>
+                <div class="input-group">
+                    <span class="input-group-text">GET</span>
+                    <input type="text" class="form-control" value="/health" readonly />
+                    <a href="/health" target="_blank" class="btn btn-outline-secondary">Test</a>
+                </div>
+                <small class="text-muted">Returns simple "OK" or "FAIL" (503) for automated monitoring.</small>
+            </div>
+        }
+
+        <!-- PUBLIC ACCESS TAB -->
+        @if (_activeTab == "public" && _publicInfo != null)
+        {
+             <div class="card shadow-sm border-0">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Cloudflare Tunnel & DNS</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Domains</dt>
+                        <dd class="col-sm-9">
+                            @foreach(var d in _publicInfo.Domains)
+                            {
+                                <span class="badge bg-info text-dark me-1">@d</span>
+                            }
+                        </dd>
+
+                        <dt class="col-sm-3">Tunnel Service</dt>
+                        <dd class="col-sm-9">
+                            @if (_publicInfo.IsCloudflaredRunning)
+                            {
+                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Running (Service)</span>
+                            }
+                            else if (_publicInfo.IsCloudflaredInstalled)
+                            {
+                                <span class="text-warning"><i class="bi bi-pause-circle-fill"></i> Installed but Stopped</span>
+                            }
+                            else
+                            {
+                                <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Not Installed</span>
+                            }
+                        </dd>
+                        
+                        <dt class="col-sm-3">Config Path</dt>
+                        <dd class="col-sm-9"><code>@_publicInfo.ConfigPath</code></dd>
+
+                        <dt class="col-sm-3">Tunnel ID</dt>
+                        <dd class="col-sm-9">@(_publicInfo.TunnelId ?? "Unknown / Not found in config")</dd>
+                    </dl>
+                </div>
+            </div>
+        }
+
+        <!-- HOSTING TAB -->
+        @if (_activeTab == "hosting" && _hostingInfo != null)
+        {
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">IIS & Hosting Environment</h5>
+                </div>
+                <div class="card-body">
+                     <dl class="row">
+                        <dt class="col-sm-3">Site Name (IIS)</dt>
+                        <dd class="col-sm-9">@_hostingInfo.IisSiteName</dd>
+
+                        <dt class="col-sm-3">App Pool</dt>
+                        <dd class="col-sm-9">@_hostingInfo.AppPoolName</dd>
+
+                        <dt class="col-sm-3">Physical Path</dt>
+                        <dd class="col-sm-9"><code>@_hostingInfo.PhysicalPath</code></dd>
+
+                        <dt class="col-sm-3">.NET Runtime</dt>
+                        <dd class="col-sm-9">@_hostingInfo.DotNetHostingBundleVersion</dd>
+                    </dl>
+                    
+                    <div class="alert alert-warning mt-3">
+                        <i class="bi bi-lightbulb"></i> <strong>Note:</strong> Ensure the <em>ASP.NET Core Hosting Bundle</em> is installed and matches the application runtime version.
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- DATABASE TAB -->
+        @if (_activeTab == "database" && _dbInfo != null)
+        {
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">SQL Server Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">Server Instance</dt>
+                        <dd class="col-sm-9">@_dbInfo.InstanceName</dd>
+
+                        <dt class="col-sm-3">Database Name</dt>
+                        <dd class="col-sm-9">@_dbInfo.DatabaseName</dd>
+
+                         <dt class="col-sm-3">Connection String</dt>
+                        <dd class="col-sm-9">
+                            <code>@_dbInfo.ConnectionStringMasked</code>
+                        </dd>
+
+                        <dt class="col-sm-3">Last Backup</dt>
+                        <dd class="col-sm-9">
+                            @if (_dbInfo.LastBackupTime.HasValue)
+                            {
+                                <span class="text-success">@_dbInfo.LastBackupTime.Value.ToLocalTime().ToString("g")</span>
+                            }
+                            else
+                            {
+                                <span class="text-warning">Unknown / Never</span>
+                            }
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        }
+        
+         <!-- NETWORK TAB -->
+        @if (_activeTab == "network" && _netInfo != null)
+        {
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Network & Firewall Policies</h5>
+                </div>
+                <div class="card-body">
+                    <h6>Outbound Ports Required</h6>
+                    <ul>
+                        @foreach(var port in _netInfo.OutboundPorts)
+                        {
+                            <li>@port</li>
+                        }
+                    </ul>
+                    
+                    <h6>Security Recommendations</h6>
+                    <ul>
+                        <li><i class="bi bi-check-lg text-success"></i> <strong>Inbound Ports:</strong> None required (Blocked by default). Cloudflare Tunnel handles ingress.</li>
+                        <li><i class="bi bi-check-lg text-success"></i> <strong>Time Sync:</strong> Ensure Windows Time Service (w32time) is active for TLS validity.</li>
+                        <li><i class="bi bi-check-lg text-success"></i> <strong>BIOS Power:</strong> Set "Restore on Power Loss" to "Power On" in BIOS.</li>
+                    </ul>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .spin {
+        animation: spin 1s linear infinite;
+    }
+    @@keyframes spin { 100% {transform: rotate(360deg);} }
+    .nav-link { cursor: pointer; }
+</style>
+
+@code {
+    private string _activeTab = "overview";
+    private bool _isLoading = false;
+    private bool _isGeneratingPack = false;
+    private string? _error = null;
+
+    private OperationsHealthInfo? _healthInfo;
+    private PublicAccessInfo? _publicInfo;
+    private HostingInfo? _hostingInfo;
+    private DatabaseRecoveryInfo? _dbInfo;
+    private NetworkSecurityInfo? _netInfo;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private void SetTab(string tab)
+    {
+        _activeTab = tab;
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _isLoading = true;
+        _error = null;
+        try
+        {
+            // Load in parallel
+            var t1 = OperationsService.GetHealthInfoAsync();
+            var t2 = OperationsService.GetPublicAccessInfoAsync();
+            var t3 = OperationsService.GetHostingInfoAsync();
+            var t4 = OperationsService.GetDatabaseRecoveryInfoAsync();
+            var t5 = OperationsService.GetNetworkSecurityInfoAsync();
+
+            await Task.WhenAll(t1, t2, t3, t4, t5);
+
+            _healthInfo = t1.Result;
+            _publicInfo = t2.Result;
+            _hostingInfo = t3.Result;
+            _dbInfo = t4.Result;
+            _netInfo = t5.Result;
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to load operations data. " + ex.Message;
+            Logger.LogError(ex, "Failed to load operations data");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task DownloadRecoveryPackAsync()
+    {
+        _isGeneratingPack = true;
+        _error = null;
+        try
+        {
+            var zipBytes = await OperationsService.GenerateRecoveryPackAsync();
+            var fileName = $"GFC_Recovery_Pack_{DateTime.Now:yyyyMMdd_HHmm}.zip";
+            var base64 = Convert.ToBase64String(zipBytes);
+            
+            await JS.InvokeVoidAsync("downloadFile", fileName, base64, "application/zip");
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to generate Recovery Pack. " + ex.Message;
+            Logger.LogError(ex, "Recovery Pack generation failed");
+        }
+        finally
+        {
+            _isGeneratingPack = false;
+        }
+    }
+}

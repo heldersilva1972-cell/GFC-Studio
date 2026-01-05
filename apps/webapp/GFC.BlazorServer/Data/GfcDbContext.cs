@@ -308,6 +308,9 @@ public class GfcDbContext : DbContext
                 Id = 1,
                 LastUpdatedUtc = null
             });
+
+            entity.Property(e => e.AccessMode)
+                  .HasConversion<string>();
         });
 
         modelBuilder.Entity<GFC.BlazorServer.Data.Entities.MemberDoorAccess>(entity =>
