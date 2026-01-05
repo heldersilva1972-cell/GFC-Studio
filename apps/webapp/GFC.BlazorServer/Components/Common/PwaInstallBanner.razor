@@ -1,0 +1,227 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (_showBanner && !_isDismissed)
+{
+    <div class="pwa-install-banner">
+        <div class="pwa-banner-content">
+            <div class="pwa-banner-icon">
+                <i class="bi bi-phone"></i>
+            </div>
+            <div class="pwa-banner-text">
+                <h4>Install GFC App</h4>
+                <p>Get quick access from your home screen - works like a native app!</p>
+                @if (!string.IsNullOrEmpty(_instructions))
+                {
+                    <div class="pwa-instructions">
+                        @((MarkupString)_instructions)
+                    </div>
+                }
+            </div>
+            <div class="pwa-banner-actions">
+                @if (_canAutoInstall)
+                {
+                    <button class="btn btn-primary" @onclick="InstallApp">
+                        <i class="bi bi-download"></i> Install
+                    </button>
+                }
+                <button class="btn btn-link" @onclick="DismissBanner">
+                    Not now
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .pwa-install-banner {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: 600px;
+        width: calc(100% - 40px);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        z-index: 1000;
+        animation: slideUp 0.4s ease-out;
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateX(-50%) translateY(100px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    }
+
+    .pwa-banner-content {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.25rem;
+    }
+
+    .pwa-banner-icon {
+        font-size: 2.5rem;
+        flex-shrink: 0;
+    }
+
+    .pwa-banner-text {
+        flex: 1;
+    }
+
+    .pwa-banner-text h4 {
+        margin: 0 0 0.25rem 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+
+    .pwa-banner-text p {
+        margin: 0;
+        font-size: 0.9rem;
+        opacity: 0.95;
+    }
+
+    .pwa-instructions {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+
+    .pwa-banner-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .pwa-banner-actions .btn {
+        white-space: nowrap;
+        min-width: 100px;
+    }
+
+    .pwa-banner-actions .btn-primary {
+        background: white;
+        color: #667eea;
+        border: none;
+        font-weight: 600;
+    }
+
+    .pwa-banner-actions .btn-primary:hover {
+        background: #f8f9fa;
+        transform: translateY(-2px);
+    }
+
+    .pwa-banner-actions .btn-link {
+        color: white;
+        text-decoration: none;
+        opacity: 0.9;
+    }
+
+    .pwa-banner-actions .btn-link:hover {
+        opacity: 1;
+        text-decoration: underline;
+    }
+
+    @@media (max-width: 768px) {
+        .pwa-install-banner {
+            bottom: 10px;
+            width: calc(100% - 20px);
+        }
+
+        .pwa-banner-content {
+            flex-direction: column;
+            text-align: center;
+        }
+
+        .pwa-banner-actions {
+            width: 100%;
+        }
+
+        .pwa-banner-actions .btn {
+            width: 100%;
+        }
+    }
+</style>
+
+@code {
+    private bool _showBanner = false;
+    private bool _isDismissed = false;
+    private bool _canAutoInstall = false;
+    private string? _instructions = null;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckInstallability();
+        }
+    }
+
+    private async Task CheckInstallability()
+    {
+        try
+        {
+            var result = await JS.InvokeAsync<InstallabilityResult>("pwaInstaller.checkInstallability");
+            
+            if (result != null)
+            {
+                _canAutoInstall = result.CanInstall;
+                _instructions = result.Instructions;
+                
+                // Show banner if we can install OR if we have manual instructions
+                _showBanner = _canAutoInstall || !string.IsNullOrEmpty(_instructions);
+                
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PWA Banner] Error checking installability: {ex.Message}");
+        }
+    }
+
+    private async Task InstallApp()
+    {
+        try
+        {
+            var success = await JS.InvokeAsync<bool>("pwaInstaller.install");
+            
+            if (success)
+            {
+                _showBanner = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PWA Banner] Error installing app: {ex.Message}");
+        }
+    }
+
+    private void DismissBanner()
+    {
+        _isDismissed = true;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Cleanup if needed
+    }
+
+    private class InstallabilityResult
+    {
+        public bool CanInstall { get; set; }
+        public string? Instructions { get; set; }
+    }
+}

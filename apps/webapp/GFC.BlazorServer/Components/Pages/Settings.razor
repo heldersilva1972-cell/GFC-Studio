@@ -204,6 +204,90 @@
             </div>
         </div>
 
+        <div class="settings-section">
+            <div class="settings-section__header">
+                <h2>
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                    Database Restoration
+                </h2>
+                <p class="settings-section__description">
+                    Restore the database from a backup file (.bak). 
+                    <span class="text-danger"><strong>Warning:</strong> This will overwrite all current data and drop active connections.</span>
+                </p>
+            </div>
+
+            <div class="settings-section__body">
+                @if (_showRestoreSuccessMessage)
+                {
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="bi bi-check-circle"></i>
+                        Database restored successfully! The application may need a few seconds to reconnect.
+                        <button type="button" class="btn-close" @onclick="() => _showRestoreSuccessMessage = false"></button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_restoreErrorMessage))
+                {
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-circle"></i>
+                        @_restoreErrorMessage
+                        <button type="button" class="btn-close" @onclick="() => _restoreErrorMessage = string.Empty"></button>
+                    </div>
+                }
+
+                <div class="form-field full-width-field">
+                    <label class="form-label">Select Backup File to Restore</label>
+                    <div class="input-group">
+                        <select class="form-select @(string.IsNullOrEmpty(_selectedRestoreFile) ? "text-muted" : "")" 
+                                @bind="_selectedRestoreFile">
+                            <option value="">-- Select a backup file from the backup folder --</option>
+                            @if (_availableBackups != null)
+                            {
+                                @foreach (var file in _availableBackups)
+                                {
+                                    <option value="@file.FullName">@file.Name (@(file.Length / 1024 / 1024) MB - @file.LastWriteTime.ToString("g"))</option>
+                                }
+                            }
+                        </select>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="LoadAvailableBackups" title="Refresh list">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </button>
+                    </div>
+                    <small class="form-text text-muted">
+                        Only .bak files in the configured backup folder are shown. 
+                        To restore from a file in another location, please enter the full path below.
+                    </small>
+                </div>
+
+                <div class="form-field full-width-field mt-3">
+                    <label class="form-label" for="manual-restore-path">Manual Backup Path</label>
+                    <div class="input-group">
+                        <InputText id="manual-restore-path" 
+                                   class="form-control" 
+                                   @bind-Value="_manualRestorePath" 
+                                   placeholder="C:\Paths\To\Your\Backup.bak" />
+                    </div>
+                </div>
+
+                <div class="settings-actions mt-4">
+                    <button type="button" 
+                            class="btn btn-danger" 
+                            @onclick="ConfirmRestore"
+                            disabled="@(_restoring || (string.IsNullOrEmpty(_selectedRestoreFile) && string.IsNullOrEmpty(_manualRestorePath)))">
+                        <i class="bi bi-database-fill-up"></i>
+                        @if (_restoring)
+                        {
+                            <span>Restoring...</span>
+                        }
+                        else
+                        {
+                            <span>Restore Database Now</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- [NEW] NVR/Camera Credentials Section -->
         <div class="settings-section">
             <div class="settings-section__header">
@@ -341,11 +425,118 @@
     private bool _showNvrSuccessMessage = false;
     private string _nvrErrorMessage = string.Empty;
 
+    // Database Restoration fields
+    private List<FileInfo> _availableBackups = new();
+    private string _selectedRestoreFile = string.Empty;
+    private string _manualRestorePath = string.Empty;
+    private bool _restoring = false;
+    private bool _showRestoreSuccessMessage = false;
+    private string _restoreErrorMessage = string.Empty;
+
     protected override async Task OnInitializedAsync()
     {
         LoadBackupSettings();
         LoadNvrSettings();
+        LoadAvailableBackups();
         await Task.CompletedTask; // Suppress async warning
+    }
+
+    private void LoadAvailableBackups()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(_backupConfig.BackupFolder) && Directory.Exists(_backupConfig.BackupFolder))
+            {
+                var dir = new DirectoryInfo(_backupConfig.BackupFolder);
+                _availableBackups = dir.GetFiles("*.bak")
+                    .OrderByDescending(f => f.LastWriteTime)
+                    .ToList();
+            }
+            else
+            {
+                _availableBackups = new List<FileInfo>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load available backups from {Folder}", _backupConfig.BackupFolder);
+            _availableBackups = new List<FileInfo>();
+        }
+    }
+
+    private async Task ConfirmRestore()
+    {
+        var path = !string.IsNullOrEmpty(_manualRestorePath) ? _manualRestorePath : _selectedRestoreFile;
+        
+        if (string.IsNullOrEmpty(path))
+        {
+            _restoreErrorMessage = "Please select or enter a backup file path.";
+            return;
+        }
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"WARNING: This will overwrite your current database with data from '{Path.GetFileName(path)}'. " +
+            "All active connections will be dropped. Do you want to proceed?");
+
+        if (confirmed)
+        {
+            await RunRestore(path);
+        }
+    }
+
+    private async Task RunRestore(string path)
+    {
+        _restoring = true;
+        _restoreErrorMessage = string.Empty;
+        _showRestoreSuccessMessage = false;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Database restore requested for: {Path}", path);
+            
+            // First, copy to a public location if it's in a restricted user folder 
+            // SQL Server often has issues with user folders
+            string restorePath = path;
+            if (path.Contains("\\Users\\") && !path.Contains("\\Public\\"))
+            {
+                try
+                {
+                    string publicPath = Path.Combine("C:\\Users\\Public", Path.GetFileName(path));
+                    Logger.LogInformation("Copying backup to public folder to avoid access issues: {PublicPath}", publicPath);
+                    File.Copy(path, publicPath, true);
+                    restorePath = publicPath;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to copy to Public folder. Continuing with original path.");
+                }
+            }
+
+            var success = await DatabaseBackupService.RestoreDatabaseAsync(restorePath);
+
+            if (success)
+            {
+                _showRestoreSuccessMessage = true;
+                Logger.LogInformation("Database restore successful");
+                _manualRestorePath = string.Empty;
+                _selectedRestoreFile = string.Empty;
+            }
+            else
+            {
+                _restoreErrorMessage = "Restore failed. Please check the logs. This usually happens if the file is inaccessible to the SQL Server service or the logical file names inside the backup don't match.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during restoration");
+            _restoreErrorMessage = "An error occurred: " + ex.Message;
+        }
+        finally
+        {
+            _restoring = false;
+            StateHasChanged();
+        }
     }
 
     private void LoadNvrSettings()

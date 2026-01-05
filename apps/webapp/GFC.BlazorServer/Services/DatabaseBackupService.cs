@@ -150,5 +150,86 @@ public class DatabaseBackupService : IDatabaseBackupService
             return false;
         }
     }
+
+    public async Task<bool> RestoreDatabaseAsync(string backupFilePath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(backupFilePath) || !File.Exists(backupFilePath))
+            {
+                _logger.LogError("Backup file not found: {BackupPath}", backupFilePath);
+                return false;
+            }
+
+            var config = _configService.Load();
+            var dbName = config.DatabaseName;
+
+            // Build connection string for master database
+            using var tempConnection = Db.GetConnection();
+            var connectionString = tempConnection.ConnectionString;
+            var builder = new SqlConnectionStringBuilder(connectionString);
+            builder.InitialCatalog = "master"; 
+
+            using var connection = new SqlConnection(builder.ConnectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            _logger.LogInformation("Starting database restore: {DatabaseName} from {BackupPath}", dbName, backupFilePath);
+
+            // Step 1: Set to SINGLE_USER to drop connections
+            var singleUserSql = $"ALTER DATABASE [{dbName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE";
+            using (var cmd = new SqlCommand(singleUserSql, connection))
+            {
+                cmd.CommandTimeout = 60;
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Step 2: RESTORE DATABASE
+            // Note: We'll try a standard restore first. If it fails due to file paths, 
+            // the user might need to use the batch script or we'd need more complex MOVE logic.
+            var restoreSql = $@"
+                RESTORE DATABASE [{dbName}]
+                FROM DISK = @BackupPath
+                WITH REPLACE, RECOVERY";
+
+            using (var cmd = new SqlCommand(restoreSql, connection))
+            {
+                cmd.CommandTimeout = 600; // 10 minutes
+                cmd.Parameters.AddWithValue("@BackupPath", backupFilePath);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Step 3: Set back to MULTI_USER
+            var multiUserSql = $"ALTER DATABASE [{dbName}] SET MULTI_USER";
+            using (var cmd = new SqlCommand(multiUserSql, connection))
+            {
+                cmd.CommandTimeout = 60;
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            _logger.LogInformation("Database restore completed successfully: {DatabaseName}", dbName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error restoring database");
+            
+            // Try to set back to MULTI_USER just in case
+            try
+            {
+                var config = _configService.Load();
+                using var tempConnection = Db.GetConnection();
+                var builder = new SqlConnectionStringBuilder(tempConnection.ConnectionString);
+                builder.InitialCatalog = "master";
+                using var connection = new SqlConnection(builder.ConnectionString);
+                await connection.OpenAsync(cancellationToken);
+                var multiUserSql = $"ALTER DATABASE [{config.DatabaseName}] SET MULTI_USER";
+                using var cmd = new SqlCommand(multiUserSql, connection);
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch { /* Ignore errors here */ }
+            
+            return false;
+        }
+    }
 }
 

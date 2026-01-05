@@ -1,0 +1,111 @@
+@page "/test-db"
+@using Microsoft.Data.SqlClient
+@using Microsoft.Extensions.Configuration
+@inject IConfiguration Configuration
+
+<div class="container mt-4">
+    <h3>Database Connection Troubleshooter</h3>
+    <p class="text-muted">The application is currently connected to: <strong>@_currentConfigConnString</strong></p>
+    
+    <div class="card p-3 mb-3">
+        <label class="form-label">Test Connection String:</label>
+        <div class="input-group">
+            <input type="text" class="form-control" @bind="_testConnString" />
+            <button class="btn btn-primary" @onclick="RunTest">Test Connectivity</button>
+        </div>
+        <small class="text-muted">
+            Common Server Names: 
+            <span class="badge bg-secondary cursor-pointer me-1" @onclick='() => SetServer("(localdb)\\MSSQLLocalDB")' style="cursor:pointer">(localdb)\MSSQLLocalDB</span>
+            <span class="badge bg-secondary cursor-pointer me-1" @onclick='() => SetServer(".")' style="cursor:pointer">. (localhost)</span>
+            <span class="badge bg-secondary cursor-pointer me-1" @onclick='() => SetServer(".\\SQLEXPRESS")' style="cursor:pointer">.\SQLEXPRESS</span>
+            <span class="badge bg-secondary cursor-pointer" @onclick='() => SetServer("DESKTOP-D83H4T")' style="cursor:pointer">DESKTOP-D83H4T</span>
+        </small>
+    </div>
+
+    @if (_logs.Count > 0)
+    {
+        <div class="mt-3">
+            <h4>Diagnostic Results:</h4>
+            <div class="bg-light p-3 border" style="max-height: 400px; overflow-y: auto; font-family: monospace;">
+                @foreach(var log in _logs)
+                {
+                    <div class="@GetLogClass(log)">@log</div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string _currentConfigConnString = "";
+    private string _testConnString = "";
+    private List<string> _logs = new();
+
+    protected override void OnInitialized()
+    {
+        _currentConfigConnString = Configuration.GetConnectionString("GFC");
+        _testConnString = _currentConfigConnString;
+    }
+
+    private void SetServer(string server)
+    {
+        _testConnString = $"Server={server};Database=ClubMembership;Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False;";
+    }
+
+    private string GetLogClass(string log)
+    {
+        if (log.Contains("ERROR") || log.Contains("EXCEPTION")) return "text-danger fw-bold";
+        if (log.Contains("SUCCESS")) return "text-success fw-bold";
+        return "text-dark";
+    }
+
+    private void RunTest()
+    {
+        _logs.Clear();
+        _logs.Add($"Testing: {_testConnString}");
+
+        try
+        {
+            using var conn = new SqlConnection(_testConnString);
+            _logs.Add("Attempting to open connection...");
+            conn.Open();
+            _logs.Add("SUCCESS: Connection opened.");
+            _logs.Add($"Connected to: {conn.DataSource}");
+            _logs.Add($"Database: {conn.Database}");
+
+            using var cmd = conn.CreateCommand();
+            
+            // Check Database List
+            cmd.CommandText = "SELECT name, create_date FROM sys.databases WHERE name = 'ClubMembership'";
+            using (var reader = cmd.ExecuteReader()) 
+            {
+                if(reader.HasRows) _logs.Add("Database 'ClubMembership' exists on this server.");
+                else _logs.Add("WARNING: Database 'ClubMembership' NOT found in sys.databases (might remain connected to master).");
+            }
+
+            // Check Member Count
+            cmd.CommandText = "SELECT COUNT(*) FROM Members";
+            var count = (int)cmd.ExecuteScalar();
+            _logs.Add($"SUCCESS: Found {count} members in this database.");
+
+            if (count > 0)
+            {
+                _logs.Add("--- Sample Data ---");
+                cmd.CommandText = "SELECT TOP 3 FirstName, LastName, Status FROM Members";
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    _logs.Add($"Member: {reader["FirstName"]} {reader["LastName"]} ({reader["Status"]})");
+                }
+            }
+            else
+            {
+                _logs.Add("WARNING: Table 'Members' exists but is empty.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logs.Add($"ERROR: {ex.Message}");
+        }
+    }
+}

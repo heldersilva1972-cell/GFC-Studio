@@ -1,0 +1,160 @@
+@page "/debug-db"
+@using Microsoft.Data.SqlClient
+@using GFC.Data
+@using Microsoft.Extensions.Configuration
+@inject IConfiguration Configuration
+
+<div class="container mt-5">
+    <h1>Database Diagnostics Deep Dive</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-danger text-white">Critical Connection Info</div>
+        <div class="card-body">
+            <dl class="row">
+                <dt class="col-sm-3">Config Connection String</dt>
+                <dd class="col-sm-9"><code>@Configuration.GetConnectionString("GFC")</code></dd>
+
+                <dt class="col-sm-3">Db.Override Value</dt>
+                <dd class="col-sm-9"><code>@Db.ConnectionStringOverride</code></dd>
+
+                <dt class="col-sm-3">Effective Connection</dt>
+                <dd class="col-sm-9"><code>@_effectiveConnectionString</code></dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">Live Query Results</div>
+        <div class="card-body">
+            @if (_error != null)
+            {
+                <div class="alert alert-danger">
+                    <strong>Connection Error:</strong> @_error
+                </div>
+            }
+            else
+            {
+                <dl class="row">
+                    <dt class="col-sm-3">Server Name</dt>
+                    <dd class="col-sm-9">@_serverName</dd>
+
+                    <dt class="col-sm-3">Database Name</dt>
+                    <dd class="col-sm-9">@_dbName</dd>
+
+                    <dt class="col-sm-3">Physical File Path</dt>
+                    <dd class="col-sm-9">@_physicalPath</dd>
+
+                    <dt class="col-sm-3">Connected User</dt>
+                    <dd class="col-sm-9">@_userName</dd>
+
+                    <dt class="col-sm-3">Members Count</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge bg-success" style="font-size: 1.2em">@_memberCount</span>
+                    </dd>
+
+                    <dt class="col-sm-3">First 5 Members</dt>
+                    <dd class="col-sm-9">
+                        <ul>
+                            @foreach (var m in _members)
+                            {
+                                <li>@m</li>
+                            }
+                        </ul>
+                    </dd>
+
+                    <dt class="col-sm-3">Table Existence Check</dt>
+                    <dd class="col-sm-9">
+                        <pre>@_tableList</pre>
+                    </dd>
+                </dl>
+            }
+        </div>
+    </div>
+    
+    <button class="btn btn-primary" @onclick="RunDiagnostics">Re-Run Diagnostics</button>
+</div>
+
+@code {
+    private string _effectiveConnectionString = "";
+    private string _serverName = "";
+    private string _dbName = "";
+    private string _physicalPath = "";
+    private string _userName = "";
+    private int _memberCount = 0;
+    private List<string> _members = new();
+    private string _tableList = "";
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        RunDiagnostics();
+    }
+
+    private void RunDiagnostics()
+    {
+        _error = null;
+        _members.Clear();
+        
+        try
+        {
+            // Simulate exactly what MemberRepository does
+            using var connection = Db.GetConnection();
+            _effectiveConnectionString = connection.ConnectionString;
+            connection.Open();
+
+            // basic info
+            using (var cmd = new SqlCommand("SELECT @@SERVERNAME, DB_NAME(), SUSER_NAME()", connection))
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    _serverName = reader[0]?.ToString() ?? "null";
+                    _dbName = reader[1]?.ToString() ?? "null";
+                    _userName = reader[2]?.ToString() ?? "null";
+                }
+            }
+
+            // physical file info
+            var pathSql = "SELECT physical_name FROM sys.database_files WHERE type = 0";
+            using (var cmd = new SqlCommand(pathSql, connection))
+            {
+                _physicalPath = cmd.ExecuteScalar()?.ToString() ?? "Unknown";
+            }
+
+            // member count
+            var countSql = "SELECT COUNT(*) FROM Members";
+            using (var cmd = new SqlCommand(countSql, connection))
+            {
+                _memberCount = (int)cmd.ExecuteScalar();
+            }
+
+            // fetch members
+            var listSql = "SELECT TOP 5 FirstName, LastName FROM Members";
+            using (var cmd = new SqlCommand(listSql, connection))
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    _members.Add($"{reader["FirstName"]} {reader["LastName"]}");
+                }
+            }
+
+            // table check
+            var tableSql = "SELECT name FROM sys.tables ORDER BY name";
+            using (var cmd = new SqlCommand(tableSql, connection))
+            using (var reader = cmd.ExecuteReader())
+            {
+                var tables = new List<string>();
+                while (reader.Read())
+                {
+                    tables.Add(reader[0].ToString()!);
+                }
+                _tableList = string.Join(", ", tables);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.ToString();
+        }
+    }
+}

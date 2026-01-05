@@ -79,9 +79,16 @@ public class MemberRepository : IMemberRepository
                 members.Add(MapReaderToMember(reader, nameof(GetAllMembers)));
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return new List<Member>();
+            // [DEBUGGING] Log the error instead of swallowing it
+            Console.WriteLine($"[MemberRepository Error] Database: {ex.Message}");
+            
+            if (ex.Number == 208) 
+            {
+                Console.WriteLine("[MemberRepository] Table 'Members' not found (Error 208). Check connection string and database content.");
+            }
+            throw; 
         }
         
         return members;
@@ -140,9 +147,10 @@ FROM Members;";
                 return (newMembers, deactivated);
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return (0, 0);
+            Console.WriteLine($"[MemberRepository Error] GetMemberChangeSummaryForYear: {ex.Message}");
+            throw;
         }
 
         return (0, 0);
@@ -283,9 +291,10 @@ FROM Members;";
                 counts[status] = count;
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return new Dictionary<string, int>();
+            Console.WriteLine($"[MemberRepository Error] GetMemberCountsByStatus: {ex.Message}");
+            throw;
         }
         
         return counts;
@@ -308,9 +317,10 @@ FROM Members;";
             
             return count;
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return 0;
+            Console.WriteLine($"[MemberRepository Error] GetTotalMemberCount: {ex.Message}");
+            throw;
         }
     }
 
@@ -476,9 +486,10 @@ FROM Members;";
                 }
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return new List<string>();
+            Console.WriteLine($"[MemberRepository Error] GetDistinctCities: {ex.Message}");
+            throw;
         }
         
         return cities;
@@ -514,9 +525,10 @@ FROM Members;";
                 }
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return new List<string>();
+            Console.WriteLine($"[MemberRepository Error] GetDistinctStates: {ex.Message}");
+            throw;
         }
         
         return states;
@@ -552,9 +564,10 @@ FROM Members;";
                 }
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return new List<string>();
+            Console.WriteLine($"[MemberRepository Error] GetDistinctPostalCodes: {ex.Message}");
+            throw;
         }
         
         return postalCodes;
@@ -580,9 +593,10 @@ FROM Members;";
             
             return count;
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return 0;
+            Console.WriteLine($"[MemberRepository Error] GetNonPortugueseRegularCount: {ex.Message}");
+            throw;
         }
     }
 
@@ -632,9 +646,10 @@ FROM Members;";
                 });
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return new List<MemberQueueItem>();
+            Console.WriteLine($"[MemberRepository Error] GetNonPortugueseGuestQueue: {ex.Message}");
+            throw;
         }
         
         return queue;
@@ -664,9 +679,10 @@ FROM Members;";
             var count = (int)command.ExecuteScalar();
             return count;
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return 0;
+            Console.WriteLine($"[MemberRepository Error] GetNonPortugueseQueueCount: {ex.Message}");
+            throw;
         }
     }
 
@@ -696,9 +712,10 @@ FROM Members;";
                 members.Add(MapReaderToMember(reader, nameof(GetLifeMembers)));
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return new List<Member>();
+            Console.WriteLine($"[MemberRepository Error] GetLifeMembers: {ex.Message}");
+            throw;
         }
 
         return members;
@@ -720,9 +737,10 @@ FROM Members;";
             var eligibleMembers = GetLifeEligibleMembers(asOfDate, historyRepository);
             return eligibleMembers.Count;
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (SqlException ex)
         {
-            return 0;
+            Console.WriteLine($"[MemberRepository Error] GetLifeEligibleCount: {ex.Message}");
+            throw;
         }
     }
 

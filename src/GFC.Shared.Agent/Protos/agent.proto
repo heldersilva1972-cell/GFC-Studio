@@ -1,0 +1,186 @@
+syntax = "proto3";
+
+package gfc.agent;
+
+option csharp_namespace = "GFC.Shared.Agent.Grpc";
+
+// AgentGateway service - bidirectional streaming for secure command channel
+service AgentGateway {
+  // Bidirectional streaming for commands and results
+  // Agent maintains persistent connection, WebApp sends commands, Agent returns results
+  rpc CommandStream (stream AgentMessage) returns (stream GatewayMessage);
+  
+  // Agent registration (before mTLS established)
+  // Used during initial onboarding to submit CSR
+  rpc RegisterAgent (RegistrationRequest) returns (RegistrationResponse);
+  
+  // Health check endpoint
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ============================================================================
+// Agent → Gateway Messages
+// ============================================================================
+
+message AgentMessage {
+  oneof payload {
+    Heartbeat heartbeat = 1;
+    CommandResult result = 2;
+    StatusUpdate status = 3;
+    ErrorReport error = 4;
+  }
+}
+
+message Heartbeat {
+  string agent_id = 1;
+  string version = 2;
+  int64 timestamp_utc_ticks = 3;
+  string machine_fingerprint = 4;
+  AgentHealthStatus health = 5;
+}
+
+message CommandResult {
+  string command_id = 1;          // Unique command identifier (GUID)
+  string correlation_id = 2;       // Optional correlation for related commands
+  bool success = 3;
+  string error_code = 4;           // Empty if success, error code otherwise
+  string error_message = 5;        // Human-readable error
+  bytes result_payload = 6;        // Serialized result data
+  int64 timestamp_utc_ticks = 7;
+  int32 duration_ms = 8;
+  bool was_replayed = 9;           // True if this was a duplicate CommandId
+}
+
+message StatusUpdate {
+  string agent_id = 1;
+  AgentStatus status = 2;
+  string message = 3;
+  int64 timestamp_utc_ticks = 4;
+  map<string, string> metadata = 5; // Additional context
+}
+
+message ErrorReport {
+  string agent_id = 1;
+  string error_code = 2;
+  string error_message = 3;
+  string stack_trace = 4;           // Only in development
+  int64 timestamp_utc_ticks = 5;
+  ErrorSeverity severity = 6;
+}
+
+// ============================================================================
+// Gateway → Agent Messages
+// ============================================================================
+
+message GatewayMessage {
+  oneof payload {
+    CommandRequest command = 1;
+    HeartbeatAck heartbeat_ack = 2;
+    ConfigUpdate config = 3;
+    ShutdownRequest shutdown = 4;
+  }
+}
+
+message CommandRequest {
+  string command_id = 1;                // Unique identifier (GUID)
+  string correlation_id = 2;             // Optional correlation
+  string command_type = 3;               // e.g., "OpenDoor", "GetRunStatus"
+  bytes payload = 4;                     // Serialized command parameters
+  string requested_by_user_id = 5;      // User who initiated command
+  string requested_by_user_name = 6;    // For audit display
+  int64 timestamp_utc_ticks = 7;
+  int32 timeout_seconds = 8;
+  bool requires_confirmation = 9;        // True for dangerous operations
+  string confirmation_token = 10;        // Proof of user confirmation
+}
+
+message HeartbeatAck {
+  int64 timestamp_utc_ticks = 1;
+  int32 next_heartbeat_seconds = 2;
+}
+
+message ConfigUpdate {
+  int32 heartbeat_interval_seconds = 1;
+  repeated string allowed_commands = 2;
+  int32 max_concurrent_commands = 3;
+  int32 command_timeout_seconds = 4;
+  bool enable_debug_logging = 5;
+}
+
+message ShutdownRequest {
+  string reason = 1;
+  int32 grace_period_seconds = 2;
+}
+
+// ============================================================================
+// Registration (Onboarding)
+// ============================================================================
+
+message RegistrationRequest {
+  string machine_fingerprint = 1;    // Hashed hardware ID
+  string agent_name = 2;              // User-friendly name
+  string version = 3;                 // Agent version
+  string csr_pem = 4;                 // Certificate Signing Request (PEM format)
+  string location = 5;                // Optional location description
+  string os_version = 6;              // Windows version
+  string ip_address = 7;              // Local IP (for diagnostics)
+}
+
+message RegistrationResponse {
+  bool success = 1;
+  string agent_id = 2;                // Assigned agent ID (empty if pending)
+  string message = 3;                 // Human-readable message
+  string error_code = 4;              // Error code if failed
+  RegistrationStatus status = 5;
+  string webapp_url = 6;              // WebApp URL for future connections
+  int32 poll_interval_seconds = 7;    // How often to check approval status
+}
+
+// ============================================================================
+// Health Check
+// ============================================================================
+
+message HealthCheckRequest {
+  string agent_id = 1;
+}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string message = 2;
+  int64 timestamp_utc_ticks = 3;
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum AgentStatus {
+  AGENT_STATUS_UNKNOWN = 0;
+  AGENT_STATUS_ONLINE = 1;
+  AGENT_STATUS_DEGRADED = 2;
+  AGENT_STATUS_OFFLINE = 3;
+  AGENT_STATUS_ERROR = 4;
+}
+
+enum AgentHealthStatus {
+  AGENT_HEALTH_UNKNOWN = 0;
+  AGENT_HEALTH_HEALTHY = 1;
+  AGENT_HEALTH_DEGRADED = 2;
+  AGENT_HEALTH_UNHEALTHY = 3;
+}
+
+enum ErrorSeverity {
+  ERROR_SEVERITY_UNKNOWN = 0;
+  ERROR_SEVERITY_INFO = 1;
+  ERROR_SEVERITY_WARNING = 2;
+  ERROR_SEVERITY_ERROR = 3;
+  ERROR_SEVERITY_CRITICAL = 4;
+}
+
+enum RegistrationStatus {
+  REGISTRATION_STATUS_UNKNOWN = 0;
+  REGISTRATION_STATUS_PENDING = 1;
+  REGISTRATION_STATUS_APPROVED = 2;
+  REGISTRATION_STATUS_REJECTED = 3;
+  REGISTRATION_STATUS_REVOKED = 4;
+}
