@@ -20,7 +20,8 @@ using GFC.Core.Services;
 using GFC.Data.Repositories;
 using GFC.BlazorServer.ProtocolCapture.Services;
 using GFC.BlazorServer.Middleware;
-using GFC.BlazorServer.Hubs; // Add this using directive
+using GFC.BlazorServer.Hubs;
+using Microsoft.AspNetCore.HttpOverrides; // For Cloudflare Tunnel headers
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -56,7 +57,25 @@ public class Program
         builder.Services.AddRazorPages();
         builder.Services.AddServerSideBlazor().AddHubOptions(options => options.ClientTimeoutInterval = TimeSpan.FromSeconds(60)).AddCircuitOptions(options => options.DetailedErrors = true);
         builder.Services.AddSignalR(); // Add SignalR
+        builder.Services.AddSignalR(); // Add SignalR
         
+        // [HTTPS FIX] Trust Cloudflare Tunnel Headers
+        // This ensures the app knows it's running over HTTPS even though termination happens at Cloudflare
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedHost;
+            // Clear known networks/proxies to trust all (since the tunnel is the only ingress)
+            options.KnownNetworks.Clear(); 
+            options.KnownProxies.Clear();
+        });
+
+        // [HTTPS FIX] Enforce Secure Cookies
+        builder.Services.ConfigureApplicationCookie(options =>
+        {
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+        });
+
         // Add CORS for Next.js frontend and Onboarding Gateway
         builder.Services.AddCors(options =>
         {
@@ -319,6 +338,10 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
 
 
         // Configure the HTTP request pipeline.
+        
+        // [HTTPS FIX] Use Forwarded Headers MUST be before HSTS/HttpsRedirection
+        app.UseForwardedHeaders();
+
         if (app.Environment.IsDevelopment())
         {
             app.UseDeveloperExceptionPage();
