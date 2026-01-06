@@ -1,0 +1,96 @@
+@using GFC.BlazorServer.Services.NetworkMigration
+@using NetworkMigrationResult = GFC.BlazorServer.Services.NetworkMigration.MigrationResult
+@inject IJSRuntime JS
+
+<div>
+    <div class="text-center mb-4">
+        <div class="text-success mb-3">
+            <i class="bi bi-check-circle-fill" style="font-size: 4rem;"></i>
+        </div>
+        <h4 class="text-success">Migration Successful!</h4>
+        <p class="text-muted">Controller has been migrated to the new network configuration</p>
+    </div>
+
+    @if (Result != null)
+    {
+        <div class="card mb-3">
+            <div class="card-header bg-success text-white">
+                <strong>New Configuration</strong>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Network Type</dt>
+                    <dd class="col-sm-8">@Result.NewConfiguration.NetworkType</dd>
+                    <dt class="col-sm-4">IP Address</dt>
+                    <dd class="col-sm-8">@Result.NewConfiguration.IpAddress:@Result.NewConfiguration.Port</dd>
+                    <dt class="col-sm-4">Status</dt>
+                    <dd class="col-sm-8">
+                        @if (Result.NewConfiguration.IsConnected)
+                        {
+                            <span class="badge bg-success">Connected</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">Waiting for connection</span>
+                        }
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        @if (Result.CanRollback)
+        {
+            <div class="alert alert-warning">
+                <h6><i class="bi bi-clock-history me-2"></i>Rollback Available</h6>
+                <p class="mb-2">
+                    You can rollback to the previous configuration until 
+                    <strong>@Result.BackupExpiresUtc?.ToLocalTime().ToString("g")</strong>
+                </p>
+                <button class="btn btn-sm btn-outline-warning" @onclick="ShowRollbackConfirm">
+                    <i class="bi bi-arrow-counterclockwise"></i> Rollback to Previous Configuration
+                </button>
+            </div>
+        }
+
+        @if (Result.Warnings.Any())
+        {
+            <div class="alert alert-info">
+                <h6><i class="bi bi-info-circle me-2"></i>Warnings</h6>
+                <ul class="mb-0">
+                    @foreach (var warning in Result.Warnings)
+                    {
+                        <li>@warning</li>
+                    }
+                </ul>
+            </div>
+        }
+    }
+
+    <div class="mt-4 d-flex justify-content-between">
+        <button class="btn btn-outline-secondary" @onclick="OnViewController">
+            <i class="bi bi-eye"></i> View Controller
+        </button>
+        <button class="btn btn-primary" @onclick="OnBackToList">
+            <i class="bi bi-list"></i> Back to Controllers
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public NetworkMigrationResult Result { get; set; } = new();
+    [Parameter] public int ControllerId { get; set; }
+    [Parameter] public EventCallback<int> OnRollback { get; set; }
+    [Parameter] public EventCallback OnViewController { get; set; }
+    [Parameter] public EventCallback OnBackToList { get; set; }
+
+    private async Task ShowRollbackConfirm()
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", 
+            "Are you sure you want to rollback to the previous configuration? This will undo the migration.");
+        
+        if (confirmed)
+        {
+            await OnRollback.InvokeAsync(Result.MigrationId);
+        }
+    }
+}

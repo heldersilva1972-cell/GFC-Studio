@@ -30,7 +30,7 @@ public class HealthController : ControllerBase
     /// <summary>
     /// Basic health check endpoint (Public Safe)
     /// </summary>
-    [HttpGet("/health")]
+    [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GetHealth()
@@ -54,7 +54,7 @@ public class HealthController : ControllerBase
     /// <summary>
     /// Detailed health check endpoint (Admin Only)
     /// </summary>
-    [HttpGet("/health/details")]
+    [HttpGet("details")]
     [Authorize(Policy = AppPolicies.RequireAdmin)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetHealthDetails()

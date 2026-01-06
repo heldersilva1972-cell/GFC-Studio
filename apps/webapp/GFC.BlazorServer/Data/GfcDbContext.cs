@@ -112,6 +112,9 @@ public class GfcDbContext : DbContext
     public DbSet<BarSaleEntry> BarSaleEntries => Set<BarSaleEntry>();
     public DbSet<DynamicForm> DynamicForms => Set<DynamicForm>();
     public DbSet<UrlRedirect> UrlRedirects => Set<UrlRedirect>();
+    
+    // Network Migration
+    public DbSet<NetworkMigration> NetworkMigrations => Set<NetworkMigration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

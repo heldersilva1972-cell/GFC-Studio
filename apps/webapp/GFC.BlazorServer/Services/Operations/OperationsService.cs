@@ -331,17 +331,17 @@ namespace GFC.BlazorServer.Services.Operations
                 
                 using var client = new System.Net.Http.HttpClient();
                 client.Timeout = TimeSpan.FromSeconds(10);
-                var response = await client.GetAsync($"https://{domain}/health");
+                var response = await client.GetAsync($"https://{domain}/api/health");
                 sw.Stop();
                 
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync();
-                    Log("Public HTTPS", "Success", $"https://{domain}/health → {response.StatusCode}: {content}", sw.ElapsedMilliseconds);
+                    Log("Public HTTPS", "Success", $"https://{domain}/api/health → {response.StatusCode}: {content}", sw.ElapsedMilliseconds);
                 }
                 else
                 {
-                    Log("Public HTTPS", "Warning", $"https://{domain}/health → {response.StatusCode}", sw.ElapsedMilliseconds);
+                    Log("Public HTTPS", "Warning", $"https://{domain}/api/health → {response.StatusCode}", sw.ElapsedMilliseconds);
                 }
             }
             catch (System.Net.Http.HttpRequestException ex)

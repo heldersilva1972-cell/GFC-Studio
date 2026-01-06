@@ -24,7 +24,20 @@ public class ControllerDevice
 
     public int Port { get; set; } = 60000;
     
-
+    // Network Migration Properties
+    [MaxLength(50)]
+    public string? NetworkType { get; set; } = "LAN";
+    
+    public int? VpnProfileId { get; set; }
+    
+    [MaxLength(50)]
+    public string? BackupIpAddress { get; set; }
+    
+    public int? BackupPort { get; set; }
+    
+    public DateTime? BackupExpiresUtc { get; set; }
+    
+    public DateTime? LastMigrationUtc { get; set; }
 
     public bool IsEnabled { get; set; } = true;
 

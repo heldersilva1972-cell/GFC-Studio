@@ -17,6 +17,7 @@ public class MigrationProfile
     [Required]
     public string Name { get; set; } = string.Empty;
 
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
     public MigrationMode Mode { get; set; } = MigrationMode.Guided;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

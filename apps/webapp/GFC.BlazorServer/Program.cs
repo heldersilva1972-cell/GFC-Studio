@@ -874,6 +874,40 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
 
         app.MapGet("/health", () => Results.Ok());
 
+        // Auto-detect and set environment on startup
+        using (var scope = app.Services.CreateScope())
+        {
+            try
+            {
+                var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<GfcDbContext>>();
+                using var db = dbFactory.CreateDbContext();
+                
+                var settings = db.SystemSettings.FirstOrDefault();
+                if (settings != null)
+                {
+                    // Auto-detect environment based on machine name
+                    var machineName = Environment.MachineName.ToLowerInvariant();
+                    var isProduction = machineName.Contains("webhost") || 
+                                      machineName.Contains("server") || 
+                                      machineName.Contains("prod");
+                    
+                    var detectedEnvironment = isProduction ? "Production" : "Development";
+                    
+                    // Only update if different (avoid unnecessary writes)
+                    if (settings.HostingEnvironment != detectedEnvironment)
+                    {
+                        settings.HostingEnvironment = detectedEnvironment;
+                        db.SaveChanges();
+                        Console.WriteLine($"[Startup] Auto-detected environment: {detectedEnvironment} (Machine: {Environment.MachineName})");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Startup] Could not auto-detect environment: {ex.Message}");
+            }
+        }
+
         app.Run();
     }
 }

@@ -1,0 +1,308 @@
+@page "/admin/system/network-status"
+@using GFC.BlazorServer.Services.Controllers
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Data.Entities.Security
+@using GFC.Core.Interfaces
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
+@inject IBlazorSystemSettingsService SystemSettings
+@inject NavigationManager NavManager
+
+<PageTitle>Network Status - GFC</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-1">
+                <i class="bi bi-diagram-3 me-2"></i>Network Status Dashboard
+            </h1>
+            <p class="text-muted mb-0">Real-time connectivity and network topology monitoring</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" @onclick="RefreshAsync" disabled="@_isRefreshing">
+                <i class="bi bi-arrow-clockwise me-2"></i>
+                @if (_isRefreshing)
+                {
+                    <span>Refreshing...</span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+            <button class="btn btn-primary" @onclick="NavigateToMigration">
+                <i class="bi bi-shuffle me-2"></i>Network Migration
+            </button>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="text-muted mt-3">Loading network status...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Network Topology Overview -->
+        <div class="row g-4 mb-4">
+            <!-- Host Server -->
+            <div class="col-12 col-lg-6">
+                <div class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-server me-2"></i>Host Server
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <div class="small text-muted">Environment</div>
+                                <div class="fw-semibold">@_hostingEnvironment</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="small text-muted">Status</div>
+                                <div>
+                                    <span class="badge bg-success">
+                                        <i class="bi bi-check-circle me-1"></i>Online
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="small text-muted">LAN Subnet</div>
+                                <div class="fw-semibold">@(_lanSubnet ?? "Not configured")</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="small text-muted">VPN Enabled</div>
+                                <div>
+                                    @if (_vpnEnabled)
+                                    {
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-shield-check me-1"></i>Yes
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">No</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cloudflare Tunnel -->
+            <div class="col-12 col-lg-6">
+                <div class="card h-100 border-0 shadow-sm">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-cloud me-2"></i>Cloudflare Tunnel
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <div class="small text-muted">Public Domain</div>
+                                <div class="fw-semibold">@(_primaryDomain ?? "Not configured")</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="small text-muted">Status</div>
+                                <div>
+                                    @if (_tunnelRunning)
+                                    {
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-check-circle me-1"></i>Running
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning text-dark">Not running</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="small text-muted">Target</div>
+                                <div class="fw-semibold">127.0.0.1:8080</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controllers -->
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">
+                    <i class="bi bi-door-closed me-2"></i>Door Controllers
+                    <span class="badge bg-primary ms-2">@_controllers.Count</span>
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                @if (_controllers.Count == 0)
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-inbox fs-1 d-block mb-3"></i>
+                        <p class="mb-0">No controllers configured</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Serial Number</th>
+                                    <th>Network Type</th>
+                                    <th>IP Address</th>
+                                    <th>Backup IP</th>
+                                    <th>Status</th>
+                                    <th>Last Ping</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var controller in _controllers)
+                                {
+                                    <tr>
+                                        <td class="fw-semibold">@controller.Name</td>
+                                        <td>
+                                            <code class="small">@controller.SerialNumber</code>
+                                        </td>
+                                        <td>
+                                            @if (controller.NetworkType == "VPN")
+                                            {
+                                                <span class="badge bg-primary">
+                                                    <i class="bi bi-shield-lock me-1"></i>VPN
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary">
+                                                    <i class="bi bi-ethernet me-1"></i>LAN
+                                                </span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <code>@controller.IpAddress:@controller.Port</code>
+                                        </td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(controller.BackupIpAddress))
+                                            {
+                                                <code>@controller.BackupIpAddress:@controller.BackupPort</code>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">—</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">
+                                                <i class="bi bi-question-circle me-1"></i>Unknown
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="text-muted">—</span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _isLoading = true;
+    private bool _isRefreshing = false;
+
+    private string? _hostingEnvironment;
+    private string? _lanSubnet;
+    private bool _vpnEnabled;
+    private string? _primaryDomain;
+    private string? _tunnelToken;
+    private bool _tunnelRunning = false;
+
+    private List<ControllerDevice> _controllers = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _isLoading = true;
+
+        try
+        {
+            // Load system settings
+            var settings = await SystemSettings.GetAsync();
+            _hostingEnvironment = settings.HostingEnvironment;
+            _lanSubnet = settings.LanSubnet;
+            _vpnEnabled = settings.EnforceVpn;
+            _primaryDomain = settings.PrimaryDomain;
+            _tunnelToken = settings.CloudflareTunnelToken;
+
+            // Load controllers
+            using var db = await DbFactory.CreateDbContextAsync();
+            _controllers = await db.Controllers
+                .OrderBy(c => c.Name)
+                .ToListAsync();
+
+            // Check if Cloudflare Tunnel service is running
+            try
+            {
+                var tunnelService = System.ServiceProcess.ServiceController.GetServices()
+                    .FirstOrDefault(s => s.ServiceName.Contains("cloudflared") || 
+                                       s.DisplayName.Contains("Cloudflare"));
+                _tunnelRunning = tunnelService?.Status == System.ServiceProcess.ServiceControllerStatus.Running;
+            }
+            catch
+            {
+                _tunnelRunning = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[NetworkStatus] Error loading data: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        _isRefreshing = true;
+        await LoadDataAsync();
+        _isRefreshing = false;
+    }
+
+    private string GetTimeAgo(DateTime utcTime)
+    {
+        var span = DateTime.UtcNow - utcTime;
+        
+        if (span.TotalSeconds < 60)
+            return $"{(int)span.TotalSeconds}s ago";
+        if (span.TotalMinutes < 60)
+            return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24)
+            return $"{(int)span.TotalHours}h ago";
+        
+        return $"{(int)span.TotalDays}d ago";
+    }
+
+    private void NavigateToMigration()
+    {
+        NavManager.NavigateTo("/admin/network-migration");
+    }
+}

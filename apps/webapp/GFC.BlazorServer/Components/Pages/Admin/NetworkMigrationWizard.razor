@@ -1,0 +1,302 @@
+@page "/admin/controllers/{ControllerId:int}/migrate-network"
+@using GFC.BlazorServer.Services.NetworkMigration
+@using GFC.BlazorServer.Auth
+@using NetworkMigrationResult = GFC.BlazorServer.Services.NetworkMigration.MigrationResult
+@inject INetworkMigrationService MigrationService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+
+<PageTitle>Network Migration Wizard - GFC</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-10 col-xl-8">
+            
+            @* Wizard Header *@
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <h3 class="mb-1">
+                                <i class="bi bi-arrow-left-right text-primary"></i>
+                                Network Migration Wizard
+                            </h3>
+                            <p class="text-muted mb-0">
+                                Safely migrate controller between network configurations
+                            </p>
+                        </div>
+                        <button class="btn btn-outline-secondary" @onclick="Cancel">
+                            <i class="bi bi-x-lg"></i> Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @* Progress Steps *@
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        @for (int i = 1; i <= 6; i++)
+                        {
+                            var stepNumber = i;
+                            var isActive = _currentStep == stepNumber;
+                            var isComplete = _currentStep > stepNumber;
+                            var stepClass = isActive ? "bg-primary text-white" : isComplete ? "bg-success text-white" : "bg-light text-muted";
+                            
+                            <div class="text-center flex-fill">
+                                <div class="@($"rounded-circle d-inline-flex align-items-center justify-content-center {stepClass}")" 
+                                     style="width: 40px; height: 40px; font-weight: bold;">
+                                    @if (isComplete)
+                                    {
+                                        <i class="bi bi-check-lg"></i>
+                                    }
+                                    else
+                                    {
+                                        @stepNumber
+                                    }
+                                </div>
+                                <div class="small mt-2 @(isActive ? "text-primary fw-bold" : "text-muted")">
+                                    @GetStepName(stepNumber)
+                                </div>
+                            </div>
+                            
+                            @if (i < 6)
+                            {
+                                <div class="flex-fill" style="height: 2px; background: @(isComplete ? "#198754" : "#dee2e6"); margin: 0 10px;"></div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* Step Content *@
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-4">
+                    @if (_isLoading)
+                    {
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-3 text-muted">Loading...</p>
+                        </div>
+                    }
+                    else if (_currentStep == 1)
+                    {
+                        <Step1DetectCurrent 
+                            CurrentConfig="_currentConfig"
+                            ErrorMessage="_errorMessage"
+                            OnTargetSelected="SelectTargetType"
+                            OnCancel="Cancel" />
+                    }
+                    else if (_currentStep == 2)
+                    {
+                        <Step2SelectTarget 
+                            Request="_request"
+                            OnBack="PreviousStep"
+                            OnNext="NextStep" />
+                    }
+                    else if (_currentStep == 3)
+                    {
+                        <Step3TestConnection 
+                            Request="_request"
+                            TestResult="_testResult"
+                            IsExecuting="_isExecuting"
+                            OnRunTest="RunConnectionTest"
+                            OnBack="PreviousStep"
+                            OnNext="NextStep" />
+                    }
+                    else if (_currentStep == 4)
+                    {
+                        <Step4ReviewPlan 
+                            CurrentConfig="_currentConfig"
+                            Request="_request"
+                            OnBack="PreviousStep"
+                            OnExecute="ExecuteMigration" />
+                    }
+                    else if (_currentStep == 5)
+                    {
+                        <Step5ExecuteMigration 
+                            Result="_migrationResult"
+                            OnRetry="() => _currentStep = 2"
+                            OnCancel="Cancel" />
+                    }
+                    else if (_currentStep == 6)
+                    {
+                        <Step6Success 
+                            Result="_migrationResult"
+                            ControllerId="ControllerId"
+                            OnRollback="RollbackMigration"
+                            OnViewController="() => Navigation.NavigateTo($\"/admin/controllers/{ControllerId}\")"
+                            OnBackToList="() => Navigation.NavigateTo(\"/admin/controllers\")" />
+                    }
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int ControllerId { get; set; }
+    
+    private int _currentStep = 1;
+    private bool _isLoading = true;
+    private string? _errorMessage;
+    
+    // Data for wizard steps
+    private NetworkConfiguration? _currentConfig;
+    private NetworkMigrationRequest _request = new();
+    private ConnectionTestResult? _testResult;
+    private NetworkMigrationResult? _migrationResult;
+    private bool _isExecuting = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _currentConfig = await MigrationService.DetectCurrentConfigAsync(ControllerId);
+            
+            // Initialize request with current values
+            _request = new NetworkMigrationRequest
+            {
+                ControllerId = ControllerId,
+                TargetNetworkType = _currentConfig.NetworkType,
+                NewIpAddress = _currentConfig.IpAddress,
+                NewPort = _currentConfig.Port,
+                VpnProfileId = _currentConfig.VpnProfileId,
+                InitiatedByUser = "admin@gfc.com", // TODO: Get from auth context
+                SkipConnectionTest = false
+            };
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load controller: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string GetStepName(int step) => step switch
+    {
+        1 => "Detect",
+        2 => "Configure",
+        3 => "Test",
+        4 => "Review",
+        5 => "Migrate",
+        6 => "Complete",
+        _ => ""
+    };
+
+    private void NextStep()
+    {
+        if (_currentStep < 6)
+        {
+            _currentStep++;
+        }
+    }
+
+    private void PreviousStep()
+    {
+        if (_currentStep > 1)
+        {
+            _currentStep--;
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/admin/controllers");
+    }
+
+    private void SelectTargetType(string networkType)
+    {
+        _request.TargetNetworkType = networkType;
+        NextStep();
+    }
+
+    private async Task RunConnectionTest()
+    {
+        _isExecuting = true;
+        _testResult = null;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(500); // Small delay for UI feedback
+            _testResult = await MigrationService.TestConnectionAsync(
+                _request.NewIpAddress, 
+                _request.NewPort, 
+                _request.VpnProfileId);
+        }
+        catch (Exception ex)
+        {
+            _testResult = new ConnectionTestResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message
+            };
+        }
+        finally
+        {
+            _isExecuting = false;
+        }
+    }
+
+    private async Task ExecuteMigration()
+    {
+        _isExecuting = true;
+        NextStep(); // Move to step 5 (progress)
+        StateHasChanged();
+
+        try
+        {
+            _migrationResult = await MigrationService.ExecuteMigrationAsync(_request);
+            
+            if (_migrationResult.Success)
+            {
+                NextStep(); // Move to step 6 (success)
+            }
+            // If failed, stay on step 5 to show error
+        }
+        catch (Exception ex)
+        {
+            _migrationResult = new NetworkMigrationResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message
+            };
+        }
+        finally
+        {
+            _isExecuting = false;
+        }
+    }
+
+    private async Task RollbackMigration(int migrationId)
+    {
+        try
+        {
+            var success = await MigrationService.RollbackMigrationAsync(
+                migrationId, 
+                _request.InitiatedByUser);
+            
+            if (success)
+            {
+                await JS.InvokeVoidAsync("alert", "Migration rolled back successfully!");
+                Navigation.NavigateTo($"/admin/controllers/{ControllerId}");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "Rollback failed. Please contact support.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Rollback error: {ex.Message}");
+        }
+    }
+}

@@ -1,0 +1,131 @@
+@using GFC.BlazorServer.Services.NetworkMigration
+
+<div>
+    <h5 class="mb-4">Current Configuration</h5>
+    
+    @if (CurrentConfig != null)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            <strong>Controller:</strong> @CurrentConfig.ControllerName
+        </div>
+
+        <div class="card bg-light">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label text-muted small">Network Type</label>
+                        <div class="fw-bold">
+                            @if (CurrentConfig.NetworkType == "LAN")
+                            {
+                                <i class="bi bi-hdd-network text-primary"></i>
+                                <text> Local Area Network</text>
+                            }
+                            else if (CurrentConfig.NetworkType == "VPN")
+                            {
+                                <i class="bi bi-shield-lock text-success"></i>
+                                <text> VPN Network</text>
+                            }
+                            else
+                            {
+                                <i class="bi bi-cloud text-info"></i>
+                                <text> @CurrentConfig.NetworkType</text>
+                            }
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label text-muted small">IP Address</label>
+                        <div class="fw-bold">@CurrentConfig.IpAddress:@CurrentConfig.Port</div>
+                    </div>
+                    @if (CurrentConfig.VpnProfileId.HasValue)
+                    {
+                        <div class="col-md-6">
+                            <label class="form-label text-muted small">VPN Profile</label>
+                            <div class="fw-bold">@CurrentConfig.VpnProfileName</div>
+                        </div>
+                    }
+                    <div class="col-md-6">
+                        <label class="form-label text-muted small">Connection Status</label>
+                        <div>
+                            @if (CurrentConfig.IsConnected)
+                            {
+                                <span class="badge bg-success">
+                                    <i class="bi bi-check-circle-fill"></i> Connected
+                                </span>
+                                @if (CurrentConfig.LastSeenUtc.HasValue)
+                                {
+                                    <small class="text-muted ms-2">
+                                        Last seen: @GetTimeAgo(CurrentConfig.LastSeenUtc.Value)
+                                    </small>
+                                }
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning text-dark">
+                                    <i class="bi bi-exclamation-triangle-fill"></i> Disconnected
+                                </span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (CurrentConfig.HasBackup)
+                {
+                    <div class="alert alert-warning mt-3 mb-0">
+                        <i class="bi bi-clock-history me-2"></i>
+                        <strong>Backup Available:</strong> You can rollback to a previous configuration until 
+                        @CurrentConfig.BackupExpiresUtc?.ToLocalTime().ToString("g")
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <h6>Where do you want to move this controller?</h6>
+            <div class="d-grid gap-2">
+                <button class="btn btn-outline-primary text-start" @onclick='() => OnTargetSelected.InvokeAsync("LAN")'>
+                    <i class="bi bi-hdd-network me-2"></i>
+                    <strong>Keep on Same LAN</strong> (change IP address only)
+                </button>
+                <button class="btn btn-outline-success text-start" @onclick='() => OnTargetSelected.InvokeAsync("VPN")'>
+                    <i class="bi bi-shield-lock me-2"></i>
+                    <strong>Move to VPN Network</strong> (secure remote access)
+                </button>
+                <button class="btn btn-outline-info text-start" @onclick='() => OnTargetSelected.InvokeAsync("Remote")'>
+                    <i class="bi bi-cloud me-2"></i>
+                    <strong>Move to Different LAN</strong> (via VPN tunnel)
+                </button>
+            </div>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            @ErrorMessage
+        </div>
+    }
+
+    <div class="mt-4 d-flex justify-content-between">
+        <button class="btn btn-secondary" @onclick="OnCancel">
+            <i class="bi bi-x-lg"></i> Cancel
+        </button>
+        <span></span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public NetworkConfiguration? CurrentConfig { get; set; }
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public EventCallback<string> OnTargetSelected { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string GetTimeAgo(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s ago";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+}
