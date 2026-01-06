@@ -12,6 +12,7 @@ namespace GFC.BlazorServer.Services.Operations
         Task<DatabaseRecoveryInfo> GetDatabaseRecoveryInfoAsync();
         Task<NetworkSecurityInfo> GetNetworkSecurityInfoAsync();
         Task<byte[]> GenerateRecoveryPackAsync();
+        Task<List<DiagnosticEntry>> RunDiagnosticsAsync();
     }
 
     public class OperationsHealthInfo
@@ -55,6 +56,15 @@ namespace GFC.BlazorServer.Services.Operations
         public string ConnectionStringMasked { get; set; }
         public DateTime? LastBackupTime { get; set; }
         public string BackupLocation { get; set; }
+    }
+
+    public class DiagnosticEntry
+    {
+        public DateTime Timestamp { get; set; }
+        public string Component { get; set; }
+        public string Status { get; set; }
+        public string Message { get; set; }
+        public long DurationMs { get; set; }
     }
 
     public class NetworkSecurityInfo

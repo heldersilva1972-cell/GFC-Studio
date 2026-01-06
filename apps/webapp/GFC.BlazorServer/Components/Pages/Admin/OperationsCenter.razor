@@ -60,6 +60,9 @@
         <li class="nav-item">
             <button class="nav-link @(_activeTab == "network" ? "active" : "")" @onclick="@(() => SetTab("network"))">Networking</button>
         </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "diagnostics" ? "active" : "")" @onclick="@(() => SetTab("diagnostics"))">Diagnostics</button>
+        </li>
     </ul>
 
     <div class="tab-content">
@@ -347,6 +350,104 @@
                 </div>
             </div>
         }
+
+        <!-- DIAGNOSTICS TAB -->
+        @if (_activeTab == "diagnostics")
+        {
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">System Diagnostics</h5>
+                    <button class="btn btn-sm btn-primary" @onclick="RunDiagnosticsAsync" disabled="@_isRunningDiagnostics">
+                        @if (_isRunningDiagnostics)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Running...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-play-circle me-2"></i>
+                            <span>Run Diagnostics</span>
+                        }
+                    </button>
+                </div>
+                <div class="card-body">
+                    @if (_diagnosticLogs == null || _diagnosticLogs.Count == 0)
+                    {
+                        <div class="text-center text-muted py-5">
+                            <i class="bi bi-info-circle display-4 mb-3"></i>
+                            <p>Click "Run Diagnostics" to test all system connections and verify infrastructure health.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info mb-3">
+                            <i class="bi bi-info-circle me-2"></i>
+                            <strong>Diagnostics completed at:</strong> @_diagnosticLogs.First().Timestamp.ToLocalTime().ToString("g")
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 20%">Component</th>
+                                        <th style="width: 15%">Status</th>
+                                        <th style="width: 50%">Message</th>
+                                        <th style="width: 15%" class="text-end">Duration</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var log in _diagnosticLogs)
+                                    {
+                                        <tr>
+                                            <td><strong>@log.Component</strong></td>
+                                            <td>
+                                                @if (log.Status == "Success")
+                                                {
+                                                    <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Success</span>
+                                                }
+                                                else if (log.Status == "Warning")
+                                                {
+                                                    <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle-fill me-1"></i>Warning</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger"><i class="bi bi-x-circle-fill me-1"></i>Failed</span>
+                                                }
+                                            </td>
+                                            <td>@log.Message</td>
+                                            <td class="text-end text-muted">@(log.DurationMs > 0 ? $"{log.DurationMs}ms" : "-")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mt-3 p-3 bg-light rounded">
+                            <div class="row text-center">
+                                <div class="col-md-4">
+                                    <div class="text-success">
+                                        <i class="bi bi-check-circle-fill display-6"></i>
+                                        <div class="mt-2"><strong>@_diagnosticLogs.Count(l => l.Status == "Success")</strong> Passed</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="text-warning">
+                                        <i class="bi bi-exclamation-triangle-fill display-6"></i>
+                                        <div class="mt-2"><strong>@_diagnosticLogs.Count(l => l.Status == "Warning")</strong> Warnings</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="text-danger">
+                                        <i class="bi bi-x-circle-fill display-6"></i>
+                                        <div class="mt-2"><strong>@_diagnosticLogs.Count(l => l.Status == "Failed")</strong> Failed</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
     </div>
 </div>
 
@@ -369,6 +470,8 @@
     private HostingInfo? _hostingInfo;
     private DatabaseRecoveryInfo? _dbInfo;
     private NetworkSecurityInfo? _netInfo;
+    private List<DiagnosticEntry>? _diagnosticLogs;
+    private bool _isRunningDiagnostics = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -432,6 +535,25 @@
         finally
         {
             _isGeneratingPack = false;
+        }
+    }
+
+    private async Task RunDiagnosticsAsync()
+    {
+        _isRunningDiagnostics = true;
+        _error = null;
+        try
+        {
+            _diagnosticLogs = await OperationsService.RunDiagnosticsAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = "Failed to run diagnostics. " + ex.Message;
+            Logger.LogError(ex, "Diagnostics execution failed");
+        }
+        finally
+        {
+            _isRunningDiagnostics = false;
         }
     }
 }
