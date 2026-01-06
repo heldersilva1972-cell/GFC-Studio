@@ -18,6 +18,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<Recording> Recordings { get; set; } = null!;
     public DbSet<CameraPermission> CameraPermissions { get; set; } = null!;
     public DbSet<CameraAuditLog> CameraAuditLogs { get; set; } = null!;
+    public DbSet<DatabaseBackup> DatabaseBackups { get; set; } = null!;
+    public DbSet<DatabaseOperation> DatabaseOperations { get; set; } = null!;
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -188,6 +191,61 @@ public class ApplicationDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(l => l.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DatabaseBackup>(entity =>
+        {
+            entity.ToTable("DatabaseBackups");
+            entity.HasKey(b => b.Id);
+            
+            entity.Property(b => b.FileName)
+                .IsRequired()
+                .HasMaxLength(255);
+            
+            entity.Property(b => b.FilePath)
+                .IsRequired()
+                .HasMaxLength(500);
+            
+            entity.Property(b => b.BackupType)
+                .IsRequired()
+                .HasMaxLength(50);
+            
+            entity.Property(b => b.FileHash)
+                .IsRequired()
+                .HasMaxLength(64);
+            
+            entity.Property(b => b.Notes)
+                .HasMaxLength(500);
+            
+            entity.HasOne(b => b.CreatedBy)
+                .WithMany()
+                .HasForeignKey(b => b.CreatedByUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+            
+            entity.HasIndex(b => b.CreatedAtUtc);
+            entity.HasIndex(b => b.IsDeleted);
+        });
+
+        modelBuilder.Entity<DatabaseOperation>(entity =>
+        {
+            entity.ToTable("DatabaseOperations");
+            entity.HasKey(o => o.Id);
+            
+            entity.Property(o => o.OperationType)
+                .IsRequired()
+                .HasMaxLength(50);
+            
+            entity.Property(o => o.Status)
+                .IsRequired()
+                .HasMaxLength(50);
+            
+            entity.HasOne(o => o.StartedBy)
+                .WithMany()
+                .HasForeignKey(o => o.StartedByUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+            
+            entity.HasIndex(o => o.Status);
+            entity.HasIndex(o => o.StartedAtUtc);
         });
     }
 }

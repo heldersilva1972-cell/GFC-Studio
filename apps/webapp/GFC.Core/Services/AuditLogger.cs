@@ -111,6 +111,17 @@ public static class AuditLogActions
     public const string VpnProfileRevoked = "VpnProfileRevoked";
     public const string VpnKeyRotated = "VpnKeyRotated";
     public const string VpnOnboardingCompleted = "VpnOnboardingCompleted";
+    
+    // Database Maintenance Actions
+    public const string DbBackupCreated = "DbBackupCreated";
+    public const string DbBackupDownloaded = "DbBackupDownloaded";
+    public const string DbMigrationsApplied = "DbMigrationsApplied";
+    public const string DbRestoreStarted = "DbRestoreStarted";
+    public const string DbRestoreCompleted = "DbRestoreCompleted";
+    public const string DbRestoreFailed = "DbRestoreFailed";
+    public const string DbMaintenanceModeEnabled = "DbMaintenanceModeEnabled";
+    public const string DbMaintenanceModeDisabled = "DbMaintenanceModeDisabled";
+
 
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -145,6 +156,14 @@ public static class AuditLogActions
         VpnProfileCreated,
         VpnProfileRevoked,
         VpnKeyRotated,
-        VpnOnboardingCompleted
+        VpnOnboardingCompleted,
+        DbBackupCreated,
+        DbBackupDownloaded,
+        DbMigrationsApplied,
+        DbRestoreStarted,
+        DbRestoreCompleted,
+        DbRestoreFailed,
+        DbMaintenanceModeEnabled,
+        DbMaintenanceModeDisabled
     };
 }

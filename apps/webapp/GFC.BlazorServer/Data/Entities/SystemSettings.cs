@@ -108,4 +108,15 @@ public class SystemSettings
     public DateTime? LastRestoreTestUtc { get; set; }
     public int BackupFrequencyHours { get; set; } = 24;
     
+    // Database Maintenance Settings
+    [StringLength(500)]
+    public string BackupStoragePath { get; set; } = "C:\\GFC_Backups\\Sql\\";
+    
+    [Range(1, 100)]
+    public int BackupRetentionCount { get; set; } = 10;
+    
+    public bool AllowServerRestoreOperations { get; set; } = false;
+    
+    public bool MaintenanceModeEnabled { get; set; } = false;
+    
 }
