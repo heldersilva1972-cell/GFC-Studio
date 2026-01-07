@@ -17,7 +17,10 @@ namespace GFC.BlazorServer.Middleware
             "/_content", 
             "/css", 
             "/js", 
-            "/img",
+            "/images",
+            "/bootstrap",
+            "/app.css",
+            "/favicon.png",
             "/manifest.json",
             "/service-worker.js",
             "/pwa-icons"
