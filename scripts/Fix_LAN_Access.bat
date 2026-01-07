@@ -1,8 +1,8 @@
 @echo off
 setlocal
 
-:: Get the IP from the user's recent screenshot
-set SERVER_IP=192.168.0.72
+:: The NEW detected server IP
+set SERVER_IP=192.168.0.248
 set DOMAIN=gfc.lovanow.com
 
 echo ========================================================
@@ -23,20 +23,14 @@ if %errorLevel% == 0 (
     exit /b
 )
 
-echo Adding entry to hosts file...
+echo Updating entry in hosts file...
 :: Backup first
 copy %windir%\system32\drivers\etc\hosts %windir%\system32\drivers\etc\hosts.bak >nul
 
-:: Check if entry already exists
-findstr /i "%DOMAIN%" %windir%\system32\drivers\etc\hosts >nul
-if %errorLevel% == 0 (
-    echo [INFO] Entry for %DOMAIN% already exists. Cleaning up old entry...
-    powershell -Command "(gc %windir%\system32\drivers\etc\hosts) -replace '.*%DOMAIN%.*', '%SERVER_IP% %DOMAIN%' | Out-File %windir%\system32\drivers\etc\hosts -Encoding ascii"
-) else (
-    echo %SERVER_IP% %DOMAIN% >> %windir%\system32\drivers\etc\hosts
-)
+:: Clean up ANY old entry for this domain and add the new one
+powershell -Command "$hosts = Get-Content %windir%\system32\drivers\etc\hosts; $newHosts = $hosts | Where-Object { $_ -notmatch '%DOMAIN%' }; $newHosts += '%SERVER_IP% %DOMAIN%'; [System.IO.File]::WriteAllLines('%windir%\system32\drivers\etc\hosts', $newHosts, [System.Text.Encoding]::ASCII)"
 
-echo [SUCCESS] Hosts file updated.
+echo [SUCCESS] Hosts file updated to point to %SERVER_IP%.
 echo Flushing DNS...
 ipconfig /flushdns >nul
 
@@ -44,7 +38,5 @@ echo ========================================================
 echo Done! You should now be able to visit:
 echo https://%DOMAIN%
 echo ========================================================
-echo (Note: If you leave the club network, you may need to remove
-echo this line or add a '#' in front of it in the hosts file.)
 echo.
 pause
