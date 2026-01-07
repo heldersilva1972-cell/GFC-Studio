@@ -160,7 +160,15 @@ public class ControllerStatusMonitor : IDisposable
 
     public void Dispose()
     {
-        _cts?.Cancel();
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed, ignore
+        }
+        
         _cts?.Dispose();
         _timer?.Dispose();
         _lock?.Dispose();

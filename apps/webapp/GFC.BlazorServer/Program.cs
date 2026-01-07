@@ -391,7 +391,7 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
 
         app.UseMiddleware<RequestLoggingMiddleware>();
         // app.UseMiddleware<DeviceGuardMiddleware>();
-        app.UseMiddleware<VideoAccessGuardMiddleware>();
+        // app.UseMiddleware<VideoAccessGuardMiddleware>(); // DISABLED - Was blocking WebSocket connections
 
         // Apply pending migrations at startup and surface any errors
         using (var scope = app.Services.CreateScope())

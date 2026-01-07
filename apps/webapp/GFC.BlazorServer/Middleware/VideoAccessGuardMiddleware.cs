@@ -41,6 +41,17 @@ namespace GFC.BlazorServer.Middleware
 
             var path = context.Request.Path;
             
+            // CRITICAL: Exclude SignalR/Blazor Hub connections - these are required for the app to work
+            if (path.StartsWithSegments("/_blazor") || 
+                path.StartsWithSegments("/animationhub") ||
+                path.StartsWithSegments("/studiopreviewhub") ||
+                path.StartsWithSegments("/videoaccesshub") ||
+                context.WebSockets.IsWebSocketRequest)
+            {
+                await _next(context);
+                return;
+            }
+            
             // Don't check the secure-access page itself to avoid redirect loop
             if (path.StartsWithSegments("/cameras/secure-access"))
             {
