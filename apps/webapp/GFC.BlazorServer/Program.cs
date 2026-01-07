@@ -73,7 +73,7 @@ public class Program
         // [HTTPS FIX] Enforce Secure Cookies
         builder.Services.ConfigureApplicationCookie(options =>
         {
-            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // [FIX] Allow HTTP on LAN
             options.Cookie.SameSite = SameSiteMode.Lax;
         });
 

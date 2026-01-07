@@ -1,0 +1,10 @@
+USE master;
+GO
+ALTER DATABASE ClubMembership SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+GO
+RESTORE DATABASE ClubMembership 
+FROM DISK = 'C:\Users\Public\Documents\ClubMembership_Migration.bak'
+WITH REPLACE, RECOVERY;
+GO
+ALTER DATABASE ClubMembership SET MULTI_USER;
+GO

@@ -1,0 +1,23 @@
+-- 1. BACKUP PRODUCTION (SQLEXPRESS)
+:GO
+:CONNECT .\SQLEXPRESS
+USE ClubMembership;
+GO
+BACKUP DATABASE ClubMembership 
+TO DISK = 'C:\Users\Public\Documents\ClubMembership_Production.bak' 
+WITH FORMAT, INIT;
+GO
+
+-- 2. RESTORE TO DEVELOPMENT (LocalDB)
+:GO
+:CONNECT (localdb)\MSSQLLocalDB
+USE master;
+GO
+ALTER DATABASE ClubMembership SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+GO
+RESTORE DATABASE ClubMembership 
+FROM DISK = 'C:\Users\Public\Documents\ClubMembership_Production.bak'
+WITH REPLACE, RECOVERY;
+GO
+ALTER DATABASE ClubMembership SET MULTI_USER;
+GO

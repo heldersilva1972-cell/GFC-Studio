@@ -1,0 +1,13 @@
+USE [master]
+GO
+ALTER DATABASE [ClubMembership] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+GO
+RESTORE DATABASE [ClubMembership] 
+FROM DISK = N'C:\Users\Public\Documents\ClubMembership_Production.bak' 
+WITH FILE = 1, 
+NOUNLOAD, 
+REPLACE, 
+STATS = 5
+GO
+ALTER DATABASE [ClubMembership] SET MULTI_USER
+GO
