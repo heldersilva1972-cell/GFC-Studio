@@ -541,6 +541,8 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                                 [HostingEnvironment] = 'Production' WHERE [HostingEnvironment] IS NULL;
                              UPDATE [dbo].[SystemSettings] SET 
                                 [BackupFrequencyHours] = 24 WHERE [BackupFrequencyHours] IS NULL;
+                             UPDATE [dbo].[SystemSettings] SET 
+                                [LanSubnet] = '192.168.0.0/16' WHERE [LanSubnet] IS NULL OR [LanSubnet] = '192.168.1.0/24';
                         END
                     ";
                     dbContext.Database.ExecuteSqlRaw(fixNullsSysSql);

@@ -86,7 +86,7 @@ public class SystemSettings
     public DateTime? DirectorAccessExpiryDate { get; set; }
 
     // Cloudflare & WireGuard Remote Access Settings (Phase 1)
-    public string? LanSubnet { get; set; } = "192.168.1.0/24";
+    public string? LanSubnet { get; set; } = "192.168.0.0/16";
 
     // Hosting & Security Framework (Phase 2)
     [StringLength(20)]

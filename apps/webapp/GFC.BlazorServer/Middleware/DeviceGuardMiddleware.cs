@@ -1,4 +1,5 @@
 using GFC.Core.Interfaces;
+using GFC.Core.Enums;
 using GFC.BlazorServer.Services;
 using Microsoft.AspNetCore.Http;
 using System.Threading.Tasks;
@@ -55,29 +56,42 @@ namespace GFC.BlazorServer.Middleware
                 }
             }
 
-            // 2. Allow only Localhost (Server computer itself) automatically
-            // All other devices (LAN, VPN, Public) MUST have a trust token.
+            // [NEW] 2. Honor Access Mode
+            var settings = settingsService.GetSettings();
+            var mode = settings?.AccessMode ?? AccessMode.Open;
+
+            // Always allow Localhost (Server computer itself)
             if (connectionService.LocationType == LocationType.Local)
             {
                 await _next(context);
                 return;
             }
 
-            // 3. Check for Device Token (External Users)
+            // Open access: allow everyone (still subject to login)
+            if (mode == AccessMode.Open)
+            {
+                await _next(context);
+                return;
+            }
+
+            // LAN or VPN
+            if (mode == AccessMode.LanOrVpn && 
+               (connectionService.LocationType == LocationType.LAN || connectionService.LocationType == LocationType.VPN))
+            {
+                await _next(context);
+                return;
+            }
+
+            // VPN Only
+            if (mode == AccessMode.VpnOnly && connectionService.LocationType == LocationType.VPN)
+            {
+                await _next(context);
+                return;
+            }
+
+            // 3. Fallback: Check for Device Token (External Users on Public networks)
             if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token))
             {
-                // Validate token in DB
-                // Since middleware runs on every request, we rely on the DB check.
-                // In production, we might want to cache the "trusted device" status for a few minutes.
-                
-                // We need a UserId to validate the token properly if we use the one in DeviceTrustService.
-                // However, for the initial guard, we might just want to know if the token is valid at ALL.
-                // Let me check if DeviceTrustService has a generic validation.
-                
-                // Currently ValidateDeviceTokenAsync(token, userId) requires a userId.
-                // If the user isn't logged in yet, we can't easily check the userId.
-                // Let's add a method to IDeviceTrustService to check if a token is valid without userId if needed.
-                
                 // For now, if the cookie exists, let them reach the login page.
                 // The login page itself will then link the device once they authenticate.
                 await _next(context);

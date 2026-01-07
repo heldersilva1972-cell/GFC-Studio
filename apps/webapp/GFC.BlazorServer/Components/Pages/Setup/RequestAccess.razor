@@ -1,7 +1,10 @@
 @page "/setup/request-access"
 @using GFC.Core.Interfaces
+@using GFC.Core.Enums
+@using GFC.BlazorServer.Data.Entities
 @layout GFC.BlazorServer.Components.Layout.FullPageLayout
 @inject IUserConnectionService ConnectionService
+@inject IBlazorSystemSettingsService SettingsService
 @inject NavigationManager Navigation
 @inject ILogger<RequestAccess> Logger
 
@@ -13,13 +16,13 @@
             <i class="bi @GetStatusIcon()"></i>
         </div>
         
-        <h1>Access Restricted</h1>
-        <p class="subtitle">This application is locked for your current connection.</p>
+        <h1>@(IsTrusted ? "Connection Authorized" : "Access Restricted")</h1>
+        <p class="subtitle">@(IsTrusted ? "Your connection is verified and safe." : "This application is locked for your current connection.")</p>
         
         <div class="info-grid">
             <div class="info-item">
                 <span class="info-label">Detected IP</span>
-                <span class="info-value">@(string.IsNullOrEmpty(ConnectionService.IpAddress) ? "None" : ConnectionService.IpAddress)</span>
+                <span class="info-value">@(string.IsNullOrEmpty(ConnectionService.IpAddress) ? "Detection Pending..." : ConnectionService.IpAddress)</span>
             </div>
             <div class="info-item">
                 <span class="info-label">Network Type</span>
@@ -31,7 +34,7 @@
         {
             <div class="trust-banner">
                 <i class="bi bi-shield-check me-2"></i>
-                <span>Your connection is now recognized as <strong>Trusted</strong>.</span>
+                <span>Your connection is recognized as <strong>@(ConnectionService.LocationType == LocationType.Unknown ? "Safe (Global Access)" : "Trusted")</strong>.</span>
                 <button class="btn btn-success mt-3 w-100" @onclick="RetryConnection">
                     Enter Application
                 </button>
@@ -42,7 +45,14 @@
             <div class="instructions-card">
                 <h3><i class="bi bi-info-circle me-2"></i>How to gain access:</h3>
                 <ul>
-                    <li><strong>Option 1:</strong> Connect to the club's private WiFi.</li>
+                    @if (SystemSettings != null && !string.IsNullOrEmpty(SystemSettings.LanSubnet))
+                    {
+                        <li><strong>Option 1:</strong> Connect to the club's private WiFi (range: @SystemSettings.LanSubnet).</li>
+                    }
+                    else
+                    {
+                        <li><strong>Option 1:</strong> Connect to the club's private WiFi.</li>
+                    }
                     <li><strong>Option 2:</strong> Activate your club VPN (WireGuard).</li>
                     <li><strong>Option 3:</strong> Use an authorized device provided by the admin.</li>
                 </ul>
@@ -58,6 +68,7 @@
         
         <div class="footer-help">
             <p>Support ID: <code>GFC-@(ConnectionService.IpAddress?.Replace(".", "-") ?? "NO-IP")</code></p>
+            <p>Current Mode: <strong>@(SystemSettings?.AccessMode.ToString() ?? "Loading...")</strong></p>
             <p>Contact your system administrator for authorization.</p>
         </div>
     </div>
@@ -237,15 +248,20 @@
 </style>
 
 @code {
-    private bool IsTrusted => ConnectionService.LocationType != LocationType.Public && ConnectionService.LocationType != LocationType.Unknown;
+    private SystemSettings? SystemSettings { get; set; }
+    
+    private bool IsTrusted => 
+        (ConnectionService.LocationType != LocationType.Public && ConnectionService.LocationType != LocationType.Unknown) ||
+        (SystemSettings?.AccessMode == AccessMode.Open);
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         ConnectionService.DetectConnectionIfNeeded();
+        SystemSettings = await SettingsService.GetAsync();
+        
         if (IsTrusted)
         {
-            // Auto redirect if we somehow got here while trusted
-            // Optimization for the user experience
+            Logger.LogInformation("Access Request page: Connection recognized as trusted. User can proceed.");
         }
     }
 
