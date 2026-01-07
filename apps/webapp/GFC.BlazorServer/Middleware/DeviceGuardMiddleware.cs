@@ -55,10 +55,10 @@ namespace GFC.BlazorServer.Middleware
                 }
             }
 
-            // 2. Allow Local/LAN/VPN Connections automatically
-            if (connectionService.LocationType != LocationType.Public)
+            // 2. Allow only Localhost (Server computer itself) automatically
+            // All other devices (LAN, VPN, Public) MUST have a trust token.
+            if (connectionService.LocationType == LocationType.Local)
             {
-                // Trusted connection (Local/LAN/VPN) - Proceed
                 await _next(context);
                 return;
             }

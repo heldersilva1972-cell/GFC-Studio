@@ -35,7 +35,8 @@ namespace GFC.BlazorServer.Services
         /// </summary>
         public void DetectConnectionIfNeeded()
         {
-            if (string.IsNullOrEmpty(IpAddress))
+            // Only detect if it's unknown. Once set (by middleware), preserve it.
+            if (LocationType == LocationType.Unknown || string.IsNullOrEmpty(IpAddress))
             {
                 DetectConnection();
             }
@@ -70,18 +71,26 @@ namespace GFC.BlazorServer.Services
 
                 if (string.IsNullOrEmpty(ipStr) || !IPAddress.TryParse(ipStr, out var remoteIp))
                 {
+                    IpAddress = ipStr ?? "Not Detected";
                     LocationType = LocationType.Unknown;
                     return;
                 }
 
-                IpAddress = ipStr;
-
                 // Check if localhost (IPv4 or IPv6)
-                if (IPAddress.IsLoopback(remoteIp) || remoteIp.ToString() == "::1")
+                if (IPAddress.IsLoopback(remoteIp) || remoteIp.ToString() == "::1" || remoteIp.ToString().EndsWith(":1"))
                 {
+                    IpAddress = remoteIp.ToString();
                     LocationType = LocationType.Local;
                     return;
                 }
+
+                // Normalize for subnet check
+                var checkIp = remoteIp;
+                if (checkIp.IsIPv4MappedToIPv6)
+                {
+                    checkIp = checkIp.MapToIPv4();
+                }
+                IpAddress = checkIp.ToString();
 
                 // Get system settings
                 var settings = _systemSettingsService.GetSettings();
@@ -108,9 +117,9 @@ namespace GFC.BlazorServer.Services
                 // Default to Public if not in any known subnet
                 LocationType = LocationType.Public;
             }
-            catch
+            catch (Exception ex)
             {
-                // If detection fails, default to Public for safety
+                IpAddress = "Error: " + ex.Message;
                 LocationType = LocationType.Public;
             }
         }
@@ -128,6 +137,17 @@ namespace GFC.BlazorServer.Services
 
                 var addressBytes = address.GetAddressBytes();
                 var subnetBytes = subnetAddress.GetAddressBytes();
+
+                // Normalize IPv4-mapped IPv6 addresses for comparison
+                if (address.IsIPv4MappedToIPv6)
+                {
+                    addressBytes = address.MapToIPv4().GetAddressBytes();
+                }
+                
+                if (subnetAddress.IsIPv4MappedToIPv6)
+                {
+                    subnetBytes = subnetAddress.MapToIPv4().GetAddressBytes();
+                }
 
                 if (addressBytes.Length != subnetBytes.Length)
                     return false;

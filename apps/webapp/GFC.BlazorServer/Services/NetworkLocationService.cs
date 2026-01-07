@@ -95,6 +95,12 @@ namespace GFC.BlazorServer.Services
                 byte[] ipBytes = address.GetAddressBytes();
                 byte[] maskBytes = networkAddress.GetAddressBytes();
 
+                // Normalize
+                if (address.IsIPv4MappedToIPv6) ipBytes = address.MapToIPv4().GetAddressBytes();
+                if (networkAddress.IsIPv4MappedToIPv6) maskBytes = networkAddress.MapToIPv4().GetAddressBytes();
+
+                if (ipBytes.Length != maskBytes.Length) return false;
+
                 int bits = cidr;
                 for (int i = 0; i < ipBytes.Length && bits > 0; i++)
                 {
