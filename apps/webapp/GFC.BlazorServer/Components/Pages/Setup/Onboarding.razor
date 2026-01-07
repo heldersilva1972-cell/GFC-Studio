@@ -206,34 +206,6 @@
     private bool _isTesting = false;
     private bool? _testResult;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender && _isValid)
-        {
-            var os = await JSRuntime.InvokeAsync<string>("detectOsFamily");
-            _detectedOs = os;
-            
-            switch (os)
-            {
-                case "iOS": 
-                    _storeLink = "https://apps.apple.com/us/app/wireguard/id1441195209"; 
-                    _isMobile = true;
-                    break;
-                case "Android": 
-                    _storeLink = "https://play.google.com/store/apps/details?id=com.wireguard.android"; 
-                    _isMobile = true;
-                    break;
-                case "macOS": 
-                    _storeLink = "https://apps.apple.com/us/app/wireguard/id1451685025"; 
-                    break;
-                case "Windows": 
-                    _storeLink = "https://download.wireguard.com/windows/client/wireguard-installer.exe"; 
-                    break;
-            }
-            StateHasChanged();
-        }
-    }
-
     protected override async Task OnInitializedAsync()
     {
         try
@@ -249,13 +221,7 @@
                 {
                     _userId = uid.Value;
                     _isValid = true;
-                    
-                    // [EASY AUTH] Automatically authorize this device for the Web App
-                    _showSuccess = true;
-                    await JSRuntime.InvokeVoidAsync("eval", $"document.cookie = 'GFC_DeviceTrustToken=Authorized_{Token}; path=/; max-age=2592000; SameSite=Lax; Secure'");
-                    
-                    // If it's a request for direct access auth only, we can stop here
-                    // If they want VPN, they can still proceed with steps
+                    // Auth will happen in OnAfterRenderAsync
                 }
             }
         }
@@ -266,6 +232,45 @@
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _isValid && !_showSuccess)
+        {
+            try
+            {
+                var os = await JSRuntime.InvokeAsync<string>("detectOsFamily");
+                _detectedOs = os;
+                
+                switch (os)
+                {
+                    case "iOS": 
+                        _storeLink = "https://apps.apple.com/us/app/wireguard/id1441195209"; 
+                        _isMobile = true;
+                        break;
+                    case "Android": 
+                        _storeLink = "https://play.google.com/store/apps/details?id=com.wireguard.android"; 
+                        _isMobile = true;
+                        break;
+                    case "macOS": 
+                        _storeLink = "https://apps.apple.com/us/app/wireguard/id1451685025"; 
+                        break;
+                    case "Windows": 
+                        _storeLink = "https://download.wireguard.com/windows/client/wireguard-installer.exe"; 
+                        break;
+                }
+
+                // [EASY AUTH] Automatically authorize this device for the Web App
+                await JSRuntime.InvokeVoidAsync("eval", $"document.cookie = 'GFC_DeviceTrustToken=Authorized_{Token}; path=/; max-age=2592000; SameSite=Lax; Secure'");
+                _showSuccess = true;
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during onboarding render: {ex.Message}");
+            }
         }
     }
 

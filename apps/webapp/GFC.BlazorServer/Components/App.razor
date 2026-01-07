@@ -79,33 +79,42 @@
 @code {
     private bool _isAuthenticating = true;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
+        _isAuthenticating = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
         {
-            try
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (authState.User.Identity == null || !authState.User.Identity.IsAuthenticated)
             {
-                var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-                if (!string.IsNullOrWhiteSpace(token))
+                try
                 {
-                    var result = await AuthStateProvider.LoginWithDeviceTokenAsync(token);
-                    if (result.Success && !string.IsNullOrWhiteSpace(result.DeviceToken))
+                    var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                    if (!string.IsNullOrWhiteSpace(token))
                     {
-                        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
-                    }
-                    else if (!result.Success)
-                    {
-                        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+                        var result = await AuthStateProvider.LoginWithDeviceTokenAsync(token);
+                        if (result.Success && !string.IsNullOrWhiteSpace(result.DeviceToken))
+                        {
+                            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
+                        }
+                        else if (!result.Success)
+                        {
+                            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+                        }
                     }
                 }
+                catch (Exception)
+                {
+                    try { await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token"); } catch { }
+                }
             }
-            catch (Exception)
-            {
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-            }
+            _isAuthenticating = false;
+            StateHasChanged();
         }
-        _isAuthenticating = false;
     }
 
     private static bool IsLoginRoute(System.Type? pageType) =>

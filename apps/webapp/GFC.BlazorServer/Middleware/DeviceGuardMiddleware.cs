@@ -65,6 +65,7 @@ namespace GFC.BlazorServer.Middleware
             // Instead of showing the login page, we show a "Security Guard" message
             // or redirect to the setup page if that's what's expected.
             context.Response.Redirect("/setup/request-access");
+            return;
         }
     }
 }
