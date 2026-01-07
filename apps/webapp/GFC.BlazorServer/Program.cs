@@ -390,6 +390,7 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         app.UseRateLimiter(); // Enable rate limiting
 
         app.UseMiddleware<RequestLoggingMiddleware>();
+        app.UseMiddleware<DeviceGuardMiddleware>();
         app.UseMiddleware<VideoAccessGuardMiddleware>();
 
         // Apply pending migrations at startup and surface any errors
