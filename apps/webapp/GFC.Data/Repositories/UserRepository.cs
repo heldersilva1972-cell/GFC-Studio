@@ -359,13 +359,59 @@ public class UserRepository : IUserRepository
     {
         using var connection = Db.GetConnection();
         connection.Open();
-        const string sql = @"
-            UPDATE AppUsers
-            SET IsActive = 0
-            WHERE UserId = @UserId";
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@UserId", userId);
-        command.ExecuteNonQuery();
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            const string sql = @"
+                -- Set UserId to NULL in Audit-related tables to preserve history
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'LoginHistory')
+                    UPDATE LoginHistory SET UserId = NULL WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'AuditLogs')
+                BEGIN
+                    UPDATE AuditLogs SET PerformedByUserId = NULL WHERE PerformedByUserId = @UserId;
+                    UPDATE AuditLogs SET TargetUserId = NULL WHERE TargetUserId = @UserId;
+                END
+
+                -- Delete from other dependent tables
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'PagePermissions')
+                    DELETE FROM PagePermissions WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'TrustedDevices')
+                    DELETE FROM TrustedDevices WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'MagicLinkTokens')
+                    DELETE FROM MagicLinkTokens WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'VpnOnboardingTokens')
+                    DELETE FROM VpnOnboardingTokens WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'UserNotificationPreferences')
+                    DELETE FROM UserNotificationPreferences WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'CameraPermissions')
+                    DELETE FROM CameraPermissions WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'CameraAuditLogs')
+                    DELETE FROM CameraAuditLogs WHERE UserId = @UserId;
+
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'AuthorizedUsers')
+                    DELETE FROM AuthorizedUsers WHERE UserId = @UserId;
+                
+                -- Finally delete the user
+                DELETE FROM AppUsers WHERE UserId = @UserId;";
+                
+            using var command = new SqlCommand(sql, connection, transaction);
+            command.Parameters.AddWithValue("@UserId", userId);
+            command.ExecuteNonQuery();
+            
+            transaction.Commit();
+        }
+        catch (Exception ex)
+        {
+            transaction.Rollback();
+            throw new Exception($"Failed to hard-delete user {userId}. Details: {ex.Message}", ex);
+        }
     }
 
     public void UpdateLastLogin(int userId, DateTime loginDate)

@@ -2,7 +2,7 @@
 // Minimal implementation required for PWA installability
 // Does NOT cache aggressively to avoid breaking Blazor Server SignalR
 
-const CACHE_NAME = 'gfc-pwa-v1';
+const CACHE_NAME = 'gfc-pwa-v3';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
@@ -40,25 +40,22 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Fetch event - Network-first strategy to avoid breaking Blazor Server
+// Fetch event - Bypass by default to avoid breaking Blazor Server / SignalR
 self.addEventListener('fetch', (event) => {
-    // Skip caching for:
-    // - SignalR connections (_blazor)
-    // - API calls
-    // - POST/PUT/DELETE requests
-    if (
-        event.request.url.includes('/_blazor') ||
-        event.request.url.includes('/api/') ||
-        event.request.method !== 'GET'
-    ) {
-        return; // Let the browser handle it normally
+    const url = new URL(event.request.url);
+
+    // ONLY intercept internal static assets we want to cache
+    // Everything else (navigation, SignalR, API, External scripts) passes through to the browser
+    const isStaticAsset = STATIC_ASSETS.some(asset => url.pathname === asset || url.pathname.startsWith('/images/'));
+
+    if (!isStaticAsset || url.origin !== self.location.origin) {
+        return; // Pass through to browser/network
     }
 
-    // Network-first for everything else
+    // For static assets, try network but fall back to cache
     event.respondWith(
         fetch(event.request)
             .then((response) => {
-                // Only cache successful responses
                 if (response && response.status === 200) {
                     const responseClone = response.clone();
                     caches.open(CACHE_NAME).then((cache) => {
@@ -67,9 +64,9 @@ self.addEventListener('fetch', (event) => {
                 }
                 return response;
             })
-            .catch(() => {
-                // Fallback to cache only if network fails
-                return caches.match(event.request);
+            .catch(async () => {
+                const cachedResponse = await caches.match(event.request);
+                return cachedResponse || new Response('Asset not found', { status: 404 });
             })
     );
 });

@@ -6,4 +6,5 @@ public interface IAuditLogger
     void LogAdminCreation(int? performedByUserId, int targetUserId, string username, int? memberId);
     void LogPasswordReset(int? performedByUserId, int targetUserId, bool isSelfService, string? notes = null);
     void LogSuspiciousLoginAttempt(string username, string? ipAddress, string reason, int? targetUserId = null);
+    void LogPageView(int userId, string pageUrl, string? pageTitle = null);
 }

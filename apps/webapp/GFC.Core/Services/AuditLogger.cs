@@ -48,6 +48,12 @@ public class AuditLogger : IAuditLogger
         Log(AuditLogActions.SuspiciousLoginAttempt, null, targetUserId, details);
     }
 
+    public void LogPageView(int userId, string pageUrl, string? pageTitle = null)
+    {
+        var details = string.IsNullOrWhiteSpace(pageTitle) ? pageUrl : $"{pageTitle} ({pageUrl})";
+        Log(AuditLogActions.PageView, userId, null, details);
+    }
+
     private static bool IsUserAccountAction(string action)
     {
         return action is AuditLogActions.AdminCreated
@@ -100,6 +106,7 @@ public static class AuditLogActions
     public const string LogoutAbsolute = "LogoutAbsolute";
     public const string SessionInvalidatedVpnLost = "SessionInvalidatedVpnLost";
     public const string AccessRevoked = "AccessRevoked";
+    public const string PageView = "PageView";
     
     // VPN & Onboarding Actions
     public const string VpnOnboardingStarted = "VpnOnboardingStarted";
@@ -164,6 +171,7 @@ public static class AuditLogActions
         DbRestoreCompleted,
         DbRestoreFailed,
         DbMaintenanceModeEnabled,
-        DbMaintenanceModeDisabled
+        DbMaintenanceModeDisabled,
+        PageView
     };
 }

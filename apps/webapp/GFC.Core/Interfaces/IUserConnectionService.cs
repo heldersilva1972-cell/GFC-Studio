@@ -5,5 +5,7 @@ namespace GFC.Core.Interfaces
     {
         string? IpAddress { get; set; }
         LocationType LocationType { get; set; }
+        void SetConnectionInfo(string ipAddress, LocationType locationType);
+        void DetectConnectionIfNeeded();
     }
 }

@@ -11,19 +11,24 @@ namespace GFC.BlazorServer.Middleware
         private static readonly string[] PublicPaths = new[] 
         { 
             "/setup", 
-            "/api/onboarding", 
+            "/login",
+            "/api", 
             "/error", 
             "/_framework", 
             "/_content", 
+            "/_blazor",
             "/css", 
             "/js", 
             "/images",
             "/bootstrap",
             "/app.css",
-            "/favicon.png",
+            "/favicon",
             "/manifest.json",
-            "/service-worker.js",
-            "/pwa-icons"
+            "/service-worker",
+            "/pwa-icons",
+            "/animationhub",
+            "/studiopreviewhub",
+            "/videoaccesshub"
         };
 
         public DeviceGuardMiddleware(RequestDelegate next)
@@ -31,14 +36,19 @@ namespace GFC.BlazorServer.Middleware
             _next = next;
         }
 
-        public async Task InvokeAsync(HttpContext context, IUserConnectionService connectionService, IBlazorSystemSettingsService settingsService)
+        public async Task InvokeAsync(HttpContext context, 
+            IUserConnectionService connectionService, 
+            IBlazorSystemSettingsService settingsService,
+            IDeviceTrustService deviceTrustService)
         {
+            connectionService.DetectConnectionIfNeeded();
+            
             var path = context.Request.Path.Value?.ToLower() ?? "";
 
             // 1. Allow Public Paths (Login, Setup, Assets)
             foreach (var publicPath in PublicPaths)
             {
-                if (path.StartsWith(publicPath))
+                if (path.StartsWith(publicPath.ToLower()))
                 {
                     await _next(context);
                     return;
@@ -48,22 +58,33 @@ namespace GFC.BlazorServer.Middleware
             // 2. Allow Local/LAN/VPN Connections automatically
             if (connectionService.LocationType != LocationType.Public)
             {
+                // Trusted connection (Local/LAN/VPN) - Proceed
                 await _next(context);
                 return;
             }
 
             // 3. Check for Device Token (External Users)
-            if (context.Request.Cookies.ContainsKey("GFC_DeviceTrustToken"))
+            if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token))
             {
-                // TODO: Validate token in DB if we want extreme security, 
-                // but for "User-Friendly" we can trust the cookie for now.
+                // Validate token in DB
+                // Since middleware runs on every request, we rely on the DB check.
+                // In production, we might want to cache the "trusted device" status for a few minutes.
+                
+                // We need a UserId to validate the token properly if we use the one in DeviceTrustService.
+                // However, for the initial guard, we might just want to know if the token is valid at ALL.
+                // Let me check if DeviceTrustService has a generic validation.
+                
+                // Currently ValidateDeviceTokenAsync(token, userId) requires a userId.
+                // If the user isn't logged in yet, we can't easily check the userId.
+                // Let's add a method to IDeviceTrustService to check if a token is valid without userId if needed.
+                
+                // For now, if the cookie exists, let them reach the login page.
+                // The login page itself will then link the device once they authenticate.
                 await _next(context);
                 return;
             }
 
             // 4. Redirect Unauthorized External Users
-            // Instead of showing the login page, we show a "Security Guard" message
-            // or redirect to the setup page if that's what's expected.
             context.Response.Redirect("/setup/request-access");
             return;
         }

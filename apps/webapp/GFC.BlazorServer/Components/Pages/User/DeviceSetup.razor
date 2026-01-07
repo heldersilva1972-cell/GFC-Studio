@@ -1,4 +1,5 @@
 @page "/my-devices"
+@page "/admin/users/{TargetUserId:int}/devices"
 @using GFC.BlazorServer.Services.Vpn
 @using GFC.Core.Models
 @using GFC.BlazorServer.Auth
@@ -18,7 +19,11 @@
             <div>
                 <h1>Secure Access & Devices</h1>
                 <p class="subtitle">
-                    @if (_isAdmin)
+                    @if (_targetUser != null && _isAdmin && _targetUser.UserId != _currentUserId)
+                    {
+                        <span>Managing devices for <strong>@_targetUser.Username</strong></span>
+                    }
+                    else if (_isAdmin)
                     {
                         <span>Administrator View - Manage all system access</span>
                     }
@@ -770,6 +775,10 @@
     private bool _loading = true;
     private int _currentUserId;
     private bool _isAdmin = false;
+    private AppUser? _targetUser;
+
+    [Parameter]
+    public int? TargetUserId { get; set; }
     
     // Computed Access State
     private AccessState CurrentState => _isAdmin ? AccessState.Admin : 
@@ -778,8 +787,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadProfiles();
         await CheckAdminStatus();
+        await LoadProfiles();
         
         if (_isAdmin)
         {
@@ -797,7 +806,15 @@
             if (uidClaim != null && int.TryParse(uidClaim.Value, out int uid))
             {
                 _currentUserId = uid;
-                _profiles = await VpnService.GetUserProfilesAsync(uid);
+                
+                int displayUid = uid;
+                if (_isAdmin && TargetUserId.HasValue)
+                {
+                    displayUid = TargetUserId.Value;
+                    _targetUser = UserRepository.GetById(displayUid);
+                }
+                
+                _profiles = await VpnService.GetUserProfilesAsync(displayUid);
             }
         }
         catch (Exception ex)
@@ -973,7 +990,7 @@
             return;
         }
         
-        Navigation.NavigateTo("/admin/audit-log");
+        Navigation.NavigateTo("/admin/audit-logs");
     }
     
     private void NavigateToVpnManagement()
@@ -985,7 +1002,7 @@
         }
         
         
-        Navigation.NavigateTo("/admin/vpn");
+        Navigation.NavigateTo("/admin/vpn-profiles");
     }
 
     // Artifact Download Helpers

@@ -15,6 +15,8 @@ public class MagicLinkService : IMagicLinkService
 {
     private readonly IDbContextFactory<GfcDbContext> _dbContextFactory;
     private readonly IEmailService _emailService;
+    private readonly ISmsService _smsService;
+    private readonly IBlazorSystemSettingsService _settingsService;
     private readonly NavigationManager _navigationManager;
     private readonly IAuditLogger _auditLogger;
     private readonly ILogger<MagicLinkService> _logger;
@@ -22,12 +24,16 @@ public class MagicLinkService : IMagicLinkService
     public MagicLinkService(
         IDbContextFactory<GfcDbContext> dbContextFactory,
         IEmailService emailService,
+        ISmsService smsService,
+        IBlazorSystemSettingsService settingsService,
         NavigationManager navigationManager,
         IAuditLogger auditLogger,
         ILogger<MagicLinkService> logger)
     {
         _dbContextFactory = dbContextFactory;
         _emailService = emailService;
+        _smsService = smsService;
+        _settingsService = settingsService;
         _navigationManager = navigationManager;
         _auditLogger = auditLogger;
         _logger = logger;
@@ -81,26 +87,54 @@ public class MagicLinkService : IMagicLinkService
         context.MagicLinkTokens.Add(magicToken);
         await context.SaveChangesAsync();
 
-        // 4. Send Email
+        // 4. Send using preferred method
+        var settings = await _settingsService.GetSystemSettingsAsync();
         var baseUrl = _navigationManager.BaseUri.TrimEnd('/');
         var magicLink = $"{baseUrl}/auth/magic-login?token={token}";
         
-        // Logging the link to console as requested for testing
+        // Always log to console for debugging
         Console.WriteLine($"[MAGIC LINK] for {email}: {magicLink}");
 
         try 
         {
+            if (settings.PreferredMagicLinkMethod == "SMS")
+            {
+                // Try to find phone number from Member profile
+                string? phoneNumber = null;
+                if (user.MemberId.HasValue)
+                {
+                    var member = await context.Set<GFC.Core.Models.Member>().FindAsync(user.MemberId.Value);
+                    phoneNumber = member?.CellPhone ?? member?.Phone;
+                }
+
+                if (string.IsNullOrEmpty(phoneNumber))
+                {
+                    _logger.LogWarning("Preferred method is SMS but no phone number found for user {UserId}", user.UserId);
+                    // Fallback to email or return false? For now, let's try email as fallback if phone missing
+                }
+                else
+                {
+                    var smsSent = await _smsService.SendSmsAsync(phoneNumber, $"GFC Secure Login: {magicLink}. This link expires in 15 mins.");
+                    if (smsSent)
+                    {
+                        _auditLogger.Log(AuditLogActions.MagicLinkSent, user.UserId, user.UserId, $"Sent via SMS to {phoneNumber}");
+                        return true;
+                    }
+                }
+            }
+
+            // Default to Email
             await _emailService.SendEmailAsync(
                 email, 
                 "Your Magic Login Link - GFC Studio", 
                 $"<p>Click the link below to log in securely:</p><p><a href='{magicLink}'>{magicLink}</a></p><p>This link expires in 15 minutes.</p>");
 
-            _auditLogger.Log(AuditLogActions.MagicLinkSent, user.UserId, user.UserId, $"Sent to {email}");
+            _auditLogger.Log(AuditLogActions.MagicLinkSent, user.UserId, user.UserId, $"Sent via Email to {email}");
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send magic link email to {Email}", email);
+            _logger.LogError(ex, "Failed to send magic link to {Email} (Method: {Method})", email, settings.PreferredMagicLinkMethod);
             return false;
         }
     }

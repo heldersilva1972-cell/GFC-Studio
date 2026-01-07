@@ -56,6 +56,7 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details);";
         string? searchText,
         DateTimeOffset? from,
         DateTimeOffset? to,
+        int? targetUserId,
         int pageNumber,
         int pageSize)
     {
@@ -76,6 +77,12 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details);";
         {
             filters.Add("al.Action = @ActionFilter");
             parameters.Add(("@ActionFilter", actionFilter));
+        }
+
+        if (targetUserId.HasValue && targetUserId.Value > 0)
+        {
+            filters.Add("(al.TargetUserId = @TargetUserId OR al.PerformedByUserId = @TargetUserId)");
+            parameters.Add(("@TargetUserId", targetUserId.Value));
         }
 
         if (!string.IsNullOrWhiteSpace(searchText))

@@ -14,6 +14,7 @@ public interface IAuditLogRepository
         string? searchText,
         DateTimeOffset? from,
         DateTimeOffset? to,
+        int? targetUserId,
         int pageNumber,
         int pageSize);
 

@@ -119,4 +119,9 @@ public class SystemSettings
     
     public bool MaintenanceModeEnabled { get; set; } = false;
     
+    // SMS Settings (Twilio)
+    public string? TwilioAccountSid { get; set; }
+    public string? TwilioAuthToken { get; set; }
+    public string? TwilioFromNumber { get; set; }
+    public string PreferredMagicLinkMethod { get; set; } = "Email"; // "Email" or "SMS"
 }

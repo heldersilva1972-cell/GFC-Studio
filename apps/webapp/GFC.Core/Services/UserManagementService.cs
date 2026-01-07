@@ -15,6 +15,7 @@ public class UserManagementService : IUserManagementService
     private readonly IAuditLogger _auditLogger;
     private readonly IPasswordPolicy _passwordPolicy;
     private readonly IPagePermissionRepository _pagePermissionRepository;
+    private readonly IBoardTermConfirmationService _boardTermConfirmationService;
 
     public UserManagementService(
         IUserRepository userRepository,
@@ -24,7 +25,8 @@ public class UserManagementService : IUserManagementService
         IBoardRepository boardRepository,
         IAuditLogger auditLogger,
         IPasswordPolicy passwordPolicy,
-        IPagePermissionRepository pagePermissionRepository)
+        IPagePermissionRepository pagePermissionRepository,
+        IBoardTermConfirmationService boardTermConfirmationService)
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
@@ -34,6 +36,7 @@ public class UserManagementService : IUserManagementService
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
         _passwordPolicy = passwordPolicy ?? throw new ArgumentNullException(nameof(passwordPolicy));
         _pagePermissionRepository = pagePermissionRepository ?? throw new ArgumentNullException(nameof(pagePermissionRepository));
+        _boardTermConfirmationService = boardTermConfirmationService ?? throw new ArgumentNullException(nameof(boardTermConfirmationService));
     }
 
     public List<UserListItemDto> GetAllUsers()
@@ -44,12 +47,34 @@ public class UserManagementService : IUserManagementService
         foreach (var user in users)
         {
             string? memberName = null;
+            bool isDirector = false;
             if (user.MemberId.HasValue)
             {
                 var member = _memberRepository.GetMemberById(user.MemberId.Value);
                 if (member != null)
                 {
                     memberName = $"{member.LastName}, {member.FirstName}";
+                    
+                    // Check if they are currently on the board
+                    try
+                    {
+                        var currentYear = DateTime.Now.Year;
+                        isDirector = _boardRepository.IsBoardMemberForYear(user.MemberId.Value, currentYear);
+                        
+                        // GRACE PERIOD LOGIC:
+                        // If they aren't a director in the current year, check if the current year's board
+                        // has been confirmed yet. If not, they might still be a director from last year.
+                        if (!isDirector)
+                        {
+                            var confirmation = _boardTermConfirmationService.GetConfirmation(currentYear);
+                            if (confirmation == null)
+                            {
+                                // Current year not finalized, check previous year
+                                isDirector = _boardRepository.IsBoardMemberForYear(user.MemberId.Value, currentYear - 1);
+                            }
+                        }
+                    }
+                    catch { /* Ignore */ }
                 }
             }
 
@@ -61,7 +86,8 @@ public class UserManagementService : IUserManagementService
                 user.MemberId,
                 memberName,
                 user.LastLoginDate,
-                user.Notes));
+                user.Notes,
+                isDirector));
         }
 
         return result;

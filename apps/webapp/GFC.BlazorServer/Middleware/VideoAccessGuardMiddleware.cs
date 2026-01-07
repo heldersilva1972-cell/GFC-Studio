@@ -16,6 +16,28 @@ namespace GFC.BlazorServer.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<VideoAccessGuardMiddleware> _logger;
+        
+        // Paths that should NEVER be blocked (critical for app functionality)
+        private static readonly string[] ExcludedPaths = new[]
+        {
+            "/_blazor",           // Blazor SignalR hub
+            "/_framework",        // Blazor framework files
+            "/_content",          // Static content
+            "/css",               // Stylesheets
+            "/js",                // JavaScript
+            "/images",            // Images
+            "/favicon",           // Favicon
+            "/manifest.json",     // PWA manifest
+            "/service-worker",    // Service worker
+            "/pwa-icons",         // PWA icons
+            "/animationhub",      // SignalR hubs
+            "/studiopreviewhub",
+            "/videoaccesshub",
+            "/cameras/secure-access", // The access request page itself
+            "/setup",             // Setup pages
+            "/login",             // Login page
+            "/api"                // API endpoints
+        };
 
         public VideoAccessGuardMiddleware(RequestDelegate next, ILogger<VideoAccessGuardMiddleware> logger)
         {
@@ -27,39 +49,44 @@ namespace GFC.BlazorServer.Middleware
         {
             var remoteIpAddress = context.Connection.RemoteIpAddress?.ToString();
 
-            // Handle Cloudflare's X-Forwarded-For header
-            if (context.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor))
+            // Prefer Cloudflare's CF-Connecting-IP header (more secure than X-Forwarded-For)
+            if (context.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp))
+            {
+                remoteIpAddress = cfIp.ToString();
+            }
+            // Fallback to X-Forwarded-For if CF-Connecting-IP not present
+            else if (context.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor))
             {
                 remoteIpAddress = forwardedFor.ToString().Split(',').FirstOrDefault()?.Trim();
             }
 
+            // Set connection info in UserConnectionService (single source of truth)
             if (!string.IsNullOrEmpty(remoteIpAddress))
             {
-                userConnectionService.IpAddress = remoteIpAddress;
-                userConnectionService.LocationType = await networkLocationService.DetectLocationAsync(remoteIpAddress);
+                var locationType = await networkLocationService.DetectLocationAsync(remoteIpAddress);
+                userConnectionService.SetConnectionInfo(remoteIpAddress, locationType);
             }
 
-            var path = context.Request.Path;
+            var path = context.Request.Path.Value?.ToLower() ?? "";
             
-            // CRITICAL: Exclude SignalR/Blazor Hub connections - these are required for the app to work
-            if (path.StartsWithSegments("/_blazor") || 
-                path.StartsWithSegments("/animationhub") ||
-                path.StartsWithSegments("/studiopreviewhub") ||
-                path.StartsWithSegments("/videoaccesshub") ||
-                context.WebSockets.IsWebSocketRequest)
+            // CRITICAL: Check excluded paths first (including WebSocket requests)
+            if (context.WebSockets.IsWebSocketRequest)
             {
                 await _next(context);
                 return;
             }
             
-            // Don't check the secure-access page itself to avoid redirect loop
-            if (path.StartsWithSegments("/cameras/secure-access"))
+            foreach (var excludedPath in ExcludedPaths)
             {
-                await _next(context);
-                return;
+                if (path.StartsWith(excludedPath.ToLower()))
+                {
+                    await _next(context);
+                    return;
+                }
             }
             
-            if (path.StartsWithSegments("/video") || path.StartsWithSegments("/cameras"))
+            // Only check /video and /cameras paths
+            if (path.StartsWith("/video") || path.StartsWith("/cameras"))
             {
                 if (userConnectionService.LocationType == GFC.Core.Interfaces.LocationType.Public)
                 {
@@ -76,7 +103,7 @@ namespace GFC.BlazorServer.Middleware
             await _next(context);
         }
 
-        private async Task LogBlockedAccessAsync(HttpContext context, string clientIp, string path)
+        private async Task LogBlockedAccessAsync(HttpContext context, string? clientIp, string path)
         {
             try
             {
@@ -87,22 +114,27 @@ namespace GFC.BlazorServer.Middleware
                     ? (int?)Convert.ToInt32(context.User.FindFirst("UserId")?.Value)
                     : null;
 
+                var userAgent = context.Request.Headers["User-Agent"].ToString();
+                
                 var auditLog = new VideoAccessAudit
                 {
                     UserId = userId ?? 0,
                     AccessType = "Blocked",
                     ConnectionType = "Public",
-                    ClientIP = clientIp,
+                    ClientIP = clientIp?.Length > 45 ? clientIp.Substring(0, 45) : clientIp,
                     SessionStart = DateTime.UtcNow,
-                    Notes = $"Attempted to access {path} from a public IP address."
+                    Notes = $"Blocked public IP system access to {path}. User-Agent: {(userAgent.Length > 200 ? userAgent.Substring(0, 200) : userAgent)}"
                 };
 
                 dbContext.VideoAccessAudits.Add(auditLog);
                 await dbContext.SaveChangesAsync();
+                
+                _logger.LogInformation("Logged blocked system access attempt from {ClientIp} to {Path}", clientIp, path);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to log blocked video access attempt for IP {ClientIp}", clientIp);
+                // Don't let logging failures break the security check
+                _logger.LogError(ex, "Failed to log blocked system access attempt for IP {ClientIp}. Continuing with block.", clientIp);
             }
         }
     }

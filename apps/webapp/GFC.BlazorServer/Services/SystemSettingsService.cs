@@ -3,6 +3,7 @@ using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace GFC.BlazorServer.Services;
 
@@ -13,15 +14,28 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
 {
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<SystemSettingsService> _logger;
+    private readonly IMemoryCache _cache;
+    private const string CacheKey = "SystemSettings";
+    private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(5);
 
-    public SystemSettingsService(IDbContextFactory<GfcDbContext> contextFactory, ILogger<SystemSettingsService> logger)
+    public SystemSettingsService(
+        IDbContextFactory<GfcDbContext> contextFactory, 
+        ILogger<SystemSettingsService> logger,
+        IMemoryCache cache)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
     }
 
     public async Task<SystemSettings> GetAsync()
     {
+        // Try to get from cache first
+        if (_cache.TryGetValue(CacheKey, out SystemSettings? cachedSettings) && cachedSettings != null)
+        {
+            return cachedSettings;
+        }
+
         try
         {
             await using var dbContext = await _contextFactory.CreateDbContextAsync();
@@ -41,17 +55,26 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                 _logger.LogInformation("Created default SystemSettings");
             }
             
+            // Cache the settings
+            _cache.Set(CacheKey, settings, CacheExpiration);
+            
             return settings;
         }
         catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) // Invalid object name
         {
             _logger.LogWarning(ex, "SystemSettings table missing. Returning default settings.");
-            return new SystemSettings { Id = 1 };
+            var defaultSettings = new SystemSettings { Id = 1 };
+            // Cache default settings for shorter duration
+            _cache.Set(CacheKey, defaultSettings, TimeSpan.FromMinutes(1));
+            return defaultSettings;
         }
         catch (Exception ex)
         {
              _logger.LogError(ex, "Error retrieving SystemSettings");
-             return new SystemSettings { Id = 1 };
+             var defaultSettings = new SystemSettings { Id = 1 };
+             // Cache default settings for shorter duration
+             _cache.Set(CacheKey, defaultSettings, TimeSpan.FromMinutes(1));
+             return defaultSettings;
         }
     }
 
@@ -71,6 +94,12 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
 
     public SystemSettings GetSettings()
     {
+        // Try to get from cache first
+        if (_cache.TryGetValue(CacheKey, out SystemSettings? cachedSettings) && cachedSettings != null)
+        {
+            return cachedSettings;
+        }
+
         try
         {
             using var dbContext = _contextFactory.CreateDbContext();
@@ -90,17 +119,24 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                 _logger.LogInformation("Created default SystemSettings");
             }
             
+            // Cache the settings
+            _cache.Set(CacheKey, settings, CacheExpiration);
+            
             return settings;
         }
         catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) // Invalid object name
         {
             _logger.LogWarning(ex, "SystemSettings table missing. Returning default settings.");
-            return new SystemSettings { Id = 1 };
+            var defaultSettings = new SystemSettings { Id = 1 };
+            _cache.Set(CacheKey, defaultSettings, TimeSpan.FromMinutes(1));
+            return defaultSettings;
         }
         catch (Exception ex)
         {
              _logger.LogError(ex, "Error retrieving SystemSettings");
-             return new SystemSettings { Id = 1 };
+             var defaultSettings = new SystemSettings { Id = 1 };
+             _cache.Set(CacheKey, defaultSettings, TimeSpan.FromMinutes(1));
+             return defaultSettings;
         }
     }
 
@@ -173,9 +209,19 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.SafeModeEnabled = settings.SafeModeEnabled;
         existingSettings.EnableOnboarding = settings.EnableOnboarding;
 
+        // SMS & Twilio Settings
+        existingSettings.TwilioAccountSid = settings.TwilioAccountSid;
+        existingSettings.TwilioAuthToken = settings.TwilioAuthToken;
+        existingSettings.TwilioFromNumber = settings.TwilioFromNumber;
+        existingSettings.PreferredMagicLinkMethod = settings.PreferredMagicLinkMethod;
+
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
         await dbContext.SaveChangesAsync();
+        
+        // Invalidate cache so next request gets fresh data
+        _cache.Remove(CacheKey);
+        
         _logger.LogInformation("Updated system settings");
     }
 }

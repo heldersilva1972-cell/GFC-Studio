@@ -15,6 +15,7 @@
 @inject ControllerHealthService ControllerHealthService
 @inject IUserSessionService UserSessionService
 @inject IJSRuntime JSRuntime
+@inject IAuditLogger AuditLogger
 @implements IDisposable
 
 <div class="app-shell">
@@ -44,6 +45,9 @@
                     {
                         <span class="app-badge">Admin</span>
                     }
+                    <NavLink class="me-3 text-white text-decoration-none small" href="/my-devices" title="Manage your authorized devices">
+                        <i class="bi bi-shield-lock me-1"></i> Devices
+                    </NavLink>
                     <button class="app-link-button" @onclick="HandleLogout" type="button">
                         Logout
                     </button>
@@ -162,6 +166,10 @@
 
             await ThemeService.InitializeAsync();
             ThemeService.OnThemeChanged += StateHasChanged;
+
+            Navigation.LocationChanged += HandleLocationChanged;
+            // Log initial page view
+            LogCurrentPage();
         }
         catch
         {
@@ -245,6 +253,42 @@
         _healthTimer?.Dispose();
         _sessionTimer?.Dispose();
         ThemeService.OnThemeChanged -= StateHasChanged;
+        Navigation.LocationChanged -= HandleLocationChanged;
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        LogCurrentPage();
+    }
+
+    private void LogCurrentPage()
+    {
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser != null)
+            {
+                var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri);
+                
+                // Map empty root to "Dashboard"
+                if (string.IsNullOrEmpty(relativeUri))
+                {
+                    relativeUri = "Dashboard";
+                }
+                
+                // Ignore specific system or noisy paths if needed
+                if (relativeUri.Contains("_blazor") || relativeUri.Contains("_framework"))
+                {
+                    return;
+                }
+
+                AuditLogger.LogPageView(currentUser.UserId, relativeUri);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to log page view");
+        }
     }
 
     private async Task UpdateUserInfo()

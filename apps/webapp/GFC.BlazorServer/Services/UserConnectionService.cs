@@ -15,11 +15,31 @@ namespace GFC.BlazorServer.Services
         {
             _httpContextAccessor = httpContextAccessor;
             _systemSettingsService = systemSettingsService;
-            DetectConnection();
+            // Don't call DetectConnection here - middleware will set IP and LocationType
         }
 
         public string? IpAddress { get; set; }
         public LocationType LocationType { get; set; } = LocationType.Unknown;
+
+        /// <summary>
+        /// Sets the connection information. Called by middleware.
+        /// </summary>
+        public void SetConnectionInfo(string ipAddress, LocationType locationType)
+        {
+            IpAddress = ipAddress;
+            LocationType = locationType;
+        }
+
+        /// <summary>
+        /// Detects connection info if not already set by middleware (fallback).
+        /// </summary>
+        public void DetectConnectionIfNeeded()
+        {
+            if (string.IsNullOrEmpty(IpAddress))
+            {
+                DetectConnection();
+            }
+        }
 
         private void DetectConnection()
         {
@@ -32,18 +52,32 @@ namespace GFC.BlazorServer.Services
                     return;
                 }
 
-                // Get the user's IP address
-                var remoteIp = httpContext.Connection.RemoteIpAddress;
-                if (remoteIp == null)
+                // Get the user's IP address (handling Cloudflare/Proxies)
+                string? ipStr = null;
+                if (httpContext.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp))
+                {
+                    ipStr = cfIp.ToString();
+                }
+                else if (httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor))
+                {
+                    ipStr = forwardedFor.ToString().Split(',').FirstOrDefault()?.Trim();
+                }
+                
+                if (string.IsNullOrEmpty(ipStr))
+                {
+                    ipStr = httpContext.Connection.RemoteIpAddress?.ToString();
+                }
+
+                if (string.IsNullOrEmpty(ipStr) || !IPAddress.TryParse(ipStr, out var remoteIp))
                 {
                     LocationType = LocationType.Unknown;
                     return;
                 }
 
-                IpAddress = remoteIp.ToString();
+                IpAddress = ipStr;
 
-                // Check if localhost
-                if (IPAddress.IsLoopback(remoteIp))
+                // Check if localhost (IPv4 or IPv6)
+                if (IPAddress.IsLoopback(remoteIp) || remoteIp.ToString() == "::1")
                 {
                     LocationType = LocationType.Local;
                     return;

@@ -56,9 +56,17 @@ public class Program
 
         // Add services to the container.
         builder.Services.AddRazorPages();
-        builder.Services.AddServerSideBlazor().AddHubOptions(options => options.ClientTimeoutInterval = TimeSpan.FromSeconds(60)).AddCircuitOptions(options => options.DetailedErrors = true);
-        builder.Services.AddSignalR(); // Add SignalR
-        builder.Services.AddSignalR(); // Add SignalR
+        builder.Services.AddServerSideBlazor().AddHubOptions(options => 
+        {
+            options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+            options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+            options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        }).AddCircuitOptions(options => options.DetailedErrors = true);
+
+        builder.Services.AddSignalR(options => 
+        {
+            options.EnableDetailedErrors = true;
+        }); 
         
         // [HTTPS FIX] Trust Cloudflare Tunnel Headers
         // This ensures the app knows it's running over HTTPS even though termination happens at Cloudflare
@@ -279,10 +287,16 @@ builder.Services.AddScoped<GFC.Core.Interfaces.ISystemSettingsService, SystemSet
 builder.Services.AddScoped<IBlazorSystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IUrlHelperService, UrlHelperService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<ISmsService, SmsService>();
 builder.Services.AddScoped<GFC.BlazorServer.Services.Vpn.IVpnConfigurationService, GFC.BlazorServer.Services.Vpn.VpnConfigurationService>();
 builder.Services.AddScoped<IUserRevocationService, UserRevocationService>();
 builder.Services.AddSingleton<TunnelStatusService>();
 builder.Services.AddHostedService<CloudflareTunnelHealthService>();
+
+// Security & Connection Services
+builder.Services.AddScoped<IDeviceTrustService, DeviceTrustService>();
+builder.Services.AddSingleton<ISecurityRateLimitService, SecurityRateLimitService>();
+builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
@@ -390,8 +404,8 @@ builder.Services.AddHostedService<CloudflareTunnelHealthService>();
         app.UseRateLimiter(); // Enable rate limiting
 
         app.UseMiddleware<RequestLoggingMiddleware>();
-        // app.UseMiddleware<DeviceGuardMiddleware>();
-        // app.UseMiddleware<VideoAccessGuardMiddleware>(); // DISABLED - Was blocking WebSocket connections
+        app.UseMiddleware<DeviceGuardMiddleware>();
+        app.UseMiddleware<VideoAccessGuardMiddleware>();
 
         // Apply pending migrations at startup and surface any errors
         using (var scope = app.Services.CreateScope())

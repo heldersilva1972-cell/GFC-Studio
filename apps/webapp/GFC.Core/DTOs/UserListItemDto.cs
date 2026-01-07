@@ -11,5 +11,6 @@ public record UserListItemDto(
     int? MemberId,
     string? MemberName,
     DateTime? LastLoginDate,
-    string? Notes);
+    string? Notes,
+    bool IsDirector = false);
 

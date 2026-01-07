@@ -3,6 +3,7 @@
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
 @inject IAuditLogRepository AuditLogRepository
+@inject IUserRepository UserRepository
 @inject ILogger<AuditLogs> Logger
 
 <PageTitle>Audit Logs - GFC Membership</PageTitle>
@@ -22,7 +23,7 @@
 <EditForm Model="_filters" OnValidSubmit="ApplyFilters">
     <div class="data-card mb-3">
         <div class="row g-3 align-items-end">
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">Action</label>
                 <select class="form-select" @bind="_filters.Action">
                     <option value="">All actions</option>
@@ -32,9 +33,19 @@
                     }
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
+                <label class="form-label">User</label>
+                <select class="form-select" @bind="_filters.TargetUserId">
+                    <option value="0">All Users</option>
+                    @foreach (var user in _availableUsers)
+                    {
+                        <option value="@user.UserId">@user.Username</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label">Search</label>
-                <InputText class="form-control" @bind-Value="_filters.SearchText" placeholder="Action or details" />
+                <InputText class="form-control" @bind-Value="_filters.SearchText" placeholder="Details..." />
             </div>
             <div class="col-md-2">
                 <label class="form-label">From</label>
@@ -132,11 +143,25 @@ else
     private int _pageSize = DefaultPageSize;
     private int _totalCount;
     private string? _errorMessage;
+    private List<AppUser> _availableUsers = new();
 
     protected override async Task OnInitializedAsync()
     {
         await LoadActionsAsync();
+        await LoadUsersAsync();
         await LoadLogsAsync();
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        try
+        {
+            _availableUsers = UserRepository.GetAllUsers().OrderBy(u => u.Username).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load users for audit log filtering");
+        }
     }
 
     private async Task LoadActionsAsync()
@@ -175,6 +200,7 @@ else
                 search,
                 from,
                 to,
+                _filters.TargetUserId > 0 ? _filters.TargetUserId : null,
                 _currentPage,
                 _pageSize);
 
@@ -266,5 +292,6 @@ else
         public string? SearchText { get; set; }
         public DateTime? FromDate { get; set; }
         public DateTime? ToDate { get; set; }
+        public int? TargetUserId { get; set; }
     }
 }
