@@ -134,7 +134,7 @@
     [Parameter] public List<UserInfo> AvailableUsers { get; set; } = new();
     [Parameter] public EventCallback<InviteLinkGenerated> OnLinkGenerated { get; set; }
     
-    [Inject] private IVpnConfigurationService? VpnService { get; set; }
+    [Inject] private IDeviceTrustService? DeviceTrustService { get; set; }
     [Inject] private ILogger<GenerateInviteModal>? Logger { get; set; }
     [Inject] private NavigationManager? Navigation { get; set; }
     
@@ -150,7 +150,7 @@
     
     private async Task GenerateLink()
     {
-        if (_selectedUserId == 0 || VpnService == null)
+        if (_selectedUserId == 0 || DeviceTrustService == null)
         {
             _errorMessage = "Please select a user";
             return;
@@ -172,21 +172,32 @@
             
             _selectedUserEmail = selectedUser.Email ?? selectedUser.Username;
             
-            // Generate onboarding token
-            var token = await VpnService.CreateOnboardingTokenAsync(_selectedUserId, _expirationHours);
+            // Generate device trust token
+            var durationDays = _expirationHours / 24;
+            if (durationDays < 1) durationDays = 1; // Minimum 1 day
             
-            // Build full invite URL
-            var baseUrl = Navigation?.BaseUri ?? "https://gfc.local/";
-            _generatedLink = $"{baseUrl}onboarding/setup?token={token}";
+            var deviceName = string.IsNullOrEmpty(_deviceName) 
+                ? $"{selectedUser.Username}'s Device" 
+                : _deviceName;
+                
+            var token = await DeviceTrustService.CreateDeviceTokenAsync(
+                _selectedUserId, 
+                deviceName, 
+                null, 
+                durationDays
+            );
+            
+            // Build full invite URL with token
+            _generatedLink = Navigation!.ToAbsoluteUri($"/setup/activate?token={token}").ToString();
             
             // Calculate expiration time
-            var expiresAt = DateTime.UtcNow.AddHours(_expirationHours);
+            var expiresAt = DateTime.UtcNow.AddDays(durationDays);
             _expirationTime = expiresAt.ToLocalTime().ToString("MMM dd, yyyy 'at' h:mm tt");
             
             // Log the generation
             Logger?.LogInformation(
-                "Admin generated invite link for user {UserId} ({Email}), expires in {Hours} hours",
-                _selectedUserId, _selectedUserEmail, _expirationHours
+                "Admin generated device trust invite for user {UserId} ({Email}), expires in {Days} days",
+                _selectedUserId, _selectedUserEmail, durationDays
             );
             
             // Notify parent component

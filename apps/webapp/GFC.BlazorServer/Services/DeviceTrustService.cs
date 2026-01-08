@@ -74,13 +74,8 @@ public class DeviceTrustService : IDeviceTrustService
     {
         try
         {
-            // Generate a cryptographically secure random token
-            var tokenBytes = new byte[64];
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                rng.GetBytes(tokenBytes);
-            }
-            var token = Convert.ToBase64String(tokenBytes);
+            // Generate a URL-safe token
+            var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
 
             await using var context = await _contextFactory.CreateDbContextAsync();
             
