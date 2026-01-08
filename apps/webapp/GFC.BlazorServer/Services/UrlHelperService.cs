@@ -22,6 +22,8 @@ public class UrlHelperService : IUrlHelperService
         {
             return $"https://{settings.PrimaryDomain}";
         }
-        return _navigationManager.BaseUri.TrimEnd('/');
+        
+        // Fallback to official domain if settings are empty (prevents IP leakage)
+        return "https://gfc.lovanow.com";
     }
 }

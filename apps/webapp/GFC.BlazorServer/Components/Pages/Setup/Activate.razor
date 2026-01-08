@@ -89,24 +89,51 @@
                 return;
             }
 
-            // Set the cookie via global JavaScript helper (365 days)
+            // 1. Set the cookie via global JavaScript helper (365 days) - Essential for Middleware
             await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", token, 365);
             
-            // Also set in localStorage for App.razor auto-login
+            // 2. Set in localStorage for App.razor auto-login resilience
             await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", token);
 
-            _success = true;
-            _activating = false;
-            StateHasChanged();
-
-            // Give the browser a moment to ensure cookies and localStorage are written
-            await Task.Delay(1500);
+            // 3. Explicitly log the user in immediately
+            var loginResult = await AuthStateProvider.LoginWithDeviceTokenAsync(token);
             
-            // Redirect to home using browser-level redirect (more robust for full reload)
-            await JS.InvokeVoidAsync("eval", "window.location.href = '/'");
+            if (loginResult.Success)
+            {
+                _success = true;
+                _activating = false;
+                StateHasChanged();
+
+                // Give the browser a moment to ensure cookies and localStorage are written
+                await Task.Delay(1000);
+
+                // 4. Check if password setup is required
+                var user = AuthStateProvider.GetCurrentUser();
+                if (user != null && user.PasswordChangeRequired)
+                {
+                    // Redirect to password change
+                    Navigation.NavigateTo("/changepassword", forceLoad: true);
+                }
+                else
+                {
+                    // Redirect to home
+                    Navigation.NavigateTo("/", forceLoad: true);
+                }
+            }
+            else
+            {
+                // Fallback: If immediate login fails (rarity), we still try the standard redirect flow
+                // expecting App.razor to pick it up or Middleware to handle it.
+                _success = true; 
+                _activating = false;
+                StateHasChanged();
+                await Task.Delay(1500);
+                await JS.InvokeVoidAsync("eval", "window.location.href = '/'");
+            }
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Activation failure");
             _errorMessage = $"An error occurred during activation: {ex.Message}";
             _activating = false;
             StateHasChanged();
