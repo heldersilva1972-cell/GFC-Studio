@@ -18,6 +18,19 @@ public interface IDeviceTrustService
     bool ValidateToken(string token); // For middleware - validates token exists and is not expired/revoked
     Task<int?> GetUserIdByTokenAsync(string token);
     Task<List<TrustedDevice>> GetDevicesForUserAsync(int userId);
+    Task<List<DeviceSessionDto>> GetAllActiveDevicesAsync();
+}
+
+public class DeviceSessionDto
+{
+    public int UserId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string DeviceToken { get; set; } = string.Empty;
+    public string UserAgent { get; set; } = string.Empty;
+    public string IpAddress { get; set; } = string.Empty;
+    public DateTime LastUsedUtc { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
+    public bool IsRevoked { get; set; }
 }
 
 public class DeviceTrustService : IDeviceTrustService
@@ -80,6 +93,24 @@ public class DeviceTrustService : IDeviceTrustService
             var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
 
             await using var context = await _contextFactory.CreateDbContextAsync();
+            
+            // Enforce Single Session Policy: Revoke all existing active tokens for this user
+            // This ensures a user can only have one trusted device active at a time to prevent session proliferation.
+            var existingTokens = await context.TrustedDevices
+                .Where(d => d.UserId == userId && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                .ToListAsync();
+
+            if (existingTokens.Any())
+            {
+                foreach (var existingToken in existingTokens)
+                {
+                    existingToken.IsRevoked = true;
+                }
+                _logger.LogInformation("Revoked {Count} existing sessions for user {UserId} to enforce single-session policy.", existingTokens.Count, userId);
+            }
+
+            // Generate a URL-safe token
+            var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
             
             var device = new TrustedDevice
             {
@@ -227,6 +258,35 @@ public class DeviceTrustService : IDeviceTrustService
         {
             _logger.LogError(ex, "Error getting devices for user {UserId}", userId);
             return new List<TrustedDevice>();
+        }
+    }
+
+    public async Task<List<DeviceSessionDto>> GetAllActiveDevicesAsync()
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var sessions = await context.TrustedDevices
+                                .Include(d => d.User)
+                                .Where(d => !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                                .OrderByDescending(d => d.LastUsedUtc)
+                                .Select(d => new DeviceSessionDto
+                                {
+                                    UserId = d.User.UserId,
+                                    Username = d.User.Username,
+                                    DeviceToken = d.DeviceToken,
+                                    UserAgent = d.UserAgent,
+                                    IpAddress = d.IpAddress,
+                                    LastUsedUtc = d.LastUsedUtc,
+                                    ExpiresAtUtc = d.ExpiresAtUtc,
+                                    IsRevoked = d.IsRevoked
+                                }).ToListAsync();
+            return sessions;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting all active devices");
+            return new List<DeviceSessionDto>();
         }
     }
 }

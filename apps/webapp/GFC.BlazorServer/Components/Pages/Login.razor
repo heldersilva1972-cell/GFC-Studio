@@ -43,6 +43,13 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link @(_loginMode == LoginMode.PassCode ? "active" : "")" 
+                           href="javascript:void(0)" 
+                           @onclick="() => SetMode(LoginMode.PassCode)">
+                            Passcode
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link @(_loginMode == LoginMode.MagicLink ? "active" : "")" 
                            href="javascript:void(0)" 
                            @onclick="() => SetMode(LoginMode.MagicLink)">
@@ -62,7 +69,7 @@
                 <div class="alert alert-success" role="alert">@_successMessage</div>
             }
 
-            @if (_loginMode == LoginMode.Password)
+            @if (_loginMode == LoginMode.Password || _loginMode == LoginMode.PassCode)
             {
                 <EditForm Model="_model" OnValidSubmit="HandleLoginAsync">
                     <DataAnnotationsValidator />
@@ -78,12 +85,30 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label" for="password">Password</label>
-                        <input id="password"
-                               type="password"
-                               class="form-control"
-                               @bind="_model.Password"
-                               placeholder="Enter password" />
+                        <label class="form-label" for="password">
+                            @(_loginMode == LoginMode.PassCode ? "6-Digit Passcode" : "Password")
+                        </label>
+                        
+                        @if (_loginMode == LoginMode.PassCode)
+                        {
+                            <input id="password"
+                                   type="tel"
+                                   inputmode="numeric"
+                                   pattern="[0-9]*"
+                                   class="form-control text-center fs-4 fw-bold"
+                                   maxlength="6"
+                                   style="letter-spacing: 0.5rem;"
+                                   @bind="_model.Password"
+                                   placeholder="000000" />
+                        }
+                        else
+                        {
+                            <input id="password"
+                                   type="password"
+                                   class="form-control"
+                                   @bind="_model.Password"
+                                   placeholder="Enter password" />
+                        }
                         <ValidationMessage For="@(() => _model.Password)" />
                     </div>
 
@@ -305,7 +330,15 @@
 
         try
         {
-            var result = await AuthStateProvider.LoginAsync(_model.Username, _model.Password, _model.RememberMe);
+            var passwordToUse = _model.Password?.Trim();
+
+            // Force RememberMe for PassCode to ensure session persistence
+            if (_loginMode == LoginMode.PassCode)
+            {
+                _model.RememberMe = true;
+            }
+
+            var result = await AuthStateProvider.LoginAsync(_model.Username, passwordToUse, _model.RememberMe);
 
             if (result.Code != LoginResultCode.Success)
             {
@@ -405,7 +438,7 @@
         public string Email { get; set; } = "";
     }
 
-    private enum LoginMode { Password, MagicLink }
+    private enum LoginMode { Password, PassCode, MagicLink }
 
     // Helpers from original file
     private static string GetUserMessage(LoginResultCode code) => code switch

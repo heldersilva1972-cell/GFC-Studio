@@ -1,6 +1,8 @@
 @page "/setup/activate"
 @using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Services.Vpn
 @inject IDeviceTrustService DeviceTrustService
+@inject IVpnConfigurationService VpnService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject CustomAuthenticationStateProvider AuthStateProvider
@@ -91,17 +93,37 @@
                 return;
             }
 
-            // 1. Set the cookie via global JavaScript helper (365 days)
-            await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", token, 365);
-            
-            // 2. Set in localStorage
-            await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", token);
+            // 1. Validate the Invite/Onboarding Token
+            var userId = await VpnService.ValidateOnboardingTokenAsync(token);
 
-            // 3. Explicitly log the user in
-            var loginResult = await AuthStateProvider.LoginWithDeviceTokenAsync(token);
+            if (userId == null)
+            {
+                _errorMessage = "Activation failed. The link may be invalid or expired.";
+                _activating = false;
+                StateHasChanged();
+                return;
+            }
+
+            // 2. Create a NEW Device Trust Token for this session
+            // We use a default duration (e.g., 30 days) and generic user agent since we're in Blazor context
+            var deviceTrustToken = await DeviceTrustService.CreateDeviceTokenAsync(userId.Value, "Web Browser (Activated)", "Unknown IP", 30);
+
+            // 3. Set the NEW TRUST COOKIE
+            await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", deviceTrustToken, 365);
+            await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", deviceTrustToken);
+
+            // 4. Explicitly log the user in with the NEW TRUST TOKEN
+            var loginResult = await AuthStateProvider.LoginWithDeviceTokenAsync(deviceTrustToken);
             
             if (loginResult.Success)
             {
+                // CRITICAL: Login rotates the token! Update cookie with the NEW token if provided.
+                if (!string.IsNullOrEmpty(loginResult.DeviceToken))
+                {
+                    await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", loginResult.DeviceToken, 365);
+                    await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", loginResult.DeviceToken);
+                }
+
                 var bust = DateTime.UtcNow.Ticks;
                 
                 // POLICY: Always force setup/verification on new device activation
@@ -113,20 +135,15 @@
 
                 await Task.Delay(1000);
                 
-                // Use JS for reliable redirect (prevents 'hanging' state issues)
+                // Use JS for reliable redirect
                 await JS.InvokeVoidAsync("window.location.assign", _nextUrl);
             }
             else
             {
-                // Fallback
-                _success = true; 
+                // This shouldn't happen if activation was successful, but just in case
+                _errorMessage = "Activation successful, but could not sign in automatically.";
                 _activating = false;
-                _nextUrl = "/"; 
                 StateHasChanged();
-                await Task.Delay(1500);
-                
-                var bust = DateTime.UtcNow.Ticks;
-                await JS.InvokeVoidAsync("window.location.assign", $"/?fallback_success=true&t={bust}");
             }
         }
         catch (Exception ex)

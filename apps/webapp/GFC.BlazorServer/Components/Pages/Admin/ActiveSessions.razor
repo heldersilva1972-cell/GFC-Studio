@@ -1,0 +1,196 @@
+@page "/admin/users/active-sessions"
+@using GFC.Core.Models.Security
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@attribute [Authorize(Roles = AppRoles.Admin)]
+@inject IDeviceTrustService DeviceTrustService
+@inject IUserRepository UserRepository
+@inject IJSRuntime JSRuntime
+@inject ILogger<ActiveSessions> Logger
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1><i class="bi bi-globe2 me-2"></i>Active Web Sessions</h1>
+            <p class="text-muted">View all devices currently authorized to log in to the web application.</p>
+        </div>
+        <div>
+            <button class="btn btn-outline-secondary" @onclick="LoadData">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading active sessions...</p>
+        </div>
+    }
+    else if (_sessions.Count == 0)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle-fill me-2"></i> No active web sessions found.
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>User</th>
+                            <th>Device / Browser</th>
+                            <th>IP Address</th>
+                            <th>Last Used</th>
+                            <th>Expires</th>
+                            <th>Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var session in _sessions)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-bold">@session.Username</div>
+                                    <div class="small text-muted">ID: @session.UserId</div>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi @GetDeviceIcon(session.UserAgent) fs-5 me-2 text-secondary"></i>
+                                        <span title="@session.UserAgent">
+                                            @ParseUserAgent(session.UserAgent)
+                                        </span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="font-monospace small bg-light px-2 py-1 rounded">
+                                        @(string.IsNullOrEmpty(session.IpAddress) ? "Unknown" : session.IpAddress)
+                                    </span>
+                                </td>
+                                <td>
+                                    <span title="@session.LastUsedUtc.ToLocalTime().ToString("F")">
+                                        @GetTimeAgo(session.LastUsedUtc)
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="@(session.ExpiresAtUtc < DateTime.UtcNow.AddDays(7) ? "text-warning" : "")">
+                                        @session.ExpiresAtUtc.ToLocalTime().ToString("MMM dd, yyyy")
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (session.IsRevoked)
+                                    {
+                                        <span class="badge bg-danger">Revoked</span>
+                                    }
+                                    else if (session.ExpiresAtUtc < DateTime.UtcNow)
+                                    {
+                                        <span class="badge bg-secondary">Expired</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success">Active</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    @if (!session.IsRevoked)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger" 
+                                                @onclick="() => RevokeSession(session)"
+                                                title="Revoke Access">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _isLoading = true;
+    private List<DeviceSessionDto> _sessions = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        try
+        {
+            // We need a method to get ALL active tokens from the service
+            // Since IDeviceTrustService doesn't have a GetAll method exposed yet, we might need to add one.
+            // For now, let's assume we add it or query directly if we were in the service.
+            // Wait, we need to modify the service to support this Admin view.
+            
+            // Actually, for this specific request, I'll update the service interface first.
+            // But to avoid blocking, I'll temporarily use the existing GetDevicesForUserAsync looping through all users? No, that's inefficient.
+            // I will ADD GetAllActiveDevicesAsync to IDeviceTrustService.
+            
+            // Placeholder:
+            _sessions = await DeviceTrustService.GetAllActiveDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading active sessions");
+            _sessions = new();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task RevokeSession(DeviceSessionDto session)
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to revoke access for {session.Username}? They will be logged out on their next request.");
+            
+        if (confirmed)
+        {
+            await DeviceTrustService.RevokeDeviceTokenAsync(session.DeviceToken);
+            await LoadData();
+        }
+    }
+
+    private string ParseUserAgent(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return "Unknown Device";
+        if (userAgent.Contains("iPhone")) return "iPhone";
+        if (userAgent.Contains("iPad")) return "iPad";
+        if (userAgent.Contains("Android")) return "Android Device";
+        if (userAgent.Contains("Windows")) return "Windows PC";
+        if (userAgent.Contains("Macintosh")) return "Mac";
+        if (userAgent.Contains("Linux")) return "Linux PC";
+        return "Web Browser";
+    }
+
+    private string GetDeviceIcon(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return "bi-display";
+        if (userAgent.Contains("iPhone") || userAgent.Contains("Android")) return "bi-phone";
+        if (userAgent.Contains("iPad")) return "bi-tablet";
+        return "bi-laptop";
+    }
+
+    private string GetTimeAgo(DateTime date)
+    {
+        var span = DateTime.UtcNow - date;
+        if (span.TotalMinutes < 1) return "Just now";
+        if (span.TotalMinutes < 60) return $"{span.Minutes}m ago";
+        if (span.TotalHours < 24) return $"{span.Hours}h ago";
+        return $"{span.Days}d ago";
+    }
+}
