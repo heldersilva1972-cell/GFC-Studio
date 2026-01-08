@@ -375,6 +375,19 @@ public class AuthenticationService : IAuthenticationService
     {
         var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
 
+        // Enforce Single Session Policy: Revoke all existing active tokens for this user
+        var existingDevices = await _trustedDeviceRepository.GetActiveDevicesForUserAsync(userId);
+        foreach (var device in existingDevices)
+        {
+            device.IsRevoked = true;
+            await _trustedDeviceRepository.UpdateAsync(device);
+        }
+        
+        if (existingDevices.Any())
+        {
+            _logger.LogInformation("Revoked {Count} existing sessions for user {UserId} to enforce single-session policy.", existingDevices.Count, userId);
+        }
+
         var token = GenerateSecureToken();
         var newDevice = new TrustedDevice
         {

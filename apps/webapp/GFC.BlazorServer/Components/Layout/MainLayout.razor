@@ -16,6 +16,7 @@
 @inject IUserSessionService UserSessionService
 @inject IJSRuntime JSRuntime
 @inject IAuditLogger AuditLogger
+@inject IDeviceTrustService DeviceTrustService
 @implements IDisposable
 
 <div class="app-shell">
@@ -168,6 +169,8 @@
                 UpdateControllerStatus();
                 // Check PWA status periodically
                 await CheckPwaStatus();
+                // Enforce Session Validity (Revocation check)
+                await ValidateSession();
                 await InvokeAsync(StateHasChanged);
             }, null, 3000, 5000);
 
@@ -460,5 +463,26 @@
             LocationType.Public => "⚠️ Public Web",
             _ => "❓ Unknown Connection"
         };
+    }
+
+    private async Task ValidateSession()
+    {
+        try
+        {
+            // Only check if we look authenticated
+            if (!_isAdmin && string.IsNullOrEmpty(_currentUsername)) return;
+
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            if (!string.IsNullOrEmpty(token))
+            {
+                // Check if token is still valid (not revoked, not expired)
+                var isValid = DeviceTrustService.ValidateToken(token);
+                if (!isValid)
+                {
+                    await HandleLogout();
+                }
+            }
+        }
+        catch { /* Ignore JS errors or concurrent disconnects */ }
     }
 }
