@@ -32,8 +32,8 @@
                 <span class="text-muted">Securing your session and taking you to setup...</span>
             </div>
             <div class="mt-4">
-                <a href="/" class="btn btn-primary btn-lg shadow-sm w-100">
-                    <i class="bi bi-arrow-right-circle me-2"></i>Continue to Dashboard
+                <a href="@_nextUrl" class="btn btn-primary btn-lg shadow-sm w-100">
+                    <i class="bi bi-arrow-right-circle me-2"></i>Continue
                 </a>
             </div>
         </div>
@@ -63,6 +63,7 @@
     private bool _activating = true;
     private bool _success = false;
     private string _errorMessage = "";
+    private string _nextUrl = "/";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -100,6 +101,16 @@
             
             if (loginResult.Success)
             {
+                // Determine next URL immediately from the authoritative login result
+                // This avoids race conditions with AuthStateProvider.GetCurrentUser()
+                var bust = DateTime.UtcNow.Ticks;
+                bool needsPasswordChange = loginResult.PasswordChangeRequired || 
+                                         (loginResult.User != null && loginResult.User.PasswordChangeRequired);
+                                         
+                _nextUrl = needsPasswordChange 
+                    ? $"/changepassword?t={bust}" 
+                    : $"/?activation_success=true&t={bust}";
+
                 _success = true;
                 _activating = false;
                 StateHasChanged();
@@ -107,18 +118,8 @@
                 // Give the browser a moment to ensure cookies and localStorage are written
                 await Task.Delay(1000);
 
-                // 4. Check if password setup is required
-                var user = AuthStateProvider.GetCurrentUser();
-                if (user != null && user.PasswordChangeRequired)
-                {
-                    // Redirect to password change
-                    Navigation.NavigateTo("/changepassword", forceLoad: true);
-                }
-                else
-                {
-                    // Redirect to home
-                    Navigation.NavigateTo("/", forceLoad: true);
-                }
+                // Redirect using the determined URL
+                Navigation.NavigateTo(_nextUrl, forceLoad: true);
             }
             else
             {
@@ -126,9 +127,12 @@
                 // expecting App.razor to pick it up or Middleware to handle it.
                 _success = true; 
                 _activating = false;
+                _nextUrl = "/"; // Default fallback
                 StateHasChanged();
                 await Task.Delay(1500);
-                await JS.InvokeVoidAsync("eval", "window.location.href = '/'");
+                
+                var bust = DateTime.UtcNow.Ticks;
+                await JS.InvokeVoidAsync("eval", $"window.location.href = '/?fallback_success=true&t={bust}'");
             }
         }
         catch (Exception ex)

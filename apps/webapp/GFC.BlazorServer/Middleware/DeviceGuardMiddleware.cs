@@ -80,6 +80,9 @@ namespace GFC.BlazorServer.Middleware
             // [FIX] RESPECT ACCESS MODE
             // If the system is in Open mode, allow all LAN traffic (but still block public internet if needed, 
             // though Open usually implies fully open).
+            // Add Debug Logging since this check is failing
+
+
             if (mode == AccessMode.Open)
             {
                 await _next(context);
