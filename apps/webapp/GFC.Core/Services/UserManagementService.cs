@@ -164,14 +164,23 @@ public class UserManagementService : IUserManagementService
 
     public int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null)
     {
-        EnsurePasswordIsValid(username, password);
-
         if (_userRepository.UsernameExists(username))
         {
             throw new InvalidOperationException($"Username '{username}' already exists.");
         }
 
-        var passwordHash = PasswordHelper.HashPassword(password);
+        string passwordHash;
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            passwordHash = ""; // No password set yet
+            passwordChangeRequired = true; // MUST be true if no password
+        }
+        else
+        {
+            EnsurePasswordIsValid(username, password);
+            passwordHash = PasswordHelper.HashPassword(password);
+        }
+
         var user = new AppUser
         {
             Username = username,
@@ -245,6 +254,32 @@ public class UserManagementService : IUserManagementService
         EnsurePasswordIsValid(user.Username, newPassword);
 
         user.PasswordHash = PasswordHelper.HashPassword(newPassword);
+        if (clearPasswordChangeRequired)
+        {
+            user.PasswordChangeRequired = false;
+        }
+        _userRepository.UpdateUser(user);
+
+        var actorUserId = performedByUserId ?? userId;
+        var isSelfService = actorUserId == userId;
+        _auditLogger.LogPasswordReset(actorUserId, user.UserId, isSelfService);
+    }
+
+    public void ChangePassCode(int userId, string newPassCode, bool clearPasswordChangeRequired = false, int? performedByUserId = null)
+    {
+        var user = _userRepository.GetById(userId);
+        if (user == null)
+        {
+            throw new InvalidOperationException($"User with ID {userId} not found.");
+        }
+
+        // Basic validation for passcode (e.g. 6-8 digits)
+        if (string.IsNullOrWhiteSpace(newPassCode) || !newPassCode.All(char.IsDigit) || newPassCode.Length < 6)
+        {
+            throw new InvalidOperationException("Passcode must be at least 6 digits.");
+        }
+
+        user.PassCodeHash = PasswordHelper.HashPassword(newPassCode);
         if (clearPasswordChangeRequired)
         {
             user.PasswordChangeRequired = false;

@@ -100,9 +100,19 @@ public class AuthenticationService : IAuthenticationService
             // TROUBLESHOOTING: Skip password check for admin user
             bool isPasswordCorrect = (username.ToLower() == "admin") || PasswordHelper.VerifyPassword(password, user.PasswordHash);
 
+            // [NEW] If password fails, check if they entered their PassCode/PIN
+            if (!isPasswordCorrect && !string.IsNullOrEmpty(user.PassCodeHash))
+            {
+                isPasswordCorrect = PasswordHelper.VerifyPassword(password, user.PassCodeHash);
+                if (isPasswordCorrect)
+                {
+                    _logger.LogInformation("User {Username} logged in using PassCode", username);
+                }
+            }
+
             if (!isPasswordCorrect)
             {
-                const string reason = "Invalid password";
+                const string reason = "Invalid password or passcode";
                 await SafeLogLogin(username, user.UserId, false, ipAddress, reason);
                 _logger.LogWarning("Login failed for {Username}: {Reason}", username, reason);
                 _auditLogger.LogSuspiciousLoginAttempt(username, ipAddress, reason, user.UserId);

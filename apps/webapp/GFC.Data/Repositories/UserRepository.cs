@@ -17,7 +17,8 @@ public class UserRepository : IUserRepository
             const string sql = @"
                 SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
                        CreatedDate, LastLoginDate, CreatedBy, Notes, 
-                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired
+                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired,
+                       PassCodeHash
                 FROM AppUsers
                 WHERE Username = @Username";
             using var command = new SqlCommand(sql, connection);
@@ -79,7 +80,8 @@ public class UserRepository : IUserRepository
             const string sql = @"
                 SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
                        CreatedDate, LastLoginDate, CreatedBy, Notes, 
-                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired
+                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired,
+                       PassCodeHash
                 FROM AppUsers
                 WHERE UserId = @UserId";
             using var command = new SqlCommand(sql, connection);
@@ -124,7 +126,8 @@ public class UserRepository : IUserRepository
             const string sql = @"
                 SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId,
                        CreatedDate, LastLoginDate, CreatedBy, Notes,
-                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired
+                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired,
+                       PassCodeHash
                 FROM AppUsers
                 WHERE UserId = @UserId";
             using var command = new SqlCommand(sql, connection);
@@ -169,7 +172,8 @@ public class UserRepository : IUserRepository
             const string sql = @"
                 SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
                        CreatedDate, LastLoginDate, CreatedBy, Notes, 
-                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired
+                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired,
+                       PassCodeHash
                 FROM AppUsers
                 WHERE MemberId = @MemberId";
             using var command = new SqlCommand(sql, connection);
@@ -215,7 +219,8 @@ public class UserRepository : IUserRepository
             const string sql = @"
                 SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
                        CreatedDate, LastLoginDate, CreatedBy, Notes, 
-                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired
+                       ISNULL(PasswordChangeRequired, 0) AS PasswordChangeRequired,
+                       PassCodeHash
                 FROM AppUsers
                 ORDER BY Username";
             using var command = new SqlCommand(sql, connection);
@@ -261,8 +266,8 @@ public class UserRepository : IUserRepository
             using var connection = Db.GetConnection();
             connection.Open();
             const string sql = @"
-                INSERT INTO AppUsers (Username, PasswordHash, IsAdmin, IsActive, MemberId, CreatedDate, CreatedBy, Notes, PasswordChangeRequired)
-                VALUES (@Username, @PasswordHash, @IsAdmin, @IsActive, @MemberId, @CreatedDate, @CreatedBy, @Notes, @PasswordChangeRequired);
+                INSERT INTO AppUsers (Username, PasswordHash, IsAdmin, IsActive, MemberId, CreatedDate, CreatedBy, Notes, PasswordChangeRequired, PassCodeHash)
+                VALUES (@Username, @PasswordHash, @IsAdmin, @IsActive, @MemberId, @CreatedDate, @CreatedBy, @Notes, @PasswordChangeRequired, @PassCodeHash);
                 SELECT CAST(SCOPE_IDENTITY() AS INT);";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@Username", user.Username);
@@ -274,6 +279,7 @@ public class UserRepository : IUserRepository
             command.Parameters.AddWithValue("@CreatedBy", (object?)user.CreatedBy ?? DBNull.Value);
             command.Parameters.AddWithValue("@Notes", (object?)user.Notes ?? DBNull.Value);
             command.Parameters.AddWithValue("@PasswordChangeRequired", user.PasswordChangeRequired);
+            command.Parameters.AddWithValue("@PassCodeHash", (object?)user.PassCodeHash ?? DBNull.Value);
             return (int)command.ExecuteScalar();
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
@@ -313,7 +319,8 @@ public class UserRepository : IUserRepository
                     MemberId = @MemberId,
                     LastLoginDate = @LastLoginDate,
                     Notes = @Notes,
-                    PasswordChangeRequired = @PasswordChangeRequired
+                    PasswordChangeRequired = @PasswordChangeRequired,
+                    PassCodeHash = @PassCodeHash
                 WHERE UserId = @UserId";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@UserId", user.UserId);
@@ -325,6 +332,7 @@ public class UserRepository : IUserRepository
             command.Parameters.AddWithValue("@LastLoginDate", (object?)user.LastLoginDate ?? DBNull.Value);
             command.Parameters.AddWithValue("@Notes", (object?)user.Notes ?? DBNull.Value);
             command.Parameters.AddWithValue("@PasswordChangeRequired", user.PasswordChangeRequired);
+            command.Parameters.AddWithValue("@PassCodeHash", (object?)user.PassCodeHash ?? DBNull.Value);
             command.ExecuteNonQuery();
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
@@ -476,6 +484,21 @@ public class UserRepository : IUserRepository
         command.ExecuteNonQuery();
     }
 
+    public void SetPassCode(int userId, string passCodeHash)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+        const string sql = @"
+            UPDATE AppUsers
+            SET PassCodeHash = @PassCodeHash,
+                PasswordChangeRequired = 0
+            WHERE UserId = @UserId";
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@UserId", userId);
+        command.Parameters.AddWithValue("@PassCodeHash", passCodeHash);
+        command.ExecuteNonQuery();
+    }
+
     private static AppUser MapReaderToUser(SqlDataReader reader)
     {
         return new AppUser
@@ -490,7 +513,8 @@ public class UserRepository : IUserRepository
             LastLoginDate = reader["LastLoginDate"] as DateTime?,
             CreatedBy = reader["CreatedBy"] as string,
             Notes = reader["Notes"] as string,
-            PasswordChangeRequired = reader["PasswordChangeRequired"] as bool? ?? false
+            PasswordChangeRequired = reader["PasswordChangeRequired"] as bool? ?? false,
+            PassCodeHash = reader["PassCodeHash"] as string
         };
     }
 

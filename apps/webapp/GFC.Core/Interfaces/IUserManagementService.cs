@@ -13,6 +13,7 @@ public interface IUserManagementService
     void UpdateUser(int userId, string username, string? password, int? memberId, string? notes, int? updatedByUserId = null, bool isAdmin = false, bool isActive = true);
     void DeleteUser(int userId);
     void ChangePassword(int userId, string newPassword, bool clearPasswordChangeRequired = false, int? performedByUserId = null);
+    void ChangePassCode(int userId, string newPassCode, bool clearPasswordChangeRequired = false, int? performedByUserId = null);
     string GenerateUsernameFromMember(int memberId);
     List<LoginHistoryDto> GetUserLoginHistory(int userId, int limit = 50);
     List<LoginHistoryDto> GetAllLoginHistory(int limit = 100);

@@ -15,5 +15,6 @@ public interface IUserRepository
     void UpdateLastLogin(int userId, DateTime loginDate);
     bool UsernameExists(string username, int? excludeUserId = null);
     void ClearPasswordChangeRequired(int userId);
+    void SetPassCode(int userId, string passCodeHash);
 }
 
