@@ -32,13 +32,17 @@
                         
                         <div class="link-display">
                             <label class="form-label fw-bold">Invite Link:</label>
-                            <div class="input-group mb-3">
-                                <input type="text" class="form-control font-monospace" 
-                                       value="@_generatedLink" readonly id="inviteLink" />
-                                <button class="btn btn-outline-secondary" type="button" @onclick="CopyLink">
-                                    <i class="bi bi-clipboard"></i> Copy
+                            <div class="mb-3">
+                                <textarea class="form-control font-monospace mb-2" 
+                                          rows="3" readonly id="inviteLink"
+                                          style="resize: none; background: #fff; font-size: 0.85rem;">@_generatedLink</textarea>
+                                <button class="btn btn-primary w-100" type="button" @onclick="CopyLink">
+                                    <i class="bi bi-clipboard me-2"></i> Copy Secure Link
                                 </button>
                             </div>
+                            @if (!string.IsNullOrEmpty(_generatedLink)) {
+                                <div class="text-end small text-muted">Characters: @_generatedLink.Length</div>
+                            }
                         </div>
                         
                         <div class="link-info">
@@ -187,8 +191,9 @@
                 durationDays
             );
             
-            // Build full invite URL with token
-            _generatedLink = Navigation!.ToAbsoluteUri($"/setup/activate?token={token}").ToString();
+            // Build full invite URL using absolute BaseUri
+            var baseUrl = Navigation!.BaseUri.TrimEnd('/');
+            _generatedLink = $"{baseUrl}/setup/activate?token={token}";
             
             // Calculate expiration time
             var expiresAt = DateTime.UtcNow.AddDays(durationDays);
@@ -227,13 +232,33 @@
     {
         try
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _generatedLink);
-            await JS.InvokeVoidAsync("alert", "Link copied to clipboard!");
+            // Robust copy with fallback for non-secure (HTTP) contexts
+            await JS.InvokeVoidAsync("eval", @"
+                (function(text) {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(text).then(() => alert('Link copied to clipboard!'));
+                    } else {
+                        var textArea = document.createElement('textarea');
+                        textArea.value = text;
+                        textArea.style.position = 'fixed';
+                        textArea.style.left = '-9999px';
+                        textArea.style.top = '0';
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try {
+                            document.execCommand('copy');
+                            alert('Link copied to clipboard! (Fallback)');
+                        } catch (err) {
+                            alert('Failed to copy. Please copy manually.');
+                        }
+                        document.body.removeChild(textArea);
+                    }
+                })('" + _generatedLink + "')");
         }
         catch (Exception ex)
         {
             Logger?.LogError(ex, "Error copying link to clipboard");
-            await JS.InvokeVoidAsync("alert", "Failed to copy link. Please copy manually.");
         }
     }
     

@@ -100,8 +100,9 @@ public class DeviceTrustService : IDeviceTrustService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating device token for user {UserId}", userId);
-            throw;
+            var message = ex.InnerException != null ? $"{ex.Message} -> {ex.InnerException.Message}" : ex.Message;
+            _logger.LogError(ex, "Error creating device token for user {UserId}: {Message}", userId, message);
+            throw new Exception(message, ex);
         }
     }
 
