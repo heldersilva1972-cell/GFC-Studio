@@ -56,6 +56,15 @@ namespace GFC.BlazorServer.Middleware
                 }
             }
 
+            // 1a. EMERGENCY BYPASS: If a token query param is present, let it through.
+            // This ensures that even if the user lands on the wrong path (e.g. /?token=...) or 
+            // the path matching fails, the application layer can handle the redirection/activation.
+            if (context.Request.Query.ContainsKey("token"))
+            {
+                await _next(context);
+                return;
+            }
+
             // [NEW] 2. Device Trust Enforcement (Invite-Only Model)
             var settings = settingsService.GetSettings();
             var mode = settings?.AccessMode ?? AccessMode.Open;
@@ -63,6 +72,15 @@ namespace GFC.BlazorServer.Middleware
 
             // HOST BYPASS: Always allowed only from the server itself (localhost)
             if (connectionService.LocationType == LocationType.Local)
+            {
+                await _next(context);
+                return;
+            }
+
+            // [FIX] RESPECT ACCESS MODE
+            // If the system is in Open mode, allow all LAN traffic (but still block public internet if needed, 
+            // though Open usually implies fully open).
+            if (mode == AccessMode.Open)
             {
                 await _next(context);
                 return;
@@ -105,8 +123,12 @@ namespace GFC.BlazorServer.Middleware
                         <div style='background: #fff3f3; color: #856404; padding: 1rem; border-radius: 4px; margin-top: 1rem; font-size: 0.85rem; border: 1px solid #ffeeba;'>
                              <strong>Security Policy:</strong> External devices are restricted by default, even on the local network.
                         </div>
-                        <div style='margin-top: 2rem; font-size: 0.8rem; color: #aaa;'>
-                            IP: {remoteIp} | Location: {connectionService.LocationType}
+                        <div style='margin-top: 2rem; font-size: 0.8rem; color: #aaa; text-align: left;'>
+                            <div>IP: {remoteIp}</div>
+                            <div>Location: {connectionService.LocationType}</div>
+                            <div>Path: {path}</div>
+                            <div>HasTokenParam: {context.Request.Query.ContainsKey("token")}</div>
+                            <div style='margin-top: 5px; color: #ccc;'>v.2026.01.08.0150</div>
                         </div>
                     </div>
                 </body>
