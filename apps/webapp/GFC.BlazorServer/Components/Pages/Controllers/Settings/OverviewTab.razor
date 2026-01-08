@@ -1,3 +1,4 @@
+@implements IDisposable
 @using GFC.BlazorServer.Data
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Services
@@ -208,6 +209,7 @@
     private HashSet<int> _unlockedDoors = new();
     
     private int _lastControllerId;
+    private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -215,7 +217,23 @@
         {
             _lastControllerId = Controller.Id;
             await LoadEvents();
+            
+            // Start auto-refresh timer
+            _refreshTimer?.Dispose();
+            _refreshTimer = new System.Threading.Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadEvents();
+                    StateHasChanged();
+                });
+            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
         }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
     }
 
     private async Task SyncTime()
@@ -285,13 +303,14 @@
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-            var since = DateTime.UtcNow.AddHours(-24);
             _recentEvents = await db.ControllerEvents
-                .Where(e => e.ControllerId == Controller.Id && e.TimestampUtc >= since)
-                .OrderByDescending(e => e.TimestampUtc)
+                .Where(e => e.ControllerId == Controller.Id)
+                .OrderByDescending(e => e.CreatedUtc)
                 .Take(20)
                 .Include(e => e.Door)
                 .ToListAsync();
+            
+            Logger.LogInformation("Loaded {Count} events for controller {Id}", _recentEvents.Count, Controller.Id);
         }
         catch (Exception ex)
         {
@@ -365,12 +384,27 @@
 
     private string GetEventDescription(ControllerEvent evt)
     {
-        var desc = evt.EventType switch
+        // N3000 stores the actual event type in ReasonCode (Byte 15), not EventType
+        var desc = evt.ReasonCode switch
         {
-            1 => "Access Granted", 2 => "Access Denied", 3 => "Door Forced", 4 => "Door Opened", _ => "Event"
+            0x01 => "Access Granted",
+            0x05 => "Access Denied (Not Found)",
+            0x06 => "Access Denied (Timezone)",
+            0x07 => "Access Denied (Password)",
+            0x08 => "Access Denied (Anti-Passback)",
+            0x09 => "Access Denied (Expired)",
+            0x0F => "Access Denied (Locked)",
+            0x1C => "Door Closed",
+            0x1D => "Door Opened",
+            0x25 => "Remote Unlock",
+            _ => $"Event (Code 0x{evt.ReasonCode:X2})"
         };
-        if (evt.CardNumber.HasValue) desc += $" (Card {evt.CardNumber})";
-        if (evt.Door != null) desc += $" - {evt.Door.Name}";
+        
+        if (evt.CardNumber.HasValue && evt.CardNumber > 0) 
+            desc += $" (Card {evt.CardNumber})";
+        if (evt.Door != null) 
+            desc += $" - {evt.Door.Name}";
+            
         return desc;
     }
 }

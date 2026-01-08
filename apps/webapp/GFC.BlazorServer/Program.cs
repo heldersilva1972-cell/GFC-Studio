@@ -221,6 +221,7 @@ public class Program
         builder.Services.AddSingleton<ControllerHealthService>();
         builder.Services.AddScoped<ControllerFullSyncService>();
         builder.Services.AddHostedService<ControllerHealthMonitor>();
+        builder.Services.AddHostedService<ControllerEventSyncService>(); // Auto-sync controller events
         
         builder.Services.AddScoped<IBoardTermConfirmationService, BoardTermConfirmationService>();
         builder.Services.AddScoped<ILotteryShiftService, LotteryShiftService>();

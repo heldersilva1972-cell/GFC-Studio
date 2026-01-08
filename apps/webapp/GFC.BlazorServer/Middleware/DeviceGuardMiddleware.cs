@@ -56,50 +56,69 @@ namespace GFC.BlazorServer.Middleware
                 }
             }
 
-            // [NEW] 2. Honor Access Mode
+            // [NEW] 2. Device Trust Enforcement (Invite-Only Model)
             var settings = settingsService.GetSettings();
             var mode = settings?.AccessMode ?? AccessMode.Open;
 
-            // Always allow Localhost (Server computer itself)
+            // LOCALHOST: Always allowed (you're on the server itself)
             if (connectionService.LocationType == LocationType.Local)
             {
                 await _next(context);
                 return;
             }
 
-            // Open access: allow everyone (still subject to login)
-            if (mode == AccessMode.Open)
+            // ALL OTHER CONNECTIONS: Must have valid device trust token
+            bool hasValidDeviceTrust = false;
+            if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token) && 
+                !string.IsNullOrEmpty(token))
+            {
+                hasValidDeviceTrust = deviceTrustService.ValidateToken(token);
+            }
+
+            // If device is trusted, allow access
+            if (hasValidDeviceTrust)
             {
                 await _next(context);
                 return;
             }
 
-            // LAN or VPN
-            if (mode == AccessMode.LanOrVpn && 
-               (connectionService.LocationType == LocationType.LAN || connectionService.LocationType == LocationType.VPN))
+            // NO VALID TOKEN: Block based on AccessMode
+            
+            // VPN: Blocked if not trusted (even VPN requires pre-approval)
+            if (connectionService.LocationType == LocationType.VPN)
             {
-                await _next(context);
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator. Contact support for access.");
                 return;
             }
 
-            // VPN Only
-            if (mode == AccessMode.VpnOnly && connectionService.LocationType == LocationType.VPN)
+            // LAN: Blocked if not trusted OR if mode doesn't allow LAN
+            if (connectionService.LocationType == LocationType.LAN)
             {
-                await _next(context);
+                if (mode == AccessMode.VpnOnly)
+                {
+                    context.Response.StatusCode = 403;
+                    await context.Response.WriteAsync("Access Denied. VPN connection required.");
+                    return;
+                }
+                
+                // LAN is allowed by mode, but device still needs approval
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator. Contact support for access.");
                 return;
             }
 
-            // 3. Fallback: Check for Device Token (External Users on Public networks)
-            if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token))
+            // PUBLIC/UNKNOWN: Blocked unless mode is Open
+            if (mode != AccessMode.Open)
             {
-                // For now, if the cookie exists, let them reach the login page.
-                // The login page itself will then link the device once they authenticate.
-                await _next(context);
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsync("Access Denied. This system requires LAN or VPN connection.");
                 return;
             }
 
-            // 4. Redirect Unauthorized External Users
-            context.Response.Redirect("/setup/request-access");
+            // Public connection with Open mode, but no device trust
+            context.Response.StatusCode = 403;
+            await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator. Contact support for access.");
             return;
         }
     }

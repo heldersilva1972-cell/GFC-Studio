@@ -15,6 +15,7 @@ public interface IDeviceTrustService
     Task<string> CreateDeviceTokenAsync(int userId, string userAgent, string ipAddress, int durationDays);
     Task RevokeDeviceTokenAsync(string token);
     Task CleanupExpiredTokensAsync();
+    bool ValidateToken(string token); // For middleware - validates token exists and is not expired/revoked
 }
 
 public class DeviceTrustService : IDeviceTrustService
@@ -159,6 +160,33 @@ public class DeviceTrustService : IDeviceTrustService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error cleaning up expired device tokens");
+        }
+    }
+
+    /// <summary>
+    /// Validates a token without requiring userId (for middleware use)
+    /// </summary>
+    public bool ValidateToken(string token)
+    {
+        if (string.IsNullOrEmpty(token))
+            return false;
+
+        try
+        {
+            using var context = _contextFactory.CreateDbContext();
+            
+            var device = context.TrustedDevices
+                .FirstOrDefault(d => 
+                    d.DeviceToken == token && 
+                    !d.IsRevoked && 
+                    d.ExpiresAtUtc > DateTime.UtcNow);
+
+            return device != null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating device token");
+            return false;
         }
     }
 }
