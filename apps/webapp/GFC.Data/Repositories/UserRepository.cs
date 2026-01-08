@@ -503,17 +503,17 @@ public class UserRepository : IUserRepository
     {
         return new AppUser
         {
-            UserId = reader["UserId"] != DBNull.Value ? (int)reader["UserId"] : 0,
+            UserId = reader["UserId"] != DBNull.Value ? Convert.ToInt32(reader["UserId"]) : 0,
             Username = reader["Username"] != DBNull.Value ? reader["Username"].ToString() ?? string.Empty : string.Empty,
             PasswordHash = reader["PasswordHash"] != DBNull.Value ? reader["PasswordHash"].ToString() ?? string.Empty : string.Empty,
-            IsAdmin = reader["IsAdmin"] != DBNull.Value && (bool)reader["IsAdmin"],
-            IsActive = reader["IsActive"] != DBNull.Value && (bool)reader["IsActive"],
-            MemberId = reader["MemberId"] as int?,
-            CreatedDate = reader["CreatedDate"] != DBNull.Value ? (DateTime)reader["CreatedDate"] : DateTime.UtcNow,
-            LastLoginDate = reader["LastLoginDate"] as DateTime?,
+            IsAdmin = reader["IsAdmin"] != DBNull.Value && Convert.ToBoolean(reader["IsAdmin"]),
+            IsActive = reader["IsActive"] != DBNull.Value && Convert.ToBoolean(reader["IsActive"]),
+            MemberId = reader["MemberId"] != DBNull.Value ? Convert.ToInt32(reader["MemberId"]) : null,
+            CreatedDate = reader["CreatedDate"] != DBNull.Value ? Convert.ToDateTime(reader["CreatedDate"]) : DateTime.UtcNow,
+            LastLoginDate = reader["LastLoginDate"] != DBNull.Value ? Convert.ToDateTime(reader["LastLoginDate"]) : null,
             CreatedBy = reader["CreatedBy"] as string,
             Notes = reader["Notes"] as string,
-            PasswordChangeRequired = reader["PasswordChangeRequired"] as bool? ?? false,
+            PasswordChangeRequired = reader["PasswordChangeRequired"] != DBNull.Value && Convert.ToBoolean(reader["PasswordChangeRequired"]),
             PassCodeHash = reader["PassCodeHash"] as string
         };
     }
@@ -522,14 +522,14 @@ public class UserRepository : IUserRepository
     {
         return new AppUser
         {
-            UserId = reader["UserId"] != DBNull.Value ? (int)reader["UserId"] : 0,
+            UserId = reader["UserId"] != DBNull.Value ? Convert.ToInt32(reader["UserId"]) : 0,
             Username = reader["Username"] != DBNull.Value ? reader["Username"].ToString() ?? string.Empty : string.Empty,
             PasswordHash = reader["PasswordHash"] != DBNull.Value ? reader["PasswordHash"].ToString() ?? string.Empty : string.Empty,
-            IsAdmin = reader["IsAdmin"] != DBNull.Value && (bool)reader["IsAdmin"],
-            IsActive = reader["IsActive"] != DBNull.Value && (bool)reader["IsActive"],
-            MemberId = reader["MemberId"] as int?,
-            CreatedDate = reader["CreatedDate"] != DBNull.Value ? (DateTime)reader["CreatedDate"] : DateTime.UtcNow,
-            LastLoginDate = reader["LastLoginDate"] as DateTime?,
+            IsAdmin = reader["IsAdmin"] != DBNull.Value && Convert.ToBoolean(reader["IsAdmin"]),
+            IsActive = reader["IsActive"] != DBNull.Value && Convert.ToBoolean(reader["IsActive"]),
+            MemberId = reader["MemberId"] != DBNull.Value ? Convert.ToInt32(reader["MemberId"]) : null,
+            CreatedDate = reader["CreatedDate"] != DBNull.Value ? Convert.ToDateTime(reader["CreatedDate"]) : DateTime.UtcNow,
+            LastLoginDate = reader["LastLoginDate"] != DBNull.Value ? Convert.ToDateTime(reader["LastLoginDate"]) : null,
             CreatedBy = reader["CreatedBy"] as string,
             Notes = reader["Notes"] as string,
             PasswordChangeRequired = false // Default for legacy records

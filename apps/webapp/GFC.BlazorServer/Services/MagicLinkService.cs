@@ -18,6 +18,7 @@ public class MagicLinkService : IMagicLinkService
     private readonly ISmsService _smsService;
     private readonly IBlazorSystemSettingsService _settingsService;
     private readonly NavigationManager _navigationManager;
+    private readonly IUrlHelperService _urlHelper;
     private readonly IAuditLogger _auditLogger;
     private readonly ILogger<MagicLinkService> _logger;
 
@@ -27,6 +28,7 @@ public class MagicLinkService : IMagicLinkService
         ISmsService smsService,
         IBlazorSystemSettingsService settingsService,
         NavigationManager navigationManager,
+        IUrlHelperService urlHelper,
         IAuditLogger auditLogger,
         ILogger<MagicLinkService> logger)
     {
@@ -35,6 +37,7 @@ public class MagicLinkService : IMagicLinkService
         _smsService = smsService;
         _settingsService = settingsService;
         _navigationManager = navigationManager;
+        _urlHelper = urlHelper;
         _auditLogger = auditLogger;
         _logger = logger;
     }
@@ -89,7 +92,7 @@ public class MagicLinkService : IMagicLinkService
 
         // 4. Send using preferred method
         var settings = await _settingsService.GetSystemSettingsAsync();
-        var baseUrl = _navigationManager.BaseUri.TrimEnd('/');
+        var baseUrl = await _urlHelper.GetBaseUrlAsync();
         var magicLink = $"{baseUrl}/auth/magic-login?token={token}";
         
         // Always log to console for debugging

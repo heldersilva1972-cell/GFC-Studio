@@ -268,6 +268,7 @@
     private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         LogCurrentPage();
+        EnforcePasswordSetup();
     }
 
     private void LogCurrentPage()
@@ -302,22 +303,31 @@
 
     private void EnforcePasswordSetup()
     {
-        var currentUser = AuthStateProvider.GetCurrentUser();
-        var currentUri = Navigation.Uri.ToLower();
-        
-        // Only redirect if they are logged in, need a change, and aren't already on pages where they are setting it or logging in
-        if (currentUser != null && currentUser.PasswordChangeRequired)
+        try
         {
-            if (!currentUri.Contains("/changepassword") && 
-                !currentUri.Contains("/login") && 
-                !currentUri.Contains("/setup/activate"))
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser == null) return;
+            
+            var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
+            
+            // Only redirect if they need a change
+            if (currentUser.PasswordChangeRequired)
             {
-                // Small delay to ensure navigation doesn't disrupt render cycle
-                Task.Run(async () => {
-                    await Task.Delay(50);
-                    await InvokeAsync(() => Navigation.NavigateTo("/changepassword"));
-                });
+                // Strictly check if we are already on a page that handles authentication/setup
+                bool isBypassPage = currentUri.Contains("/changepassword") || 
+                                   currentUri.Contains("/login") || 
+                                   currentUri.Contains("/setup/activate") ||
+                                   currentUri.Contains("/auth/magic-login");
+
+                if (!isBypassPage)
+                {
+                    Navigation.NavigateTo("/changepassword", forceLoad: false);
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Safety catch: Password enforcement check failed.");
         }
     }
 

@@ -61,14 +61,14 @@ namespace GFC.BlazorServer.Middleware
             var mode = settings?.AccessMode ?? AccessMode.Open;
             var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-            // LOCALHOST: Always allowed (you're on the server itself)
+            // HOST BYPASS: Always allowed only from the server itself (localhost)
             if (connectionService.LocationType == LocationType.Local)
             {
                 await _next(context);
                 return;
             }
 
-            // ALL OTHER CONNECTIONS: Must have valid device trust token
+            // ALL EXTERNAL DEVICES (LAN, VPN, PUBLIC): Must have valid device trust token
             bool hasValidDeviceTrust = false;
             string? token = null;
 
@@ -85,49 +85,32 @@ namespace GFC.BlazorServer.Middleware
                 return;
             }
 
-            // --- ALL CODE BELOW THIS POINT IS FOR UNTRUSTED DEVICES ---
+            // --- ALL CODE BELOW THIS POINT IS FOR UNTRUSTED ACCESS ---
             
             var logger = context.RequestServices.GetRequiredService<ILogger<DeviceGuardMiddleware>>();
-            logger.LogWarning("Untrusted device access blocked. IP: {IP}, Location: {Loc}, Path: {Path}, TokenFound: {TokenFound}", 
-                remoteIp, connectionService.LocationType, path, !string.IsNullOrEmpty(token));
+            logger.LogWarning("Untrusted device access blocked. IP: {IP}, Location: {Loc}, Path: {Path}", 
+                remoteIp, connectionService.LocationType, path);
 
-            // NO VALID TOKEN: Block based on AccessMode
-            
-            // VPN: Blocked if not trusted (even VPN requires pre-approval)
-            if (connectionService.LocationType == LocationType.VPN)
-            {
-                context.Response.StatusCode = 403;
-                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator (VPN).");
-                return;
-            }
-
-            // LAN: Blocked if not trusted OR if mode doesn't allow LAN
-            if (connectionService.LocationType == LocationType.LAN)
-            {
-                if (mode == AccessMode.VpnOnly)
-                {
-                    context.Response.StatusCode = 403;
-                    await context.Response.WriteAsync("Access Denied. VPN connection required.");
-                    return;
-                }
-                
-                // LAN is allowed by mode, but device still needs approval
-                context.Response.StatusCode = 403;
-                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator (LAN).");
-                return;
-            }
-
-            // PUBLIC/UNKNOWN: Blocked unless mode is Open
-            if (mode != AccessMode.Open)
-            {
-                context.Response.StatusCode = 403;
-                await context.Response.WriteAsync("Access Denied. This system requires LAN or VPN connection.");
-                return;
-            }
-
-            // Public connection with Open mode, but no device trust
+            // Blocked
             context.Response.StatusCode = 403;
-            await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator (Public).");
+            context.Response.ContentType = "text/html";
+            await context.Response.WriteAsync($@"
+                <html>
+                <body style='font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f8f9fa;'>
+                    <div style='max-width: 500px; text-align: center; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-top: 5px solid #dc3545;'>
+                        <h2 style='color: #dc3545;'><i class='bi bi-shield-lock'></i> Access Shield Active</h2>
+                        <p>This device is not registered to access the GFC System.</p>
+                        <hr style='border: 0; border-top: 1px solid #eee; margin: 1.5rem 0;' />
+                        <p style='font-size: 0.9rem; color: #666;'>To access the system, an administrator must provide you with a <strong>Secure Setup Link</strong>.</p>
+                        <div style='background: #fff3f3; color: #856404; padding: 1rem; border-radius: 4px; margin-top: 1rem; font-size: 0.85rem; border: 1px solid #ffeeba;'>
+                             <strong>Security Policy:</strong> External devices are restricted by default, even on the local network.
+                        </div>
+                        <div style='margin-top: 2rem; font-size: 0.8rem; color: #aaa;'>
+                            IP: {remoteIp} | Location: {connectionService.LocationType}
+                        </div>
+                    </div>
+                </body>
+                </html>");
             return;
         }
     }
