@@ -11,6 +11,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<DeviceSetup> Logger
 @inject GFC.Core.Interfaces.IUserRepository UserRepository
+@inject GFC.BlazorServer.Services.IDeviceTrustService DeviceTrustService
 
 <div class="device-setup-container">
     <div class="page-header">
@@ -167,6 +168,10 @@
                                 {
                                     <i class="bi bi-phone"></i>
                                 }
+                                else if (profile.IsTrustedWebDevice)
+                                {
+                                    <i class="bi bi-globe2"></i>
+                                }
                                 else
                                 {
                                     <i class="bi bi-pc-display"></i>
@@ -174,7 +179,13 @@
                             </div>
                             <div class="device-info">
                                 <h3>@profile.DeviceName</h3>
-                                <span class="assigned-ip">@profile.AssignedIP</span>
+                                <div class="d-flex flex-column">
+                                    <span class="assigned-ip">@profile.AssignedIP</span>
+                                    @if (profile.IsTrustedWebDevice)
+                                    {
+                                        <small class="text-muted" style="font-size: 0.75rem;">Web Browser Trust</small>
+                                    }
+                                </div>
                             </div>
                         </div>
 
@@ -195,13 +206,16 @@
 
                         <div class="card-actions">
                             <div class="dropdown-group">
-                                <button class="btn btn-download" @onclick="() => DownloadConfig(profile)">
-                                    <i class="bi bi-download"></i> Download Settings
+                                <button class="btn btn-download" @onclick="() => DownloadConfig(profile)" disabled="@profile.IsTrustedWebDevice" title="@(profile.IsTrustedWebDevice ? "Not applicable for web trust" : "Download Configuration")">
+                                    <i class="bi bi-download"></i> @(profile.IsTrustedWebDevice ? "Web Trust" : "Download Settings")
                                 </button>
                                 <div class="action-menu">
-                                    <button class="btn btn-icon" title="Fix Connection (Rotate Keys)" @onclick="() => ConfirmRotateKeys(profile)">
-                                        <i class="bi bi-arrow-repeat"></i>
-                                    </button>
+                                    @if (!profile.IsTrustedWebDevice)
+                                    {
+                                        <button class="btn btn-icon" title="Fix Connection (Rotate Keys)" @onclick="() => ConfirmRotateKeys(profile)">
+                                            <i class="bi bi-arrow-repeat"></i>
+                                        </button>
+                                    }
                                     <button class="btn btn-icon btn-danger" title="Remove Device" @onclick="() => ConfirmRevoke(profile)">
                                         <i class="bi bi-trash"></i>
                                     </button>
@@ -771,7 +785,7 @@
 
 @code {
     // Access State Properties
-    private List<VpnProfile> _profiles = new();
+    private List<DeviceViewModel> _profiles = new();
     private bool _loading = true;
     private int _currentUserId;
     private bool _isAdmin = false;
@@ -814,7 +828,44 @@
                     _targetUser = UserRepository.GetById(displayUid);
                 }
                 
-                _profiles = await VpnService.GetUserProfilesAsync(displayUid);
+                // Fetch BOTH VPN profiles and Trusted Web Devices
+                var vpnProfiles = await VpnService.GetUserProfilesAsync(displayUid);
+                var trustedDevices = await DeviceTrustService.GetDevicesForUserAsync(displayUid);
+
+                _profiles = new List<DeviceViewModel>();
+
+                // Map VPN Profiles
+                _profiles.AddRange(vpnProfiles.Select(p => new DeviceViewModel
+                {
+                    Id = p.Id.ToString(),
+                    OriginalId = p.Id,
+                    UserId = p.UserId,
+                    DeviceName = p.DeviceName,
+                    DeviceType = p.DeviceType,
+                    PublicKey = p.PublicKey,
+                    AssignedIP = p.AssignedIP,
+                    CreatedAt = p.CreatedAt,
+                    LastUsedAt = p.LastUsedAt,
+                    IsTrustedWebDevice = false
+                }));
+
+                // Map Trusted Devices
+                _profiles.AddRange(trustedDevices.Select(d => new DeviceViewModel
+                {
+                    Id = d.DeviceToken, // Token acts as ID
+                    OriginalId = d.Id,
+                    UserId = d.UserId,
+                    DeviceName = string.IsNullOrEmpty(d.UserAgent) ? "Web Browser" : ParseUserAgent(d.UserAgent),
+                    DeviceType = "Web Browser",
+                    PublicKey = d.DeviceToken, // Token acts as Key
+                    AssignedIP = d.IpAddress,
+                    CreatedAt = d.LastUsedUtc, // Trust records don't have CreatedAt, use LastUsed as proxy or Add CreatedAt column later
+                    LastUsedAt = d.LastUsedUtc,
+                    IsTrustedWebDevice = true
+                }));
+                
+                // Sort by last used (most recent first)
+                _profiles = _profiles.OrderByDescending(p => p.LastUsedAt ?? p.CreatedAt).ToList();
             }
         }
         catch (Exception ex)
@@ -833,8 +884,25 @@
         return key.Substring(0, 8) + "..." + key.Substring(key.Length - 4);
     }
 
-    private async Task DownloadConfig(VpnProfile profile)
+    private string ParseUserAgent(string userAgent)
     {
+        if (string.IsNullOrEmpty(userAgent)) return "Web Browser";
+        if (userAgent.Contains("iPhone")) return "iPhone Web";
+        if (userAgent.Contains("iPad")) return "iPad Web";
+        if (userAgent.Contains("Android")) return "Android Web";
+        if (userAgent.Contains("Windows")) return "Windows Web";
+        if (userAgent.Contains("Mac")) return "Mac Web";
+        return "Web Browser";
+    }
+
+    private async Task DownloadConfig(DeviceViewModel profile)
+    {
+        if (profile.IsTrustedWebDevice)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Configuration download is not applicable for web trust tokens.");
+            return;
+        }
+
         try
         {
             var configContent = await VpnService.GenerateConfigForUserAsync(_currentUserId, profile.DeviceName, profile.DeviceType);
@@ -849,15 +917,16 @@
         }
     }
 
-    private async Task ConfirmRotateKeys(VpnProfile profile)
+    private async Task ConfirmRotateKeys(DeviceViewModel profile)
     {
+        if (profile.IsTrustedWebDevice) return;
         bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to rotate keys for '{profile.DeviceName}'? This will invalidate your current WireGuard connection on that device until you update it with the new config.");
         
         if (confirmed)
         {
             try
             {
-                await VpnService.RotateKeysAsync(profile.Id);
+                await VpnService.RotateKeysAsync(profile.OriginalId);
                 await LoadProfiles();
                 StateHasChanged();
                 await JSRuntime.InvokeVoidAsync("alert", "Keys rotated successfully. Please download the new config and update your device.");
@@ -870,7 +939,7 @@
         }
     }
 
-    private async Task ConfirmRevoke(VpnProfile profile)
+    private async Task ConfirmRevoke(DeviceViewModel profile)
     {
         bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Permanently revoke access for '{profile.DeviceName}'? You will lose secure access from this device immediately.");
         
@@ -878,7 +947,15 @@
         {
             try
             {
-                await VpnService.RevokeProfileAsync(profile.Id, _currentUserId, "Userself-revoked via portal");
+                if (profile.IsTrustedWebDevice)
+                {
+                    await DeviceTrustService.RevokeDeviceTokenAsync(profile.PublicKey); // PublicKey stores the token
+                }
+                else 
+                {
+                    await VpnService.RevokeProfileAsync(profile.OriginalId, _currentUserId, "Userself-revoked via portal");
+                }
+                
                 await LoadProfiles();
                 StateHasChanged();
             }
@@ -1044,5 +1121,19 @@
         NoDevices,   // State 1: First-time user, no devices
         HasDevices,  // State 2: Managed user, has devices
         Admin        // State 3: Administrator
+    }
+
+    public class DeviceViewModel
+    {
+        public string Id { get; set; } = "";
+        public int OriginalId { get; set; }
+        public int UserId { get; set; }
+        public string DeviceName { get; set; } = "";
+        public string? DeviceType { get; set; }
+        public string PublicKey { get; set; } = "";
+        public string? AssignedIP { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? LastUsedAt { get; set; }
+        public bool IsTrustedWebDevice { get; set; }
     }
 }

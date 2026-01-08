@@ -29,10 +29,40 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         _userSessionService = userSessionService ?? throw new ArgumentNullException(nameof(userSessionService));
     }
 
-    public override Task<AuthenticationState> GetAuthenticationStateAsync()
+    public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
         RefreshFromAuthenticationService();
-        return Task.FromResult(new AuthenticationState(_currentPrincipal));
+
+        // [MODIFIED] ASYNC AUTO-LOGIN LOGIC logic moved here to avoid blocking and deadlocks
+        if (_currentUser == null)
+        {
+            try 
+            {
+                var context = _httpContextAccessor.HttpContext;
+                if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token) && !string.IsNullOrEmpty(token))
+                {
+                    // Asynchronously attempt to restore session from token
+                    var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
+                    if (result.Success)
+                    {
+                        var updatedUser = result.User; // Capture result
+                        if (updatedUser != null)
+                        {
+                            _currentUser = updatedUser;
+                            _currentPrincipal = BuildPrincipal(updatedUser);
+                            _userSessionService.SetLoginTime(DateTime.UtcNow);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't crash
+                 System.Diagnostics.Debug.WriteLine($"Auto-login failed: {ex.Message}");
+            }
+        }
+
+        return new AuthenticationState(_currentPrincipal);
     }
 
     private ClaimsPrincipal BuildPrincipal(AppUser user)

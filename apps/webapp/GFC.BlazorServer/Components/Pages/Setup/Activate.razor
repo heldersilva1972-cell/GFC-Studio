@@ -38,6 +38,7 @@
             </div>
         </div>
         <p class="mt-4 small text-muted">Redirecting automatically in a moment...</p>
+        <div class="small text-muted" style="font-size: 0.7rem; opacity: 0.7;">Target: @_nextUrl</div>
     }
     else if (!string.IsNullOrEmpty(_errorMessage))
     {
@@ -90,49 +91,42 @@
                 return;
             }
 
-            // 1. Set the cookie via global JavaScript helper (365 days) - Essential for Middleware
+            // 1. Set the cookie via global JavaScript helper (365 days)
             await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", token, 365);
             
-            // 2. Set in localStorage for App.razor auto-login resilience
+            // 2. Set in localStorage
             await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", token);
 
-            // 3. Explicitly log the user in immediately
+            // 3. Explicitly log the user in
             var loginResult = await AuthStateProvider.LoginWithDeviceTokenAsync(token);
             
             if (loginResult.Success)
             {
-                // Determine next URL immediately from the authoritative login result
-                // This avoids race conditions with AuthStateProvider.GetCurrentUser()
                 var bust = DateTime.UtcNow.Ticks;
-                bool needsPasswordChange = loginResult.PasswordChangeRequired || 
-                                         (loginResult.User != null && loginResult.User.PasswordChangeRequired);
-                                         
-                _nextUrl = needsPasswordChange 
-                    ? $"/changepassword?t={bust}" 
-                    : $"/?activation_success=true&t={bust}";
+                
+                // POLICY: Always force setup/verification on new device activation
+                _nextUrl = $"/changepassword?setup=true&t={bust}";
 
                 _success = true;
                 _activating = false;
                 StateHasChanged();
 
-                // Give the browser a moment to ensure cookies and localStorage are written
                 await Task.Delay(1000);
-
-                // Redirect using the determined URL
-                Navigation.NavigateTo(_nextUrl, forceLoad: true);
+                
+                // Use JS for reliable redirect (prevents 'hanging' state issues)
+                await JS.InvokeVoidAsync("window.location.assign", _nextUrl);
             }
             else
             {
-                // Fallback: If immediate login fails (rarity), we still try the standard redirect flow
-                // expecting App.razor to pick it up or Middleware to handle it.
+                // Fallback
                 _success = true; 
                 _activating = false;
-                _nextUrl = "/"; // Default fallback
+                _nextUrl = "/"; 
                 StateHasChanged();
                 await Task.Delay(1500);
                 
                 var bust = DateTime.UtcNow.Ticks;
-                await JS.InvokeVoidAsync("eval", $"window.location.href = '/?fallback_success=true&t={bust}'");
+                await JS.InvokeVoidAsync("window.location.assign", $"/?fallback_success=true&t={bust}");
             }
         }
         catch (Exception ex)
