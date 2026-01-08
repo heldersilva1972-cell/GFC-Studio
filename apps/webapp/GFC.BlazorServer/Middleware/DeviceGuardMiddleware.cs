@@ -59,6 +59,7 @@ namespace GFC.BlazorServer.Middleware
             // [NEW] 2. Device Trust Enforcement (Invite-Only Model)
             var settings = settingsService.GetSettings();
             var mode = settings?.AccessMode ?? AccessMode.Open;
+            var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
             // LOCALHOST: Always allowed (you're on the server itself)
             if (connectionService.LocationType == LocationType.Local)
@@ -69,7 +70,9 @@ namespace GFC.BlazorServer.Middleware
 
             // ALL OTHER CONNECTIONS: Must have valid device trust token
             bool hasValidDeviceTrust = false;
-            if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token) && 
+            string? token = null;
+
+            if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && 
                 !string.IsNullOrEmpty(token))
             {
                 hasValidDeviceTrust = deviceTrustService.ValidateToken(token);
@@ -82,13 +85,19 @@ namespace GFC.BlazorServer.Middleware
                 return;
             }
 
+            // --- ALL CODE BELOW THIS POINT IS FOR UNTRUSTED DEVICES ---
+            
+            var logger = context.RequestServices.GetRequiredService<ILogger<DeviceGuardMiddleware>>();
+            logger.LogWarning("Untrusted device access blocked. IP: {IP}, Location: {Loc}, Path: {Path}, TokenFound: {TokenFound}", 
+                remoteIp, connectionService.LocationType, path, !string.IsNullOrEmpty(token));
+
             // NO VALID TOKEN: Block based on AccessMode
             
             // VPN: Blocked if not trusted (even VPN requires pre-approval)
             if (connectionService.LocationType == LocationType.VPN)
             {
                 context.Response.StatusCode = 403;
-                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator. Contact support for access.");
+                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator (VPN).");
                 return;
             }
 
@@ -104,7 +113,7 @@ namespace GFC.BlazorServer.Middleware
                 
                 // LAN is allowed by mode, but device still needs approval
                 context.Response.StatusCode = 403;
-                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator. Contact support for access.");
+                await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator (LAN).");
                 return;
             }
 
@@ -118,7 +127,7 @@ namespace GFC.BlazorServer.Middleware
 
             // Public connection with Open mode, but no device trust
             context.Response.StatusCode = 403;
-            await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator. Contact support for access.");
+            await context.Response.WriteAsync("Access Denied. This device must be approved by an administrator (Public).");
             return;
         }
     }
