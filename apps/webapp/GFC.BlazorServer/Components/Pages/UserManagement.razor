@@ -12,6 +12,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<UserManagement> Logger
 @inject IPasswordPolicy PasswordPolicy
+@inject IDeviceTrustService DeviceTrustService
 
 <link href="css/user-management-animations.css" rel="stylesheet" />
 
@@ -120,6 +121,7 @@
                         <th>Role</th>
                         <th>Status</th>
                         <th>Last Login</th>
+                        <th>Active Devices</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -163,6 +165,21 @@
                                 else
                                 {
                                     <span class="text-muted">Never</span>
+                                }
+                            </td>
+                            <td>
+                                @{
+                                    var deviceCount = GetActiveDeviceCount(user.UserId);
+                                }
+                                @if (deviceCount > 0)
+                                {
+                                    <span class="badge bg-success" title="@deviceCount active device(s)">
+                                        <i class="bi bi-laptop me-1"></i>@deviceCount
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">—</span>
                                 }
                             </td>
                             <td>
@@ -905,6 +922,7 @@
         {
             _users = await Task.Run(() => UserService.GetAllUsers());
             _activeMembers = await Task.Run(() => UserService.GetActiveMembersForUserCreation());
+            await LoadDeviceCounts();
         }
         catch (Exception ex)
         {
@@ -1585,5 +1603,32 @@
         
         public bool ControllerEventNotifyEmail { get; set; } = false;
         public bool ControllerEventNotifySMS { get; set; } = false;
+    }
+
+    // Active device tracking
+    private Dictionary<int, int> _userDeviceCounts = new();
+
+    private int GetActiveDeviceCount(int userId)
+    {
+        if (_userDeviceCounts.TryGetValue(userId, out var count))
+        {
+            return count;
+        }
+        return 0;
+    }
+
+    private async Task LoadDeviceCounts()
+    {
+        try
+        {
+            var allSessions = await DeviceTrustService.GetAllActiveDevicesAsync();
+            _userDeviceCounts = allSessions
+                .GroupBy(s => s.UserId)
+                .ToDictionary(g => g.Key, g => g.Count());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load device counts");
+        }
     }
 }
