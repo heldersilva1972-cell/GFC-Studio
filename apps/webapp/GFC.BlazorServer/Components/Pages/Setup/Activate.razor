@@ -31,12 +31,7 @@
             <h5 class="text-primary"><i class="bi bi-shield-lock me-2"></i>Finalizing Setup</h5>
             <div class="d-flex align-items-center justify-content-center mt-3">
                 <div class="spinner-border text-primary spinner-border-sm me-2" role="status"></div>
-                <span class="text-muted">Securing your session and taking you to setup...</span>
-            </div>
-            <div class="mt-4">
-                <a href="@_nextUrl" class="btn btn-primary btn-lg shadow-sm w-100">
-                    <i class="bi bi-arrow-right-circle me-2"></i>Continue
-                </a>
+                <span class="text-muted">Redirecting to account setup...</span>
             </div>
         </div>
         <p class="mt-4 small text-muted">Redirecting automatically in a moment...</p>
@@ -112,32 +107,23 @@
             await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", deviceTrustToken, 365);
             await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", deviceTrustToken);
 
-            // 4. Explicitly log the user in with the NEW TRUST TOKEN
-            var loginResult = await AuthStateProvider.LoginWithDeviceTokenAsync(deviceTrustToken);
+            // 4. Proceed to Redirect
+            // We rely on the cookie/localStorage set above to authenticate the user on the next page load.
+            // Skipping explicit in-component login prevents potential DB locking/race conditions during the rapid redirect.
+
+            var bust = DateTime.UtcNow.Ticks;
             
-            if (loginResult.Success)
-            {
-                // CRITICAL: Login rotates the token! Update cookie with the NEW token if provided.
-                if (!string.IsNullOrEmpty(loginResult.DeviceToken))
-                {
-                    await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", loginResult.DeviceToken, 365);
-                    await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", loginResult.DeviceToken);
-                }
+            // POLICY: Always force setup/verification on new device activation
+            _nextUrl = $"/changepassword?setup=true&t={bust}";
 
-                var bust = DateTime.UtcNow.Ticks;
-                
-                // POLICY: Always force setup/verification on new device activation
-                _nextUrl = $"/changepassword?setup=true&t={bust}";
+            _success = true;
+            _activating = false;
+            StateHasChanged();
 
-                _success = true;
-                _activating = false;
-                StateHasChanged();
-
-                await Task.Delay(1000);
-                
-                // Use JS for reliable redirect
-                await JS.InvokeVoidAsync("window.location.assign", _nextUrl);
-            }
+            await Task.Delay(100);
+            
+            // Force load to ensure cookies are sent freshly and auth state is rebuilt
+            Navigation.NavigateTo(_nextUrl, forceLoad: true);
             else
             {
                 // This shouldn't happen if activation was successful, but just in case

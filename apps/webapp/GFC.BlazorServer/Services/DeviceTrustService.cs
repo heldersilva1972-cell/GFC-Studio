@@ -109,8 +109,7 @@ public class DeviceTrustService : IDeviceTrustService
                 _logger.LogInformation("Revoked {Count} existing sessions for user {UserId} to enforce single-session policy.", existingTokens.Count, userId);
             }
 
-            // Generate a URL-safe token
-            var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+
             
             var device = new TrustedDevice
             {
