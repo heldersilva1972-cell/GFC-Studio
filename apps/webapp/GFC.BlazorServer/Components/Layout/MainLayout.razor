@@ -139,8 +139,8 @@
 
             UpdateControllerStatus();
 
-            // Initial check for password setup
-            await EnforcePasswordSetup();
+            // Initial check for password setup - use sync check to avoid lifecycle delays during startup
+            EnforcePasswordSetup();
 
             _healthTimer = new System.Threading.Timer(async _ => 
             {
@@ -161,12 +161,7 @@
                 }
             }, null, 60000, 60000);
             
-            AuthStateProvider.AuthenticationStateChanged += async (task) =>
-            {
-                await UpdateUserInfo();
-                await EnforcePasswordSetup();
-                await InvokeAsync(StateHasChanged);
-            };
+            AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
 
             await ThemeService.InitializeAsync();
             ThemeService.OnThemeChanged += StateHasChanged;
@@ -256,8 +251,18 @@
     {
         _healthTimer?.Dispose();
         _sessionTimer?.Dispose();
+        AuthStateProvider.AuthenticationStateChanged -= HandleAuthenticationStateChanged;
         ThemeService.OnThemeChanged -= StateHasChanged;
         Navigation.LocationChanged -= HandleLocationChanged;
+    }
+
+    private async void HandleAuthenticationStateChanged(Task<AuthenticationState> task)
+    {
+        await InvokeAsync(async () => {
+            await UpdateUserInfo();
+            EnforcePasswordSetup();
+            StateHasChanged();
+        });
     }
 
     private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
@@ -295,14 +300,24 @@
         }
     }
 
-    private async Task EnforcePasswordSetup()
+    private void EnforcePasswordSetup()
     {
         var currentUser = AuthStateProvider.GetCurrentUser();
-        // Only redirect if they are logged in, need a change, and aren't already on the setup page
-        if (currentUser != null && currentUser.PasswordChangeRequired && !Navigation.Uri.Contains("/changepassword"))
+        var currentUri = Navigation.Uri.ToLower();
+        
+        // Only redirect if they are logged in, need a change, and aren't already on pages where they are setting it or logging in
+        if (currentUser != null && currentUser.PasswordChangeRequired)
         {
-            await Task.Delay(100); // Small buffer for auth state to stabilize
-            Navigation.NavigateTo("/changepassword");
+            if (!currentUri.Contains("/changepassword") && 
+                !currentUri.Contains("/login") && 
+                !currentUri.Contains("/setup/activate"))
+            {
+                // Small delay to ensure navigation doesn't disrupt render cycle
+                Task.Run(async () => {
+                    await Task.Delay(50);
+                    await InvokeAsync(() => Navigation.NavigateTo("/changepassword"));
+                });
+            }
         }
     }
 

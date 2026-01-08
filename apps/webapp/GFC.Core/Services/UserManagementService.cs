@@ -44,37 +44,36 @@ public class UserManagementService : IUserManagementService
         var users = _userRepository.GetAllUsers();
         var result = new List<UserListItemDto>();
 
+        // OPTIMIZATION: Pre-fetch all members and board assignments in bulk to avoid N+1 queries
+        var allMembers = _memberRepository.GetAllMembers().ToDictionary(m => m.MemberID, m => m);
+        
+        var currentYear = DateTime.Now.Year;
+        var currentDirectors = new HashSet<int>();
+        var prevDirectors = new HashSet<int>();
+        
+        try 
+        {
+            currentDirectors = _boardRepository.GetAssignmentsByYear(currentYear).Select(a => a.MemberID).ToHashSet();
+            prevDirectors = _boardRepository.GetAssignmentsByYear(currentYear - 1).Select(a => a.MemberID).ToHashSet();
+        }
+        catch { /* Fallback to empty if table fails */ }
+
+        var confirmation = _boardTermConfirmationService.GetConfirmation(currentYear);
+
         foreach (var user in users)
         {
             string? memberName = null;
             bool isDirector = false;
-            if (user.MemberId.HasValue)
+            
+            if (user.MemberId.HasValue && allMembers.TryGetValue(user.MemberId.Value, out var member))
             {
-                var member = _memberRepository.GetMemberById(user.MemberId.Value);
-                if (member != null)
+                memberName = $"{member.LastName}, {member.FirstName}";
+                
+                // Optimized director check using local HashSet
+                isDirector = currentDirectors.Contains(user.MemberId.Value);
+                if (!isDirector && confirmation == null)
                 {
-                    memberName = $"{member.LastName}, {member.FirstName}";
-                    
-                    // Check if they are currently on the board
-                    try
-                    {
-                        var currentYear = DateTime.Now.Year;
-                        isDirector = _boardRepository.IsBoardMemberForYear(user.MemberId.Value, currentYear);
-                        
-                        // GRACE PERIOD LOGIC:
-                        // If they aren't a director in the current year, check if the current year's board
-                        // has been confirmed yet. If not, they might still be a director from last year.
-                        if (!isDirector)
-                        {
-                            var confirmation = _boardTermConfirmationService.GetConfirmation(currentYear);
-                            if (confirmation == null)
-                            {
-                                // Current year not finalized, check previous year
-                                isDirector = _boardRepository.IsBoardMemberForYear(user.MemberId.Value, currentYear - 1);
-                            }
-                        }
-                    }
-                    catch { /* Ignore */ }
+                    isDirector = prevDirectors.Contains(user.MemberId.Value);
                 }
             }
 
@@ -99,10 +98,16 @@ public class UserManagementService : IUserManagementService
         var allMembers = _memberRepository.GetAllMembers();
         var duesRecords = _duesRepository.GetDuesForYear(currentYear);
         var duesLookup = duesRecords.ToDictionary(d => d.MemberID, d => d);
+        
+        // OPTIMIZATION: Get directors once in bulk
+        var currentDirectors = new HashSet<int>();
+        try {
+            currentDirectors = _boardRepository.GetAssignmentsByYear(currentYear).Select(a => a.MemberID).ToHashSet();
+        } catch { }
 
         // Get members who are active and have paid/waived dues for current year
         var activePaidMembers = allMembers
-            .Where(m => IsActiveForDues(m) && HasPaidOrWaivedDues(m, duesLookup, currentYear))
+            .Where(m => IsActiveForDues(m) && HasPaidOrWaivedDuesOptimized(m, duesLookup, currentYear, currentDirectors))
             .OrderBy(m => m.LastName)
             .ThenBy(m => m.FirstName)
             .Select(m => new ActiveMemberDto(
@@ -124,20 +129,13 @@ public class UserManagementService : IUserManagementService
             && member.Status != "REJECTED";
     }
 
-    private bool HasPaidOrWaivedDues(Member member, Dictionary<int, DuesPayment> duesLookup, int year)
+    private bool HasPaidOrWaivedDuesOptimized(Member member, Dictionary<int, DuesPayment> duesLookup, int year, HashSet<int> directors)
     {
         // Life members are always waived
         if (member.Status == "LIFE") return true;
         
-        // Board members are waived
-        try
-        {
-            if (_boardRepository.IsBoardMemberForYear(member.MemberID, year)) return true;
-        }
-        catch
-        {
-            // If board check fails, continue with dues check
-        }
+        // Board members are waived - check optimized hashset
+        if (directors.Contains(member.MemberID)) return true;
         
         // Check if they have a paid or waived dues record
         if (duesLookup.TryGetValue(member.MemberID, out var dues))
