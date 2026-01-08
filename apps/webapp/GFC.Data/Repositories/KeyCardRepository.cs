@@ -104,7 +104,6 @@ public class KeyCardRepository : IKeyCardRepository
             INSERT INTO dbo.KeyCards (MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, CreatedDate)
             VALUES (@MemberID, @CardNumber, @Notes, 1, @CardType, 0, @CreatedDate);
             SELECT CAST(SCOPE_IDENTITY() AS INT);";
-        // Note: Defaulting to 'Card' for now, should update Create method to accept type
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@MemberID", memberId);
@@ -115,6 +114,43 @@ public class KeyCardRepository : IKeyCardRepository
 
         var newId = (int)command.ExecuteScalar();
         return GetById(newId)!;
+    }
+
+    public KeyCard? ReplaceCard(int memberId, string newCardNumber, string? notes, string cardType = "Card")
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        // Get the member's existing card
+        const string checkSql = @"
+            SELECT TOP 1 KeyCardId, MemberID, CardNumber, Notes, IsActive, CardType, IsControllerSynced, LastControllerSyncDate, CreatedDate
+            FROM dbo.KeyCards
+            WHERE MemberID = @MemberID
+            ORDER BY KeyCardId DESC";
+
+        using var checkCommand = new SqlCommand(checkSql, connection);
+        checkCommand.Parameters.AddWithValue("@MemberID", memberId);
+
+        using var reader = checkCommand.ExecuteReader();
+        if (!reader.Read())
+        {
+            // No existing card found
+            reader.Close();
+            return null;
+        }
+
+        var existingCard = MapReader(reader, nameof(ReplaceCard));
+        reader.Close();
+
+        // Update the existing card with new card number
+        existingCard.CardNumber = newCardNumber;
+        existingCard.CardType = cardType;
+        existingCard.Notes = notes;
+        existingCard.IsActive = true;
+        existingCard.IsControllerSynced = false; // Needs re-sync with new number
+
+        Update(existingCard);
+        return existingCard;
     }
 
     public void Update(KeyCard card)
@@ -144,6 +180,55 @@ public class KeyCardRepository : IKeyCardRepository
         command.Parameters.AddWithValue("@KeyCardId", card.KeyCardId);
 
         command.ExecuteNonQuery();
+    }
+
+    public void Delete(int keyCardId)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            // 1. Delete dependent deactivation logs first
+            const string sqlLogs = "DELETE FROM dbo.CardDeactivationLog WHERE KeyCardId = @KeyCardId";
+            using (var cmdLogs = new SqlCommand(sqlLogs, connection, transaction))
+            {
+                cmdLogs.Parameters.AddWithValue("@KeyCardId", keyCardId);
+                cmdLogs.ExecuteNonQuery();
+            }
+
+            // 2. Delete dependent sync queue items
+            const string sqlQueue = "DELETE FROM dbo.ControllerSyncQueue WHERE KeyCardId = @KeyCardId";
+            using (var cmdQueue = new SqlCommand(sqlQueue, connection, transaction))
+            {
+                cmdQueue.Parameters.AddWithValue("@KeyCardId", keyCardId);
+                cmdQueue.ExecuteNonQuery();
+            }
+
+            // 3. Delete dependent member keycard assignments
+            const string sqlAssignments = "DELETE FROM dbo.MemberKeycardAssignments WHERE KeyCardId = @KeyCardId";
+            using (var cmdAssignments = new SqlCommand(sqlAssignments, connection, transaction))
+            {
+                cmdAssignments.Parameters.AddWithValue("@KeyCardId", keyCardId);
+                cmdAssignments.ExecuteNonQuery();
+            }
+
+            // 4. Delete the card itself
+            const string sqlCard = "DELETE FROM dbo.KeyCards WHERE KeyCardId = @KeyCardId";
+            using (var cmdCard = new SqlCommand(sqlCard, connection, transaction))
+            {
+                cmdCard.Parameters.AddWithValue("@KeyCardId", keyCardId);
+                cmdCard.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+        catch (Exception)
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     public KeyCard? GetActiveMemberCard(int memberId)

@@ -326,6 +326,24 @@
     </div>
 }
 
+@if (!string.IsNullOrEmpty(_operationError))
+{
+    <div class="alert alert-danger alert-dismissible fade show mb-3 shadow-sm mx-4" role="alert" style="border-radius: 12px; border-left: 5px solid #dc3545;">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <strong>Error:</strong> @_operationError
+        <button type="button" class="btn-close" @onclick="() => _operationError = null"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_operationSuccess))
+{
+    <div class="alert alert-success alert-dismissible fade show mb-3 shadow-sm mx-4" role="alert" style="border-radius: 12px; border-left: 5px solid #198754;">
+        <i class="bi bi-check-circle-fill me-2"></i>
+        <strong>Success:</strong> @_operationSuccess
+        <button type="button" class="btn-close" @onclick="() => _operationSuccess = null"></button>
+    </div>
+}
+
 <!-- Sticky Filter Section (Shared between Assignments and Needing Cards) -->
 <div style="position: sticky; top: 130px; z-index: 45; background: #f8fafc; padding: 1rem 1.5rem; margin-bottom: 1.5rem; border: 1px solid #e2e8f0; border-radius: 0 0 16px 16px; box-shadow: 0 10px 15px -10px rgba(0,0,0,0.05);" 
      class="@(_activeTab == "assignments" || _activeTab == "pending" ? "fade-in" : "d-none")">
@@ -412,7 +430,9 @@
         @if (_assignmentsTabLoaded)
         {
             <CardAssignmentsTab 
+                @ref="_assignmentsTab"
                 OnReplaceCard="HandleReplaceCard" 
+                OnDeleteCard="HandleDeleteCard"
                 OnNeedingCardsClick="@(() => SetActiveTab("pending"))"
                 SearchTerm="@_cardSearchTerm"
                 StatusFilter="@_cardStatusFilter"
@@ -1153,6 +1173,9 @@
     private bool _assigning = false;
     private string _assignError = string.Empty;
     private string _assignSuccessMessage = string.Empty;
+    private bool _isReplacementMode = false;
+    private int _replacingCardId = 0;
+    private string _oldCardNumberString = string.Empty;
     
     private List<Member> _allMembers = new();
     
@@ -1210,6 +1233,7 @@
     private int _countNeeding = 0;
     
     private GFC.BlazorServer.Components.Pages.KeyCardTabs.MembersNeedingCardsTab? _needingCardsTab;
+    private GFC.BlazorServer.Components.Pages.KeyCardTabs.CardAssignmentsTab? _assignmentsTab;
 
     // Identify Card Logic
     private bool _showIdentifyModal = false;
@@ -1229,6 +1253,8 @@
     private string _confirmIcon = "";
     private ConfirmActionModal.ConfirmType _confirmType;
     private Func<Task>? _confirmAction;
+    private string? _operationError;
+    private string? _operationSuccess;
     
     // Hardware Monitor State
     private bool _hardwareMonitorExpanded = false;
@@ -1242,16 +1268,25 @@
             try
             {
                 _showConfirmModal = false;
+                _operationError = null;
+                _operationSuccess = null;
                 StateHasChanged(); // Hide modal immediately
                 await _confirmAction();
+                _operationSuccess = "Action completed successfully.";
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error performing confirmed action");
+                _operationError = $"Operation failed: {ex.Message}";
             }
             finally
             {
                 StateHasChanged();
+                // Clear success message after 5 seconds
+                if (_operationSuccess != null)
+                {
+                    _ = Task.Delay(5000).ContinueWith(_ => { _operationSuccess = null; InvokeAsync(StateHasChanged); });
+                }
             }
         }
     }
@@ -1487,6 +1522,9 @@
     private void CloseAssignCardModal()
     {
         _showAssignModal = false;
+        _isReplacementMode = false;
+        _replacingCardId = 0;
+        _oldCardNumberString = string.Empty;
         StopScanning();
     }
     
@@ -1681,18 +1719,40 @@
                 StateHasChanged();
                 return;
             }
-            // Check if member already has an active card
-            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
-            var memberActiveCard = allCards.FirstOrDefault(c => c.MemberId == _selectedMemberId && c.IsActive);
-            if (memberActiveCard != null)
+            // Check if member already has an active card (Only for NEW assignments)
+            if (!_isReplacementMode)
             {
-                _assignError = $"Member already has an active card (#{memberActiveCard.CardNumber}). Please deactivate it first or use the Replace function.";
-                return;
+                var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+                var memberActiveCard = allCards.FirstOrDefault(c => c.MemberId == _selectedMemberId && c.IsActive);
+                if (memberActiveCard != null)
+                {
+                    _assignError = $"Member already has an active card (#{memberActiveCard.CardNumber}). Please use the Replace function.";
+                    _assigning = false;
+                    StateHasChanged();
+                    return;
+                }
             }
             
-            // 1. Create the new card in database
-            var newCard = await Task.Run(() => 
-                KeyCardRepository.Create(_scannedCardNumber, _selectedMemberId, _assignNotes, _selectedCardType));
+            // 1. Create or Replace the card in database
+            KeyCard? newCard;
+            if (_isReplacementMode)
+            {
+                newCard = await Task.Run(() => 
+                    KeyCardRepository.ReplaceCard(_selectedMemberId, _scannedCardNumber, _assignNotes, _selectedCardType));
+            }
+            else
+            {
+                newCard = await Task.Run(() => 
+                    KeyCardRepository.Create(_scannedCardNumber, _selectedMemberId, _assignNotes, _selectedCardType));
+            }
+
+            if (newCard == null)
+            {
+                 _assignError = "Operation failed. Database record could not be processed.";
+                _assigning = false;
+                StateHasChanged();
+                return;
+            }
 
             try
             {
@@ -1702,7 +1762,14 @@
                 // Log to KeyHistory
                 if (long.TryParse(_scannedCardNumber, out long cardNumberLong))
                 {
-                    await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, _assignNotes ?? "New Assignment", user, _selectedCardType);
+                    if (_isReplacementMode && long.TryParse(_oldCardNumberString, out long oldNumLong))
+                    {
+                        await KeyHistoryService.LogReplacementAsync(_selectedMemberId, oldNumLong, cardNumberLong, _assignNotes ?? "Replacement", user, _selectedCardType);
+                    }
+                    else
+                    {
+                        await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, _assignNotes ?? "New Assignment", user, _selectedCardType);
+                    }
                 }
                 
                 Logger.LogInformation("Card {CardNumber} ({CardType}) assigned to member {MemberId} in DB by {User}", _scannedCardNumber, _selectedCardType, _selectedMemberId, user);
@@ -1745,6 +1812,10 @@
             
             // Refresh counts and lists
             await LoadGracePeriodAndSyncStatusAsync();
+            if (_assignmentsTab != null)
+            {
+                await _assignmentsTab.RefreshAsync();
+            }
             if (_needingCardsTab != null)
             {
                 await _needingCardsTab.RefreshAsync();
@@ -1766,59 +1837,18 @@
             var card = await Task.Run(() => KeyCardRepository.GetById(cardId));
             if (card == null) return;
 
-            // Deactivate
-            if (card.IsActive)
-            {
-                _confirmTitle = "Replace Key Card";
-                _confirmMessage = $"Are you sure you want to REPLACE Card #{card.CardNumber}?";
-                _confirmSubMessage = "The current card will be deactivated immediately. You will then be prompted to assign a new physical card.";
-                _confirmActionText = "Confirm Replacement";
-                _confirmType = ConfirmActionModal.ConfirmType.Warning;
-                _confirmIcon = "bi-arrow-repeat";
-                _confirmAction = async () => 
-                {
-                    var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-                    var user = authState.User.Identity?.Name ?? "Unknown";
-
-                    // Deactivate and proceed to scan new card
-                    await KeyCardLifecycleService.DeactivateCardAsync(
-                        card.KeyCardId, 
-                        "Replaced", 
-                        "User initiated replacement via UI", 
-                        user,
-                        System.Threading.CancellationToken.None);
-                    
-                    // Log revocation to KeyHistory
-                    if (long.TryParse(card.CardNumber, out long cardNumberLong))
-                    {
-                        await KeyHistoryService.LogRevocationAsync(card.MemberId, cardNumberLong, $"Replacing with new card", user);
-                    }
-
-                    await LoadGracePeriodAndSyncStatusAsync();
-                    
-                    _scannedCardNumber = string.Empty;
-                    _selectedMemberId = card.MemberId;
-                    _selectedMemberName = await GetMemberNameAsync(card.MemberId);
-                    _assignNotes = $"Replacement for card #{card.CardNumber}";
-                    _assignStep = 1;
-                    _showAssignModal = true;
-                    StateHasChanged();
-                };
-                _showConfirmModal = true;
-                return;
-            }
-
-            // Open Assign Modal
-            // We need to ensure members are loaded
-            if (!_allMembers.Any()) await LoadMembersAsync();
-            
-            var member = _allMembers.FirstOrDefault(m => m.MemberID == card.MemberId);
-            if (member != null)
-            {
-                OpenAssignCardModalForMember(member);
-                _assignNotes = $"Replacing Card #{card.CardNumber}";
-                StateHasChanged();
-            }
+            // Open modal to scan new card number
+            _oldCardNumberString = card.CardNumber;
+            _scannedCardNumber = string.Empty;
+            _selectedMemberId = card.MemberId;
+            _selectedMemberName = await GetMemberNameAsync(card.MemberId);
+            _assignNotes = $"Replacement for card #{card.CardNumber}";
+            _selectedCardType = card.CardType ?? "Card";
+            _assignStep = 1; // Go to scan step
+            _showAssignModal = true;
+            _isReplacementMode = true;
+            _replacingCardId = cardId;
+            StateHasChanged();
         }
         catch (Exception ex)
         {
@@ -1828,6 +1858,66 @@
     
     // Grace Period & Sync Actions - NEW
     // Grace Period & Sync Actions - NEW
+    private async Task HandleDeleteCard(int cardId)
+    {
+        try
+        {
+            var card = await Task.Run(() => KeyCardRepository.GetById(cardId));
+            if (card == null) return;
+
+            var memberName = await GetMemberNameAsync(card.MemberId);
+            _confirmTitle = "Delete Key Card";
+            _confirmMessage = $"Are you sure you want to PERMANENTLY DELETE Card #{card.CardNumber} for {memberName}?";
+            _confirmSubMessage = "This action CANNOT be undone. The database record will be removed completely. Only do this for accidental duplicates.";
+            _confirmActionText = "Delete Permanently";
+            _confirmType = ConfirmActionModal.ConfirmType.Danger;
+            _confirmIcon = "bi-trash-fill";
+            _confirmAction = async () => 
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User.Identity?.Name ?? "Unknown";
+
+                // SAFETY: Tell the controller to revoke this card before we delete the record
+                try 
+                {
+                    await KeyCardLifecycleService.DeactivateCardAsync(cardId, "Permanent Deletion", "Revoked via card deletion", user);
+                }
+                catch (Exception syncEx)
+                {
+                    Logger.LogWarning(syncEx, "Physical revocation failed during deletion for card {CardId}. Proceeding with DB deletion.", cardId);
+                }
+
+                await Task.Run(() => KeyCardRepository.Delete(cardId));
+                
+                // Log to history that it was deleted
+                if (long.TryParse(card.CardNumber, out long num))
+                {
+                    await KeyHistoryService.LogRevocationAsync(card.MemberId, num, "Permanently Deleted (Duplicate Removal)", user);
+                }
+
+                await LoadGracePeriodAndSyncStatusAsync();
+                
+                if (_assignmentsTab != null)
+                {
+                    await _assignmentsTab.RefreshAsync();
+                }
+
+                if (_needingCardsTab != null)
+                {
+                    await _needingCardsTab.RefreshAsync();
+                }
+
+                // Trigger refresh in the tab if needed (though LoadGracePeriod... might do it or the state change might)
+                StateHasChanged();
+            };
+            _showConfirmModal = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling delete card");
+        }
+    }
+
     private void EditGracePeriod()
     {
         // Default to April 1st if not set, otherwise parse existing date

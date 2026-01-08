@@ -33,6 +33,24 @@ namespace GFC.BlazorServer.Services;
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
+        public async Task LogReplacementAsync(int memberId, long oldCardNumber, long newCardNumber, string? reason, string? performedBy = null, string? keyType = "Card", CancellationToken cancellationToken = default)
+        {
+            var history = new KeyHistory
+            {
+                MemberId = memberId,
+                CardNumber = newCardNumber,
+                Action = "Replaced",
+                Date = DateTime.UtcNow,
+                Reason = $"Replaced card {oldCardNumber} with {newCardNumber}. {reason}".Trim(),
+                PerformedBy = performedBy,
+                KeyType = keyType
+            };
+
+            await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            dbContext.KeyHistories.Add(history);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
         public async Task LogRevocationAsync(int memberId, long cardNumber, string? reason, string? performedBy = null, string? keyType = null, CancellationToken cancellationToken = default)
         {
             var history = new KeyHistory
