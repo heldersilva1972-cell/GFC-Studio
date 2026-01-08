@@ -75,5 +75,20 @@ namespace GFC.BlazorServer.Repositories
                 // Ignore if table missing
             }
         }
+
+        public async Task<List<TrustedDevice>> GetActiveDevicesForUserAsync(int userId)
+        {
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                return await context.TrustedDevices
+                    .Where(d => d.UserId == userId && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                    .ToListAsync();
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                return new List<TrustedDevice>();
+            }
+        }
     }
 }

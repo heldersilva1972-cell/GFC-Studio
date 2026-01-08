@@ -10,5 +10,6 @@ namespace GFC.Core.Interfaces
         Task CreateAsync(TrustedDevice device);
         Task UpdateAsync(TrustedDevice device);
         Task DeleteAsync(int id);
+        Task<List<TrustedDevice>> GetActiveDevicesForUserAsync(int userId);
     }
 }
