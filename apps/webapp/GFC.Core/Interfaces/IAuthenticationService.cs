@@ -1,3 +1,4 @@
+// [REFRESHED]
 using GFC.Core.Models;
 
 namespace GFC.Core.Interfaces;
@@ -8,6 +9,7 @@ public interface IAuthenticationService
     Task<LoginResult> LoginWithDeviceTokenAsync(string token, string? ipAddress = null);
     Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false);
     Task<LoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null);
+    Task<LoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null);
     MfaSetupInfo GenerateMfaSetup(AppUser user);
     Task LogoutAsync(string? deviceToken = null);
     AppUser? GetCurrentUser();
@@ -31,4 +33,3 @@ public class LoginResult
     public string? ErrorMessageForLog { get; set; }
     public string? DeviceToken { get; set; }
 }
-

@@ -174,6 +174,7 @@ public class Program
         builder.Services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
         builder.Services.AddScoped<IAuditLogger, AuditLogger>();
         builder.Services.AddScoped<IUserManagementService, UserManagementService>();
+        builder.Services.AddSingleton<IMfaChallengeService, MfaChallengeService>();
 
         // Shared services
         builder.Services.AddScoped<IVpnProfileRepository, VpnProfileRepository>();
@@ -809,6 +810,29 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                         }
                     }
                     Console.WriteLine(">>> Migration Wizard Schema Applied Successfully.");
+                }
+
+                // [AUTO-FIX 12] MFA Columns for AppUsers
+                try
+                {
+                    var mfaFixSql = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.AppUsers') AND name = 'MfaEnabled')
+                        BEGIN
+                            ALTER TABLE dbo.AppUsers ADD MfaEnabled BIT NOT NULL DEFAULT 0;
+                            PRINT 'Added MfaEnabled column directly';
+                        END
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.AppUsers') AND name = 'MfaSecretKey')
+                        BEGIN
+                            ALTER TABLE dbo.AppUsers ADD MfaSecretKey NVARCHAR(MAX) NULL;
+                            PRINT 'Added MfaSecretKey column directly';
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(mfaFixSql);
+                    Console.WriteLine(">>> MFA Columns (MfaEnabled, MfaSecretKey) verified/applied.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error executing MFA schema fix: {ex.Message}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

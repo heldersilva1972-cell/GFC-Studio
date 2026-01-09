@@ -1,4 +1,4 @@
-// [MODIFIED]
+// [REFRESHED]
 using System;
 using System.Security.Claims;
 using GFC.BlazorServer.Auth;
@@ -110,6 +110,18 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     public async Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null)
     {
         var result = await _authenticationService.VerifyMfaCodeAsync(userId, code, ipAddress);
+        if (result.Success)
+        {
+            _userSessionService.SetLoginTime(DateTime.UtcNow);
+        }
+        RefreshFromAuthenticationService();
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+        return result;
+    }
+
+    public async Task<LoginResult> LoginWithMfaSuccessAsync(int userId, bool rememberDevice, string? ipAddress = null)
+    {
+        var result = await _authenticationService.FinalizeMfaLoginAsync(userId, rememberDevice, ipAddress);
         if (result.Success)
         {
             _userSessionService.SetLoginTime(DateTime.UtcNow);

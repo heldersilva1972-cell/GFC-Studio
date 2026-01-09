@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using System.Net.Http;
 using GFC.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -7,22 +8,65 @@ namespace GFC.Core.Services;
 public class SmsService : ISmsService
 {
     private readonly ILogger<SmsService> _logger;
+    private readonly ISystemSettingsService _settingsService;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public SmsService(ILogger<SmsService> logger)
+    public SmsService(ILogger<SmsService> logger, ISystemSettingsService settingsService, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
+        _settingsService = settingsService;
+        _httpClientFactory = httpClientFactory;
     }
 
     public async Task<bool> SendSmsAsync(string phoneNumber, string message)
     {
-        // MOCK IMPLEMENTATION: In a real scenario, this would use Twilio or another SMS gateway.
-        // For now, we log the message to the console for development testing.
+        var accountSid = await _settingsService.GetTwilioAccountSidAsync();
+        var authTokenStr = await _settingsService.GetTwilioAuthTokenAsync();
+        var fromNumber = await _settingsService.GetTwilioFromNumberAsync();
         
-        _logger.LogInformation("[SMS MOCK] To {PhoneNumber}: {Message}", phoneNumber, message);
-        
-        // Simulate network delay
-        await Task.Delay(500);
-        
-        return true;
+        if (string.IsNullOrWhiteSpace(accountSid) || 
+            string.IsNullOrWhiteSpace(authTokenStr) || 
+            string.IsNullOrWhiteSpace(fromNumber))
+        {
+            _logger.LogInformation("[SMS MOCK] To {PhoneNumber}: {Message}", phoneNumber, message);
+            return true;
+        }
+
+        try
+        {
+            using var client = _httpClientFactory.CreateClient();
+            var authHeader = Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes($"{accountSid}:{authTokenStr}"));
+            
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authHeader);
+
+            var values = new Dictionary<string, string>
+            {
+                { "To", phoneNumber },
+                { "From", fromNumber },
+                { "Body", message }
+            };
+
+            var content = new FormUrlEncodedContent(values);
+            var url = $"https://api.twilio.com/2010-04-01/Accounts/{accountSid}/Messages.json";
+            
+            var response = await client.PostAsync(url, content);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("SMS sent successfully to {PhoneNumber}", phoneNumber);
+                return true;
+            }
+            else
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Twilio SMS failed: {StatusCode} - {Error}", response.StatusCode, errorBody);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception while sending Twilio SMS");
+            return false;
+        }
     }
 }

@@ -1,0 +1,323 @@
+@page "/verify-mfa"
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@inject NavigationManager Navigation
+@inject IUserRepository UserRepository
+@inject IMfaChallengeService MfaChallengeService
+@inject ISmsService SmsService
+@inject IEmailService EmailService
+@inject IBlazorSystemSettingsService SystemSettingsService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<VerifyMfa> Logger
+@inject IDeviceTrustService DeviceTrustService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Verify Identity - GFC Membership</PageTitle>
+
+<div class="mfa-container">
+    <div class="mfa-card">
+        <div class="mfa-header text-center mb-4">
+            <div class="mfa-icon mb-3">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <h2 class="mb-1">Verify Your Identity</h2>
+            <p class="text-muted">A verification code has been sent to @(string.IsNullOrEmpty(_destinationSummary) ? "your registered device" : _destinationSummary).</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger mb-4 shadow-sm" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>@_error
+            </div>
+        }
+
+        <EditForm Model="@_model" OnValidSubmit="HandleVerifyAsync">
+            <div class="mb-4">
+                <label class="form-label text-center d-block mb-3 fw-bold">Enter 6-Digit Code</label>
+                <div class="code-input-group d-flex justify-content-center gap-2 mb-2">
+                    <InputText id="mfaCode" 
+                               class="form-control text-center fs-2 fw-bold mfa-input" 
+                               @bind-Value="_model.Code" 
+                               maxlength="6"
+                               placeholder="000 000"
+                               autocomplete="one-time-code" />
+                </div>
+                <div class="text-center">
+                    <button type="button" class="btn btn-link btn-sm text-info p-0" @onclick="ResendCodeAsync" disabled="@_isResending">
+                        @if (_isResending)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Resend verification code
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="form-check form-switch p-3 border rounded @(_model.RememberDevice ? "bg-info-subtle border-info" : "bg-light")" style="transition: all 0.3s ease;">
+                    <InputCheckbox id="rememberDevice" class="form-check-input ms-0" @bind-Value="_model.RememberDevice" />
+                    <label class="form-check-label fw-bold ms-2" for="rememberDevice">
+                        Trust this device for @(_trustedDays) days
+                    </label>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100 py-3 fw-bold shadow-lg" disabled="@_isSubmitting">
+                @if (_isSubmitting)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <span>Verifying...</span>
+                }
+                else
+                {
+                    <span>Verify & Sign In</span>
+                }
+            </button>
+            <button type="button" class="btn btn-link w-100 mt-2 text-muted" @onclick="CancelAsync">Cancel</button>
+        </EditForm>
+    </div>
+</div>
+
+<style>
+    .mfa-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+        padding: 2rem;
+    }
+
+    .mfa-card {
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 2rem;
+        padding: 3rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        width: 100%;
+        max-width: 480px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .mfa-icon {
+        width: 80px;
+        height: 80px;
+        background: #e0e7ff;
+        color: #4338ca;
+        font-size: 2.5rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .mfa-header h2 {
+        color: #1e1b4b;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+    }
+
+    .mfa-input {
+        background: #f8fafc !important;
+        border: 2px solid #e2e8f0 !important;
+        border-radius: 1rem !important;
+        letter-spacing: 0.5rem;
+        color: #1e1b4b !important;
+        height: 80px;
+        transition: all 0.2s ease;
+    }
+
+    .mfa-input:focus {
+        border-color: #4338ca !important;
+        box-shadow: 0 0 0 4px rgba(67, 56, 202, 0.1) !important;
+    }
+
+    .btn-primary {
+        background: #4338ca !important;
+        border: none !important;
+        border-radius: 1rem !important;
+        font-size: 1.1rem !important;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(67, 56, 202, 0.4);
+    }
+
+    .btn-primary:active {
+        transform: translateY(0);
+    }
+</style>
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public int? UserId { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    [Inject] IMemberRepository MemberRepository { get; set; }
+
+    private MfaModel _model = new();
+    private bool _isSubmitting = false;
+    private bool _isResending = false;
+    private string? _error;
+    private AppUser? _user;
+    private Member? _member;
+    private string _destinationSummary = "";
+    private int _trustedDays = 30;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!UserId.HasValue)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        var settings = await SystemSettingsService.GetSystemSettingsAsync();
+        _trustedDays = settings?.TrustedDeviceDurationDays ?? 30;
+
+        _user = await Task.Run(() => UserRepository.GetById(UserId.Value));
+        if (_user == null)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        if (_user.MemberId.HasValue)
+        {
+            _member = await Task.Run(() => MemberRepository.GetMemberById(_user.MemberId.Value));
+        }
+
+        // Send initial code
+        await SendVerificationCodeAsync();
+    }
+
+    private async Task SendVerificationCodeAsync()
+    {
+        if (_user == null) return;
+
+        try
+        {
+            var code = await MfaChallengeService.CreateChallengeAsync(_user.UserId);
+            var settings = await SystemSettingsService.GetSystemSettingsAsync();
+            var method = settings?.PreferredMagicLinkMethod ?? "Email";
+
+            var message = $"Your GFC verification code is: {code}. It expires in 10 minutes.";
+            
+            bool sent = false;
+
+            if (method == "SMS" || method == "Both")
+            {
+                var phone = _member?.CellPhone ?? _member?.Phone;
+                if (!string.IsNullOrEmpty(phone))
+                {
+                    sent = await SmsService.SendSmsAsync(phone, message);
+                    _destinationSummary = "your registered phone number";
+                }
+            }
+            
+            if (!sent && (method == "Email" || method == "Both"))
+            {
+                var email = _member?.Email ?? _user.Username; // Username is often email or fall back to member email
+                if (!string.IsNullOrEmpty(email))
+                {
+                    await EmailService.SendEmailAsync(email, "Login Verification Code", message);
+                    _destinationSummary = "your registered email address";
+                    sent = true;
+                }
+            }
+
+            if (!sent)
+            {
+                _error = "We couldn't find a valid phone number or email to send the code. Please contact an administrator.";
+            }
+
+            Logger.LogInformation("MFA Code sent to user {UserId} via {Method}", _user.UserId, _destinationSummary);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to send MFA code");
+            _error = "Failed to send verification code. Please try again.";
+        }
+    }
+
+    private async Task ResendCodeAsync()
+    {
+        _isResending = true;
+        _error = null;
+        await SendVerificationCodeAsync();
+        _isResending = false;
+        _error = "A new code has been sent.";
+    }
+
+    private async Task HandleVerifyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_model.Code) || _model.Code.Length < 6)
+        {
+            _error = "Please enter a valid 6-digit code.";
+            return;
+        }
+
+        _isSubmitting = true;
+        _error = null;
+
+        try
+        {
+            var isValid = await MfaChallengeService.ValidateChallengeAsync(UserId!.Value, _model.Code);
+            if (isValid)
+            {
+                var result = await AuthStateProvider.LoginWithMfaSuccessAsync(UserId.Value, _model.RememberDevice);
+                if (result.Code == LoginResultCode.Success)
+                {
+                    if (!string.IsNullOrEmpty(result.DeviceToken))
+                    {
+                        var settings = await SystemSettingsService.GetSystemSettingsAsync();
+                        var days = settings?.TrustedDeviceDurationDays ?? 30;
+                        await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
+                        await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", result.DeviceToken, days);
+                    }
+
+                    Navigation.NavigateTo(ReturnUrl ?? "/");
+                }
+                else
+                {
+                    _error = "Authentication failed after verification.";
+                }
+            }
+            else
+            {
+                _error = "Invalid or expired verification code.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "MFA Verification error");
+            _error = "An error occurred during verification.";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private void CancelAsync()
+    {
+        Navigation.NavigateTo("/login");
+    }
+
+    public class MfaModel
+    {
+        public string Code { get; set; } = string.Empty;
+        public bool RememberDevice { get; set; } = true;
+    }
+}

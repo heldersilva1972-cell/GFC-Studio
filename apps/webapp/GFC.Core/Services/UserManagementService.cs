@@ -160,7 +160,7 @@ public class UserManagementService : IUserManagementService
         return await Task.FromResult(_userRepository.GetById(userId));
     }
 
-    public int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null)
+    public int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null, bool mfaEnabled = false)
     {
         if (_userRepository.UsernameExists(username))
         {
@@ -189,7 +189,8 @@ public class UserManagementService : IUserManagementService
             CreatedDate = DateTime.UtcNow,
             CreatedBy = createdBy,
             Notes = notes,
-            PasswordChangeRequired = passwordChangeRequired
+            PasswordChangeRequired = passwordChangeRequired,
+            MfaEnabled = mfaEnabled
         };
 
         var newUserId = _userRepository.CreateUser(user);
@@ -202,7 +203,7 @@ public class UserManagementService : IUserManagementService
         return newUserId;
     }
 
-    public void UpdateUser(int userId, string username, string? password, int? memberId, string? notes, int? updatedByUserId = null, bool isAdmin = false, bool isActive = true)
+    public void UpdateUser(int userId, string username, string? password, int? memberId, string? notes, int? updatedByUserId = null, bool isAdmin = false, bool isActive = true, bool mfaEnabled = false)
     {
         var user = _userRepository.GetById(userId);
         if (user == null)
@@ -227,6 +228,7 @@ public class UserManagementService : IUserManagementService
         user.IsActive = isActive;
         user.MemberId = memberId;
         user.Notes = notes;
+        user.MfaEnabled = mfaEnabled;
 
         _userRepository.UpdateUser(user);
 

@@ -92,6 +92,36 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         return settings.SafeModeEnabled;
     }
 
+    public async Task<bool> GetEnableTwoFactorAuthAsync()
+    {
+        var settings = await GetAsync();
+        return settings.EnableTwoFactorAuth;
+    }
+
+    public async Task<string?> GetTwilioAccountSidAsync()
+    {
+        var settings = await GetAsync();
+        return settings.TwilioAccountSid;
+    }
+
+    public async Task<string?> GetTwilioAuthTokenAsync()
+    {
+        var settings = await GetAsync();
+        return settings.TwilioAuthToken;
+    }
+
+    public async Task<string?> GetTwilioFromNumberAsync()
+    {
+        var settings = await GetAsync();
+        return settings.TwilioFromNumber;
+    }
+
+    public async Task<string> GetPreferredMfaMethodAsync()
+    {
+        var settings = await GetAsync();
+        return settings.PreferredMagicLinkMethod ?? "Email";
+    }
+
     public SystemSettings GetSettings()
     {
         // Try to get from cache first

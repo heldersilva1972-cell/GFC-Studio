@@ -119,7 +119,9 @@ public class AuthenticationService : IAuthenticationService
                 return CreateFailure(LoginResultCode.InvalidCredentials, reason);
             }
 
-            if (user.MfaEnabled)
+            // MFA Check: Only trigger if BOTH the global master switch and the per-user flag are enabled
+            var isMfaGloballyEnabled = await _systemSettingsService.GetEnableTwoFactorAuthAsync();
+            if (user.MfaEnabled && isMfaGloballyEnabled)
             {
                 return new LoginResult
                 {
@@ -291,6 +293,33 @@ public class AuthenticationService : IAuthenticationService
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired
+        };
+    }
+
+    public async Task<LoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null)
+    {
+        var user = _userRepository.GetById(userId);
+        if (user == null || !user.IsActive)
+        {
+            return CreateFailure(LoginResultCode.AccountLockedOrDisabled, "User not found or inactive.");
+        }
+
+        _currentUser = user;
+        _userRepository.UpdateLastLogin(user.UserId, DateTime.UtcNow);
+        await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "MFA successful");
+
+        string? deviceToken = null;
+        if (rememberDevice)
+        {
+            deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, null);
+        }
+
+        return new LoginResult
+        {
+            Code = LoginResultCode.Success,
+            User = user,
+            PasswordChangeRequired = user.PasswordChangeRequired,
+            DeviceToken = deviceToken
         };
     }
 

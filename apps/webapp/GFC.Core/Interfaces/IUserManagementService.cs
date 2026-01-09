@@ -9,8 +9,8 @@ public interface IUserManagementService
     List<ActiveMemberDto> GetActiveMembersForUserCreation();
     AppUser? GetUser(int userId);
     Task<AppUser?> GetUserAsync(int userId);
-    int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null);
-    void UpdateUser(int userId, string username, string? password, int? memberId, string? notes, int? updatedByUserId = null, bool isAdmin = false, bool isActive = true);
+    int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null, bool mfaEnabled = false);
+    void UpdateUser(int userId, string username, string? password, int? memberId, string? notes, int? updatedByUserId = null, bool isAdmin = false, bool isActive = true, bool mfaEnabled = false);
     void DeleteUser(int userId);
     void ChangePassword(int userId, string newPassword, bool clearPasswordChangeRequired = false, int? performedByUserId = null);
     void ChangePassCode(int userId, string newPassCode, bool clearPasswordChangeRequired = false, int? performedByUserId = null);
@@ -27,4 +27,3 @@ public interface IUserManagementService
     void GrantAllPagePermissions(int userId, string grantedBy);
     void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy);
 }
-

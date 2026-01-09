@@ -15,5 +15,18 @@ namespace GFC.Core.Interfaces
         /// Gets whether the system is in Safe Mode.
         /// </summary>
         Task<bool> GetSafeModeEnabledAsync();
+
+        /// <summary>
+        /// Gets whether Two Factor Authentication is enabled globally.
+        /// </summary>
+        Task<bool> GetEnableTwoFactorAuthAsync();
+
+        /// <summary>
+        /// Gets Twilio account settings.
+        /// </summary>
+        Task<string?> GetTwilioAccountSidAsync();
+        Task<string?> GetTwilioAuthTokenAsync();
+        Task<string?> GetTwilioFromNumberAsync();
+        Task<string> GetPreferredMfaMethodAsync();
     }
 }
