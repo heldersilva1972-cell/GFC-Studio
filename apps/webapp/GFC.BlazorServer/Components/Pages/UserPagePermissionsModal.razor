@@ -1,122 +1,191 @@
-// [MODIFIED]
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
 @inject IUserManagementService UserService
 @inject IEmailService EmailService
 @inject ILogger<UserPagePermissionsModal> Logger
 
-<div class="modal-backdrop"></div>
-<div class="modal-card" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
-    <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0">
-            <i class="bi bi-shield-lock"></i> Page Access Permissions - @Username
+<link href="css/page-permissions-modern.css" rel="stylesheet" />
+
+<div class="modal-backdrop" @onclick="OnClose"></div>
+<div class="modal-card" style="max-width: 950px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+    <!-- HEADER -->
+    <div class="modal-card__header d-flex justify-content-between align-items-center p-3 border-bottom">
+        <div class="d-flex align-items-center">
+            <div class="bg-primary-subtle p-2 rounded-3 me-3">
+                <i class="bi bi-shield-lock-fill text-primary fs-4"></i>
+            </div>
+            <div>
+                <h4 class="mb-0 fw-bold">Page Access Permissions</h4>
+                <p class="text-muted small mb-0">Managing access for <strong>@Username</strong></p>
+            </div>
             @if (IsAdmin)
             {
-                <span class="badge bg-primary ms-2">Admin</span>
+                <span class="badge bg-primary ms-3 shadow-sm">SYSTEM ADMIN</span>
             }
-        </h4>
-        <button class="btn btn-link text-muted p-0" type="button" @onclick="OnClose">
+        </div>
+        <button class="btn btn-light rounded-circle p-2" type="button" @onclick="OnClose">
             <i class="bi bi-x-lg"></i>
         </button>
     </div>
 
-    @if (!string.IsNullOrEmpty(ErrorMessage))
-    {
-        <div class="alert alert-danger mb-3">
-            <strong>Error:</strong> @ErrorMessage
-        </div>
-    }
-
-    @if (IsAdmin)
-    {
-        <div class="alert alert-info mb-3">
-            <i class="bi bi-info-circle"></i>
-            <strong>Admin User:</strong> Administrators have full access to all pages by default and cannot have their permissions restricted.
-        </div>
-    }
-    else
-    {
-        <div class="mb-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <p class="text-muted mb-0">
-                    Select which pages this user can access. Unchecked pages will be inaccessible to this user.
-                </p>
-                <div>
-                    <button type="button" class="btn btn-sm btn-outline-primary me-2" @onclick="SelectAll">
-                        <i class="bi bi-check-square"></i> Select All
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearAll">
-                        <i class="bi bi-square"></i> Clear All
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        @if (Loading)
+    <!-- BODY -->
+    <div class="modal-card__body p-0 overflow-auto flex-grow-1">
+        @if (!string.IsNullOrEmpty(ErrorMessage))
         {
-            <div class="loading-state">
-                <div class="spinner-border spinner-border-sm text-info" role="status"></div> Loading pages...
+            <div class="alert alert-danger m-3 border-0 shadow-sm d-flex align-items-center">
+                <i class="bi bi-exclamation-octagon-fill me-2 fs-5"></i>
+                <div>@ErrorMessage</div>
+            </div>
+        }
+
+        @if (IsAdmin)
+        {
+            <div class="p-5 text-center">
+                <div class="mb-4">
+                    <i class="bi bi-person-check-fill display-1 text-primary opacity-25"></i>
+                </div>
+                <h5 class="fw-bold">Administrator Access Active</h5>
+                <p class="text-muted mx-auto" style="max-width: 500px;">
+                    Users with the <strong>Admin</strong> role possess unrestricted system access. 
+                    Individual page permissions are automatically inherited and cannot be limited for security reasons.
+                </p>
             </div>
         }
         else
         {
-            @foreach (var category in PagesByCategory.Keys.OrderBy(k => k))
-            {
-                <div class="mb-4">
-                    <h6 class="text-primary mb-3">
-                        <i class="bi bi-folder"></i> @category
-                    </h6>
-                    <div class="row g-2">
-                        @foreach (var page in PagesByCategory[category])
-                        {
-                            <div class="col-md-6">
-                                @{
-                                    var pageId = page.PageId;
-                                    var checkboxId = $"page_{pageId}";
-                                    var isSelected = SelectedPageIds.Contains(pageId);
-                                    var isDisabled = page.RequiresAdmin;
-                                    var pageName = page.PageName;
-                                    var pageRoute = page.PageRoute;
-                                    var pageDescription = page.Description;
-                                    var requiresAdmin = page.RequiresAdmin;
-                                }
-                                <div class="form-check p-3 border rounded @(isSelected ? "bg-light" : "")">
-                                    <input class="form-check-input" 
-                                           type="checkbox" 
-                                           id="@checkboxId"
-                                           checked="@isSelected"
-                                           @onchange="@(e => TogglePage(pageId, page.PageRoute))"
-                                           disabled="@isDisabled" />
-                                    <label class="form-check-label w-100" for="@checkboxId">
-                                        <div class="fw-semibold">@pageName</div>
-                                        <div class="small text-muted">@pageRoute</div>
-                                        @if (!string.IsNullOrEmpty(pageDescription))
-                                        {
-                                            <div class="small text-muted fst-italic">@pageDescription</div>
-                                        }
-                                        @if (requiresAdmin)
-                                        {
-                                            <span class="badge bg-warning text-dark small">Admin Only</span>
-                                        }
-                                    </label>
-                                </div>
-                            </div>
-                        }
+            <!-- SEARCH & ACTIONS BAR -->
+            <div class="search-box-container p-3 border-bottom shadow-sm">
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-end-0">
+                                <i class="bi bi-search text-muted"></i>
+                            </span>
+                            <input type="text" 
+                                   class="form-control border-start-0" 
+                                   placeholder="Search by page name, route or description..." 
+                                   @bind="_searchTerm" 
+                                   @bind:event="oninput" />
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <div class="btn-group shadow-sm">
+                            <button type="button" class="btn btn-outline-primary btn-sm px-3" @onclick="SelectAll">
+                                <i class="bi bi-check-all me-1"></i> Grant All
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm px-3" @onclick="ClearAll">
+                                <i class="bi bi-x-circle me-1"></i> Revoke All
+                            </button>
+                        </div>
+                        <div class="d-inline-block ms-3">
+                            <span class="badge bg-light text-dark border p-2">
+                                <i class="bi bi-list-check me-1"></i> @SelectedPageIds.Count of @(AllPages.Count(p => !p.RequiresAdmin)) Pages
+                            </span>
+                        </div>
                     </div>
                 </div>
-            }
-        }
-    }
+            </div>
 
-    <div class="modal-card__actions">
-        @if (!IsAdmin)
-        {
-            <button type="button" class="btn btn-primary" @onclick="SavePermissions" disabled="@Saving">
-                <span class="spinner-border spinner-border-sm me-1" hidden="@(!Saving)"></span>
-                <i class="bi bi-save"></i> Save Permissions
-            </button>
+            <div class="p-3">
+                @if (Loading)
+                {
+                    <div class="text-center py-5">
+                        <div class="spinner-grow text-primary" role="status"></div>
+                        <p class="mt-3 text-muted">Analyzing system routes...</p>
+                    </div>
+                }
+                else
+                {
+                    var filteredCategories = GetFilteredPages();
+                    if (!filteredCategories.Any())
+                    {
+                        <div class="empty-search-state">
+                            <i class="bi bi-search"></i>
+                            <h5>No matches found</h5>
+                            <p>Try searching for a different keyword or part of a route.</p>
+                            <button class="btn btn-link" @onclick="() => _searchTerm = string.Empty">Clear Search</button>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var category in filteredCategories.Keys.OrderBy(k => k))
+                        {
+                            <div class="permission-category-header">
+                                <div class="d-flex align-items-center">
+                                    <h6 class="mb-0 fw-bold">@category.ToUpper()</h6>
+                                    <span class="ms-2 category-stats">(@filteredCategories[category].Count pages)</span>
+                                </div>
+                                <button class="btn btn-link btn-sm text-decoration-none p-0" @onclick="() => ToggleCategory(category)">
+                                    <i class="bi @(IsCategoryExpanded(category) ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                </button>
+                            </div>
+
+                            @if (IsCategoryExpanded(category))
+                            {
+                                <div class="row g-3">
+                                    @foreach (var appPage in filteredCategories[category])
+                                    {
+                                        <div class="col-md-6 col-lg-4">
+                                            <div class="card h-100 permission-card @(SelectedPageIds.Contains(appPage.PageId) ? "granted" : "") @(appPage.RequiresAdmin ? "restricted" : "")"
+                                                 @onclick="() => TogglePage(appPage)">
+                                                <div class="card-body p-3">
+                                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                                        <div class="p-2 rounded bg-opacity-10 @(SelectedPageIds.Contains(appPage.PageId) ? "bg-success text-success" : "bg-secondary text-secondary")">
+                                                            <i class="bi @GetPageIcon(appPage)"></i>
+                                                        </div>
+                                                        <div class="modern-switch @(SelectedPageIds.Contains(appPage.PageId) ? "checked" : "")"></div>
+                                                    </div>
+                                                    <h6 class="card-title fw-bold mb-1">@appPage.PageName</h6>
+                                                    <p class="card-text small text-muted mb-2 font-monospace" style="font-size: 0.7rem;">@appPage.PageRoute</p>
+                                                    @if (!string.IsNullOrEmpty(appPage.Description))
+                                                    {
+                                                        <p class="small text-muted mb-0 fst-italic">@appPage.Description</p>
+                                                    }
+                                                    @if (appPage.RequiresAdmin)
+                                                    {
+                                                        <div class="mt-2">
+                                                            <span class="badge bg-warning text-dark border-0 shadow-sm" style="font-size: 0.6rem;">ADMIN REQUIRED</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    }
+                }
+            </div>
         }
-        <button type="button" class="btn btn-outline" @onclick="OnClose" disabled="@Saving">Close</button>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="modal-card__actions p-3 border-top bg-light rounded-bottom-4 d-flex justify-content-between align-items-center">
+        <div>
+            @if (HasChanges)
+            {
+                <span class="text-primary small animate-pulse"><i class="bi bi-info-circle me-1"></i> You have unsaved changes</span>
+            }
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary px-4" @onclick="OnClose" disabled="@Saving">Cancel</button>
+            @if (!IsAdmin)
+            {
+                <button type="button" class="btn btn-primary px-4 shadow" @onclick="SavePermissions" disabled="@(Saving || !HasChanges)">
+                    @if (Saving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-shield-check me-2"></i>
+                        <span>Apply Permissions</span>
+                    }
+                </button>
+            }
+        </div>
     </div>
 </div>
 
@@ -130,11 +199,15 @@
     private bool Loading { get; set; } = true;
     private bool Saving { get; set; } = false;
     private string ErrorMessage { get; set; } = string.Empty;
+    private string _searchTerm = string.Empty;
     
     private List<AppPage> AllPages { get; set; } = new();
     private Dictionary<string, List<AppPage>> PagesByCategory { get; set; } = new();
     private HashSet<int> SelectedPageIds { get; set; } = new();
     private HashSet<int> OriginalSelectedPageIds { get; set; } = new();
+    private HashSet<string> CollapsedCategories { get; set; } = new();
+
+    private bool HasChanges => !SelectedPageIds.SetEquals(OriginalSelectedPageIds);
 
     protected override async Task OnInitializedAsync()
     {
@@ -171,19 +244,31 @@
         }
     }
 
-    private void TogglePage(int pageId, string pageRoute)
+    private Dictionary<string, List<AppPage>> GetFilteredPages()
     {
-        if (SelectedPageIds.Contains(pageId))
+        if (string.IsNullOrWhiteSpace(_searchTerm)) return PagesByCategory;
+
+        var term = _searchTerm.ToLower();
+        return AllPages
+            .Where(p => p.PageName.ToLower().Contains(term) || 
+                      p.PageRoute.ToLower().Contains(term) || 
+                      (p.Description?.ToLower().Contains(term) ?? false) ||
+                      (p.Category?.ToLower().Contains(term) ?? false))
+            .GroupBy(p => p.Category ?? "Other")
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    private void TogglePage(AppPage page)
+    {
+        if (page.RequiresAdmin) return;
+
+        if (SelectedPageIds.Contains(page.PageId))
         {
-            SelectedPageIds.Remove(pageId);
+            SelectedPageIds.Remove(page.PageId);
         }
         else
         {
-            SelectedPageIds.Add(pageId);
-            if(pageRoute == "/cameras/view")
-            {
-                // The user was just granted camera access. We'll send the email on save.
-            }
+            SelectedPageIds.Add(page.PageId);
         }
     }
 
@@ -200,6 +285,31 @@
         SelectedPageIds.Clear();
     }
 
+    private void ToggleCategory(string category)
+    {
+        if (CollapsedCategories.Contains(category))
+            CollapsedCategories.Remove(category);
+        else
+            CollapsedCategories.Add(category);
+    }
+
+    private bool IsCategoryExpanded(string category) => !CollapsedCategories.Contains(category);
+
+    private string GetPageIcon(AppPage page)
+    {
+        var route = page.PageRoute.ToLower();
+        if (route.Contains("dashboard")) return "bi-speedometer2";
+        if (route.Contains("user")) return "bi-person-circle";
+        if (route.Contains("member")) return "bi-people";
+        if (route.Contains("camera")) return "bi-camera-video";
+        if (route.Contains("finance") || route.Contains("sale")) return "bi-currency-dollar";
+        if (route.Contains("security")) return "bi-shield-lock";
+        if (route.Contains("setting")) return "bi-gear";
+        if (route.Contains("report") || route.Contains("audit")) return "bi-file-earmark-bar-graph";
+        if (route.Contains("hall")) return "bi-building";
+        return "bi-file-earmark-text";
+    }
+
     private async Task SavePermissions()
     {
         Saving = true;
@@ -209,6 +319,7 @@
         {
             var cameraPermissionPage = AllPages.FirstOrDefault(p => p.PageRoute == "/cameras/view");
             bool wasCameraPermissionGranted = false;
+            
             if (cameraPermissionPage != null)
             {
                 bool originallyHadPermission = OriginalSelectedPageIds.Contains(cameraPermissionPage.PageId);
@@ -229,10 +340,17 @@
                 var user = await UserService.GetUserAsync(UserId);
                 if (user != null && !string.IsNullOrEmpty(user.Email))
                 {
-                    await EmailService.SendEmailAsync(
-                        user.Email,
-                        "Your Secure Access to GFC Cameras is Ready",
-                        $"<p>Hello {user.Username},</p><p>You have been granted secure remote access to the GFC camera system. You can now complete the one-time setup to view cameras from any device.</p><p>Please log in to the GFC website and navigate to the Cameras page to begin the setup wizard.</p>");
+                    try
+                    {
+                        await EmailService.SendEmailAsync(
+                            user.Email,
+                            "Your Secure Access to GFC Cameras is Ready",
+                            $"<p>Hello {user.Username},</p><p>You have been granted secure remote access to the GFC camera system. You can now complete the one-time setup to view cameras from any device.</p><p>Please log in to the GFC website and navigate to the Cameras page to begin the setup wizard.</p>");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "Failed to send camera access email to {Email}", user.Email);
+                    }
                 }
             }
             
@@ -248,6 +366,7 @@
             if (string.IsNullOrEmpty(ErrorMessage))
             {
                 Saving = false;
+                OriginalSelectedPageIds = new HashSet<int>(SelectedPageIds);
             }
         }
     }
