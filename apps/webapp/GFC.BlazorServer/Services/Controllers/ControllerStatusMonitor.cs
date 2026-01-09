@@ -112,6 +112,19 @@ public class ControllerStatusMonitor : IDisposable
                 
                 var status = await controllerClient.GetRunStatusAsync(controller.Id, CancellationToken.None);
                 var isOnline = status != null && status.IsOnline;
+
+                if (isOnline)
+                {
+                    // Ensure controller time is synced to server time (UTC)
+                    try 
+                    {
+                        await controllerClient.SyncTimeAsync(controller.Id, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to sync time for controller {Id}", controller.Id);
+                    }
+                }
                 
                 _controllerStatuses[controller.Id] = isOnline;
                 _lastChecked[controller.Id] = DateTime.UtcNow;

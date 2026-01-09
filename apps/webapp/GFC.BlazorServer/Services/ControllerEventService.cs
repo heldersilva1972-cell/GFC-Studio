@@ -136,6 +136,8 @@ public class ControllerEventService
 
         uint currentIndex = status.TotalEvents;
         
+        _logger.LogError("=== SYNC DEBUG: Controller {Sn} reports TotalEvents = {CurrentIndex} ===", controllerSerialNumber, currentIndex);
+        
         // 2. Get our last read index from tracking table (more reliable than querying events)
         var lastIndexRecord = await dbContext.ControllerLastIndexes
             .FirstOrDefaultAsync(li => li.ControllerId == controller.Id, cancellationToken);
@@ -152,8 +154,15 @@ public class ControllerEventService
             lastReadIndex = (uint)(lastRecord?.RawIndex ?? 0);
         }
 
+        _logger.LogError("=== SYNC DEBUG: Controller {Sn}: CurrentIndex={Current}, LastReadIndex={Last}, Gap={Gap} ===", 
+            controllerSerialNumber, currentIndex, lastReadIndex, (int)currentIndex - (int)lastReadIndex);
+
         // If we are exactly up to date, do nothing.
-        if (currentIndex == lastReadIndex) return 0;
+        if (currentIndex == lastReadIndex)
+        {
+            _logger.LogError("=== SYNC DEBUG: Controller {Sn} is up to date at index {Index} ===", controllerSerialNumber, currentIndex);
+            return 0;
+        }
 
         uint startSyncIndex = lastReadIndex + 1;
         
@@ -192,7 +201,7 @@ public class ControllerEventService
             try 
             {
                 // Fetch single event by index
-                var result = await controllerClient.GetNewEventsAsync(controllerSerialNumber.ToString(), i - 1, cancellationToken);
+                var result = await controllerClient.GetNewEventsAsync(controllerSerialNumber.ToString(), i, cancellationToken);
                 if (result.Events != null && result.Events.Any())
                 {
                     var evt = result.Events[0];
@@ -251,9 +260,11 @@ public class ControllerEventService
             var tracker = await dbContext.ControllerLastIndexes
                 .FirstOrDefaultAsync(li => li.ControllerId == controller.Id, cancellationToken);
             
-            uint lastSuccessfullySavedIndex = startSyncIndex + (uint)totalSaved - 1;
-            // Always update to the latest index we actually intended to sync in this batch
-            uint newIndex = currentIndex; 
+            // Calculate the actual last index we successfully saved
+            // If totalSaved is 0 (no new events), keep lastReadIndex unchanged
+            uint newIndex = totalSaved > 0 
+                ? startSyncIndex + (uint)totalSaved - 1 
+                : lastReadIndex;
 
             if (tracker == null)
             {

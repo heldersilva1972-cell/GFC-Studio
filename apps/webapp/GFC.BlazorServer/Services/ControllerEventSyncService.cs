@@ -22,18 +22,25 @@ public class ControllerEventSyncService : BackgroundService
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        
+        // This MUST appear in logs if service is being constructed
+        _logger.LogCritical("!!! CONTROLLER EVENT SYNC SERVICE CONSTRUCTOR CALLED !!!");
+        Console.WriteLine("!!! CONTROLLER EVENT SYNC SERVICE CONSTRUCTOR CALLED !!!");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
-            _logger.LogInformation("Controller Event Sync Service started (Interval: {Interval}s)", _syncInterval.TotalSeconds);
+            _logger.LogCritical("========================================");
+            _logger.LogCritical("=== CONTROLLER EVENT SYNC SERVICE STARTING ===");
+            _logger.LogCritical("=== Interval: {Interval}s ===", _syncInterval.TotalSeconds);
+            _logger.LogCritical("========================================");
 
             // Wait 10 seconds on startup to let the app fully initialize
-            _logger.LogInformation("Waiting 10 seconds for app initialization...");
+            _logger.LogCritical("Waiting 10 seconds for app initialization...");
             await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
-            _logger.LogInformation("Starting sync loop...");
+            _logger.LogCritical("=== STARTING SYNC LOOP NOW ===");
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -79,7 +86,7 @@ public class ControllerEventSyncService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("Syncing events for {Count} controllers", controllers.Count);
+        _logger.LogError("=== EVENT SYNC: Syncing events for {Count} controllers ===", controllers.Count);
 
         foreach (var controller in controllers)
         {
@@ -97,9 +104,15 @@ public class ControllerEventSyncService : BackgroundService
 
                 if (newEventCount > 0)
                 {
-                    _logger.LogInformation(
-                        "Synced {Count} new events from controller {Name} (SN: {Serial})",
+                    _logger.LogError(
+                        "=== EVENT SYNC: Synced {Count} new events from controller {Name} (SN: {Serial}) ===",
                         newEventCount,
+                        controller.Name,
+                        controller.SerialNumber);
+                }
+                else
+                {
+                    _logger.LogError("=== EVENT SYNC: No new events for controller {Name} (SN: {Serial}) ===",
                         controller.Name,
                         controller.SerialNumber);
                 }

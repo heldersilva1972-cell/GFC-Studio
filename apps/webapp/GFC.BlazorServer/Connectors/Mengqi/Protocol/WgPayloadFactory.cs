@@ -32,18 +32,15 @@ internal static class WgPayloadFactory
 
     public static byte[] BuildSyncTimePayload(WgCommandProfile profile, DateTime utcTime)
     {
-        var payload = Allocate(profile, 8);
+        // Controller expects data at packet offset 20 for this firmware.
+        // Standard start is offset 8. So we add 12 bytes padding.
+        var payload = Allocate(profile, 20); 
         var now = utcTime.ToLocalTime();
         
-        // As per user verified structure:
-        // Offset 0: Century prefix (0x20)
-        // Offset 1: Year (BCD)
-        // Offset 2: Month (BCD)
-        // Offset 3: Day (BCD)
-        // Offset 4: Hour (BCD)
-        // Offset 5: Minute (BCD)
-        // Offset 6: Second (BCD)
-        // Offset 7: 0x00
+        // Offset 0-11: Padding (0x00)
+        // Offset 12: Century
+        // Offset 13: Year
+        // ...
         
         Guard.AgainstOutOfRange(now.Month, 1, 12, "Month");
         Guard.AgainstOutOfRange(now.Day, 1, 31, "Day");
@@ -51,14 +48,15 @@ internal static class WgPayloadFactory
         Guard.AgainstOutOfRange(now.Minute, 0, 59, "Minute");
         Guard.AgainstOutOfRange(now.Second, 0, 59, "Second");
 
-        payload[0] = ToBcd(now.Year / 100); // Century (e.g. 20)
-        payload[1] = ToBcd(now.Year % 100); // Year (e.g. 25)
-        payload[2] = ToBcd(now.Month);
-        payload[3] = ToBcd(now.Day);
-        payload[4] = ToBcd(now.Hour);
-        payload[5] = ToBcd(now.Minute);
-        payload[6] = ToBcd(now.Second);
-        payload[7] = 0x00;
+        int baseOffset = 12;
+        payload[baseOffset + 0] = ToBcd(now.Year / 100);
+        payload[baseOffset + 1] = ToBcd(now.Year % 100);
+        payload[baseOffset + 2] = ToBcd(now.Month);
+        payload[baseOffset + 3] = ToBcd(now.Day);
+        payload[baseOffset + 4] = ToBcd(now.Hour);
+        payload[baseOffset + 5] = ToBcd(now.Minute);
+        payload[baseOffset + 6] = ToBcd(now.Second);
+        payload[baseOffset + 7] = 0x00;
         
         return payload;
     }

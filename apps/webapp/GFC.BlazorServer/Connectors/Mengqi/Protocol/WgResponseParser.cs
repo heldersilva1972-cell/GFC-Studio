@@ -10,8 +10,8 @@ internal static class WgResponseParser
 {
     public static ReadOnlySpan<byte> GetPayload(ReadOnlySpan<byte> data)
     {
-        // Data follows 8-byte header
-        return data.Slice(8, 64 - 8 - 1); // -1 for tail sum
+        if (data.Length <= 8) return ReadOnlySpan<byte>.Empty;
+        return data.Slice(8); // safest; callers must validate expected payload size per command
     }
 
     public static void EnsureAck(ReadOnlySpan<byte> packet, WgCommandProfile profile)
@@ -35,11 +35,7 @@ internal static class WgResponseParser
 
     public static RunStatusModel ParseRunStatus(ReadOnlySpan<byte> packet)
     {
-        // Per wgMjController library, there are TWO RunInfo formats:
-        // 1. P64 mode (64 bytes): Type=0x17, Code=0x20 - has 1 swipe summary
-        // 2. Full mode (268+ bytes): Type=0x20, Code=0x21 - has 10 swipe summaries
-        
-        if (packet.Length < 64)
+        if (packet.Length < 2)
         {
             return new RunStatusModel
             {
@@ -52,54 +48,49 @@ internal static class WgResponseParser
                 ControllerTime = null
             };
         }
-        
+
         uint highestIndex = 0;
-        
-        // Determine packet format
+
         bool isP64Mode = packet.Length == 64 && packet[0] == 0x17 && packet[1] == 0x20;
-        bool isFullMode = packet.Length >= 268;
-        
+        bool isFullMode = packet[0] == 0x20 && packet[1] == 0x21; // full run-info response
+
         if (isP64Mode)
         {
-            // P64 mode: Single swipe summary at a specific offset
-            // Based on updateFirstP64() in wgUdpServer
-            // The index is typically at bytes 20-23 in P64 mode
-            if (packet.Length >= 24)
+            // ✅ Vendor behavior: swipe end index is at offset 8..11 in 64-byte run-info
+            if (packet.Length >= 12)
             {
-                uint index = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(20, 4));
-                if (index != 0xFFFFFFFF)
+                uint swipeEndIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(8, 4));
+                if (swipeEndIndex != 0xFFFFFFFF)
                 {
-                    highestIndex = index;
+                    highestIndex = swipeEndIndex;
                 }
             }
         }
         else if (isFullMode)
         {
-            // Full mode: 10 swipe summaries starting at byte 64
+            // ✅ Vendor behavior: 10 swipe summaries; each has IndexInDataFlash at 64 + i*20
             const int swipeArrayStart = 64;
             const int swipeEntrySize = 20;
             const int maxSwipes = 10;
-            
+
             for (int i = 0; i < maxSwipes; i++)
             {
                 int offset = swipeArrayStart + (i * swipeEntrySize);
                 if (offset + 4 > packet.Length) break;
-                
+
                 uint index = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(offset, 4));
-                
-                // Skip invalid/empty entries
                 if (index != 0xFFFFFFFF && index > highestIndex)
                 {
                     highestIndex = index;
                 }
             }
         }
-        
-        // Read timestamp from bytes 20-26 (BCD format) if available
+
+        // Controller time (BCD) – your observed packets place this at 20..26 in P64 mode.
         DateTime? controllerTime = null;
         if (packet.Length >= 27)
         {
-            try 
+            try
             {
                 int century = DecodeBcd(packet[20]);
                 int yearPart = DecodeBcd(packet[21]);
@@ -110,28 +101,29 @@ internal static class WgResponseParser
                 int minute = DecodeBcd(packet[25]);
                 int second = DecodeBcd(packet[26]);
 
-                if (month > 0 && month <= 12 && day > 0 && day <= 31)
+                if (month is >= 1 and <= 12 && day is >= 1 and <= 31)
                 {
                     controllerTime = new DateTime(fullYear, month, day, hour, minute, second);
                 }
             }
-            catch 
-            {
-                // Fallback
-            }
+            catch { /* ignore */ }
         }
 
         return new RunStatusModel
         {
-            Doors = Array.Empty<RunStatusModel.DoorStatus>(), 
+            Doors = Array.Empty<RunStatusModel.DoorStatus>(),
             RelayStates = Array.Empty<bool>(),
-            IsFireAlarmActive = false, 
+            IsFireAlarmActive = false,
             IsTamperActive = false,
             TotalCards = 0,
+
+            // NOTE: rename later (this is NOT a "total count"; it's the latest index pointer)
             TotalEvents = highestIndex,
+
             ControllerTime = controllerTime
         };
     }
+
 
     public static CardPrivilegeModel ParseCardData(ReadOnlySpan<byte> packet)
     {
@@ -188,77 +180,78 @@ internal static class WgResponseParser
     public static (List<ControllerEvent> Events, uint ControllerLastIndex) ParseEvents(ReadOnlySpan<byte> packet, uint requestedIndex = 0)
     {
         var events = new List<ControllerEvent>();
-        
-        // Per wgMjController library:
-        // - Controller's last index is at bytes 40-43 (UInt32 LE)
-        // - Event record data starts at byte 24 (not byte 12)
-        
-        if (packet.Length < 64) return (events, 0);
-        
-        // Extract controller's last index from bytes 40-43
-        uint ControllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet[40..44]);
-        
-        // Event record starts at byte 24
-        var eventData = packet.Slice(24, 20); // 20 bytes of event data
-        
-        // Check if this is an empty/zero record
-        bool isEmpty = true;
-        for (int i = 0; i < eventData.Length; i++)
+
+        // Expecting a 64-byte response for P64 commands
+        if (packet.Length < 64)
+            return (events, 0);
+
+        // Only parse if this is the GetSingleSwipeRecord/Events response (0x17 0xB0)
+        if (!(packet[0] == 0x17 && packet[1] == 0xB0))
+            return (events, 0);
+
+        // Vendor path: record payload starts at byte 24
+        const int recordOffset = 24;
+        const int recordLen = 16;
+
+        if (recordOffset + recordLen > packet.Length)
+            return (events, 0);
+
+        var rec = packet.Slice(recordOffset, recordLen);
+
+        // If record is all zeros, treat as empty/missing record
+        bool empty = true;
+        for (int i = 0; i < rec.Length; i++)
         {
-            if (eventData[i] != 0)
-            {
-                isEmpty = false;
-                break;
-            }
+            if (rec[i] != 0) { empty = false; break; }
         }
-        
-        if (isEmpty)
+        if (empty)
         {
-            // All zeros = no event at this index
-            return (events, ControllerLastIndex);
+            // Still return ControllerLastIndex if present
+            uint maybeIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4));
+            return (events, maybeIndex);
         }
-        
-        // Parse event fields (offsets relative to byte 24)
-        var category = eventData[0];        // Event type/category
-        var resultReason = eventData[1];    // Result/reason code
-        var door = eventData[2];            // Door number
-        
-        // Card number at offset 8-11 from event start (bytes 32-35 of packet)
-        var card = BinaryPrimitives.ReadUInt32LittleEndian(eventData[8..12]);
-        
-        // Timestamp at offset 12-18 from event start (bytes 36-42 of packet)
-        DateTime timestamp = DateTime.MinValue;
+
+        // Vendor record layout: CardID is 8 bytes at 0..7 (some systems only use lower 4)
+        ulong card64 = BinaryPrimitives.ReadUInt64LittleEndian(rec.Slice(0, 8));
+        uint card32 = (uint)(card64 & 0xFFFFFFFF);
+
+        // Vendor record layout: date/time starts at byte 8 (controller-specific conversion).
+        // We'll treat it as BCD-ish only if it looks like BCD; otherwise leave MinValue and keep raw bytes for now.
+        DateTime timestampUtc = DateTime.MinValue;
         try
         {
-            var century = DecodeBcd(eventData[12]);
-            var year = DecodeBcd(eventData[13]);
-            var month = DecodeBcd(eventData[14]);
-            var day = DecodeBcd(eventData[15]);
-            var hour = DecodeBcd(eventData[16]);
-            var minute = DecodeBcd(eventData[17]);
-            var second = DecodeBcd(eventData[18]);
-            
-            if (month > 0 && month <= 12 && day > 0 && day <= 31)
-            {
-                var fullYear = (century * 100) + year;
-                timestamp = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Utc);
-            }
+            // Many captures show YY/MM/DD/HH/MM/SS patterns.
+            // If your record uses WgDateToMsDate conversion, replace this block with that converter.
+            int century = DecodeBcd(rec[8]);
+            int year = DecodeBcd(rec[9]);
+            int month = DecodeBcd(rec[10]);
+            int day = DecodeBcd(rec[11]);
+            int hour = DecodeBcd(rec[12]);
+            int minute = DecodeBcd(rec[13]);
+            int second = DecodeBcd(rec[14]);
+
+            int fullYear = century * 100 + year;
+            if (month is >= 1 and <= 12 && day is >= 1 and <= 31)
+                timestampUtc = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Utc);
         }
-        catch { }
-        
-        return (new List<ControllerEvent> 
-        { 
-            new ControllerEvent
-            {
-                CardNumber = (category == 1 && card > 0) ? (long)card : 0, 
-                DoorOrReader = door,
-                EventType = (ControllerEventType)category, 
-                ReasonCode = resultReason,
-                TimestampUtc = timestamp,
-                RawIndex = requestedIndex
-            } 
-        }, ControllerLastIndex);
+        catch { /* ignore */ }
+
+        // ControllerLastIndex/loc echoed (vendor reads bytes 40..43)
+        uint controllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4));
+
+        events.Add(new ControllerEvent
+        {
+            CardNumber = card32 != 0 ? card32 : (long)card64,
+            DoorOrReader = 0,               // TODO: decode via swipe record status/reader fields once mapped
+            EventType = ControllerEventType.Unknown, // TODO: map from record flags later
+            ReasonCode = 0,                 // TODO: map from record flags later
+            TimestampUtc = timestampUtc,
+            RawIndex = requestedIndex
+        });
+
+        return (events, controllerLastIndex);
     }
+
 
     public static DiscoveryResult ParseDiscovery(ReadOnlySpan<byte> packet)
     {

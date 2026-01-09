@@ -186,10 +186,11 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         uint eventIndex,
         CancellationToken cancellationToken = default)
     {
-        // Request the specific event at the given index
-        // The index is the actual flash index to fetch, not "last known"
-        var payload = new byte[4];
-        BitConverter.GetBytes(eventIndex).CopyTo(payload, 0);
+        // Controller expects index at packet offset 20.
+        // Data starts at offset 8, so we need 12 bytes padding + 4 bytes index = 16 bytes total.
+        var payload = new byte[16];
+        BitConverter.GetBytes(eventIndex).CopyTo(payload, 12);
+        
         var response = await _dispatcher.SendAsync(controllerSn, _commands.GetEvents, payload, cancellationToken).ConfigureAwait(false);
         WgResponseParser.EnsureAck(response, _commands.GetEvents);
         return WgResponseParser.ParseEvents(response, eventIndex);

@@ -368,10 +368,10 @@ public class RealControllerClient : IControllerClient
     {
         try {
             var (events, newLastIndex) = await _mengqiClient.GetNewEventsAsync(sn, lastIndex, ct);
-            // Map events
-             var resultEvents = events.Select((e, i) => new ControllerEventDto 
+            // Map events - since we request a single event at 'lastIndex', that event's index IS lastIndex
+            var resultEvents = events.Select(e => new ControllerEventDto 
               {
-                  RawIndex = lastIndex + (uint)i + 1, 
+                  RawIndex = lastIndex, // The event we fetched is AT this index
                   DoorNumber = e.DoorOrReader,
                   TimestampUtc = e.TimestampUtc,
                   CardNumber = e.CardNumber > 0 ? e.CardNumber : (long?)null,
