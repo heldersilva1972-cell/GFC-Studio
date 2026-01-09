@@ -152,76 +152,70 @@ internal static class WgResponseParser
 
     public static (List<ControllerEvent> Events, uint ControllerLastIndex) ParseEvents(ReadOnlySpan<byte> packet, uint requestedIndex = 0)
     {
-        try
+        var events = new List<ControllerEvent>();
+
+        // Expecting a 64-byte response for P64 commands
+        if (packet.Length < 64)
+            return (events, 0);
+
+        // Only parse if this is the GetSingleSwipeRecord/Events response (0x17 0xB0)
+        if (!(packet[0] == 0x17 && packet[1] == 0xB0))
+            return (events, 0);
+
+        // Vendor path: record payload starts at byte 24
+        const int recordOffset = 24;
+        const int recordLen = 16;
+
+        if (recordOffset + recordLen > packet.Length)
+            return (events, 0);
+
+        var rec = packet.Slice(recordOffset, recordLen);
+
+        // If record is all zeros, treat as empty/missing record
+        bool empty = true;
+        for (int i = 0; i < rec.Length; i++)
         {
-            var events = new List<ControllerEvent>();
-
-            // Expecting a 64-byte response for P64 commands
-            if (packet.Length < 64)
-                return (events, 0);
-
-            // Only parse if this is the GetSingleSwipeRecord/Events response (0x17 0xB0)
-            if (!(packet[0] == 0x17 && packet[1] == 0xB0))
-                return (events, 0);
-
-            // Vendor path: record payload starts at byte 24
-            const int recordOffset = 24;
-            const int recordLen = 16;
-
-            if (recordOffset + recordLen > packet.Length)
-                return (events, 0);
-
-            var rec = packet.Slice(recordOffset, recordLen);
-
-            // If record is all zeros, treat as empty/missing record
-            bool empty = true;
-            for (int i = 0; i < rec.Length; i++)
-            {
-                if (rec[i] != 0) { empty = false; break; }
-            }
-            if (empty)
-            {
-                // Still return ControllerLastIndex if present
-                uint maybeIndex = packet.Length >= 44 ? BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4)) : 0;
-                return (events, maybeIndex);
-            }
-
-            // Vendor record layout: CardID is 8 bytes at 0..7 (some systems only use lower 4)
-            ulong card64 = rec.Length >= 8 ? BinaryPrimitives.ReadUInt64LittleEndian(rec.Slice(0, 8)) : 0;
-            uint card32 = (uint)(card64 & 0xFFFFFFFF);
-
-            // Vendor record layout: date/time starts at byte 8
-            // Try packed format (4 bytes) first as per vendor WgDateToMsDate logic
-            DateTime? parsedTime = rec.Length >= 12 ? TryParsePackedDateTime(rec.Slice(8, 4)) : null;
-            
-            // Fallback to BCD (7 bytes) if packed failed or looks like garbage
-            if (parsedTime == null && rec.Length >= 15)
-            {
-                parsedTime = TryParseBcdDateTime(rec.Slice(8, 7), DateTimeKind.Utc);
-            }
-
-            DateTime timestampUtc = parsedTime ?? DateTime.MinValue;
-
-
-            // ControllerLastIndex/loc echoed (vendor reads bytes 40..43)
-            uint controllerLastIndex = packet.Length >= 44 ? BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4)) : 0;
-
-            events.Add(new ControllerEvent
-            {
-                CardNumber = card32 != 0 ? card32 : (long)card64,
-                DoorOrReader = 0,               // TODO: decode via swipe record status/reader fields once mapped
-                EventType = ControllerEventType.Unknown, // TODO: map from record flags later
-                ReasonCode = 0,                 // TODO: map from record flags later
-                TimestampUtc = timestampUtc,
-                RawIndex = requestedIndex
-            });
-
-            return (events, controllerLastIndex);
+            if (rec[i] != 0) { empty = false; break; }
         }
-        catch (Exception)
+        if (empty)
         {
-            return (new List<ControllerEvent>(), 0);
+            // Still return ControllerLastIndex if present
+            uint maybeIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4));
+            return (events, maybeIndex);
         }
+
+        // Vendor record layout: CardID is 8 bytes at 0..7 (some systems only use lower 4)
+        ulong card64 = BinaryPrimitives.ReadUInt64LittleEndian(rec.Slice(0, 8));
+        uint card32 = (uint)(card64 & 0xFFFFFFFF);
+
+        // Vendor record layout: date/time starts at byte 8
+        // Try packed format (4 bytes) first as per vendor WgDateToMsDate logic
+        DateTime? parsedTime = TryParsePackedDateTime(rec.Slice(8, 4));
+        
+        // Fallback to BCD (7 bytes) if packed failed or looks like garbage
+        if (parsedTime == null)
+        {
+            parsedTime = TryParseBcdDateTime(rec.Slice(8, 7), DateTimeKind.Utc);
+        }
+
+        DateTime timestampUtc = parsedTime ?? DateTime.MinValue;
+
+
+        // ControllerLastIndex/loc echoed (vendor reads bytes 40..43)
+
+        uint controllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4));
+
+        events.Add(new ControllerEvent
+        {
+            CardNumber = card32 != 0 ? card32 : (long)card64,
+            DoorOrReader = 0,               // TODO: decode via swipe record status/reader fields once mapped
+            EventType = ControllerEventType.Unknown, // TODO: map from record flags later
+            ReasonCode = 0,                 // TODO: map from record flags later
+            TimestampUtc = timestampUtc,
+            RawIndex = requestedIndex
+        });
+
+        return (events, controllerLastIndex);
     }
 
 

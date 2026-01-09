@@ -22,22 +22,30 @@ namespace GFC.BlazorServer.Services
 
         public async Task<LocationType> DetectLocationAsync(string ipAddress)
         {
-            if (string.IsNullOrEmpty(ipAddress))
+            try
             {
+                if (string.IsNullOrEmpty(ipAddress))
+                {
+                    return LocationType.Unknown;
+                }
+
+                if (await IsLanAddressAsync(ipAddress))
+                {
+                    return LocationType.LAN;
+                }
+
+                if (await IsVpnAddressAsync(ipAddress))
+                {
+                    return LocationType.VPN;
+                }
+
+                return LocationType.Public;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "FATAL: Error in DetectLocationAsync for IP {IpAddress}. Falling back to Unknown to save App Pool.", ipAddress);
                 return LocationType.Unknown;
             }
-
-            if (await IsLanAddressAsync(ipAddress))
-            {
-                return LocationType.LAN;
-            }
-
-            if (await IsVpnAddressAsync(ipAddress))
-            {
-                return LocationType.VPN;
-            }
-
-            return LocationType.Public;
         }
 
         public async Task<bool> IsAuthorizedForVideoAsync(string ipAddress)
@@ -51,7 +59,11 @@ namespace GFC.BlazorServer.Services
             try
             {
                 await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-                var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+                var settings = await dbContext.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
+                if (settings == null) 
+                {
+                    _logger.LogWarning("SystemSettings not found or database not ready. Using defaults.");
+                }
                 var lanSubnet = settings?.LanSubnet ?? "192.168.1.0/24";
                 return IsInSubnet(ipAddress, lanSubnet);
             }
@@ -67,7 +79,11 @@ namespace GFC.BlazorServer.Services
             try
             {
                 await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-                var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+                var settings = await dbContext.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
+                if (settings == null) 
+                {
+                    _logger.LogWarning("SystemSettings not found or database not ready. Using defaults.");
+                }
                 var vpnSubnet = settings?.WireGuardSubnet ?? "10.8.0.0/24";
                 return IsInSubnet(ipAddress, vpnSubnet);
             }
@@ -85,6 +101,7 @@ namespace GFC.BlazorServer.Services
 
             try
             {
+                if (string.IsNullOrWhiteSpace(subnetCidr) || !subnetCidr.Contains("/")) return false;
                 var parts = subnetCidr.Split('/');
                 if (parts.Length != 2) return false;
 

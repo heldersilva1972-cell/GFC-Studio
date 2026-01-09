@@ -136,7 +136,7 @@ public class ControllerEventService
 
         uint currentIndex = status.TotalEvents;
         
-        _logger.LogInformation("=== SYNC DEBUG: Controller {Sn} reports TotalEvents = {CurrentIndex} ===", controllerSerialNumber, currentIndex);
+        _logger.LogError("=== SYNC DEBUG: Controller {Sn} reports TotalEvents = {CurrentIndex} ===", controllerSerialNumber, currentIndex);
         
         // 2. Get our last read index from tracking table (more reliable than querying events)
         var lastIndexRecord = await dbContext.ControllerLastIndexes
@@ -154,13 +154,13 @@ public class ControllerEventService
             lastReadIndex = (uint)(lastRecord?.RawIndex ?? 0);
         }
 
-        _logger.LogInformation("=== SYNC DEBUG: Controller {Sn}: CurrentIndex={Current}, LastReadIndex={Last}, Gap={Gap} ===", 
+        _logger.LogError("=== SYNC DEBUG: Controller {Sn}: CurrentIndex={Current}, LastReadIndex={Last}, Gap={Gap} ===", 
             controllerSerialNumber, currentIndex, lastReadIndex, (int)currentIndex - (int)lastReadIndex);
 
         // If we are exactly up to date, do nothing.
         if (currentIndex == lastReadIndex)
         {
-            _logger.LogInformation("=== SYNC DEBUG: Controller {Sn} is up to date at index {Index} ===", controllerSerialNumber, currentIndex);
+            _logger.LogError("=== SYNC DEBUG: Controller {Sn} is up to date at index {Index} ===", controllerSerialNumber, currentIndex);
             return 0;
         }
 

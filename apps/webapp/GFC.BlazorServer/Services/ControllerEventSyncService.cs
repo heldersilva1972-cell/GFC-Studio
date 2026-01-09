@@ -95,7 +95,7 @@ public class ControllerEventSyncService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("=== EVENT SYNC: Syncing events for {Count} controllers ===", controllers.Count);
+        _logger.LogError("=== EVENT SYNC: Syncing events for {Count} controllers ===", controllers.Count);
 
         foreach (var controller in controllers)
         {
@@ -113,7 +113,7 @@ public class ControllerEventSyncService : BackgroundService
 
                 if (newEventCount > 0)
                 {
-                    _logger.LogInformation(
+                    _logger.LogError(
                         "=== EVENT SYNC: Synced {Count} new events from controller {Name} (SN: {Serial}) ===",
                         newEventCount,
                         controller.Name,

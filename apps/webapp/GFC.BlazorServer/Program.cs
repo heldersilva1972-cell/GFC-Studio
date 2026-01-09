@@ -418,6 +418,28 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
             {
                 var dbContext = services.GetRequiredService<GfcDbContext>();
                 
+                // [REBOOT-PROOF FIX] Wait for SQL Server to become available
+                // When the host computer restarts, SQL Express may take longer to initialize than IIS.
+                // This retry loop ensures we don't 'fail forward' into a broken state.
+                bool sqlReady = false;
+                int sqlRetries = 0;
+                while (!sqlReady && sqlRetries < 12) // Try for ~1 minute
+                {
+                    try
+                    {
+                        dbContext.Database.OpenConnection();
+                        dbContext.Database.CloseConnection();
+                        sqlReady = true;
+                        Console.WriteLine(">>> [Startup] SQL Server connection verified.");
+                    }
+                    catch (Exception ex)
+                    {
+                        sqlRetries++;
+                        Console.WriteLine($">>> [Startup] Waiting for SQL Server... (Attempt {sqlRetries}/12): {ex.Message}");
+                        Thread.Sleep(5000); // 5 second gap
+                    }
+                }
+
                 // [AUTO-FIX 0] CRITICAL: Initialize Database Foundation if Missing
                 // This ensures the application can start even if the manual sqlcmd script failed
                 var initFinalPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "INITIALIZE_DATABASE_FINAL.sql");
