@@ -183,19 +183,16 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
 
     public async Task<(IReadOnlyList<ControllerEvent> Events, uint ControllerLastIndex)> GetNewEventsAsync(
         uint controllerSn,
-        uint lastKnownIndex,
+        uint eventIndex,
         CancellationToken cancellationToken = default)
     {
-        // User Requirement: "When you send the next 0xB0 (Get Log) command, place LastIndex + 1 into the payload"
-        // We assume lastKnownIndex is the index of the *last record we have*.
-        // Therefore, we request starting from lastKnownIndex + 1.
-        uint startIndex = lastKnownIndex + 1;
-                         
+        // Request the specific event at the given index
+        // The index is the actual flash index to fetch, not "last known"
         var payload = new byte[4];
-        BitConverter.GetBytes(startIndex).CopyTo(payload, 0);
+        BitConverter.GetBytes(eventIndex).CopyTo(payload, 0);
         var response = await _dispatcher.SendAsync(controllerSn, _commands.GetEvents, payload, cancellationToken).ConfigureAwait(false);
         WgResponseParser.EnsureAck(response, _commands.GetEvents);
-        return WgResponseParser.ParseEvents(response, startIndex);
+        return WgResponseParser.ParseEvents(response, eventIndex);
     }
     
     public async Task AcknowledgeEventsAsync(uint controllerSn, uint eventsReadIndex, CancellationToken cancellationToken = default)

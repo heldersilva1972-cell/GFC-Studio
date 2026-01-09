@@ -14,7 +14,9 @@ public class ControllerEventService
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<ControllerEventService> _logger;
 
-    public ControllerEventService(IDbContextFactory<GfcDbContext> contextFactory, ILogger<ControllerEventService> logger)
+    public ControllerEventService(
+        IDbContextFactory<GfcDbContext> contextFactory, 
+        ILogger<ControllerEventService> logger)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -189,7 +191,7 @@ public class ControllerEventService
 
             try 
             {
-                // Fetch single event
+                // Fetch single event by index
                 var result = await controllerClient.GetNewEventsAsync(controllerSerialNumber.ToString(), i - 1, cancellationToken);
                 if (result.Events != null && result.Events.Any())
                 {

@@ -4,9 +4,11 @@
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Services.Controllers
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.SignalR.Client
 @inject IControllerClient ControllerClient
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject ILogger<OverviewTab> Logger
+@inject NavigationManager Navigation
 
 <div class="settings-tab-content fadeIn h-100">
     @if (Controller == null)
@@ -150,7 +152,7 @@
                                     </div>
                                     <div class="event-content">
                                         <div class="event-desc">@GetEventDescription(evt)</div>
-                                        <div class="event-time">@evt.TimestampUtc.ToLocalTime().ToString("t")</div>
+                                        <div class="event-time">@evt.TimestampUtc.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</div>
                                     </div>
                                 </div>
                             }
@@ -209,7 +211,7 @@
     private HashSet<int> _unlockedDoors = new();
     
     private int _lastControllerId;
-    private System.Threading.Timer? _refreshTimer;
+    private HubConnection? _hubConnection;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -218,22 +220,40 @@
             _lastControllerId = Controller.Id;
             await LoadEvents();
             
-            // Start auto-refresh timer
-            _refreshTimer?.Dispose();
-            _refreshTimer = new System.Threading.Timer(async _ =>
+            // Connect to SignalR for real-time updates
+            await InitializeSignalR();
+        }
+    }
+
+    private async Task InitializeSignalR()
+    {
+        try
+        {
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/controllereventhub"))
+                .Build();
+
+            _hubConnection.On<int>("ReceiveEventUpdate", async (controllerId) =>
             {
-                await InvokeAsync(async () =>
+                if (controllerId == Controller?.Id)
                 {
                     await LoadEvents();
-                    StateHasChanged();
-                });
-            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+                    await InvokeAsync(StateHasChanged);
+                }
+            });
+
+            await _hubConnection.StartAsync();
+            Logger.LogInformation("SignalR connected for controller events");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to connect to SignalR");
         }
     }
 
     public void Dispose()
     {
-        _refreshTimer?.Dispose();
+        _ = _hubConnection?.DisposeAsync();
     }
 
     private async Task SyncTime()
@@ -300,23 +320,35 @@
     {
         if (Controller == null) return;
         _isLoadingEvents = true;
+        StateHasChanged(); // Show spinner
+        
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
             _recentEvents = await db.ControllerEvents
                 .Where(e => e.ControllerId == Controller.Id)
-                .OrderByDescending(e => e.CreatedUtc)
+                .OrderByDescending(e => e.TimestampUtc)
                 .Take(20)
                 .Include(e => e.Door)
+                .Include(e => e.Controller)
                 .ToListAsync();
             
-            Logger.LogInformation("Loaded {Count} events for controller {Id}", _recentEvents.Count, Controller.Id);
+            Logger.LogInformation("Loaded {Count} events for controller {Id}. Sample: {Sample}", 
+                _recentEvents.Count, 
+                Controller.Id,
+                _recentEvents.FirstOrDefault() != null 
+                    ? $"EventType={_recentEvents.First().EventType}, ReasonCode={_recentEvents.First().ReasonCode}, Door={_recentEvents.First().Door?.Name}"
+                    : "No events");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed events load");
         }
-        finally { _isLoadingEvents = false; }
+        finally 
+        { 
+            _isLoadingEvents = false;
+            StateHasChanged(); // Update UI with results
+        }
     }
 
     private async Task UnlockDoor(Door door)
@@ -384,8 +416,23 @@
 
     private string GetEventDescription(ControllerEvent evt)
     {
-        // N3000 stores the actual event type in ReasonCode (Byte 15), not EventType
-        var desc = evt.ReasonCode switch
+        // Build description from available data
+        var parts = new List<string>();
+        
+        // Start with door name
+        if (evt.Door != null)
+        {
+            parts.Add(evt.Door.Name);
+        }
+        else if (evt.DoorId.HasValue)
+        {
+            parts.Add($"Door {evt.DoorId}");
+        }
+        
+        // Add action type based on available codes or flags
+        var code = evt.ReasonCode ?? evt.EventType;
+        
+        string action = code switch
         {
             0x01 => "Access Granted",
             0x05 => "Access Denied (Not Found)",
@@ -397,14 +444,40 @@
             0x1C => "Door Closed",
             0x1D => "Door Opened",
             0x25 => "Remote Unlock",
-            _ => $"Event (Code 0x{evt.ReasonCode:X2})"
+            0x20 => "Door Forced Open",
+            0x21 => "Door Held Open",
+            0x23 => "Duress Code Used",
+            0x18 => "Fire Alarm",
+            0x27 => "Normal Open Mode",
+            0x28 => "Normal Close Mode",
+            _ => null // Will determine from flags below
         };
         
-        if (evt.CardNumber.HasValue && evt.CardNumber > 0) 
-            desc += $" (Card {evt.CardNumber})";
-        if (evt.Door != null) 
-            desc += $" - {evt.Door.Name}";
-            
-        return desc;
+        // If no specific code, use flags to describe action
+        if (action == null)
+        {
+            if (evt.IsByCard && evt.CardNumber.HasValue && evt.CardNumber > 0)
+            {
+                action = "Card Swipe";
+            }
+            else if (evt.IsByButton)
+            {
+                action = "Button Press";
+            }
+            else
+            {
+                action = "Door Activity";
+            }
+        }
+        
+        parts.Add(action);
+        
+        // Add card number if present
+        if (evt.CardNumber.HasValue && evt.CardNumber > 0)
+        {
+            parts.Add($"Card #{evt.CardNumber}");
+        }
+        
+        return string.Join(" - ", parts);
     }
 }

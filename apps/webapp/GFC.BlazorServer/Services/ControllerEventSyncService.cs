@@ -26,26 +26,36 @@ public class ControllerEventSyncService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Controller Event Sync Service started (Interval: {Interval}s)", _syncInterval.TotalSeconds);
-
-        // Wait 10 seconds on startup to let the app fully initialize
-        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            _logger.LogInformation("Controller Event Sync Service started (Interval: {Interval}s)", _syncInterval.TotalSeconds);
+
+            // Wait 10 seconds on startup to let the app fully initialize
+            _logger.LogInformation("Waiting 10 seconds for app initialization...");
+            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+            _logger.LogInformation("Starting sync loop...");
+
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await SyncAllControllersAsync(stoppingToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in Controller Event Sync Service");
+                try
+                {
+                    await SyncAllControllersAsync(stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in Controller Event Sync Service");
+                }
+
+                await Task.Delay(_syncInterval, stoppingToken);
             }
 
-            await Task.Delay(_syncInterval, stoppingToken);
+            _logger.LogInformation("Controller Event Sync Service stopped");
         }
-
-        _logger.LogInformation("Controller Event Sync Service stopped");
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "FATAL: Controller Event Sync Service failed to start!");
+            throw;
+        }
     }
 
     private async Task SyncAllControllersAsync(CancellationToken cancellationToken)

@@ -35,43 +35,91 @@ internal static class WgResponseParser
 
     public static RunStatusModel ParseRunStatus(ReadOnlySpan<byte> packet)
     {
-        var payload = GetPayload(packet);
-
-        // N3000 Status Poll (0x20) Response Layout:
-        // Byte 8-11:  Controller SN (Payload 0-3)
-        // Byte 12-15: Index (Payload 4-7)
-        // Byte 20-26: Timestamp (Payload 12-18)
+        // Per wgMjController library, there are TWO RunInfo formats:
+        // 1. P64 mode (64 bytes): Type=0x17, Code=0x20 - has 1 swipe summary
+        // 2. Full mode (268+ bytes): Type=0x20, Code=0x21 - has 10 swipe summaries
         
-        uint totalEvents = 0;
-        DateTime? controllerTime = null;
-
-        if (payload.Length >= 18)
+        if (packet.Length < 64)
         {
-            totalEvents = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
-
+            return new RunStatusModel
+            {
+                Doors = Array.Empty<RunStatusModel.DoorStatus>(),
+                RelayStates = Array.Empty<bool>(),
+                IsFireAlarmActive = false,
+                IsTamperActive = false,
+                TotalCards = 0,
+                TotalEvents = 0,
+                ControllerTime = null
+            };
+        }
+        
+        uint highestIndex = 0;
+        
+        // Determine packet format
+        bool isP64Mode = packet.Length == 64 && packet[0] == 0x17 && packet[1] == 0x20;
+        bool isFullMode = packet.Length >= 268;
+        
+        if (isP64Mode)
+        {
+            // P64 mode: Single swipe summary at a specific offset
+            // Based on updateFirstP64() in wgUdpServer
+            // The index is typically at bytes 20-23 in P64 mode
+            if (packet.Length >= 24)
+            {
+                uint index = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(20, 4));
+                if (index != 0xFFFFFFFF)
+                {
+                    highestIndex = index;
+                }
+            }
+        }
+        else if (isFullMode)
+        {
+            // Full mode: 10 swipe summaries starting at byte 64
+            const int swipeArrayStart = 64;
+            const int swipeEntrySize = 20;
+            const int maxSwipes = 10;
+            
+            for (int i = 0; i < maxSwipes; i++)
+            {
+                int offset = swipeArrayStart + (i * swipeEntrySize);
+                if (offset + 4 > packet.Length) break;
+                
+                uint index = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(offset, 4));
+                
+                // Skip invalid/empty entries
+                if (index != 0xFFFFFFFF && index > highestIndex)
+                {
+                    highestIndex = index;
+                }
+            }
+        }
+        
+        // Read timestamp from bytes 20-26 (BCD format) if available
+        DateTime? controllerTime = null;
+        if (packet.Length >= 27)
+        {
             try 
             {
-                var p = payload.Slice(12); // Packet Byte 20
-                int century = DecodeBcd(p[0]);
-                int yearPart = DecodeBcd(p[1]);
+                int century = DecodeBcd(packet[20]);
+                int yearPart = DecodeBcd(packet[21]);
                 int fullYear = (century * 100) + yearPart;
-                int month = DecodeBcd(p[2]);
-                int day = DecodeBcd(p[3]);
-                int hour = DecodeBcd(p[4]);
-                int minute = DecodeBcd(p[5]);
-                int second = DecodeBcd(p[6]);
+                int month = DecodeBcd(packet[22]);
+                int day = DecodeBcd(packet[23]);
+                int hour = DecodeBcd(packet[24]);
+                int minute = DecodeBcd(packet[25]);
+                int second = DecodeBcd(packet[26]);
 
-                controllerTime = new DateTime(fullYear, month, day, hour, minute, second);
+                if (month > 0 && month <= 12 && day > 0 && day <= 31)
+                {
+                    controllerTime = new DateTime(fullYear, month, day, hour, minute, second);
+                }
             }
             catch 
             {
                 // Fallback
             }
         }
-        
-        // Note: Door Status bits were not explicitly defined in the new 0x20 spec.
-        // We will return empty door/relay states to avoid misleading the UI with incorrect offsets.
-        // The UI should rely on events or specific queries if needed.
 
         return new RunStatusModel
         {
@@ -80,7 +128,7 @@ internal static class WgResponseParser
             IsFireAlarmActive = false, 
             IsTamperActive = false,
             TotalCards = 0,
-            TotalEvents = totalEvents,
+            TotalEvents = highestIndex,
             ControllerTime = controllerTime
         };
     }
@@ -139,32 +187,49 @@ internal static class WgResponseParser
 
     public static (List<ControllerEvent> Events, uint ControllerLastIndex) ParseEvents(ReadOnlySpan<byte> packet, uint requestedIndex = 0)
     {
-        var payload = GetPayload(packet);
         var events = new List<ControllerEvent>();
         
-        // N3000 Standard Mode (0xB0) Response Structure (64 bytes total):
-        // Packet 8-11:   Last Index (Payload 0-3)
-        // Packet 12-31:  Event record (Payload 4-23)
-        // Event data offsets (relative to Packet Offset 12):
-        // [0]            Event Type (Packet 12)
-        // [1]            Result / Reason Code (Packet 13)
-        // [2]            Door Number (Packet 14)
-        // [3]            Reader Number?
-        // [8..11]        Card ID (Packet 20-23)
-        // [12..18]       Timestamp (Packet 24-30)
- 
-        if (payload.Length < 24) return (events, 0); 
+        // Per wgMjController library:
+        // - Controller's last index is at bytes 40-43 (UInt32 LE)
+        // - Event record data starts at byte 24 (not byte 12)
         
-        uint ControllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[0..4]);
-        var eventData = payload.Slice(4, 20); // Byte 12-31
+        if (packet.Length < 64) return (events, 0);
         
-        var category = eventData[0];
+        // Extract controller's last index from bytes 40-43
+        uint ControllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet[40..44]);
+        
+        // Event record starts at byte 24
+        var eventData = packet.Slice(24, 20); // 20 bytes of event data
+        
+        // Check if this is an empty/zero record
+        bool isEmpty = true;
+        for (int i = 0; i < eventData.Length; i++)
+        {
+            if (eventData[i] != 0)
+            {
+                isEmpty = false;
+                break;
+            }
+        }
+        
+        if (isEmpty)
+        {
+            // All zeros = no event at this index
+            return (events, ControllerLastIndex);
+        }
+        
+        // Parse event fields (offsets relative to byte 24)
+        var category = eventData[0];        // Event type/category
+        var resultReason = eventData[1];    // Result/reason code
+        var door = eventData[2];            // Door number
+        
+        // Card number at offset 8-11 from event start (bytes 32-35 of packet)
         var card = BinaryPrimitives.ReadUInt32LittleEndian(eventData[8..12]);
         
+        // Timestamp at offset 12-18 from event start (bytes 36-42 of packet)
         DateTime timestamp = DateTime.MinValue;
         try
         {
-            // Timestamp at eventData[12..18] -> Packet 24-30
             var century = DecodeBcd(eventData[12]);
             var year = DecodeBcd(eventData[13]);
             var month = DecodeBcd(eventData[14]);
@@ -180,9 +245,6 @@ internal static class WgResponseParser
             }
         }
         catch { }
- 
-        var resultReason = eventData[1];
-        var door = eventData[2];
         
         return (new List<ControllerEvent> 
         { 

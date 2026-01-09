@@ -912,6 +912,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
   
         app.MapHub<GFC.BlazorServer.Hubs.StudioPreviewHub>("/studiopreviewhub");
         app.MapHub<GFC.BlazorServer.Hubs.VideoAccessHub>("/videoaccesshub");
+        app.MapHub<GFC.BlazorServer.Hubs.ControllerEventHub>("/controllereventhub");
         app.MapFallbackToPage("/_Host");
 
         app.MapGet("/health", () => Results.Ok());
