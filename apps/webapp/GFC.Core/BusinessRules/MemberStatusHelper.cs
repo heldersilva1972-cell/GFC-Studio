@@ -10,6 +10,7 @@ namespace GFC.Core.BusinessRules;
 /// </summary>
 public static class MemberStatusHelper
 {
+    public const int MinimumMemberAge = 21;
     /// <summary>
     /// Returns a list of statuses that the supplied member is allowed to transition to.
     /// The current status is always included (preserving the original casing/value).
@@ -166,6 +167,33 @@ public static class MemberStatusHelper
         return upper.Replace("  ", " ");
     }
 
+    /// <summary>
+    /// A member is in a "Pending" state if they have not yet been assigned an AcceptedDate.
+    /// Pending members do not qualify for key cards, cannot be board members, and are not billed for dues.
+    /// </summary>
+    public static bool IsPending(Member? member)
+    {
+        if (member == null) return false;
+        return !member.AcceptedDate.HasValue;
+    }
+
+    /// <summary>
+    /// A member is considered fully "Accepted" once they have an AcceptedDate.
+    /// </summary>
+    public static bool IsAccepted(Member? member) => !IsPending(member);
+
+    /// <summary>
+    /// Determines if a member is eligible to serve on the board of directors.
+    /// Must be an accepted Regular or Life member.
+    /// </summary>
+    public static bool IsEligibleForBoard(Member? member)
+    {
+        if (member == null || IsPending(member)) return false;
+
+        var normalized = NormalizeStatus(member.Status);
+        return normalized is "REGULAR" or "REGULAR-NP" or "LIFE";
+    }
+
     public static bool TryCalculateLifeEligibility(
         Member? member,
         DateTime asOfDate,
@@ -202,8 +230,8 @@ public static class MemberStatusHelper
         var minAgeDate = dateOfBirth.AddYears(65);
         eligibilityDate = minServiceDate > minAgeDate ? minServiceDate : minAgeDate;
 
-        var regularYears = GetWholeYears(regularSince, asOfDate);
-        var age = GetWholeYears(dateOfBirth, asOfDate);
+        var regularYears = CalculateAge(regularSince, asOfDate);
+        var age = CalculateAge(dateOfBirth, asOfDate);
 
         return regularYears >= 15 && age >= 65 && eligibilityDate <= asOfDate.Date;
     }
@@ -235,7 +263,7 @@ public static class MemberStatusHelper
         return member.AcceptedDate;
     }
 
-    private static int GetWholeYears(DateTime startDate, DateTime endDate)
+    public static int CalculateAge(DateTime startDate, DateTime endDate)
     {
         var years = endDate.Year - startDate.Year;
         if (endDate.Month < startDate.Month ||

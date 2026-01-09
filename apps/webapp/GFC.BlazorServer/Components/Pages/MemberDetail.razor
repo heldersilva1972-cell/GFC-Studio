@@ -144,9 +144,14 @@ else if (_member is not null)
                     </div>
                     @if (_member.DateOfBirth.HasValue)
                     {
-                        <div class="age-pill">
-                            <i class="bi bi-calendar-heart me-1"></i>
-                            <strong>Date of Birth:</strong> @FormatDate(_member.DateOfBirth) (@GetAge(_member.DateOfBirth) yrs)
+                        var age = MemberStatusHelper.CalculateAge(_member.DateOfBirth.Value, DateTime.Today);
+                        <div class="age-pill @(age < MemberStatusHelper.MinimumMemberAge ? "bg-danger text-white border-0" : "")">
+                            <i class="bi @(age < MemberStatusHelper.MinimumMemberAge ? "bi-exclamation-triangle-fill" : "bi-calendar-heart") me-1"></i>
+                            <strong>Date of Birth:</strong> @FormatDate(_member.DateOfBirth) (@age yrs)
+                            @if (age < MemberStatusHelper.MinimumMemberAge)
+                            {
+                                <span class="ms-1 fw-bold">(UNDERAGE)</span>
+                            }
                         </div>
                     }
                 </div>
@@ -166,7 +171,10 @@ else if (_member is not null)
                             @FormatDate(_member.DateOfBirth)
                             @if (_member.DateOfBirth.HasValue)
                             {
-                                <span class="badge rounded-pill bg-light text-dark border fw-semibold">@($"{GetAge(_member.DateOfBirth)} yrs")</span>
+                                var age = MemberStatusHelper.CalculateAge(_member.DateOfBirth.Value, DateTime.Today);
+                                <span class="badge rounded-pill @(age < MemberStatusHelper.MinimumMemberAge ? "bg-danger text-white" : "bg-light text-dark border") fw-semibold">
+                                    @($"{age} yrs") @(age < MemberStatusHelper.MinimumMemberAge ? "!" : "")
+                                </span>
                             }
                         </div>
                     </div>
@@ -669,7 +677,8 @@ else if (_member is not null)
         { "Director", "#0ea5e9" },
         { "Suspended", "#ef4444" },
         { "Inactive", "#ef4444" },
-        { "Life Eligible", "#a855f7" }
+        { "Life Eligible", "#a855f7" },
+        { "Pending", "#6366f1" }
     };
 
     protected override async Task OnInitializedAsync()
@@ -835,12 +844,20 @@ else if (_member is not null)
         {
             yield return new StatusPill("Life Eligible", GetChipColor("Life Eligible"), false);
         }
+
+        if (MemberStatusHelper.IsPending(_member))
+        {
+            yield return new StatusPill("Pending", GetChipColor("Pending"), false);
+        }
     }
 
     private string GetDuesStatus()
     {
         if (_member is null) return "Loading";
         
+        if (MemberStatusHelper.IsPending(_member))
+            return "Pending";
+
         var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
         if (normalized == "INACTIVE" || normalized == "DECEASED" || normalized == "REJECTED")
             return "None";
@@ -915,14 +932,7 @@ else if (_member is not null)
             return null;
         }
 
-        var today = DateTime.Today;
-        var age = today.Year - dob.Value.Year;
-        if (dob.Value.Date > today.AddYears(-age))
-        {
-            age--;
-        }
-
-        return age;
+        return MemberStatusHelper.CalculateAge(dob.Value, DateTime.Today);
     }
     
     private static string FormatTimestampLocal(DateTime utcTimestamp)
@@ -962,6 +972,11 @@ else if (_member is not null)
         if (_member is null)
         {
             return "Loading";
+        }
+
+        if (MemberStatusHelper.IsPending(_member))
+        {
+            return "Pending";
         }
 
         var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
@@ -1053,9 +1068,9 @@ else if (_member is not null)
 
     private bool IsNpMember() => _member?.IsNonPortugueseOrigin == true;
 
-    private bool ShowDuesCard() => !IsGuestMember();
+    private bool ShowDuesCard() => !IsGuestMember() && !MemberStatusHelper.IsPending(_member);
 
-    private bool ShowKeyCardSection() => !IsGuestMember();
+    private bool ShowKeyCardSection() => !IsGuestMember() && !MemberStatusHelper.IsPending(_member);
 
     private bool AllowActiveActions() => !IsInactiveMember() && !IsGuestMember() && !IsDeceased();
 

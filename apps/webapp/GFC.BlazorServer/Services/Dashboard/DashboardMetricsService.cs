@@ -245,6 +245,11 @@ public class DashboardMetricsService : IDashboardMetricsService
 
         foreach (var member in members)
         {
+            if (MemberStatusHelper.IsPending(member))
+            {
+                continue;
+            }
+
             var normalizedStatus = MemberStatusHelper.NormalizeStatus(member.Status);
             if (!IsActiveStatus(normalizedStatus))
             {

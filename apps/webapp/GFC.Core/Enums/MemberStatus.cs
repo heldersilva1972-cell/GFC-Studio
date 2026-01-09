@@ -12,6 +12,7 @@ public enum MemberStatus
     Life,
     Inactive,
     Deceased,
-    Rejected
+    Rejected,
+    Pending
 }
 

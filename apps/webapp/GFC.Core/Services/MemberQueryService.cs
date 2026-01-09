@@ -113,6 +113,11 @@ public class MemberQueryService : IMemberQueryService
 
     private static MemberStatus MapStatus(Member member)
     {
+        if (MemberStatusHelper.IsPending(member))
+        {
+            return MemberStatus.Pending;
+        }
+
         var normalized = MemberStatusHelper.NormalizeStatus(member.Status);
 
         if (normalized.Equals("REGULAR", StringComparison.OrdinalIgnoreCase) && member.IsNonPortugueseOrigin)

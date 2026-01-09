@@ -79,6 +79,39 @@
     </div>
 }
 
+@if (_showKeyCardPrompt)
+{
+    <div class="success-overlay">
+        <div class="success-card">
+            <div class="success-checkmark">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+            </div>
+            <h2 class="success-title">Member Added!</h2>
+            <p class="success-message"><strong>@_newMemberName</strong> has been saved successfully.</p>
+            
+            <div class="alert alert-info border-0 shadow-sm mb-4" style="border-radius: 12px; background: #eef2ff; color: #3730a3; text-align: left;">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="bi bi-question-circle-fill" style="font-size: 1.25rem;"></i>
+                    <strong style="font-weight: 700;">Assign Access?</strong>
+                </div>
+                <p class="mb-0 small">This member has an <strong>Acceptance Date</strong>. Would you like to assign a physical key card/fob now?</p>
+            </div>
+
+            <div class="success-actions d-flex flex-column gap-2">
+                <button class="btn btn-primary btn-lg w-100 py-3 shadow-sm" @onclick="GoToAssignKeyCard" style="border-radius: 14px; font-weight: 700;">
+                    <i class="bi bi-credit-card-2-front me-2"></i>Yes, Assign Key Card
+                </button>
+                <button class="btn btn-outline-secondary w-100 py-2" @onclick="() => { _showKeyCardPrompt = false; _showSuccessAnimation = true; }" style="border-radius: 12px; border-style: dashed;">
+                    Maybe Later
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <EditForm Model="@_memberForm" OnValidSubmit="SaveMember">
     <DataAnnotationsValidator />
     
@@ -401,6 +434,8 @@
     private bool _showSuccessAnimation = false;
     private string _errorMessage = "";
     private string _newMemberName = "";
+    private int _newMemberId = 0;
+    private bool _showKeyCardPrompt = false;
     private List<string> _cities = new();
     private List<string> _states = new();
     private List<string> _postalCodes = new();
@@ -529,6 +564,18 @@
             _saving = false;
             return;
         }
+
+        // Custom validation: Minimum Age
+        if (_memberForm.DateOfBirth.HasValue)
+        {
+            var age = MemberStatusHelper.CalculateAge(_memberForm.DateOfBirth.Value, DateTime.Today);
+            if (age < MemberStatusHelper.MinimumMemberAge)
+            {
+                _errorMessage = $"Member must be at least {MemberStatusHelper.MinimumMemberAge} years old (Current age: {age}).";
+                _saving = false;
+                return;
+            }
+        }
         
         StateHasChanged();
 
@@ -562,12 +609,21 @@
 
             // Save to database
             var newMemberId = MemberRepository.InsertMember(member);
-            
+            _newMemberId = newMemberId;
             _newMemberName = $"{member.FirstName} {member.LastName}";
             
-            // Show success animation
+            // Show success animation or prompt
             _saving = false;
-            _showSuccessAnimation = true;
+
+            if (member.AcceptedDate.HasValue)
+            {
+                _showKeyCardPrompt = true;
+            }
+            else
+            {
+                _showSuccessAnimation = true;
+            }
+            
             StateHasChanged();
         }
         catch (Exception ex)
@@ -616,7 +672,14 @@
     private void AddAnother()
     {
         _showSuccessAnimation = false;
+        _showKeyCardPrompt = false;
+        _newMemberId = 0;
         _memberForm = new MemberFormModel(); // Reset to blank form
+    }
+
+    private void GoToAssignKeyCard()
+    {
+        NavManager.NavigateTo($"/keycards?assignTo={_newMemberId}");
     }
 
     private class MemberFormModel

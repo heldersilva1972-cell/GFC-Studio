@@ -34,6 +34,12 @@ public class KeyCardService
             return new KeyCardEligibilityResult(false, false, false, false, false, null, "UNKNOWN");
         }
 
+        // Pending members (no AcceptedDate) do not qualify for key cards
+        if (MemberStatusHelper.IsPending(member))
+        {
+            return new KeyCardEligibilityResult(false, false, false, false, false, null, "PENDING");
+        }
+
         // Check if member is a board member (director) for this year
         var isBoardMember = _boardRepository.IsBoardMemberForYear(memberId, year);
         var settings = _duesYearSettingsRepository.GetSettingsForYear(year);
@@ -69,7 +75,7 @@ public class KeyCardService
     /// </summary>
     public bool IsEligibleForCard(Member? member, int? year = null)
     {
-        if (member == null)
+        if (member == null || MemberStatusHelper.IsPending(member))
         {
             return false;
         }
