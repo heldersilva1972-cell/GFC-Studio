@@ -183,6 +183,16 @@ public static class MemberStatusHelper
     public static bool IsAccepted(Member? member) => !IsPending(member);
 
     /// <summary>
+    /// Returns true if the member was accepted in the specified year.
+    /// Useful for awarding initial privileges like key cards before first dues billing.
+    /// </summary>
+    public static bool IsNewlyAccepted(Member? member, int year)
+    {
+        if (member == null || !member.AcceptedDate.HasValue) return false;
+        return member.AcceptedDate.Value.Year == year;
+    }
+
+    /// <summary>
     /// Determines if a member is eligible to serve on the board of directors.
     /// Must be an accepted Regular or Life member.
     /// </summary>

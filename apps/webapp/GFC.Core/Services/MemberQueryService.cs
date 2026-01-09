@@ -47,6 +47,7 @@ public class MemberQueryService : IMemberQueryService
                 member.City,
                 member.AcceptedDate,
                 MemberStatusHelper.GetRegularSinceDate(member, _historyRepository),
+                member.ApplicationDate,
                 member.IsNonPortugueseOrigin,
                 hasKeyCard,
                 member.InactiveDate,

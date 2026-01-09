@@ -44,8 +44,8 @@ public class KeyCardService
         var isBoardMember = _boardRepository.IsBoardMemberForYear(memberId, year);
         var settings = _duesYearSettingsRepository.GetSettingsForYear(year);
         
-        // Satisfied if: Board Member, Life Member, Paid, or Waived (via record or period)
-        var currentYearSatisfied = isBoardMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year);
+        // Satisfied if: Board Member, Life Member, Paid, Waived, OR Newly Accepted this year
+        var currentYearSatisfied = isBoardMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year) || MemberStatusHelper.IsNewlyAccepted(member, year);
         var previousYearSatisfied = isBoardMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(memberId, year - 1);
 
         return GetEligibilityBulk(member, year, settings, currentYearSatisfied, previousYearSatisfied);
@@ -64,7 +64,7 @@ public class KeyCardService
         var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(member.Status), "LIFE", StringComparison.OrdinalIgnoreCase);
         var statusAllowed = IsStatusEligible(member.Status);
         
-        var currentSatisfied = isLifeMember || currentYearSatisfied;
+        var currentSatisfied = isLifeMember || currentYearSatisfied || MemberStatusHelper.IsNewlyAccepted(member, year);
         var previousSatisfied = isLifeMember || previousYearSatisfied;
 
         return BuildEligibility(statusAllowed, currentSatisfied, previousSatisfied, member.Status, settings?.GraceEndDate?.Date);
@@ -90,8 +90,8 @@ public class KeyCardService
 
         var statusAllowed = IsStatusEligible(member.Status);
         
-        // Satisfied if: Board Member, Life Member, Paid, or Waived (via record or period)
-        var currentYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(member.MemberID, evaluationYear);
+        // Satisfied if: Board Member, Life Member, Paid, Waived, OR Newly Accepted this year
+        var currentYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(member.MemberID, evaluationYear) || MemberStatusHelper.IsNewlyAccepted(member, evaluationYear);
         var previousYearSatisfied = isBoardMember || isLifeMember || _duesRepository.MemberHasPaidOrWaivedDuesForYear(member.MemberID, evaluationYear - 1);
 
         return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, member.Status, graceEndDate).Eligible;

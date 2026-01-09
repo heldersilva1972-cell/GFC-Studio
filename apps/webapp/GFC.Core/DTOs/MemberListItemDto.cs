@@ -12,6 +12,7 @@ public record MemberListItemDto(
     string? City,
     DateTime? MemberSince,
     DateTime? RegularSince,
+    DateTime? ApplicationDate,
     bool IsNonPortuguese,
     bool HasKeyCard,
     DateTime? InactiveDate,
