@@ -10,7 +10,7 @@ public sealed class DiscoveryResult
     public string Gateway { get; init; } = string.Empty;
     public string MacAddress { get; init; } = string.Empty;
     public string FirmwareVersion { get; init; } = string.Empty;
-    public DateTime ControllerDate { get; init; }
+    public DateTime? ControllerDate { get; init; }
     public int Port { get; init; }
     public string AllowedPcIp { get; init; } = string.Empty;
     public byte[] DoorModes { get; init; } = new byte[4];

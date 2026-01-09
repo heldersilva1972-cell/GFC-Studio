@@ -48,6 +48,11 @@ public class ControllerEventSyncService : BackgroundService
                 {
                     await SyncAllControllersAsync(stoppingToken);
                 }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    // Clean shutdown
+                    break;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in Controller Event Sync Service");
@@ -58,10 +63,14 @@ public class ControllerEventSyncService : BackgroundService
 
             _logger.LogInformation("Controller Event Sync Service stopped");
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Controller Event Sync Service cancelled during startup");
+        }
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "FATAL: Controller Event Sync Service failed to start!");
-            throw;
+            // No throw - don't kill the app if background sync fails
         }
     }
 
@@ -86,7 +95,7 @@ public class ControllerEventSyncService : BackgroundService
             return;
         }
 
-        _logger.LogError("=== EVENT SYNC: Syncing events for {Count} controllers ===", controllers.Count);
+        _logger.LogInformation("=== EVENT SYNC: Syncing events for {Count} controllers ===", controllers.Count);
 
         foreach (var controller in controllers)
         {
@@ -104,7 +113,7 @@ public class ControllerEventSyncService : BackgroundService
 
                 if (newEventCount > 0)
                 {
-                    _logger.LogError(
+                    _logger.LogInformation(
                         "=== EVENT SYNC: Synced {Count} new events from controller {Name} (SN: {Serial}) ===",
                         newEventCount,
                         controller.Name,
@@ -112,10 +121,14 @@ public class ControllerEventSyncService : BackgroundService
                 }
                 else
                 {
-                    _logger.LogError("=== EVENT SYNC: No new events for controller {Name} (SN: {Serial}) ===",
+                    _logger.LogDebug("=== EVENT SYNC: No new events for controller {Name} (SN: {Serial}) ===",
                         controller.Name,
                         controller.SerialNumber);
                 }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {

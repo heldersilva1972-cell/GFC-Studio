@@ -86,27 +86,11 @@ internal static class WgResponseParser
             }
         }
 
-        // Controller time (BCD) – your observed packets place this at 20..26 in P64 mode.
+        // Controller time (BCD) – bytes 20..26 (7 bytes)
         DateTime? controllerTime = null;
         if (packet.Length >= 27)
         {
-            try
-            {
-                int century = DecodeBcd(packet[20]);
-                int yearPart = DecodeBcd(packet[21]);
-                int fullYear = (century * 100) + yearPart;
-                int month = DecodeBcd(packet[22]);
-                int day = DecodeBcd(packet[23]);
-                int hour = DecodeBcd(packet[24]);
-                int minute = DecodeBcd(packet[25]);
-                int second = DecodeBcd(packet[26]);
-
-                if (month is >= 1 and <= 12 && day is >= 1 and <= 31)
-                {
-                    controllerTime = new DateTime(fullYear, month, day, hour, minute, second);
-                }
-            }
-            catch { /* ignore */ }
+            controllerTime = TryParseBcdDateTime(packet.Slice(20, 7));
         }
 
         return new RunStatusModel
@@ -120,9 +104,11 @@ internal static class WgResponseParser
             // NOTE: rename later (this is NOT a "total count"; it's the latest index pointer)
             TotalEvents = highestIndex,
 
+            // If BCD failed, we can fallback to Now or leave null
             ControllerTime = controllerTime
         };
     }
+
 
 
     public static CardPrivilegeModel ParseCardData(ReadOnlySpan<byte> packet)
@@ -139,8 +125,9 @@ internal static class WgResponseParser
         var cardId = BinaryPrimitives.ReadUInt32LittleEndian(payload[0..4]);
 
         // 2. Dates (BCD)
-        var validFrom = ParseBcdDate(payload.Slice(4, 4));
-        var validTo = ParseBcdDate(payload.Slice(8, 4));
+        var validFrom = TryParseBcdDateTime(payload.Slice(4, 4))?.Date;
+        var validTo = TryParseBcdDateTime(payload.Slice(8, 4))?.Date;
+
 
         // 3. Permissions
         var mask = payload[12];
@@ -158,24 +145,6 @@ internal static class WgResponseParser
         };
     }
 
-    private static DateTime? ParseBcdDate(ReadOnlySpan<byte> bcdData)
-    {
-        try
-        {
-            int century = DecodeBcd(bcdData[0]);
-            int year = DecodeBcd(bcdData[1]);
-            int month = DecodeBcd(bcdData[2]);
-            int day = DecodeBcd(bcdData[3]);
-            
-            if (month == 0 || day == 0) return null; // Empty/Invalid
-
-            return new DateTime((century * 100) + year, month, day);
-        }
-        catch
-        {
-            return null;
-        }
-    }
 
     public static (List<ControllerEvent> Events, uint ControllerLastIndex) ParseEvents(ReadOnlySpan<byte> packet, uint requestedIndex = 0)
     {
@@ -215,28 +184,21 @@ internal static class WgResponseParser
         ulong card64 = BinaryPrimitives.ReadUInt64LittleEndian(rec.Slice(0, 8));
         uint card32 = (uint)(card64 & 0xFFFFFFFF);
 
-        // Vendor record layout: date/time starts at byte 8 (controller-specific conversion).
-        // We'll treat it as BCD-ish only if it looks like BCD; otherwise leave MinValue and keep raw bytes for now.
-        DateTime timestampUtc = DateTime.MinValue;
-        try
+        // Vendor record layout: date/time starts at byte 8
+        // Try packed format (4 bytes) first as per vendor WgDateToMsDate logic
+        DateTime? parsedTime = TryParsePackedDateTime(rec.Slice(8, 4));
+        
+        // Fallback to BCD (7 bytes) if packed failed or looks like garbage
+        if (parsedTime == null)
         {
-            // Many captures show YY/MM/DD/HH/MM/SS patterns.
-            // If your record uses WgDateToMsDate conversion, replace this block with that converter.
-            int century = DecodeBcd(rec[8]);
-            int year = DecodeBcd(rec[9]);
-            int month = DecodeBcd(rec[10]);
-            int day = DecodeBcd(rec[11]);
-            int hour = DecodeBcd(rec[12]);
-            int minute = DecodeBcd(rec[13]);
-            int second = DecodeBcd(rec[14]);
-
-            int fullYear = century * 100 + year;
-            if (month is >= 1 and <= 12 && day is >= 1 and <= 31)
-                timestampUtc = new DateTime(fullYear, month, day, hour, minute, second, DateTimeKind.Utc);
+            parsedTime = TryParseBcdDateTime(rec.Slice(8, 7), DateTimeKind.Utc);
         }
-        catch { /* ignore */ }
+
+        DateTime timestampUtc = parsedTime ?? DateTime.MinValue;
+
 
         // ControllerLastIndex/loc echoed (vendor reads bytes 40..43)
+
         uint controllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4));
 
         events.Add(new ControllerEvent
@@ -272,8 +234,18 @@ internal static class WgResponseParser
         var mac = $"{payload[24]:X2}:{payload[25]:X2}:{payload[26]:X2}:{payload[27]:X2}:{payload[28]:X2}:{payload[29]:X2}";
         var version = $"{payload[30]}.{payload[31]}";
         
-        var dateStr = $"20{payload[32]:D2}-{payload[33]:D2}-{payload[34]:D2}";
-        DateTime.TryParse(dateStr, out var date);
+        DateTime? date = null;
+        try
+        {
+            int year = DecodeBcd(payload[32]);
+            int month = DecodeBcd(payload[33]);
+            int day = DecodeBcd(payload[34]);
+            if (month is >= 1 and <= 12 && day is >= 1 and <= 31)
+            {
+                date = new DateTime(2000 + year, month, day);
+            }
+        }
+        catch { /* invalid date */ }
  
         return new DiscoveryResult
         {
@@ -286,6 +258,7 @@ internal static class WgResponseParser
             ControllerDate = date
         };
     }
+
 
     /// <summary>
     /// Parses the response from command 0x5A "Get Door Parameters"
@@ -325,6 +298,82 @@ internal static class WgResponseParser
 
     public static int DecodeBcd(byte bcd)
     {
+        // Sanity check for valid BCD nibbles
+        if ((bcd & 0x0F) > 0x09 || (bcd >> 4) > 0x09)
+            throw new ArgumentException("Invalid BCD byte.");
+
         return ((bcd >> 4) * 10) + (bcd & 0x0F);
     }
+
+    private static DateTime? TryParseBcdDateTime(ReadOnlySpan<byte> data, DateTimeKind kind = DateTimeKind.Unspecified)
+    {
+        // Handle both 4-byte (YMD) and 7-byte (YMDHMS) BCD
+        if (data.Length < 4) return null;
+
+        try
+        {
+            int century, year, month, day, hour = 0, minute = 0, second = 0;
+
+            if (data.Length >= 7)
+            {
+                century = DecodeBcd(data[0]);
+                year = DecodeBcd(data[1]);
+                month = DecodeBcd(data[2]);
+                day = DecodeBcd(data[3]);
+                hour = DecodeBcd(data[4]);
+                minute = DecodeBcd(data[5]);
+                second = DecodeBcd(data[6]);
+            }
+            else
+            {
+                // 4-byte format assumes century 2000
+                century = DecodeBcd(data[0]);
+                year = DecodeBcd(data[1]);
+                month = DecodeBcd(data[2]);
+                day = DecodeBcd(data[3]);
+            }
+
+            // Range validation
+            if (month is < 1 or > 12) return null;
+            if (day is < 1 or > 31) return null;
+            if (hour is < 0 or > 23) return null;
+            if (minute is < 0 or > 59) return null;
+            if (second is < 0 or > 59) return null;
+
+            return new DateTime(century * 100 + year, month, day, hour, minute, second, kind);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Parses vendor packed date format (4 bytes)
+    /// </summary>
+    private static DateTime? TryParsePackedDateTime(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 4) return null;
+        try
+        {
+            ushort num = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(0, 2));
+            ushort num2 = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(2, 2));
+            
+            int second = (num2 & 31) << 1;
+            int minute = (num2 >> 5) & 63;
+            int hour = num2 >> 11;
+            
+            int day = num & 31;
+            int month = (num >> 5) & 15;
+            int year = (num >> 9) + 2000;
+
+            if (month is < 1 or > 12) return null;
+            if (day is < 1 or > 31) return null;
+            if (hour is < 0 or > 23) return null;
+            if (minute is < 0 or > 59) return null;
+            if (second is < 0 or > 59) return null;
+
+            return new DateTime(year, month, day, hour, minute, second);
+        }
+        catch { return null; }
+    }
 }
+
+
