@@ -165,8 +165,8 @@ public class ControllerEventService
             startSyncIndex = 1; 
         }
 
-        // GAP CAPPING for stability
-        const uint MaxGap = 1000;
+        // GAP CAPPING for stability - if we are thousands behind, just grab the latest 500
+        const uint MaxGap = 2000;
         if (currentIndex > startSyncIndex + MaxGap)
         {
             _logger.LogInformation("Gap too large ({Gap}). Syncing last {MaxGap}.", currentIndex - startSyncIndex, MaxGap);
@@ -174,7 +174,7 @@ public class ControllerEventService
         }
 
         // 4.5 Aggressive Batch Capping for UI Stability
-        const uint MaxBatchPerPass = 100;
+        const uint MaxBatchPerPass = 1000;
         uint syncLimitIndex = Math.Min(currentIndex, startSyncIndex + MaxBatchPerPass - 1);
 
         int totalSaved = 0;
@@ -231,6 +231,9 @@ public class ControllerEventService
                         CreatedUtc = DateTime.UtcNow
                     });
 
+                    // Update existing set immediately to prevent duplicates if sync restarts
+                    existingSet.Add((int)i);
+
                     if (batch.Count >= BatchSize)
                     {
                         await dbContext.ControllerEvents.AddRangeAsync(batch, cancellationToken);
@@ -242,7 +245,7 @@ public class ControllerEventService
                 }
                 
                 lastSyncedIndex = i;
-                await Task.Delay(10, cancellationToken);
+                await Task.Delay(1, cancellationToken);
             }
             catch (Exception ex)
             {
