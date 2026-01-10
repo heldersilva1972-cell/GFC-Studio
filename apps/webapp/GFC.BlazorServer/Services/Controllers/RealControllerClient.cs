@@ -454,6 +454,19 @@ public class RealControllerClient : IControllerClient
     public Task<AllowedPcAndPasswordRequestDto?> GetAllowedPcSettingsAsync(string controllerSn, CancellationToken ct = default) => Task.FromResult<AllowedPcAndPasswordRequestDto?>(null);
     public Task<ApiResult> SetAllowedPcSettingsAsync(string controllerSn, AllowedPcAndPasswordRequestDto dto, CancellationToken ct = default) => Task.FromResult(new ApiResult { Success = true });
     
+    public async Task AcknowledgeEventsAsync(string controllerSn, uint eventsReadIndex, CancellationToken cancellationToken = default)
+    {
+        if (!uint.TryParse(controllerSn, out var sn)) return;
+        try 
+        {
+            await _mengqiClient.AcknowledgeEventsAsync(sn, eventsReadIndex, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to acknowledge events for controller {Sn}", sn);
+        }
+    }
+
     public async Task RebootAsync(string controllerSn, CancellationToken cancellationToken = default)
     {
         if (!uint.TryParse(controllerSn, out var sn)) return;
@@ -578,5 +591,20 @@ public class RealControllerClient : IControllerClient
         }
 
         return result.Distinct().Where(idx => idx >= 1 && idx <= 4).ToList();
+    }
+
+    public async Task<string> SendRawAsync(int controllerId, string hexPacket, CancellationToken ct = default)
+    {
+        var controller = await _controllerRegistry.GetControllerByIdAsync(controllerId, ct);
+        if (controller == null) throw new InvalidOperationException("Controller not found");
+        if (!uint.TryParse(controller.SerialNumberDisplay, out var sn)) throw new InvalidOperationException("Invalid SN");
+
+        // Clean and parse hex
+        var clean = hexPacket.Replace(" ", "").Replace("-", "").Replace("\n", "").Replace("\r", "");
+        var bytes = new byte[clean.Length / 2];
+        for (int i = 0; i < clean.Length; i += 2) bytes[i / 2] = Convert.ToByte(clean.Substring(i, 2), 16);
+
+        var response = await _mengqiClient.SendRawAsync(sn, bytes, ct);
+        return BitConverter.ToString(response).Replace("-", " ");
     }
 }

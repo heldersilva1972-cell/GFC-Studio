@@ -154,68 +154,46 @@ internal static class WgResponseParser
     {
         var events = new List<ControllerEvent>();
 
-        // Expecting a 64-byte response for P64 commands
-        if (packet.Length < 64)
-            return (events, 0);
-
-        // Only parse if this is the GetSingleSwipeRecord/Events response (0x17 0xB0)
-        if (!(packet[0] == 0x17 && packet[1] == 0xB0))
-            return (events, 0);
-
-        // Vendor path: record payload starts at byte 24
-        const int recordOffset = 24;
-        const int recordLen = 16;
-
-        if (recordOffset + recordLen > packet.Length)
-            return (events, 0);
-
-        var rec = packet.Slice(recordOffset, recordLen);
-
-        // If record is all zeros, treat as empty/missing record
-        bool empty = true;
-        for (int i = 0; i < rec.Length; i++)
-        {
-            if (rec[i] != 0) { empty = false; break; }
-        }
-        if (empty)
-        {
-            // Still return ControllerLastIndex if present
-            uint maybeIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4));
-            return (events, maybeIndex);
-        }
-
-        // Vendor record layout: CardID is 8 bytes at 0..7 (some systems only use lower 4)
-        ulong card64 = BinaryPrimitives.ReadUInt64LittleEndian(rec.Slice(0, 8));
-        uint card32 = (uint)(card64 & 0xFFFFFFFF);
-
-        // Vendor record layout: date/time starts at byte 8
-        // Try packed format (4 bytes) first as per vendor WgDateToMsDate logic
-        DateTime? parsedTime = TryParsePackedDateTime(rec.Slice(8, 4));
+        // COMPLETE EVENT-READBACK SPEC (WG3000/Mengqi) — FROM REAL WIRESHARK CAPTURES
         
-        // Fallback to BCD (7 bytes) if packed failed or looks like garbage
-        if (parsedTime == null)
-        {
-            parsedTime = TryParseBcdDateTime(rec.Slice(8, 7), DateTimeKind.Utc);
-        }
+        // Expecting a 64-byte response for P64 commands
+        if (packet.Length < 64) return (events, 0);
 
-        DateTime timestampUtc = parsedTime ?? DateTime.MinValue;
+        // Byte[0] = 0x17, Byte[1] = 0x20 (confirmed command code for event record in user capture)
+        // Some firmwares might still use 0xB0, so we should ideally check both or rely on the dispatcher.
+        // For this specific task, we align with the 0x20 spec provided.
+        if (packet[0] != 0x17 || (packet[1] != 0x20 && packet[1] != 0xB0))
+            return (events, 0);
 
+        // B) Event Index (uint32 little-endian) - Byte[8..11]
+        uint eventIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(8, 4));
 
-        // ControllerLastIndex/loc echoed (vendor reads bytes 40..43)
+        // C) Event metadata (4 bytes) - Byte[12..15]
+        // Byte[14] is DoorNumber (1-based: 0x01 = Door 1, 0x02 = Door 2)
+        int doorNumber = packet[14];
 
-        uint controllerLastIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(40, 4));
+        // D) Card number (uint32 little-endian) - Byte[16..19]
+        uint cardNumber = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(16, 4));
 
+        // E) Timestamp (BCD-coded) - Byte[20..26]
+        // Format: CC YY MM DD HH mm ss
+        DateTime? timestampUtc = TryParseBcdDateTime(packet.Slice(20, 7), DateTimeKind.Utc);
+
+        // Metadata block (Byte 12-15) also contains event type and result
+        // Spec says 01 01 01 01 for Door 1 unlock, 01 01 02 01 for Door 2 unlock.
+        // Usually Byte 15 is the Result/EventType.
+        byte eventTypeRaw = packet[15];
+        
         events.Add(new ControllerEvent
         {
-            CardNumber = card32 != 0 ? card32 : (long)card64,
-            DoorOrReader = 0,               // TODO: decode via swipe record status/reader fields once mapped
-            EventType = ControllerEventType.Unknown, // TODO: map from record flags later
-            ReasonCode = 0,                 // TODO: map from record flags later
-            TimestampUtc = timestampUtc,
-            RawIndex = requestedIndex
+            CardNumber = cardNumber,
+            DoorOrReader = doorNumber,
+            EventType = (ControllerEventType)eventTypeRaw,
+            TimestampUtc = timestampUtc ?? DateTime.MinValue,
+            RawIndex = eventIndex
         });
 
-        return (events, controllerLastIndex);
+        return (events, eventIndex);
     }
 
 

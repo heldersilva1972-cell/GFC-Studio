@@ -134,6 +134,12 @@ public interface IMengqiControllerClient
     /// <param name="primaryCard">Optional card to re-add immediately after reset (Step 5).</param>
     /// <param name="cancellationToken">Cancellation token</param>
     Task ResetControllerAsync(uint controllerSn, int doorCount = 4, IEnumerable<DoorHardwareConfig>? doorConfigs = null, CardPrivilegeModel? primaryCard = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     Sends a raw byte array directly to the controller and returns the response.
+    ///     WARNING: This bypasses protocol safety and encryption. Use only for low-level diagnostics.
+    /// </summary>
+    Task<byte[]> SendRawAsync(uint controllerSn, byte[] rawPacket, CancellationToken ct = default);
 }
 
 

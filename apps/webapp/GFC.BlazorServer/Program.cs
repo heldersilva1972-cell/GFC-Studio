@@ -577,6 +577,33 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> Error applying critical SystemSettings NULL fix: {ex.Message}");
                 }
 
+                // [AUTO-FIX 3] ControllerEvents Schema Refinement
+                try 
+                {
+                    var eventSchemaFix = @"
+                        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ControllerEvents') AND name = 'DoorOrReader')
+                        BEGIN
+                            ALTER TABLE ControllerEvents ADD DoorOrReader INT NOT NULL DEFAULT 0;
+                        END
+                        
+                        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_ControllerEvents_Sync' AND object_id = OBJECT_ID('ControllerEvents'))
+                        BEGIN
+                            CREATE INDEX IX_ControllerEvents_Sync ON ControllerEvents (ControllerId, RawIndex);
+                        END
+
+                        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_ControllerEvents_Recent' AND object_id = OBJECT_ID('ControllerEvents'))
+                        BEGIN
+                            CREATE INDEX IX_ControllerEvents_Recent ON ControllerEvents (ControllerId, TimestampUtc DESC, RawIndex DESC);
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(eventSchemaFix);
+                    Console.WriteLine(">>> [Startup] Verified ControllerEvents Schema and Indices.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error refining ControllerEvents schema: {ex.Message}");
+                }
+
                 // [AUTO-FIX 2] Run the Video Security Tables script
                 var securityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-video-security-tables.sql");
                 if (File.Exists(securityScriptPath))

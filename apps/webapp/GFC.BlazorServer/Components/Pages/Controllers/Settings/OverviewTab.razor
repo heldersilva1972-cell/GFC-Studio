@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.SignalR.Client
 @inject IControllerClient ControllerClient
 @inject IDbContextFactory<GfcDbContext> DbFactory
+@inject ControllerEventService EventService
 @inject ILogger<OverviewTab> Logger
 @inject NavigationManager Navigation
 
@@ -126,14 +127,22 @@
                 <div class="glass-panel h-100 d-flex flex-column p-0 overflow-hidden">
                     <div class="p-3 border-bottom border-glass bg-surface-subtle d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Recent Events</h5>
-                         <button class="btn btn-link btn-sm p-0" @onclick="LoadEvents">
-                            <i class="bi bi-arrow-clockwise"></i>
+                         <button class="btn btn-link btn-sm p-0" @onclick="SyncAndLoadEvents" title="Force Hardware Sync" disabled="@_isLoadingEvents">
+                            <i class="bi bi-arrow-clockwise @(_isLoadingEvents ? "spin" : "")"></i>
                         </button>
                     </div>
                     <div class="event-feed flex-grow-1 overflow-auto custom-scrollbar p-0">
-                         @if (_isLoadingEvents)
+                        @if (_isLoadingEvents)
                         {
                             <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+                        }
+                        else if (!string.IsNullOrEmpty(_eventLoadError))
+                        {
+                            <div class="text-center p-4 text-danger">
+                                <i class="bi bi-exclamation-triangle fs-1 opacity-50 mb-2"></i>
+                                <p>@_eventLoadError</p>
+                                <button class="btn btn-sm btn-outline-danger mt-2" @onclick="LoadEvents">Retry</button>
+                            </div>
                         }
                         else if (!_recentEvents.Any())
                         {
@@ -191,6 +200,9 @@
 
     .health-metric .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .health-metric .value { font-size: 1.25rem; font-weight: 700; }
+    
+    .spin { animation: rotate 1s linear infinite; }
+    @@keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
 
 @code {
@@ -220,8 +232,8 @@
             _lastControllerId = Controller.Id;
             await LoadEvents();
             
-            // Connect to SignalR for real-time updates
-            await InitializeSignalR();
+            // Connect to SignalR in background so it doesn't block rendering
+            _ = Task.Run(async () => await InitializeSignalR());
         }
     }
 
@@ -237,8 +249,9 @@
             {
                 if (controllerId == Controller?.Id)
                 {
-                    await LoadEvents();
-                    await InvokeAsync(StateHasChanged);
+                    await InvokeAsync(async () => {
+                        await LoadEvents();
+                    });
                 }
             });
 
@@ -316,38 +329,64 @@
         finally { _isTesting = false; }
     }
 
+    private string? _eventLoadError;
+
     private async Task LoadEvents()
     {
         if (Controller == null) return;
         _isLoadingEvents = true;
-        StateHasChanged(); // Show spinner
+        _eventLoadError = null;
+        await InvokeAsync(StateHasChanged); 
         
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = await DbFactory.CreateDbContextAsync(cts.Token);
             _recentEvents = await db.ControllerEvents
                 .Where(e => e.ControllerId == Controller.Id)
                 .OrderByDescending(e => e.TimestampUtc)
+                .ThenByDescending(e => e.RawIndex)
                 .Take(20)
-                .Include(e => e.Door)
-                .Include(e => e.Controller)
-                .ToListAsync();
+                .AsNoTracking()
+                .ToListAsync(cts.Token);
             
-            Logger.LogInformation("Loaded {Count} events for controller {Id}. Sample: {Sample}", 
-                _recentEvents.Count, 
-                Controller.Id,
-                _recentEvents.FirstOrDefault() != null 
-                    ? $"EventType={_recentEvents.First().EventType}, ReasonCode={_recentEvents.First().ReasonCode}, Door={_recentEvents.First().Door?.Name}"
-                    : "No events");
+            _eventLoadError = null;
+        }
+        catch (OperationCanceledException)
+        {
+            _eventLoadError = "Database is busy (Timeout). Please wait...";
+            Logger.LogWarning("Event load timed out for controller {Id}", Controller.Id);
         }
         catch (Exception ex)
         {
+            _eventLoadError = $"Load failed: {ex.Message}";
             Logger.LogError(ex, "Failed events load");
         }
         finally 
         { 
             _isLoadingEvents = false;
-            StateHasChanged(); // Update UI with results
+            await InvokeAsync(StateHasChanged); 
+        }
+    }
+
+    private async Task SyncAndLoadEvents()
+    {
+        if (Controller == null || _isLoadingEvents) return;
+        _isLoadingEvents = true;
+        
+        try
+        {
+            await EventService.SyncFromControllerAsync(Controller.SerialNumber, ControllerClient);
+            await LoadEvents();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed manual sync");
+        }
+        finally
+        {
+            _isLoadingEvents = false;
+            StateHasChanged();
         }
     }
 
@@ -374,10 +413,13 @@
                 await InvokeAsync(StateHasChanged);
             });
             
-             // Refresh events soon to show the unlock
+             // Trigger an immediate hardware sync to pull the event we just generated
              _ = Task.Run(async () => {
-                 await Task.Delay(1000);
-                 await InvokeAsync(LoadEvents);
+                 try {
+                     await Task.Delay(800);
+                     await EventService.SyncFromControllerAsync(Controller.SerialNumber, ControllerClient);
+                     await InvokeAsync(LoadEvents);
+                 } catch {}
              });
              
              await Task.Delay(3000);
@@ -424,9 +466,9 @@
         {
             parts.Add(evt.Door.Name);
         }
-        else if (evt.DoorId.HasValue)
+        else 
         {
-            parts.Add($"Door {evt.DoorId}");
+            parts.Add($"Door {evt.DoorOrReader}");
         }
         
         // Add action type based on available codes or flags

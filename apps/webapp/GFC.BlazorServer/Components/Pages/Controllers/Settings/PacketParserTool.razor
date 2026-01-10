@@ -1,0 +1,317 @@
+@using GFC.BlazorServer.Connectors.Mengqi.Protocol
+@using GFC.BlazorServer.Connectors.Mengqi.Packets
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services.Controllers
+@using System.Text
+@inject ILogger<PacketParserTool> Logger
+@inject IControllerClient ControllerClient
+@inject IJSRuntime JSRuntime
+
+<div class="packet-parser-tool mb-4">
+    <div class="card border-glass shadow-sm">
+        <div class="card-header bg-dark text-white d-flex align-items-center justify-content-between py-2 px-3">
+            <div class="d-flex align-items-center gap-2">
+                <div class="icon-box-sm bg-warning text-dark">
+                    <i class="bi bi-terminal-fill"></i>
+                </div>
+                <span class="fw-bold small text-uppercase letter-spacing-1">Multi-Packet Diagnostic Terminal</span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-xs opacity-75">8 Programmable Slots</span>
+                <button class="btn btn-link btn-sm text-white p-0 opacity-50 hover-opacity-100" title="Clear All Slots" @onclick="ClearAll">
+                    <i class="bi bi-trash3-fill"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="card-body p-2 bg-light">
+            <!-- 8 Slots Grid -->
+            <div class="row g-2 mb-2">
+                @for (int i = 0; i < 8; i++)
+                {
+                    var index = i;
+                    <div class="col-md-6 col-lg-3">
+                        <div class="slot-card @(_activeSlot == index ? "active" : "")" @onclick="() => SelectSlot(index)">
+                            <div class="slot-header d-flex justify-content-between align-items-center mb-1">
+                                <span class="slot-label text-uppercase">Slot @(index + 1)</span>
+                                @if (!string.IsNullOrWhiteSpace(_slots[index].RawHex))
+                                {
+                                    <i class="bi bi-check-circle-fill text-success" style="font-size: 0.7rem;"></i>
+                                }
+                            </div>
+                            <textarea class="form-control slot-textarea" 
+                                      placeholder="00 00 00..." 
+                                      @bind="_slots[index].RawHex"
+                                      @bind:event="oninput"
+                                      rows="2"></textarea>
+                            <div class="d-flex gap-1 mt-1">
+                                <button class="btn btn-warning btn-xs flex-grow-1 fw-bold" 
+                                        @onclick="() => TransmitSlot(index)"
+                                        @onclick:stopPropagation="true"
+                                        disabled="@(_isTransmitting || string.IsNullOrWhiteSpace(_slots[index].RawHex))">
+                                    <i class="bi bi-send-fill"></i> SEND
+                                </button>
+                                <button class="btn btn-outline-secondary btn-xs" 
+                                        @onclick="() => ClearSlot(index)"
+                                        @onclick:stopPropagation="true">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @if (_error != null)
+            {
+                <div class="alert alert-danger py-1 px-3 small border-0 shadow-sm mb-2 animate-shake">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>@_error
+                </div>
+            }
+
+            @if (_parseResult != null)
+            {
+                <div class="readback-panel animate-fade-in border rounded-3 bg-white">
+                    <div class="d-flex align-items-center justify-content-between p-2 border-bottom bg-light bg-opacity-50">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge @_badgeClass text-uppercase">@_commandName</span>
+                            <span class="text-xs font-monospace text-muted">@_packetLength BYTES</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-primary btn-xs" @onclick="CopyReadback">
+                                <i class="bi bi-app-indicator me-1"></i>Copy Hex
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="readback-content p-2">
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <div class="breakdown-list">
+                                    @foreach (var line in _breakdownLines)
+                                    {
+                                        <div class="breakdown-item">
+                                            <span class="item-label">@line.Label</span>
+                                            <span class="item-value">@line.Value</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="hex-grid-mini">
+                                    @foreach(var b in _payloadBytes)
+                                    {
+                                        <div class="hex-cell" title="Position @(8 + _payloadBytes.IndexOf(b))">@b.ToString("X2")</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .packet-parser-tool { font-family: 'Inter', system-ui, sans-serif; }
+    .btn-xs { padding: 2px 8px; font-size: 0.7rem; border-radius: 4px; }
+    .text-xs { font-size: 0.7rem; }
+    .letter-spacing-1 { letter-spacing: 1px; }
+
+    .slot-card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 6px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    .slot-card:hover { border-color: #cbd5e1; transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .slot-card.active { border-color: #ffc107; background: #fffbeb; box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.2); }
+
+    .slot-label { font-size: 0.6rem; font-weight: 800; color: #94a3b8; }
+    .slot-textarea {
+        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-size: 0.75rem;
+        padding: 4px;
+        background: #f8fafc;
+        border: 1px solid #f1f5f9;
+        resize: none;
+        line-height: 1.2;
+    }
+    .slot-textarea:focus { box-shadow: none; border-color: #ffc107; background: #fff; }
+
+    .readback-panel { overflow: hidden; }
+    .breakdown-list { display: flex; flex-direction: column; gap: 2px; }
+    .breakdown-item {
+        display: flex; justify-content: space-between;
+        padding: 4px 8px; background: #f8fafc;
+        border-radius: 4px; font-size: 0.75rem;
+    }
+    .item-label { color: #64748b; font-weight: 600; }
+    .item-value { font-family: 'JetBrains Mono', monospace; color: #1e293b; }
+
+    .hex-grid-mini {
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        gap: 4px;
+        padding: 4px;
+        background: #f1f5f9;
+        border-radius: 6px;
+    }
+    .hex-cell {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.65rem;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        text-align: center;
+        padding: 2px 0;
+        border-radius: 3px;
+        color: #475569;
+    }
+
+    .animate-shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+    @@keyframes shake {
+        10%, 90% { transform: translate3d(-1px, 0, 0); }
+        20%, 80% { transform: translate3d(2px, 0, 0); }
+        30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+        40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
+</style>
+
+@code {
+    [Parameter] public int ControllerId { get; set; }
+
+    private class SlotData
+    {
+        public string RawHex { get; set; } = "";
+        public string? LastResponse { get; set; }
+    }
+
+    private SlotData[] _slots = Enumerable.Range(0, 8).Select(_ => new SlotData()).ToArray();
+    private int _activeSlot = 0;
+    private string? _error;
+    private bool _isTransmitting = false;
+
+    // Readback View State
+    private bool _hasReadback = false;
+    private ParseResult? _parseResult;
+    private string _commandName = "Unknown";
+    private string _badgeClass = "bg-secondary";
+    private int _packetLength = 0;
+    private List<BreakdownLine> _breakdownLines = new();
+    private List<byte> _payloadBytes = new();
+    private string _currentReadbackHex = "";
+
+    private class ParseResult { }
+    private class BreakdownLine { public string Label { get; set; } = ""; public string Value { get; set; } = ""; }
+
+    private void SelectSlot(int index)
+    {
+        _activeSlot = index;
+        if (!string.IsNullOrWhiteSpace(_slots[index].LastResponse))
+        {
+            DecodeResponse(_slots[index].LastResponse);
+        }
+        else
+        {
+            _parseResult = null;
+        }
+    }
+
+    private void ClearSlot(int index)
+    {
+        _slots[index].RawHex = "";
+        _slots[index].LastResponse = null;
+        if (_activeSlot == index) _parseResult = null;
+    }
+
+    private void ClearAll()
+    {
+        for (int i = 0; i < 8; i++) ClearSlot(i);
+        _error = null;
+    }
+
+    private async Task TransmitSlot(int index)
+    {
+        _activeSlot = index;
+        _error = null;
+        var hex = _slots[index].RawHex;
+
+        if (string.IsNullOrWhiteSpace(hex)) return;
+        if (ControllerId <= 0) { _error = "Please select a controller above."; return; }
+
+        _isTransmitting = true;
+        try
+        {
+            string clean = hex.Replace(" ", "").Replace("-", "").Replace("\n", "").Replace("\r", "").Replace(":", "");
+            if (clean.Length % 2 != 0) { throw new Exception("Invalid hex (odd length)."); }
+
+            var response = await ControllerClient.SendRawAsync(ControllerId, hex);
+            _slots[index].LastResponse = response;
+            DecodeResponse(response);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Slot {index + 1} Error: {ex.Message}";
+            Logger.LogError(ex, "Failed to transmit slot {Index}", index);
+        }
+        finally
+        {
+            _isTransmitting = false;
+        }
+    }
+
+    private async Task CopyReadback()
+    {
+        if (!string.IsNullOrWhiteSpace(_currentReadbackHex))
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _currentReadbackHex);
+        }
+    }
+
+    private void DecodeResponse(string responseHex)
+    {
+        _currentReadbackHex = responseHex;
+        _breakdownLines.Clear();
+        _payloadBytes.Clear();
+        _error = null;
+
+        try
+        {
+            string clean = responseHex.Replace(" ", "").Replace("-", "").Replace("\n", "").Replace("\r", "").Replace(":", "");
+            byte[] bytes = new byte[clean.Length / 2];
+            for (int i = 0; i < clean.Length; i += 2) bytes[i / 2] = Convert.ToByte(clean.Substring(i, 2), 16);
+
+            _packetLength = bytes.Length;
+            byte cmd = bytes[1];
+            
+            _commandName = cmd switch {
+                0x20 => "Status", 0x30 => "Open", 0xB0 => "Record", 0x94 => "Search", 0x5A => "Params", _ => $"0x{cmd:X2}"
+            };
+            _badgeClass = cmd switch {
+                0x20 => "bg-primary", 0x30 => "bg-success", 0xB0 => "bg-warning text-dark", 0x94 => "bg-info", _ => "bg-dark"
+            };
+
+            _breakdownLines.Add(new BreakdownLine { Label = "Command", Value = _commandName });
+            _breakdownLines.Add(new BreakdownLine { Label = "SN", Value = BitConverter.ToUInt32(bytes, 4).ToString() });
+
+            var span = new ReadOnlySpan<byte>(bytes);
+            if (cmd == 0x20) {
+                var s = WgResponseParser.ParseRunStatus(span);
+                _breakdownLines.Add(new BreakdownLine { Label = "Time", Value = s.ControllerTime?.ToString("HH:mm:ss") ?? "N/A" });
+                _breakdownLines.Add(new BreakdownLine { Label = "Events", Value = s.TotalEvents.ToString() });
+            }
+            else if (cmd == 0xB0) {
+                var (evs, last) = WgResponseParser.ParseEvents(span);
+                if (evs.Any()) _breakdownLines.Add(new BreakdownLine { Label = "Card", Value = evs[0].CardNumber.ToString() });
+                _breakdownLines.Add(new BreakdownLine { Label = "GlobalIdx", Value = last.ToString() });
+            }
+
+            if (_packetLength > 8) _payloadBytes = bytes.Skip(8).ToList();
+            _parseResult = new ParseResult();
+        }
+        catch { _parseResult = null; }
+    }
+}

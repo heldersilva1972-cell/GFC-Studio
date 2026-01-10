@@ -18,7 +18,9 @@ public class ControllerEvent
     public int? DoorId { get; set; }
 
     public Door? Door { get; set; }
-
+    
+    public int DoorOrReader { get; set; }
+ 
     public DateTime TimestampUtc { get; set; }
 
     public long? CardNumber { get; set; }

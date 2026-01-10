@@ -14,7 +14,7 @@ public class ControllerEventSyncService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ControllerEventSyncService> _logger;
-    private readonly TimeSpan _syncInterval = TimeSpan.FromSeconds(30); // Sync every 30 seconds
+    private readonly TimeSpan _syncInterval = TimeSpan.FromMinutes(5); // Increased for stability while troubleshooting
 
     public ControllerEventSyncService(
         IServiceScopeFactory scopeFactory,

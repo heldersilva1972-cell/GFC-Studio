@@ -39,8 +39,15 @@ public interface IControllerClient
     Task SetNetworkConfigAsync(string controllerSn, NetworkConfigDto dto, CancellationToken cancellationToken = default);
     Task<AllowedPcAndPasswordRequestDto?> GetAllowedPcSettingsAsync(string controllerSn, CancellationToken cancellationToken = default);
     Task<ApiResult> SetAllowedPcSettingsAsync(string controllerSn, AllowedPcAndPasswordRequestDto dto, CancellationToken cancellationToken = default);
+    Task AcknowledgeEventsAsync(string controllerSn, uint eventsReadIndex, CancellationToken cancellationToken = default);
     Task RebootAsync(string controllerSn, CancellationToken cancellationToken = default);
     Task SetDoorConfigAsync(string controllerSn, int doorIndex, byte controlMode, byte relayDelay, byte doorSensor, byte interlock, CancellationToken cancellationToken = default);
     Task<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult?> GetHardwareInfoAsync(string controllerSn, CancellationToken cancellationToken = default);
     Task<IEnumerable<GFC.BlazorServer.Connectors.Mengqi.Models.DiscoveryResult>> DiscoverAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    ///     Sends a hex string as a raw packet to the specified controller.
+    ///     Returns the response as a hex string.
+    /// </summary>
+    Task<string> SendRawAsync(int controllerId, string hexPacket, CancellationToken ct = default);
 }

@@ -186,10 +186,9 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         uint eventIndex,
         CancellationToken cancellationToken = default)
     {
-        // Controller expects index at packet offset 20.
-        // Data starts at offset 8, so we need 12 bytes padding + 4 bytes index = 16 bytes total.
+        // User Spec: Index is at Byte 8 of the frame (Offset 0 of payload)
         var payload = new byte[16];
-        BitConverter.GetBytes(eventIndex).CopyTo(payload, 12);
+        BitConverter.GetBytes(eventIndex).CopyTo(payload, 0);
         
         var response = await _dispatcher.SendAsync(controllerSn, _commands.GetEvents, payload, cancellationToken).ConfigureAwait(false);
         WgResponseParser.EnsureAck(response, _commands.GetEvents);
@@ -432,6 +431,21 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
     {
         var response = await _dispatcher.SendAsync(controllerSn, profile, payload, cancellationToken).ConfigureAwait(false);
         WgResponseParser.EnsureAck(response, profile);
+    }
+
+    public async Task<byte[]> SendRawAsync(uint controllerSn, byte[] rawPacket, CancellationToken ct = default)
+    {
+        _ = rawPacket ?? throw new ArgumentNullException(nameof(rawPacket));
+        
+        // Use the endpoint resolver (which might use a cache)
+        var resolver = (IControllerEndpointResolver)typeof(WgCommandDispatcher)
+            .GetField("_endpointResolver", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(_dispatcher)!;
+        
+        var endpoint = resolver.Resolve(controllerSn);
+        
+        // Send directly via transport
+        return await _transport.SendAsync(endpoint, rawPacket, TimeSpan.FromSeconds(2), ct);
     }
 }
 

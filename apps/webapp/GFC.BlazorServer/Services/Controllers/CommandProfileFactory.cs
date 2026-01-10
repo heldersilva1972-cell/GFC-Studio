@@ -17,7 +17,7 @@ internal static class CommandProfileFactory
             DeleteCard = WgCommandProfile.Create("DeleteCard", 23, 82, WgPacketFormat.Privilege, 56, 64),
             BulkUpload = WgCommandProfile.Create("BulkUpload", 23, 60, WgPacketFormat.Privilege, 40, 64),
             ClearAllCards = WgCommandProfile.Create("ClearAllCards", 23, 84, WgPacketFormat.Basic, 0, 64),
-            GetEvents = WgCommandProfile.Create("GetEvents", 23, 176, WgPacketFormat.Basic, 4, 64),
+            GetEvents = WgCommandProfile.Create("GetEvents", 23, 32, WgPacketFormat.Basic, 4, 64),
             AckEvents = WgCommandProfile.Create("AckEvents", 23, 178, WgPacketFormat.Basic, 4, 64),
             GetRunStatus = WgCommandProfile.Create("GetRunStatus", 23, 32, WgPacketFormat.Basic, 0, 64),
             ReadFlash = WgCommandProfile.Create("ReadFlash", 23, 16, WgPacketFormat.Basic, 12, 64),
