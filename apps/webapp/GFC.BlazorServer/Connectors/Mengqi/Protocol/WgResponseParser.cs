@@ -177,20 +177,34 @@ internal static class WgResponseParser
 
         // E) Timestamp (BCD-coded) - Byte[20..26]
         // Format: CC YY MM DD HH mm ss
-        DateTime? timestampUtc = TryParseBcdDateTime(packet.Slice(20, 7), DateTimeKind.Utc);
+        var timestampBytes = packet.Slice(20, 7);
+        DateTime? timestampUtc = TryParseBcdDateTime(timestampBytes, DateTimeKind.Utc);
+        
+        // DIAGNOSTIC: Log if timestamp parsing fails
+        if (timestampUtc == null || timestampUtc.Value.Year < 2000)
+        {
+            var hexBytes = string.Join(" ", timestampBytes.ToArray().Select(b => b.ToString("X2")));
+            Console.WriteLine($"WARNING: Failed to parse timestamp bytes: {hexBytes}");
+            // TEMPORARY: Use current time until we fix the parser
+            timestampUtc = DateTime.UtcNow;
+        }
 
         // Metadata block (Byte 12-15) also contains event type and result
         // Spec says 01 01 01 01 for Door 1 unlock, 01 01 02 01 for Door 2 unlock.
         // Usually Byte 15 is the Result/EventType.
         byte eventTypeRaw = packet[15];
         
+        // Store raw packet for debugging
+        var rawDataHex = string.Join(" ", packet.ToArray().Select(b => b.ToString("X2")));
+        
         events.Add(new ControllerEvent
         {
             CardNumber = cardNumber,
             DoorOrReader = doorNumber,
             EventType = (ControllerEventType)eventTypeRaw,
-            TimestampUtc = timestampUtc ?? DateTime.MinValue,
-            RawIndex = eventIndex
+            TimestampUtc = timestampUtc.Value,
+            RawIndex = eventIndex,
+            RawData = rawDataHex // Store for debugging
         });
 
         return (events, eventIndex);

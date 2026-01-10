@@ -232,8 +232,8 @@
             _lastControllerId = Controller.Id;
             await LoadEvents();
             
-            // Connect to SignalR in background so it doesn't block rendering
-            _ = Task.Run(async () => await InitializeSignalR());
+            // DISABLED: Testing manual refresh only
+            // _ = Task.Run(async () => await InitializeSignalR());
         }
     }
 
@@ -374,20 +374,35 @@
     {
         if (Controller == null || _isLoadingEvents) return;
         _isLoadingEvents = true;
+        _eventLoadError = null;
         
         try
         {
-            await EventService.SyncFromControllerAsync(Controller.SerialNumber, ControllerClient);
+            SetStatus("📡 Fetching events from hardware...", "text-info");
+            await Task.Delay(100); // Let UI update
+            await InvokeAsync(StateHasChanged);
+            
+            var newCount = await EventService.SyncFromControllerAsync(Controller.SerialNumber, ControllerClient);
+            
+            SetStatus($"💾 Saved {newCount} new events. Loading from database...", "text-info");
+            await Task.Delay(100);
+            await InvokeAsync(StateHasChanged);
+            
             await LoadEvents();
+            
+            SetStatus($"✅ Refresh complete. Showing {_recentEvents.Count} events.", "text-success");
+            await Task.Delay(2000);
+            ClearStatus();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed manual sync");
+            _eventLoadError = $"Sync failed: {ex.Message}";
         }
         finally
         {
             _isLoadingEvents = false;
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         }
     }
 

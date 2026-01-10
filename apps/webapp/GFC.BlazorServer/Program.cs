@@ -222,7 +222,7 @@ public class Program
         builder.Services.AddSingleton<ControllerHealthService>();
         builder.Services.AddScoped<ControllerFullSyncService>();
         builder.Services.AddHostedService<ControllerHealthMonitor>();
-        builder.Services.AddHostedService<ControllerEventSyncService>(); // Auto-sync controller events
+        // builder.Services.AddHostedService<ControllerEventSyncService>(); // DISABLED: Testing manual refresh only
         
         builder.Services.AddScoped<IBoardTermConfirmationService, BoardTermConfirmationService>();
         builder.Services.AddScoped<ILotteryShiftService, LotteryShiftService>();
