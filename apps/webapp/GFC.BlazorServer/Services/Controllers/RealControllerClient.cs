@@ -378,7 +378,8 @@ public class RealControllerClient : IControllerClient
                   EventType = (int)e.EventType,
                   ReasonCode = (int)e.ReasonCode,
                   IsByCard = e.IsByCard,
-                  IsByButton = e.IsByExitButton
+                  IsByButton = e.IsByExitButton,
+                  RawData = e.RawData // Map raw packet for debugging
               }).ToList();
              
              // User Requirement: "Occasionally send the 0xB2 (Acknowledgment) command with your LastReadIndex"

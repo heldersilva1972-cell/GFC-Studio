@@ -227,6 +227,7 @@ public class ControllerEventService
                         EventType = (int)evt.EventType,
                         RawIndex = (int)i,
                         DoorOrReader = evt.DoorNumber ?? 0,
+                        RawData = evt.RawData, // Store raw packet for debugging
                         CreatedUtc = DateTime.UtcNow
                     });
 
