@@ -183,6 +183,11 @@ public class ControllerEventService
         const int BatchSize = 25;
         int itemsToSync = (int)(syncLimitIndex - startSyncIndex + 1);
 
+        // 4.6 Optimized door entity mapping
+        var doorMap = await dbContext.Doors
+            .Where(d => d.ControllerId == controller.Id)
+            .ToDictionaryAsync(d => d.DoorIndex, d => d, cancellationToken);
+
         // 4.4 Optimized Duplicate prevention
         var existingIndices = await dbContext.ControllerEvents
             .Where(e => e.ControllerId == controller.Id && e.RawIndex >= (int)startSyncIndex && e.RawIndex <= (int)syncLimitIndex)

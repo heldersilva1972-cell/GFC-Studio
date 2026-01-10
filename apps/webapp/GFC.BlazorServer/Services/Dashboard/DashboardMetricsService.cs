@@ -116,6 +116,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             var recentEvents = await db.ControllerEvents
                 .Include(e => e.Door)
                 .OrderByDescending(e => e.TimestampUtc)
+                .ThenByDescending(e => e.RawIndex)
                 .Take(5)
                 .ToListAsync(ct);
 
@@ -130,14 +131,15 @@ public class DashboardMetricsService : IDashboardMetricsService
             {
                 activities.Add(new ActivityFeedItem
                 {
-                    Title = e.Door?.Name ?? "Security Event",
+                    Title = e.Door?.Name ?? $"Door {e.DoorOrReader}",
                     Detail = e.EventType switch {
                         1 => "Access Granted",
                         2 => "Access Denied",
-                        3 => "Door Opened",
-                        4 => "Door Closed",
-                        _ => "System Event"
-                    } + (e.CardNumber.HasValue ? $" (Card: {e.CardNumber})" : ""),
+                        3 => "Door Forced Open",
+                        4 => "Door Held Open",
+                        5 => "Button Press",
+                        _ => "Security Event"
+                    } + (e.CardNumber.HasValue && e.CardNumber.Value > 0 ? $" (Card: {e.CardNumber})" : ""),
                     TimestampUtc = e.TimestampUtc
                 });
             }
