@@ -202,9 +202,11 @@ internal static class WgResponseParser
             CardNumber = cardNumber,
             DoorOrReader = doorNumber,
             EventType = (ControllerEventType)eventTypeRaw,
+            IsByCard = (eventTypeRaw >= 0x01 && eventTypeRaw <= 0x0E),
+            IsByButton = (eventTypeRaw == 0x15 || eventTypeRaw == 0x16 || eventTypeRaw == 0x19 || eventTypeRaw == 0x25),
             TimestampUtc = timestampUtc.Value,
             RawIndex = eventIndex,
-            RawData = rawDataHex // Store for debugging
+            RawData = rawDataHex
         });
 
         return (events, eventIndex);

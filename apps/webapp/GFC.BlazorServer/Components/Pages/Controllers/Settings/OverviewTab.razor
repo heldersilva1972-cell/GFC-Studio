@@ -11,6 +11,7 @@
 @inject ILogger<OverviewTab> Logger
 @inject NavigationManager Navigation
 
+
 <div class="settings-tab-content fadeIn h-100">
     @if (Controller == null)
     {
@@ -214,6 +215,10 @@
     private bool _isUnlocking = false;
     private int? _unlockingDoorId;
     private bool _isLoadingEvents = false;
+    
+    // Track recent unlock commands by door and the max RawIndex at time of unlock
+    private static readonly Dictionary<int, int> _unlockIndexByDoor = new();
+    private static readonly object _unlockTrackingLock = new();
     
     // Operation feedback
     private string? _operationStatus;
@@ -429,6 +434,14 @@
                 await InvokeAsync(StateHasChanged);
             });
             
+            
+            // Track this unlock - record the current max RawIndex
+            lock (_unlockTrackingLock)
+            {
+                var maxIndex = _recentEvents?.Max(e => e.RawIndex) ?? 0;
+                _unlockIndexByDoor[door.Id] = maxIndex;
+            }
+            
              // Trigger a hardware sync to pull the event we just generated
              // We wait 2 seconds because hardware takes time to commit the log entry
              _ = Task.Run(async () => {
@@ -481,14 +494,37 @@
         // Start with door name
         if (evt.Door != null)
         {
-            parts.Add($"{evt.Door.Name} [ID:{evt.DoorId}] (Reader {evt.DoorOrReader})");
+            parts.Add(evt.Door.Name);
         }
         else 
         {
-            parts.Add($"Mismatched Door [Raw:{evt.DoorOrReader}]");
+            parts.Add($"Door {evt.DoorOrReader}");
         }
         
-        // Add action type based on available codes or flags
+        // Check if this event is one of the first 3 events after an unlock command
+        bool isSystemUnlock = false;
+        if (evt.Door != null)
+        {
+            lock (_unlockTrackingLock)
+            {
+                if (_unlockIndexByDoor.TryGetValue(evt.Door.Id, out var unlockIndex))
+                {
+                    // If this event's RawIndex is within 3 of the unlock index, it's a system unlock
+                    if (evt.RawIndex > unlockIndex && evt.RawIndex <= unlockIndex + 3)
+                    {
+                        isSystemUnlock = true;
+                    }
+                }
+            }
+        }
+        
+        if (isSystemUnlock)
+        {
+            parts.Add("Momentary Door Unlock");
+            return string.Join(" - ", parts);
+        }
+        
+        // Add action type based on event code
         var code = evt.ReasonCode ?? evt.EventType;
         
         string action = code switch
@@ -502,37 +538,20 @@
             0x0F => "Access Denied (Locked)",
             0x1C => "Door Closed",
             0x1D => "Door Opened",
-            0x25 => "Remote Unlock",
             0x20 => "Door Forced Open",
             0x21 => "Door Held Open",
             0x23 => "Duress Code Used",
             0x18 => "Fire Alarm",
             0x27 => "Normal Open Mode",
             0x28 => "Normal Close Mode",
-            _ => null // Will determine from flags below
+            _ => "Door Activity"
         };
-        
-        // If no specific code, use flags to describe action
-        if (action == null)
-        {
-            if (evt.IsByCard && evt.CardNumber.HasValue && evt.CardNumber > 0)
-            {
-                action = "Card Swipe";
-            }
-            else if (evt.IsByButton)
-            {
-                action = "Button Press";
-            }
-            else
-            {
-                action = "Door Activity";
-            }
-        }
         
         parts.Add(action);
         
-        // Add card number if present
-        if (evt.CardNumber.HasValue && evt.CardNumber > 0)
+        // Add card number ONLY for swipe-based events
+        bool isSoftwareUnlock = (code == 0x25 || code == 0x19 || code == 0x15 || evt.IsByButton);
+        if (!isSoftwareUnlock && evt.CardNumber.HasValue && evt.CardNumber > 0)
         {
             parts.Add($"Card #{evt.CardNumber}");
         }

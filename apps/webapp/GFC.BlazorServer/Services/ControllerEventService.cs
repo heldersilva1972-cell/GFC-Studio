@@ -225,6 +225,8 @@ public class ControllerEventService
                         TimestampUtc = evt.TimestampUtc,
                         CardNumber = evt.CardNumber,
                         EventType = (int)evt.EventType,
+                        IsByCard = evt.IsByCard,
+                        IsByButton = evt.IsByButton,
                         RawIndex = (int)i,
                         DoorOrReader = evt.DoorNumber ?? 0,
                         RawData = evt.RawData, // Store raw packet for debugging

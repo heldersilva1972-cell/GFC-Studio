@@ -18,7 +18,6 @@ public sealed class ControllerEvent
     
     public string? RawData { get; init; }
 
-    public bool IsByCard => EventType == ControllerEventType.Granted || EventType == ControllerEventType.Denied;
-
-    public bool IsByExitButton => EventType == ControllerEventType.ButtonPressed;
+    public bool IsByCard { get; init; }
+    public bool IsByButton { get; init; }
 }

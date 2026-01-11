@@ -187,7 +187,7 @@ public class RealControllerClient : IControllerClient
                  EventType = (int)e.EventType,
                  ReasonCode = (int)e.ReasonCode,
                  IsByCard = e.IsByCard,
-                 IsByButton = e.IsByExitButton
+                 IsByButton = e.IsByButton
              }).ToList();
         }
         catch (Exception ex)
@@ -378,7 +378,7 @@ public class RealControllerClient : IControllerClient
                   EventType = (int)e.EventType,
                   ReasonCode = (int)e.ReasonCode,
                   IsByCard = e.IsByCard,
-                  IsByButton = e.IsByExitButton,
+                  IsByButton = e.IsByButton,
                   RawData = e.RawData // Map raw packet for debugging
               }).ToList();
              
