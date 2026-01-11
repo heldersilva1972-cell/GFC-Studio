@@ -1,13 +1,19 @@
 @page "/controllers/events"
 @attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Data
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@using Microsoft.EntityFrameworkCore
 @inject ControllerRegistryService RegistryService
 @inject ControllerEventService EventService
 @inject NavigationManager Navigation
 @inject ILogger<ControllerEventsPage> Logger
 @inject IJSRuntime JSRuntime
 @inject IBlazorSystemSettingsService SettingsService
+@inject IMemberRepository MemberRepository
+@inject IKeyCardRepository KeyCardRepository
+@inject IDbContextFactory<GfcDbContext> DbFactory
 
 <div class="page-header">
     <div>
@@ -152,7 +158,13 @@ else
                             <td>@ToClubLocal(evt.CreatedUtc).ToString("yyyy-MM-dd HH:mm:ss")</td>
                             <td>@evt.Controller?.Name</td>
             <td>@(evt.Door?.Name ?? "Unknown door")</td>
-                                            <td>@(evt.CardNumber?.ToString("D") ?? "-")</td>
+                            <td>
+                                @(evt.CardNumber?.ToString("D") ?? "-")
+                                @if (evt.CardNumber.HasValue && _cardMemberNames.TryGetValue(evt.CardNumber.Value, out var name))
+                                {
+                                    <div class="small text-muted">@name</div>
+                                }
+                            </td>
                             <td>@evt.EventType</td>
                             <td>@(evt.ReasonCode?.ToString() ?? "-")</td>
                             <td>
@@ -189,6 +201,7 @@ else
     private readonly List<ControllerDevice> _controllers = new();
     private readonly List<Door> _availableDoors = new();
     private readonly List<ControllerEvent> _events = new();
+    private Dictionary<long, string> _cardMemberNames = new();
     private readonly List<EventCategoryOption> _eventTypeOptions =
     [
         new("all", "All"),
@@ -235,6 +248,7 @@ else
     {
         _isLoading = true;
         _events.Clear();
+        _cardMemberNames.Clear();
 
         bool? isByCard = null;
         bool? isByButton = null;
@@ -269,6 +283,8 @@ else
 
             _events.AddRange(result.Events);
             _totalCount = result.TotalCount;
+            
+            await EnrichEventsWithMemberNames();
         }
         catch (Exception ex)
         {
@@ -278,6 +294,51 @@ else
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    private async Task EnrichEventsWithMemberNames()
+    {
+        _cardMemberNames.Clear();
+        var cardNumbers = _events
+            .Where(e => e.CardNumber.HasValue && e.CardNumber.Value > 0)
+            .Select(e => e.CardNumber!.Value)
+            .Distinct()
+            .ToArray();
+            
+        if (!cardNumbers.Any()) return;
+        
+        try
+        {
+            // Use KeyCardRepository to get all cards (using ADO.NET for clean connection)
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            
+            // Normalize DB cards for lookup: Trim leading zeros
+            var cardMap = allCards
+                .Where(c => !string.IsNullOrEmpty(c.CardNumber))
+                .GroupBy(c => c.CardNumber.TrimStart('0')) 
+                .ToDictionary(g => g.Key, g => g.First());
+            
+            // Look up each required card number
+            foreach (var cNum in cardNumbers)
+            {
+                var searchNum = cNum.ToString().TrimStart('0');
+                if (cardMap.TryGetValue(searchNum, out var keyCard))
+                {
+                    if (!_cardMemberNames.ContainsKey(cNum))
+                    {
+                        var member = await Task.Run(() => MemberRepository.GetMemberById(keyCard.MemberId));
+                        if (member != null)
+                        {
+                            _cardMemberNames[cNum] = $"{member.FirstName} {member.LastName}";
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to enrich member names in controller events log");
         }
     }
 
@@ -332,15 +393,22 @@ else
         try
         {
             var csv = new System.Text.StringBuilder();
-            csv.AppendLine("Occurred At,Logged At,Controller,Door,CardNumber,EventType,ReasonCode,ByCard,ByButton");
+            csv.AppendLine("Occurred At,Logged At,Controller,Door,CardNumber,MemberName,EventType,ReasonCode,ByCard,ByButton");
 
             foreach (var evt in _events)
             {
+                var memberName = "";
+                if (evt.CardNumber.HasValue && _cardMemberNames.TryGetValue(evt.CardNumber.Value, out var name))
+                {
+                    memberName = name;
+                }
+
                 csv.AppendLine($"{evt.ControllerEventTime.ToString("yyyy-MM-dd HH:mm:ss")}," +
                               $"{ToClubLocal(evt.CreatedUtc).ToString("yyyy-MM-dd HH:mm:ss")}," +
                               $"\"{evt.Controller?.Name ?? "Unknown"}\"," +
                               $"\"{evt.Door?.Name ?? "Unknown"}\"," +
                               $"{evt.CardNumber?.ToString() ?? ""}," +
+                              $"\"{memberName}\"," + 
                               $"{evt.EventType}," +
                               $"{evt.ReasonCode?.ToString() ?? ""}," +
                               $"{(evt.IsByCard ? "Yes" : "No")}," +
@@ -376,4 +444,3 @@ else
         return TimeZoneInfo.ConvertTimeFromUtc(utcTime, _systemTimeZone);
     }
 }
-

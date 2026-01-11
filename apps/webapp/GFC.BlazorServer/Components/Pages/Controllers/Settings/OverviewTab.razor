@@ -3,6 +3,7 @@
 @using GFC.BlazorServer.Data.Entities
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Services.Controllers
+@using GFC.Core.Interfaces
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.SignalR.Client
 @inject IControllerClient ControllerClient
@@ -10,6 +11,8 @@
 @inject ControllerEventService EventService
 @inject ILogger<OverviewTab> Logger
 @inject NavigationManager Navigation
+@inject IMemberRepository MemberRepository
+@inject IKeyCardRepository KeyCardRepository
 
 
 <div class="settings-tab-content fadeIn h-100">
@@ -221,6 +224,7 @@
     private string? _operationStatusClass; // e.g., text-info, text-success, text-danger
 
     private List<ControllerEvent> _recentEvents = new();
+    private Dictionary<long, string> _cardMemberNames = new();
     private HashSet<int> _unlockedDoors = new();
     
     private int _lastControllerId;
@@ -360,6 +364,7 @@
                 .AsNoTracking()
                 .ToListAsync(cts.Token);
             
+            await EnrichEventsWithMemberNames();
             _eventLoadError = null;
         }
         catch (OperationCanceledException)
@@ -376,6 +381,55 @@
         { 
             _isLoadingEvents = false;
             await InvokeAsync(StateHasChanged); 
+        }
+    }
+
+    private async Task EnrichEventsWithMemberNames()
+    {
+        _cardMemberNames.Clear();
+        var cardNumbers = _recentEvents
+            .Where(e => e.CardNumber.HasValue && e.CardNumber.Value > 0)
+            .Select(e => e.CardNumber!.Value)
+            .Distinct()
+            .ToArray();
+            
+        if (!cardNumbers.Any()) return;
+        
+        try
+        {
+            // Use KeyCardRepository to get all cards (using ADO.NET for clean connection)
+            // This avoids potential EF Core context issues and allows flexible string matching
+            // Running in Task.Run to avoid blocking UI with DB call
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            
+            // Normalize DB cards for lookup: Trim leading zeros to handle format differences
+            // Example: DB "0012345" vs Event 12345 -> both become "12345"
+            var cardMap = allCards
+                .Where(c => !string.IsNullOrEmpty(c.CardNumber))
+                .GroupBy(c => c.CardNumber.TrimStart('0')) 
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // Look up each required card number
+            foreach (var cNum in cardNumbers)
+            {
+                var searchNum = cNum.ToString().TrimStart('0');
+                if (cardMap.TryGetValue(searchNum, out var keyCard))
+                {
+                    // Found the card, now get the member
+                    if (!_cardMemberNames.ContainsKey(cNum))
+                    {
+                        var member = await Task.Run(() => MemberRepository.GetMemberById(keyCard.MemberId));
+                        if (member != null)
+                        {
+                            _cardMemberNames[cNum] = $"{member.FirstName} {member.LastName}";
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to enrich member names in overview tab");
         }
     }
 
@@ -556,11 +610,18 @@
         
         parts.Add(action);
         
-        // Add card number ONLY for swipe-based events
+        // Add card number/name ONLY for swipe-based events
         bool isSoftwareUnlock = (code == 0x25 || code == 0x19 || code == 0x15 || evt.IsByButton);
         if (!isSoftwareUnlock && evt.CardNumber.HasValue && evt.CardNumber > 0)
         {
-            parts.Add($"Card #{evt.CardNumber}");
+            if (_cardMemberNames.TryGetValue(evt.CardNumber.Value, out var memberName))
+            {
+               parts.Add($"{memberName} (Card #{evt.CardNumber})");
+            }
+            else
+            {
+               parts.Add($"Card #{evt.CardNumber}");
+            }
         }
         
         return string.Join(" - ", parts);

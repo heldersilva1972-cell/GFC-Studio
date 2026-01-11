@@ -120,6 +120,8 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Take(5)
                 .ToListAsync(ct);
 
+            _logger.LogInformation($"[RecentActivity] Found {recentEvents.Count} recent events");
+
             var recentSales = await db.BarSaleEntries
                 .OrderByDescending(e => e.SaleDate)
                 .Take(5)
@@ -127,19 +129,75 @@ public class DashboardMetricsService : IDashboardMetricsService
 
             var activities = new List<ActivityFeedItem>();
 
+            // Get card numbers from events to look up member names
+            var cardNumbers = recentEvents
+                .Where(e => e.CardNumber.HasValue && e.CardNumber.Value > 0)
+                .Select(e => e.CardNumber!.Value.ToString())
+                .Distinct()
+                .ToList();
+
+            _logger.LogInformation($"[RecentActivity] Card numbers to lookup: {string.Join(", ", cardNumbers)}");
+
+            // Build a lookup dictionary: CardNumber -> Member Name
+            var cardToMemberLookup = new Dictionary<string, string>();
+            if (cardNumbers.Any())
+            {
+                var members = await Task.Run(() => _memberRepository.GetAllMembers(), ct);
+                _logger.LogInformation($"[RecentActivity] Loaded {members.Count} total members");
+
+                var keyCards = await db.KeyCards
+                    .Where(kc => cardNumbers.Contains(kc.CardNumber))
+                    .ToListAsync(ct);
+
+                _logger.LogInformation($"[RecentActivity] Found {keyCards.Count} matching KeyCards");
+
+                foreach (var card in keyCards)
+                {
+                    var member = members.FirstOrDefault(m => m.MemberID == card.MemberId);
+                    if (member != null)
+                    {
+                        var memberName = $"{member.FirstName} {member.LastName}";
+                        cardToMemberLookup[card.CardNumber] = memberName;
+                        _logger.LogInformation($"[RecentActivity] Mapped card {card.CardNumber} -> {memberName}");
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"[RecentActivity] No member found for card {card.CardNumber} (MemberId: {card.MemberId})");
+                    }
+                }
+            }
+
             foreach (var e in recentEvents)
             {
+                var eventTypeText = e.EventType switch {
+                    1 => "Access Granted",
+                    2 => "Access Denied",
+                    3 => "Door Forced Open",
+                    4 => "Door Held Open",
+                    5 => "Button Press",
+                    _ => "Security Event"
+                };
+
+                var cardInfo = "";
+                if (e.CardNumber.HasValue && e.CardNumber.Value > 0)
+                {
+                    var cardNumStr = e.CardNumber.Value.ToString();
+                    if (cardToMemberLookup.TryGetValue(cardNumStr, out var memberName))
+                    {
+                        cardInfo = $" - {memberName} (Card #{e.CardNumber})";
+                        _logger.LogInformation($"[RecentActivity] Event {e.Id}: Found member name for card {cardNumStr}");
+                    }
+                    else
+                    {
+                        cardInfo = $" - Card #{e.CardNumber}";
+                        _logger.LogWarning($"[RecentActivity] Event {e.Id}: No member name found for card {cardNumStr}");
+                    }
+                }
+
                 activities.Add(new ActivityFeedItem
                 {
                     Title = e.Door?.Name ?? $"Door {e.DoorOrReader}",
-                    Detail = e.EventType switch {
-                        1 => "Access Granted",
-                        2 => "Access Denied",
-                        3 => "Door Forced Open",
-                        4 => "Door Held Open",
-                        5 => "Button Press",
-                        _ => "Security Event"
-                    } + (e.CardNumber.HasValue && e.CardNumber.Value > 0 ? $" (Card: {e.CardNumber})" : ""),
+                    Detail = eventTypeText + cardInfo,
                     TimestampUtc = e.TimestampUtc
                 });
             }
