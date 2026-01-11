@@ -79,7 +79,8 @@ public class ControllerEventService
                 {
                     ControllerId = controller.Id,
                     DoorId = doorId,
-                    TimestampUtc = e.TimestampUtc,
+                    TimestampUtc = e.TimestampUtc, // Keep for legacy compatibility if needed
+                    ControllerEventTime = e.TimestampUtc, // Raw wall time
                     CardNumber = e.CardNumber,
                     EventType = e.EventType,
                     ReasonCode = e.ReasonCode,
@@ -226,7 +227,8 @@ public class ControllerEventService
                     {
                         ControllerId = controller.Id,
                         DoorId = doorId,
-                        TimestampUtc = evt.TimestampUtc, // Already parsed as Kind.Unspecified (Host Local)
+                        TimestampUtc = evt.TimestampUtc, // Keeping legacy field for now
+                        ControllerEventTime = evt.TimestampUtc, // Wall time reported by controller
                         CardNumber = evt.CardNumber,
                         EventType = (int)evt.EventType,
                         IsByCard = evt.IsByCard,
@@ -346,6 +348,7 @@ public class ControllerEventService
                     ControllerId = controller.Id,
                     DoorId = doorId,
                     TimestampUtc = e.TimestampUtc,
+                    ControllerEventTime = e.ControllerEventTime != default ? e.ControllerEventTime : e.TimestampUtc,
                     CardNumber = e.CardNumber,
                     EventType = e.EventType,
                     ReasonCode = e.ReasonCode,

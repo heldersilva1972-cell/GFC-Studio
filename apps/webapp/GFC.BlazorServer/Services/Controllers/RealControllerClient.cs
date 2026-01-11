@@ -133,32 +133,9 @@ public class RealControllerClient : IControllerClient
 
         if (!uint.TryParse(controller.SerialNumberDisplay, out var sn)) return;
 
-        // Force synchronization to the configured facility timezone
-        DateTime targetTime;
-        string tzId = "Eastern Standard Time";
-        try
-        {
-            var settings = _settingsService.GetSettings();
-            tzId = settings?.SystemTimeZoneId ?? "Eastern Standard Time";
-            var tzi = TimeZoneInfo.FindSystemTimeZoneById(tzId);
-            targetTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzi);
-            
-            _logger.LogInformation("Syncing controller {Sn}. HostNow={HostNow}, UtcNow={UtcNow}, Target({TzId})={TargetTime}", 
-                sn, DateTime.Now, DateTime.UtcNow, tzId, targetTime);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to resolve timezone {TzId}, falling back to Eastern Standard Time.", tzId);
-            try
-            {
-                var tzi = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
-                targetTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzi);
-            }
-            catch 
-            {
-                targetTime = DateTime.Now;
-            }
-        }
+        DateTime targetTime = GetFacilityTime();
+        _logger.LogInformation("Syncing controller {Sn}. HostNow={HostNow}, UtcNow={UtcNow}, Target={TargetTime}", 
+            sn, DateTime.Now, DateTime.UtcNow, targetTime);
 
         await _mengqiClient.SyncTimeAsync(sn, targetTime, ct);
     }
@@ -305,7 +282,7 @@ public class RealControllerClient : IControllerClient
                      _logger.LogWarning("Controller {Sn} date invalid ({Date}). Triggering Reboot Recovery Time Sync...", sn, status.ControllerTime.Value);
                      try 
                      {
-                         await _mengqiClient.SyncTimeAsync(sn, DateTime.Now, cancellationToken).ConfigureAwait(false);
+                         await _mengqiClient.SyncTimeAsync(sn, GetFacilityTime(), cancellationToken).ConfigureAwait(false);
                      }
                      catch (Exception ex)
                      {
@@ -639,5 +616,30 @@ public class RealControllerClient : IControllerClient
 
         var response = await _mengqiClient.SendRawAsync(sn, bytes, ct);
         return BitConverter.ToString(response).Replace("-", " ");
+    }
+
+    private DateTime GetFacilityTime()
+    {
+        string tzId = "Eastern Standard Time";
+        try
+        {
+            var settings = _settingsService.GetSettings();
+            tzId = settings?.SystemTimeZoneId ?? "Eastern Standard Time";
+            var tzi = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzi);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve timezone {TzId}, falling back to Eastern Standard Time.", tzId);
+            try
+            {
+                var tzi = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzi);
+            }
+            catch 
+            {
+                return DateTime.Now;
+            }
+        }
     }
 }

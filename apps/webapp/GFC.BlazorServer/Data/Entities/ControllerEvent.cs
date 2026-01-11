@@ -22,6 +22,11 @@ public class ControllerEvent
     public int DoorOrReader { get; set; }
  
     public DateTime TimestampUtc { get; set; }
+    
+    /// <summary>
+    /// Wall time reported by the controller (dumb local clock).
+    /// </summary>
+    public DateTime ControllerEventTime { get; set; }
 
     public long? CardNumber { get; set; }
 
