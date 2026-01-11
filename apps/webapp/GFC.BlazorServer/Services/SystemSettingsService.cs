@@ -238,6 +238,7 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.AbsoluteSessionMaxMinutes = settings.AbsoluteSessionMaxMinutes;
         existingSettings.SafeModeEnabled = settings.SafeModeEnabled;
         existingSettings.EnableOnboarding = settings.EnableOnboarding;
+        existingSettings.SystemTimeZoneId = settings.SystemTimeZoneId;
 
         // SMS & Twilio Settings
         existingSettings.TwilioAccountSid = settings.TwilioAccountSid;

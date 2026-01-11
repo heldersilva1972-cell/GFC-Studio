@@ -18,17 +18,20 @@ public class RealControllerClient : IControllerClient
     private readonly ILogger<RealControllerClient> _logger;
     private readonly ControllerRegistryService _controllerRegistry;
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
+    private readonly IBlazorSystemSettingsService _settingsService;
 
     public RealControllerClient(
         GFC.BlazorServer.Connectors.Mengqi.MengqiControllerClient mengqiClient,
         ILogger<RealControllerClient> logger,
         ControllerRegistryService controllerRegistry,
-        IDbContextFactory<GfcDbContext> contextFactory)
+        IDbContextFactory<GfcDbContext> contextFactory,
+        IBlazorSystemSettingsService settingsService)
     {
         _mengqiClient = mengqiClient ?? throw new ArgumentNullException(nameof(mengqiClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _controllerRegistry = controllerRegistry ?? throw new ArgumentNullException(nameof(controllerRegistry));
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
+        _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
     }
 
     // ... (Wait, I need to preserve the SimMode S2 contract region or just replace the HTTP calls?)
@@ -127,10 +130,39 @@ public class RealControllerClient : IControllerClient
             _logger.LogWarning("Controller {ControllerId} not found for SyncTime", controllerId);
             return;
         }
-        // Direct call to sync time
+
         if (!uint.TryParse(controller.SerialNumberDisplay, out var sn)) return;
-        await _mengqiClient.SyncTimeAsync(sn, DateTime.UtcNow, ct);
+
+        // Force synchronization to the configured facility timezone
+        DateTime targetTime;
+        string tzId = "Eastern Standard Time";
+        try
+        {
+            var settings = _settingsService.GetSettings();
+            tzId = settings?.SystemTimeZoneId ?? "Eastern Standard Time";
+            var tzi = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+            targetTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzi);
+            
+            _logger.LogInformation("Syncing controller {Sn}. HostNow={HostNow}, UtcNow={UtcNow}, Target({TzId})={TargetTime}", 
+                sn, DateTime.Now, DateTime.UtcNow, tzId, targetTime);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve timezone {TzId}, falling back to Eastern Standard Time.", tzId);
+            try
+            {
+                var tzi = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+                targetTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzi);
+            }
+            catch 
+            {
+                targetTime = DateTime.Now;
+            }
+        }
+
+        await _mengqiClient.SyncTimeAsync(sn, targetTime, ct);
     }
+    
 
     public async Task<RunStatusModel> GetRunStatusAsync(int controllerId, CancellationToken ct)
     {

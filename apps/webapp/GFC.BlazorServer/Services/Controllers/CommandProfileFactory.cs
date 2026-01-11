@@ -12,7 +12,7 @@ internal static class CommandProfileFactory
         return new ControllerCommandProfiles
         {
             OpenDoor = WgCommandProfile.Create("OpenDoor", 23, 64, WgPacketFormat.Basic, 4, 64), 
-            SyncTime = WgCommandProfile.Create("SyncTime", 23, 48, WgPacketFormat.Basic, 8, 64),
+            SyncTime = WgCommandProfile.Create("SyncTime", 23, 48, WgPacketFormat.Basic, 20, 64),
             AddOrUpdateCard = WgCommandProfile.Create("AddOrUpdateCard", 23, 80, WgPacketFormat.Privilege, 56, 64),
             DeleteCard = WgCommandProfile.Create("DeleteCard", 23, 82, WgPacketFormat.Privilege, 56, 64),
             BulkUpload = WgCommandProfile.Create("BulkUpload", 23, 60, WgPacketFormat.Privilege, 40, 64),

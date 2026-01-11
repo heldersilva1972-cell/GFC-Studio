@@ -30,12 +30,12 @@ internal static class WgPayloadFactory
         return payload;
     }
 
-    public static byte[] BuildSyncTimePayload(WgCommandProfile profile, DateTime utcTime)
+    public static byte[] BuildSyncTimePayload(WgCommandProfile profile, DateTime localTime)
     {
         // Controller expects data at packet offset 20 for this firmware.
         // Standard start is offset 8. So we add 12 bytes padding.
         var payload = Allocate(profile, 20); 
-        var now = utcTime.ToLocalTime();
+        var now = localTime;
         
         // Offset 0-11: Padding (0x00)
         // Offset 12: Century

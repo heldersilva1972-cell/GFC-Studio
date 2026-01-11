@@ -101,6 +101,7 @@ public class SystemSettings
     public GFC.Core.Enums.AccessMode AccessMode { get; set; } = GFC.Core.Enums.AccessMode.Open;
     public bool EnableOnboarding { get; set; } = false;
     public bool SafeModeEnabled { get; set; } = false;
+    public string SystemTimeZoneId { get; set; } = "Eastern Standard Time";
 
     // Backup & Data Protection Tracking
     public string BackupMethod { get; set; } = "External USB";

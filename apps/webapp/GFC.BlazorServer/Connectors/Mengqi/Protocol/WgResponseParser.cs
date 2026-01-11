@@ -178,15 +178,15 @@ internal static class WgResponseParser
         // E) Timestamp (BCD-coded) - Byte[20..26]
         // Format: CC YY MM DD HH mm ss
         var timestampBytes = packet.Slice(20, 7);
-        DateTime? timestampUtc = TryParseBcdDateTime(timestampBytes, DateTimeKind.Utc);
+        DateTime? timestampRaw = TryParseBcdDateTime(timestampBytes, DateTimeKind.Unspecified);
         
         // DIAGNOSTIC: Log if timestamp parsing fails
-        if (timestampUtc == null || timestampUtc.Value.Year < 2000)
+        if (timestampRaw == null || timestampRaw.Value.Year < 2000)
         {
             var hexBytes = string.Join(" ", timestampBytes.ToArray().Select(b => b.ToString("X2")));
             Console.WriteLine($"WARNING: Failed to parse timestamp bytes: {hexBytes}");
             // TEMPORARY: Use current time until we fix the parser
-            timestampUtc = DateTime.UtcNow;
+            timestampRaw = DateTime.Now;
         }
 
         // Event result is at Byte 13 (2nd byte of metadata block at 12-15)
@@ -204,7 +204,7 @@ internal static class WgResponseParser
             EventType = (ControllerEventType)eventTypeRaw,
             IsByCard = (eventTypeRaw >= 0x01 && eventTypeRaw <= 0x0E),
             IsByButton = (eventTypeRaw == 0x15 || eventTypeRaw == 0x16 || eventTypeRaw == 0x19 || eventTypeRaw == 0x25),
-            TimestampUtc = timestampUtc.Value,
+            TimestampUtc = timestampRaw.Value, // Still assigned to property named TimestampUtc, will fix conversion in service.
             RawIndex = eventIndex,
             RawData = rawDataHex
         });

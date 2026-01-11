@@ -20,7 +20,7 @@ public interface IMengqiControllerClient
     /// <summary>
     ///     Syncs the controller's RTC with the provided server time.
     /// </summary>
-    Task SyncTimeAsync(uint controllerSn, DateTime serverTime, CancellationToken cancellationToken = default);
+    Task SyncTimeAsync(uint controllerSn, DateTime localTime, CancellationToken cancellationToken = default);
 
     /// <summary>
     ///     Adds a new card privilege or updates an existing one for the specified controller.

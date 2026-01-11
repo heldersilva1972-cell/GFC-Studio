@@ -47,9 +47,9 @@ public sealed class MengqiControllerClient : IMengqiControllerClient, IDisposabl
         _logger?.LogInformation("Opened door {Door} on controller {ControllerSn}", doorNo, controllerSn);
     }
 
-    public async Task SyncTimeAsync(uint controllerSn, DateTime serverTime, CancellationToken cancellationToken = default)
+    public async Task SyncTimeAsync(uint controllerSn, DateTime localTime, CancellationToken cancellationToken = default)
     {
-        var payload = WgPayloadFactory.BuildSyncTimePayload(_commands.SyncTime, serverTime);
+        var payload = WgPayloadFactory.BuildSyncTimePayload(_commands.SyncTime, localTime);
         await SendAndExpectAck(controllerSn, _commands.SyncTime, payload, cancellationToken).ConfigureAwait(false);
     }
 

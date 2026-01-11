@@ -16,15 +16,18 @@ public class ControllerEventService
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<ControllerEventService> _logger;
     private readonly IHubContext<ControllerEventHub> _hubContext;
+    private readonly IBlazorSystemSettingsService _settingsService;
 
     public ControllerEventService(
         IDbContextFactory<GfcDbContext> contextFactory, 
         ILogger<ControllerEventService> logger,
-        IHubContext<ControllerEventHub> hubContext)
+        IHubContext<ControllerEventHub> hubContext,
+        IBlazorSystemSettingsService settingsService)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
+        _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
     }
 
     /// <summary>
@@ -188,6 +191,7 @@ public class ControllerEventService
             .Where(d => d.ControllerId == controller.Id)
             .ToDictionaryAsync(d => d.DoorIndex, d => d, cancellationToken);
 
+
         // 4.4 Optimized Duplicate prevention
         var existingIndices = await dbContext.ControllerEvents
             .Where(e => e.ControllerId == controller.Id && e.RawIndex >= (int)startSyncIndex && e.RawIndex <= (int)syncLimitIndex)
@@ -222,14 +226,14 @@ public class ControllerEventService
                     {
                         ControllerId = controller.Id,
                         DoorId = doorId,
-                        TimestampUtc = evt.TimestampUtc,
+                        TimestampUtc = evt.TimestampUtc, // Already parsed as Kind.Unspecified (Host Local)
                         CardNumber = evt.CardNumber,
                         EventType = (int)evt.EventType,
                         IsByCard = evt.IsByCard,
                         IsByButton = evt.IsByButton,
-                        RawIndex = (int)evt.RawIndex, // Use actual hardware index, not loop counter
+                        RawIndex = (int)evt.RawIndex,
                         DoorOrReader = evt.DoorNumber ?? 0,
-                        RawData = evt.RawData, // Store raw packet for debugging
+                        RawData = evt.RawData,
                         CreatedUtc = DateTime.UtcNow
                     });
 
@@ -448,7 +452,7 @@ public class ControllerEventService
         }
 
         return await query
-            .OrderByDescending(e => e.TimestampUtc)
+            .OrderByDescending(e => e.CreatedUtc)
             .ThenByDescending(e => e.RawIndex)
             .ToListAsync(cancellationToken);
     }
@@ -511,7 +515,7 @@ public class ControllerEventService
         var events = await query
             .Include(e => e.Controller)
             .Include(e => e.Door)
-            .OrderByDescending(e => e.TimestampUtc)
+            .OrderByDescending(e => e.CreatedUtc)
             .ThenByDescending(e => e.RawIndex)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)

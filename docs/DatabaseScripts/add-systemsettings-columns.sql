@@ -158,6 +158,9 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SafeModeEnabled')
     ALTER TABLE [dbo].[SystemSettings] ADD [SafeModeEnabled] BIT NULL;
 
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SystemTimeZoneId')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SystemTimeZoneId] NVARCHAR(100) NULL;
+
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TrustedDeviceDurationDays')
     ALTER TABLE [dbo].[SystemSettings] ADD [TrustedDeviceDurationDays] INT NULL;
 GO
@@ -198,6 +201,7 @@ UPDATE [dbo].[SystemSettings] SET
     [IdleTimeoutMinutes] = ISNULL([IdleTimeoutMinutes], 60),
     [MagicLinkEnabled] = ISNULL([MagicLinkEnabled], 1),
     [SafeModeEnabled] = ISNULL([SafeModeEnabled], 0),
+    [SystemTimeZoneId] = ISNULL([SystemTimeZoneId], 'Eastern Standard Time'),
     [TrustedDeviceDurationDays] = ISNULL([TrustedDeviceDurationDays], 30)
 WHERE Id = 1;
 GO
