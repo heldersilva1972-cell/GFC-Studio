@@ -12,7 +12,9 @@
 @inject IMemberKeycardRepository MemberKeycardRepository
 @inject IBoardRepository BoardRepository
 @inject KeyCardService KeyCardService
+@inject IJSRuntime JSRuntime
 @inject ILogger<MemberDetail> Logger
+@inject IBlazorSystemSettingsService SystemSettingsService
 @inject IMemberActivityTimelineService ActivityTimelineService
 
 <PageTitle>Member Detail</PageTitle>
@@ -129,7 +131,7 @@ else if (!string.IsNullOrWhiteSpace(_error))
 {
     <div class="alert alert-danger d-flex align-items-center justify-content-between">
         <span>@_error</span>
-        <button class="btn btn-outline-secondary btn-sm" type="button" aria-label="Retry loading member details" @onclick="LoadDataAsync">Retry</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" aria-label="Retry loading member details" @onclick="LoadMemberAsync">Retry</button>
     </div>
 }
 else if (_member is not null)
@@ -502,7 +504,7 @@ else if (_member is not null)
                             {
                                 <div class="alert alert-danger d-flex align-items-center justify-content-between gap-2 mb-0 py-2 px-3 small">
                                     <span class="me-2 flex-grow-1">@_keyCardsError</span>
-                                    <button class="btn btn-outline-light btn-sm" type="button" aria-label="Retry loading key cards" @onclick="LoadDataAsync">Retry</button>
+                                    <button class="btn btn-outline-light btn-sm" type="button" aria-label="Retry loading key cards" @onclick="LoadMemberAsync">Retry</button>
                                 </div>
                             }
                             else if (_keyCards.Count == 0 || !_keyCards.Any(a => a.KeyCard?.IsActive == true && !a.ToDate.HasValue))
@@ -610,7 +612,7 @@ else if (_member is not null)
                         {
                             <div class="alert alert-danger d-flex align-items-center justify-content-between gap-2 mb-0 py-2 px-3 small">
                                 <span class="me-2 flex-grow-1">@_activityError</span>
-                                <button class="btn btn-outline-light btn-sm" type="button" aria-label="Retry loading activity timeline" @onclick="LoadDataAsync">Retry</button>
+                                <button class="btn btn-outline-light btn-sm" type="button" aria-label="Retry loading activity timeline" @onclick="LoadMemberAsync">Retry</button>
                             </div>
                         }
                         else if (_activityEvents is null || _activityEvents.Count == 0)
@@ -692,12 +694,25 @@ else if (_member is not null)
         { "Pending", "#6366f1" }
     };
 
+    private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
     protected override async Task OnInitializedAsync()
     {
-        await LoadDataAsync();
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.SystemTimeZoneId ?? "Eastern Standard Time");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load system timezone, defaulting to Eastern Standard Time.");
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+
+        await LoadMemberAsync();
     }
 
-    private async Task LoadDataAsync()
+    private async Task LoadMemberAsync()
     {
         _loading = true;
         _error = null;
@@ -900,8 +915,8 @@ else if (_member is not null)
     private static string FormatDate(DateTime? value)
         => value?.ToString("MMM d, yyyy", CultureInfo.InvariantCulture) ?? "—";
 
-    private static string FormatTimestamp(DateTime value)
-        => value.ToLocalTime().ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
+    private string FormatTimestamp(DateTime value)
+        => TimeZoneInfo.ConvertTimeFromUtc(value.ToUniversalTime(), _systemTimeZone).ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
 
     private string FormatCityLine(Member member)
     {
@@ -946,10 +961,10 @@ else if (_member is not null)
         return MemberStatusHelper.CalculateAge(dob.Value, DateTime.Today);
     }
     
-    private static string FormatTimestampLocal(DateTime utcTimestamp)
+    private string FormatTimestampLocal(DateTime utcTimestamp)
     {
-        // Convert UTC to local time
-        var localTime = utcTimestamp.ToLocalTime();
+        // Convert UTC to club local time
+        var localTime = TimeZoneInfo.ConvertTimeFromUtc(utcTimestamp, _systemTimeZone);
         
         // Format as: "Dec 19, 2025 at 9:45 AM"
         return localTime.ToString("MMM d, yyyy 'at' h:mm tt", CultureInfo.InvariantCulture);

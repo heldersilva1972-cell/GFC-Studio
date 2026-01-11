@@ -7,6 +7,7 @@
 @inject NavigationManager Navigation
 @inject ILogger<ControllerEventsPage> Logger
 @inject IJSRuntime JSRuntime
+@inject IBlazorSystemSettingsService SettingsService
 
 <div class="page-header">
     <div>
@@ -147,8 +148,8 @@ else
                     @foreach (var evt in _events)
                     {
                         <tr>
-                            <td>@evt.ControllerEventTime.ToString("g")</td>
-                            <td>@evt.CreatedUtc.ToLocalTime().ToString("g")</td>
+                            <td>@evt.ControllerEventTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td>@ToClubLocal(evt.CreatedUtc).ToString("yyyy-MM-dd HH:mm:ss")</td>
                             <td>@evt.Controller?.Name</td>
             <td>@(evt.Door?.Name ?? "Unknown door")</td>
                                             <td>@(evt.CardNumber?.ToString("D") ?? "-")</td>
@@ -210,8 +211,21 @@ else
     private int _totalCount;
     private string? _errorMessage;
 
+    private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var settings = await SettingsService.GetAsync();
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.SystemTimeZoneId ?? "Eastern Standard Time");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load system timezone, defaulting to Eastern Standard Time.");
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+
         var controllers = await RegistryService.GetControllersAsync(cancellationToken: CancellationToken.None);
         _controllers.AddRange(controllers);
         await HandleFilterAsync();
@@ -322,8 +336,8 @@ else
 
             foreach (var evt in _events)
             {
-                csv.AppendLine($"{evt.ControllerEventTime:yyyy-MM-dd HH:mm:ss}," +
-                              $"{evt.CreatedUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}," +
+                csv.AppendLine($"{evt.ControllerEventTime.ToString("yyyy-MM-dd HH:mm:ss")}," +
+                              $"{ToClubLocal(evt.CreatedUtc).ToString("yyyy-MM-dd HH:mm:ss")}," +
                               $"\"{evt.Controller?.Name ?? "Unknown"}\"," +
                               $"\"{evt.Door?.Name ?? "Unknown"}\"," +
                               $"{evt.CardNumber?.ToString() ?? ""}," +
@@ -356,5 +370,10 @@ else
     }
 
     private record EventCategoryOption(string Key, string Label);
+
+    private DateTime ToClubLocal(DateTime utcTime)
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(utcTime, _systemTimeZone);
+    }
 }
 

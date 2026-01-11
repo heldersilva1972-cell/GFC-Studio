@@ -5,6 +5,7 @@
 @inject IAuditLogRepository AuditLogRepository
 @inject IUserRepository UserRepository
 @inject ILogger<AuditLogs> Logger
+@inject IBlazorSystemSettingsService SystemSettingsService
 
 <PageTitle>Audit Logs - GFC Membership</PageTitle>
 
@@ -118,7 +119,7 @@ else
                     {
                         var detailsText = GetDetailsPreview(log.Details, out var tooltip);
                         <tr>
-                            <td>@log.TimestampUtc.ToLocalTime():g</td>
+                            <td>@ToClubLocal(log.TimestampUtc).ToString("yyyy-MM-dd HH:mm:ss")</td>
                             <td>@log.Action</td>
                             <td>@log.PerformedByDisplayName</td>
                             <td>@log.TargetDisplayName</td>
@@ -145,8 +146,20 @@ else
     private string? _errorMessage;
     private List<AppUser> _availableUsers = new();
 
+    private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.SystemTimeZoneId ?? "Eastern Standard Time");
+        }
+        catch (Exception ex)
+        {
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+
         await LoadActionsAsync();
         await LoadUsersAsync();
         await LoadLogsAsync();
@@ -284,6 +297,11 @@ else
 
         tooltip = trimmed;
         return $"{trimmed[..120]}...";
+    }
+
+    private DateTime ToClubLocal(DateTime utcTime)
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(utcTime, _systemTimeZone);
     }
 
     private class AuditLogFilter

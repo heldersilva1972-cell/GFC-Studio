@@ -133,9 +133,24 @@ public class RealControllerClient : IControllerClient
 
         if (!uint.TryParse(controller.SerialNumberDisplay, out var sn)) return;
 
+        // 1. Get current status to check drift
+        var status = await _mengqiClient.GetRunStatusAsync(sn, ct);
         DateTime targetTime = GetFacilityTime();
-        _logger.LogInformation("Syncing controller {Sn}. HostNow={HostNow}, UtcNow={UtcNow}, Target={TargetTime}", 
-            sn, DateTime.Now, DateTime.UtcNow, targetTime);
+
+        if (status?.ControllerTime != null)
+        {
+            var driftSeconds = Math.Abs((status.ControllerTime.Value - targetTime).TotalSeconds);
+            if (driftSeconds < 60 && status.ControllerTime.Value.Year >= 2025)
+            {
+                _logger.LogInformation("Controller {Sn} time is accurate (Drift: {Drift}s). Skipping sync.", sn, (int)driftSeconds);
+                return;
+            }
+            _logger.LogInformation("Syncing controller {Sn}. Drift: {Drift}s. Target: {TargetTime}", sn, (int)driftSeconds, targetTime);
+        }
+        else
+        {
+            _logger.LogInformation("Syncing controller {Sn}. No existing time. Target: {TargetTime}", sn, targetTime);
+        }
 
         await _mengqiClient.SyncTimeAsync(sn, targetTime, ct);
     }
@@ -292,11 +307,16 @@ public class RealControllerClient : IControllerClient
                  // Note: Daily 24h sync should be handled by a scheduled task, not this polling loop.
              }
 
+             // Point 2: Storing Events & Status
+             // Return the exact wall time reported by the controller.
+             // We use DateTimeKind.Unspecified to represent "Dumb Local Clock".
+             var wallTime = status.ControllerTime ?? DateTime.Now;
+             
              return new AgentRunStatusDto 
              {
                  SerialNumber = sn,
                  IsOnline = true,
-                 ControllerTimeUtc = (status.ControllerTime ?? DateTime.Now).ToUniversalTime(),
+                 ControllerTimeUtc = DateTime.SpecifyKind(wallTime, DateTimeKind.Unspecified), 
                  TotalCards = status.TotalCards,
                  TotalEvents = status.TotalEvents,
                  Doors = status.Doors.Select(d => new AgentRunStatusDto.DoorRunStatus

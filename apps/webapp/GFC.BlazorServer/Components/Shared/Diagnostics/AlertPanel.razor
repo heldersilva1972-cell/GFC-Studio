@@ -1,6 +1,7 @@
 @using GFC.Core.Models.Diagnostics
 @using GFC.BlazorServer.Services.Diagnostics
 @inject IAlertManagementService AlertManagementService
+@inject IBlazorSystemSettingsService SystemSettingsService
 
 <div class="alert-panel">
     <h4>Active Alerts</h4>
@@ -27,7 +28,7 @@
                         <td>@alert.AlertThreshold.MetricType</td>
                         <td>@alert.AlertThreshold.AlertLevel</td>
                         <td>@alert.TriggerValue</td>
-                        <td>@alert.Timestamp.ToLocalTime()</td>
+                        <td>@FormatTimestamp(alert.Timestamp)</td>
                         <td>
                             <button class="btn btn-sm btn-primary" @onclick="() => AcknowledgeAlert(alert.Id)">
                                 Acknowledge
@@ -52,5 +53,25 @@
         // For simplicity, we'll use a hardcoded user. In a real app, you'd get this from the auth context.
         await AlertManagementService.AcknowledgeAlertAsync(alertId, "admin");
         await OnAlertAcknowledged.InvokeAsync();
+    }
+
+    private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.SystemTimeZoneId ?? "Eastern Standard Time");
+        }
+        catch (Exception ex)
+        {
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+    }
+
+    private string FormatTimestamp(DateTime utcTime)
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(utcTime, _systemTimeZone).ToString("yyyy-MM-dd HH:mm:ss");
     }
 }

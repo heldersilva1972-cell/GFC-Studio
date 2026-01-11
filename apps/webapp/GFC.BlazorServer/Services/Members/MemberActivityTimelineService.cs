@@ -11,6 +11,8 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
     private readonly GfcDbContext _dbContext;
     private readonly ILogger<MemberActivityTimelineService> _logger;
     private readonly IMemberHistoryService _memberHistoryService;
+    private readonly IBlazorSystemSettingsService _settingsService;
+    private readonly TimeZoneInfo _systemTimeZone;
     private static readonly IReadOnlyDictionary<string, string> _sourceLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["Member"] = "Member",
@@ -23,11 +25,23 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
     public MemberActivityTimelineService(
         GfcDbContext dbContext,
         ILogger<MemberActivityTimelineService> logger,
-        IMemberHistoryService memberHistoryService)
+        IMemberHistoryService memberHistoryService,
+        IBlazorSystemSettingsService settingsService)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _memberHistoryService = memberHistoryService ?? throw new ArgumentNullException(nameof(memberHistoryService));
+        _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+        
+        try
+        {
+            var settings = _settingsService.GetSettings();
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.SystemTimeZoneId ?? "Eastern Standard Time");
+        }
+        catch
+        {
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
     }
 
     public async Task<IReadOnlyList<MemberActivityEvent>> GetTimelineAsync(int memberId, CancellationToken ct = default)
@@ -62,7 +76,7 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
 
                 events.Add(new MemberActivityEvent
                 {
-                    TimestampUtc = timestamp,
+                    TimestampUtc = EnsureUtc(timestamp),
                     Source = GetSourceLabel("Member"),
                     Summary = $"Field '{change.FieldName}' changed",
                     Details = details
@@ -182,21 +196,15 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
         _ = events;
     }
 
-    private static DateTime EnsureUtc(DateTime value)
+    private DateTime EnsureUtc(DateTime value)
     {
         if (value.Kind == DateTimeKind.Utc)
         {
             return value;
         }
 
-        // If it's local time, convert to UTC properly
-        if (value.Kind == DateTimeKind.Local)
-        {
-            return value.ToUniversalTime();
-        }
-
-        // If unspecified, treat as local time and convert to UTC
-        return DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime();
+        // Treat both Local and Unspecified as Club Local time
+        return TimeZoneInfo.ConvertTimeToUtc(value, _systemTimeZone);
     }
 
     private static string GetSourceLabel(string source)

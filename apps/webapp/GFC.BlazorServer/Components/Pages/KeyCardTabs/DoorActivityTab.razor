@@ -13,6 +13,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<DoorActivityTab> Logger
 @inject ControllerEventService EventService
+@inject IBlazorSystemSettingsService SettingsService
 
 <div class="activity-container">
     <!-- Time Range Filters -->
@@ -172,8 +173,8 @@
                 <table class="activity-table">
                     <thead>
                         <tr>
-                            <th>Occurred</th>
-                            <th>Logged</th>
+                            <th>Occurred (Wall)</th>
+                            <th>Logged (Club)</th>
                             <th>Controller</th>
                             <th>Door</th>
                             <th>Card</th>
@@ -203,7 +204,7 @@
                                         <div class="time-display">@activity.OccurredAt.ToString("MM/dd HH:mm:ss")</div>
                                     </td>
                                     <td class="time-cell">
-                                        <div class="time-display text-muted">@activity.LoggedAt.ToLocalTime().ToString("HH:mm:ss")</div>
+                                        <div class="time-display text-muted">@ToClubLocal(activity.LoggedAt).ToString("HH:mm:ss")</div>
                                     </td>
                                     <td>@activity.ControllerName</td>
                                     <td>@activity.DoorName</td>
@@ -358,8 +359,23 @@
     private System.Threading.Timer? _autoRefreshTimer;
     private bool _autoRefreshEnabled = true;
 
+    private string _systemTimeZoneId = "Eastern Standard Time";
+    private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var settings = await SettingsService.GetAsync();
+            _systemTimeZoneId = settings.SystemTimeZoneId ?? "Eastern Standard Time";
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(_systemTimeZoneId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load system time zone, defaulting to Eastern.");
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+
         await LoadControllersAndDoorsAsync();
         await LoadActivityAsync();
         
@@ -749,20 +765,24 @@
     
     private (DateTime from, DateTime to) GetDateRange()
     {
-        // Use Local Time for "Today" and "Yesterday" filtering to match user perspective
-        var localNow = DateTime.Now;
         var nowUtc = DateTime.UtcNow;
+        var clubNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, _systemTimeZone);
         
         return _timeRange switch
         {
             "all" => (DateTime.MinValue, DateTime.MaxValue),
             "24h" => (nowUtc.AddHours(-24), nowUtc),
-            "today" => (localNow.Date.ToUniversalTime(), nowUtc),
-            "week" => (localNow.Date.AddDays(-(int)localNow.DayOfWeek).ToUniversalTime(), nowUtc),
-            "month" => (new DateTime(localNow.Year, localNow.Month, 1).ToUniversalTime(), nowUtc),
+            "today" => (TimeZoneInfo.ConvertTimeToUtc(clubNow.Date, _systemTimeZone), nowUtc),
+            "week" => (TimeZoneInfo.ConvertTimeToUtc(clubNow.Date.AddDays(-(int)clubNow.DayOfWeek), _systemTimeZone), nowUtc),
+            "month" => (TimeZoneInfo.ConvertTimeToUtc(new DateTime(clubNow.Year, clubNow.Month, 1), _systemTimeZone), nowUtc),
             "custom" => (_fromDate?.ToUniversalTime() ?? nowUtc.AddHours(-24), _toDate?.ToUniversalTime() ?? nowUtc),
             _ => (nowUtc.AddHours(-24), nowUtc)
         };
+    }
+
+    private DateTime ToClubLocal(DateTime utcTime)
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(utcTime, _systemTimeZone);
     }
     
     private async Task ExportToCsv()
@@ -774,7 +794,7 @@
             
             foreach (var a in _activities)
             {
-                csv.AppendLine($"{a.OccurredAt},{a.LoggedAt.ToLocalTime()},{a.ControllerName},{a.DoorName},{a.CardNumber},{a.MemberName},{GetEventName(a.EventType, a.ReasonCode)},{a.ReasonCode}");
+                csv.AppendLine($"{a.OccurredAt:yyyy-MM-dd HH:mm:ss},{ToClubLocal(a.LoggedAt):yyyy-MM-dd HH:mm:ss},{a.ControllerName},{a.DoorName},{a.CardNumber},{a.MemberName},{GetEventName(a.EventType, a.ReasonCode)},{a.ReasonCode}");
             }
             
             var fileName = $"door_activity_export_{DateTime.Now:yyyyMMdd}.csv";

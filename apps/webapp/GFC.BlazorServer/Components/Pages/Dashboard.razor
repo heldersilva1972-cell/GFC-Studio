@@ -1156,8 +1156,23 @@
         public const int BackupStaleDaysCritical = 30;
     }
 
+    private string _systemTimeZoneId = "Eastern Standard Time";
+    private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _systemTimeZoneId = settings.SystemTimeZoneId ?? "Eastern Standard Time";
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(_systemTimeZoneId);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard:timezone] {ex.Message}");
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); // Fallback
+        }
+
         bool showSplash = !SessionState.HasShownSplash;
         if (showSplash) SessionState.HasShownSplash = true;
         
@@ -1315,24 +1330,32 @@
         }
     }
 
-    private static string FormatDate(DateTime? value)
+    private string FormatDate(DateTime? value)
     {
         if (value == null)
         {
             return "Not available";
         }
 
-        return value.Value.ToLocalTime().ToString("MMM d, yyyy h:mm tt");
+        var clubTime = value.Value.Kind == DateTimeKind.Utc 
+            ? TimeZoneInfo.ConvertTimeFromUtc(value.Value, _systemTimeZone)
+            : value.Value;
+
+        return clubTime.ToString("MMM d, yyyy h:mm tt");
     }
 
-    private static string FormatShort(DateTime? value)
+    private string FormatShort(DateTime? value)
     {
         if (value == null)
         {
             return "Never";
         }
 
-        return value.Value.ToLocalTime().ToString("MMM d, h:mm tt");
+        var clubTime = value.Value.Kind == DateTimeKind.Utc 
+            ? TimeZoneInfo.ConvertTimeFromUtc(value.Value, _systemTimeZone)
+            : value.Value;
+
+        return clubTime.ToString("MMM d, h:mm tt");
     }
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;

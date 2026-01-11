@@ -18,6 +18,7 @@
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject ILogger<Directors> Logger
 @inject IPasswordPolicy PasswordPolicy
+@inject IBlazorSystemSettingsService SystemSettingsService
 
 <PageTitle>Board Management - GFC</PageTitle>
 
@@ -127,7 +128,7 @@ else
                 <i class="bi bi-check-circle-fill me-2"></i>
                 <strong>Board Confirmed</strong>
                 <p class="mb-0 mt-1 small">
-                    Confirmed on @_termConfirmation.ConfirmedOnUtc.ToLocalTime().ToString("MMM d, yyyy") by @_termConfirmation.ConfirmedBy
+                    Confirmed on @ToClubLocal(_termConfirmation.ConfirmedOnUtc).ToString("MMM d, yyyy") by @_termConfirmation.ConfirmedBy
                     @if (!string.IsNullOrWhiteSpace(_termConfirmation.Notes))
                     {
                         <span class="d-block mt-1">Notes: @_termConfirmation.Notes</span>
@@ -691,8 +692,20 @@ else
     private string? _confirmationNotes;
     private bool _confirmationSaving;
 
+    private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.SystemTimeZoneId ?? "Eastern Standard Time");
+        }
+        catch (Exception ex)
+        {
+            _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+
         try
         {
             await LoadEligibleMembersAsync();
@@ -1215,5 +1228,9 @@ else
 
         public string BadgeLabel => AssignmentId.HasValue ? "Assigned" : "Open";
         public string BadgeClass => AssignmentId.HasValue ? "badge-success" : "badge bg-secondary";
+    }
+    private DateTime ToClubLocal(DateTime utcTime)
+    {
+        return TimeZoneInfo.ConvertTimeFromUtc(utcTime, _systemTimeZone);
     }
 }
