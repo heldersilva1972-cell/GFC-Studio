@@ -486,16 +486,51 @@
                                         {
                                             <tr>
                                                 <td class="ps-4 border-bottom-0">
-                                                    <div class="fw-bold text-dark">@entry.SaleDate.ToString("ddd, MMM dd")</div>
-                                                    <div class="small text-muted">@entry.SaleDate.ToString("hh:mm tt")</div>
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <button class="btn btn-sm btn-link p-0 text-dark hover-primary" 
+                                                                style="text-decoration: none;"
+                                                                @onclick="() => AdjustDate(entry, -1)"
+                                                                title="Move back 1 day"
+                                                                disabled="@(_updatingEntryId == entry.Id)">
+                                                            <i class="bi bi-chevron-left"></i>
+                                                        </button>
+                                                        <div class="text-center" style="min-width: 90px;">
+                                                            <div class="fw-bold text-dark">@GetEffectiveDate(entry).ToString("ddd, MMM dd")</div>
+                                                            <div class="small text-secondary fw-semibold">@GetEffectiveDate(entry).ToString("hh:mm tt")</div>
+                                                            @if (entry.AdjustedSaleDate.HasValue)
+                                                            {
+                                                                <div class="badge bg-white text-danger border border-danger mt-1 shadow-sm" style="font-size: 0.65rem;" title="Original: @entry.SaleDate.ToString("MMM dd")">
+                                                                    Adj from @entry.SaleDate.ToString("MMM dd")
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                        <button class="btn btn-sm btn-link p-0 text-dark hover-primary" 
+                                                                style="text-decoration: none;"
+                                                                @onclick="() => AdjustDate(entry, 1)" 
+                                                                title="Move forward 1 day"
+                                                                disabled="@(_updatingEntryId == entry.Id)">
+                                                            <i class="bi bi-chevron-right"></i>
+                                                        </button>
+                                                    </div>
                                                 </td>
                                                 <td class="border-bottom-0">
                                                     <div class="text-dark">
                                                         @(string.IsNullOrEmpty(entry.Notes) ? "Standard Sale" : entry.Notes)
-                                                        <span class="badge rounded-pill bg-light text-dark border ms-2" style="font-weight: 500;">
-                                                            <i class="bi @(entry.Shift == "Night" ? "bi-moon-stars-fill text-info" : "bi-sun-fill text-warning") me-1"></i>
+                                                        <button class="btn btn-sm badge rounded-pill bg-light text-dark border ms-2" 
+                                                                style="font-weight: 500; cursor: pointer; transition: all 0.2s ease;"
+                                                                @onclick="() => ToggleShift(entry)"
+                                                                title="Click to switch shift (Day/Night)"
+                                                                disabled="@(_updatingEntryId == entry.Id)">
+                                                            @if (_updatingEntryId == entry.Id)
+                                                            {
+                                                                <span class="spinner-border spinner-border-sm me-1 text-primary" role="status" aria-hidden="true" style="width: 0.7em; height: 0.7em;"></span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <i class="bi @(entry.Shift == "Night" ? "bi-moon-stars-fill text-info" : "bi-sun-fill text-warning") me-1"></i>
+                                                            }
                                                             @entry.Shift
-                                                        </span>
+                                                        </button>
                                                     </div>
                                                     <div class="small text-muted">@entry.TotalItemsSold items</div>
                                                 </td>
@@ -617,8 +652,11 @@
         if (!string.IsNullOrEmpty(_selectedDayFilter))
         {
             var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _selectedDayFilter);
-            // EF Core SQL translation for DayOfWeek
-            query = query.Where(e => e.SaleDate.DayOfWeek == targetDay);
+            // EF Core SQL translation for DayOfWeek on coalesced date might be tricky or unsupported depending on version.
+            // Safer to do client side filtering if volume is low, or try direct translation.
+            // Let's try direct translation first, if it fails we fall back.
+            // Using a helper projection or simple evaluation.
+            query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
         }
 
         // Load Pagination Stats
@@ -626,7 +664,7 @@
         
         // Load Page Data
         _entries = await query
-            .OrderByDescending(e => e.SaleDate)
+            .OrderByDescending(e => e.AdjustedSaleDate ?? e.SaleDate)
             .Skip((_currentPage - 1) * _pageSize)
             .Take(_pageSize)
             .ToListAsync();
@@ -634,9 +672,9 @@
         _grandTotalRevenue = await db.BarSaleEntries.SumAsync(e => e.TotalSales);
         _grandTotalItemsSold = await db.BarSaleEntries.SumAsync(e => e.TotalItemsSold);
 
-        // Load available years
+        // Load available years based on effective date
         _availableYears = await db.BarSaleEntries
-            .Select(e => e.SaleDate.Year)
+            .Select(e => (e.AdjustedSaleDate ?? e.SaleDate).Year)
             .Distinct()
             .OrderByDescending(y => y)
             .ToListAsync();
@@ -687,9 +725,9 @@
             if (!string.IsNullOrEmpty(_chartDayFilter))
             {
                 var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _chartDayFilter);
-                if (allData.Any()) // Only filter if we have data
+                if (allData.Any()) 
                 {
-                    allData = allData.Where(e => e.SaleDate.DayOfWeek == targetDay).ToList();
+                    allData = allData.Where(e => GetEffectiveDate(e).DayOfWeek == targetDay).ToList();
                 }
             }
 
@@ -718,14 +756,14 @@
                     for (int month = 1; month <= 12; month++)
                     {
                         var total = allData
-                            .Where(e => e.SaleDate.Year == year && e.SaleDate.Month == month)
+                            .Where(e => GetEffectiveDate(e).Year == year && GetEffectiveDate(e).Month == month)
                             .Sum(e => e.TotalSales);
                         yearValues.Add(total);
                     }
                     datasets.Add(new { label = year.ToString(), data = yearValues });
                 }
             }
-            // LOGIC B: Standard Time Periods (Single Series usually, unless we add comparison later)
+            // LOGIC B: Standard Time Periods
             else
             {
                 // Define Date Range
@@ -741,7 +779,7 @@
                 else if (_selectedPeriod == "custom") { startDate = _customStartDate.Date; endDate = _customEndDate.Date; }
 
                 // Generate Labels and Data based on Grouping
-                var periodData = allData.Where(e => e.SaleDate.Date >= startDate && e.SaleDate.Date <= endDate).ToList();
+                var periodData = allData.Where(e => GetEffectiveDate(e).Date >= startDate && GetEffectiveDate(e).Date <= endDate).ToList();
                 var periodValues = new List<decimal>();
 
                 if (_groupBy == "day")
@@ -751,19 +789,17 @@
                     {
                         var d = startDate.AddDays(i);
                         labels.Add(d.ToString("MMM d"));
-                        periodValues.Add(periodData.Where(e => e.SaleDate.Date == d).Sum(e => e.TotalSales));
+                        periodValues.Add(periodData.Where(e => GetEffectiveDate(e).Date == d).Sum(e => e.TotalSales));
                     }
                 }
                 else if (_groupBy == "week")
                 {
-                    // Simple weekly grouping for range
-                    // Note: This matches the "range" logic, not aligned to calendar weeks for simplicity
                      var current = startDate;
                      while(current <= endDate) {
                          var next = current.AddDays(6);
                          if(next > endDate) next = endDate;
                          labels.Add($"{current:MMM d}-{next:dd}");
-                         periodValues.Add(periodData.Where(e => e.SaleDate.Date >= current && e.SaleDate.Date <= next).Sum(e => e.TotalSales));
+                         periodValues.Add(periodData.Where(e => GetEffectiveDate(e).Date >= current && GetEffectiveDate(e).Date <= next).Sum(e => e.TotalSales));
                          current = next.AddDays(1);
                      }
                 }
@@ -774,7 +810,7 @@
                     while(current <= endMonth)
                     {
                          labels.Add(current.ToString("MMM yyyy"));
-                         periodValues.Add(periodData.Where(e => e.SaleDate.Year == current.Year && e.SaleDate.Month == current.Month).Sum(e => e.TotalSales));
+                         periodValues.Add(periodData.Where(e => GetEffectiveDate(e).Year == current.Year && GetEffectiveDate(e).Month == current.Month).Sum(e => e.TotalSales));
                          current = current.AddMonths(1);
                     }
                 }
@@ -854,5 +890,100 @@
         if (_isSaving) return "is-saving btn-success";
         if (_showSuccess) return "is-success btn-success";
         return "btn-primary";
+    }
+
+    private int? _updatingEntryId;
+
+    private async Task AdjustDate(BarSaleEntry entry, int days)
+    {
+        if (_updatingEntryId.HasValue) return;
+
+        _updatingEntryId = entry.Id;
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var dbEntry = await db.BarSaleEntries.FindAsync(entry.Id);
+            
+            if (dbEntry != null)
+            {
+                // Logic: 
+                // 1. Determine current effective date FROM LOCAL ENTRY to match UI state
+                var currentEffective = entry.AdjustedSaleDate ?? entry.SaleDate;
+                
+                // 2. Calculate new effective date
+                var newEffective = currentEffective.AddDays(days);
+                
+                // 3. Set AdjustedSaleDate (or clear if back to original)
+                // Use robust comparison (1 minute tolerance) against LOCAL SaleDate
+                if ((newEffective - entry.SaleDate).Duration().TotalMinutes < 1.0)
+                {
+                    dbEntry.AdjustedSaleDate = null;
+                    entry.AdjustedSaleDate = null;
+                }
+                else
+                {
+                    dbEntry.AdjustedSaleDate = newEffective;
+                    entry.AdjustedSaleDate = newEffective;
+                }
+                
+                // Refresh charts
+                await UpdateChart();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error adjusting date: {ex.Message}");
+        }
+        finally
+        {
+            _updatingEntryId = null;
+            StateHasChanged();
+        }
+    }
+
+    private DateTime GetEffectiveDate(BarSaleEntry entry)
+    {
+        return entry.AdjustedSaleDate ?? entry.SaleDate;
+    }
+
+    private async Task ToggleShift(BarSaleEntry entry)
+    {
+        if (_updatingEntryId.HasValue) return;
+
+        _updatingEntryId = entry.Id;
+        StateHasChanged();
+
+        try
+        {
+            var newShift = entry.Shift == "Day" ? "Night" : "Day";
+            
+            using var db = await DbFactory.CreateDbContextAsync();
+            var dbEntry = await db.BarSaleEntries.FindAsync(entry.Id);
+            
+            if (dbEntry != null)
+            {
+                dbEntry.Shift = newShift;
+                await db.SaveChangesAsync();
+
+                // Update local model
+                entry.Shift = newShift;
+                
+                // Refresh charts
+                await UpdateChart();
+                
+                // Optional: Show brief success feedback?
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error toggling shift: {ex.Message}");
+        }
+        finally
+        {
+            _updatingEntryId = null;
+            StateHasChanged();
+        }
     }
 }

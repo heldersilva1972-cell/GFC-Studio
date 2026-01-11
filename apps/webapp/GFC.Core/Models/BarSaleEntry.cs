@@ -22,6 +22,8 @@ namespace GFC.Core.Models
         public string? Notes { get; set; }
 
         public string Shift { get; set; } = "Day";
+        
+        public DateTime? AdjustedSaleDate { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
