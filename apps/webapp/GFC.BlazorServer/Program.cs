@@ -55,6 +55,10 @@ public class Program
         }
 
         // Add services to the container.
+        Console.WriteLine($"\n[STARTUP] ----------------------------------------------------------------");
+        Console.WriteLine($"[STARTUP] USING CONNECTION STRING: {efConnectionString}");
+        Console.WriteLine($"[STARTUP] ----------------------------------------------------------------\n");
+
         builder.Services.AddRazorPages();
         builder.Services.AddServerSideBlazor().AddHubOptions(options => 
         {

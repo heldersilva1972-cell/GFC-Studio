@@ -178,6 +178,17 @@
             </div>
         </div>
 
+        <!-- Error Alert -->
+        @if (!string.IsNullOrEmpty(_errorDetails))
+        {
+            <div class="alert alert-danger shadow-sm mb-4" role="alert">
+                <h4 class="alert-heading"><i class="bi bi-exclamation-triangle-fill me-2"></i>Error Loading Page</h4>
+                <p>@_errorDetails</p>
+                <hr>
+                <p class="mb-0 small">Please check the database columns "Shift" and "AdjustedSaleDate" exist.</p>
+            </div>
+        }
+
         <!-- CHART SECTION -->
         <div class="analytics-card" style="margin-top: 4rem;">
             <div class="mb-4">
@@ -577,6 +588,7 @@
     private bool _showSuccess = false;
     private bool _showEntryForm = false;
     private string _successMessage;
+    private string _errorDetails;
 
     // Pagination & Filters
     private int _currentPage = 1;
@@ -641,53 +653,61 @@
 
     private async Task LoadData()
     {
-        using var db = await DbFactory.CreateDbContextAsync();
-        
-        // Base Query
-        var query = db.BarSaleEntries.AsQueryable();
-
-        // Apply Day Filter (Client-Side evaluation for DayOfWeek often safer/easier if small dataset, 
-        // but for pagination we want Server-Side. 
-        // NOTE: EF Core can translate DateTime.DayOfWeek usually. Let's try.)
-        if (!string.IsNullOrEmpty(_selectedDayFilter))
+        try
         {
-            var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _selectedDayFilter);
-            // EF Core SQL translation for DayOfWeek on coalesced date might be tricky or unsupported depending on version.
-            // Safer to do client side filtering if volume is low, or try direct translation.
-            // Let's try direct translation first, if it fails we fall back.
-            // Using a helper projection or simple evaluation.
-            query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            // Base Query
+            var query = db.BarSaleEntries.AsQueryable();
+
+            // Apply Day Filter (Client-Side evaluation for DayOfWeek often safer/easier if small dataset, 
+            // but for pagination we want Server-Side. 
+            // NOTE: EF Core can translate DateTime.DayOfWeek usually. Let's try.)
+            if (!string.IsNullOrEmpty(_selectedDayFilter))
+            {
+                var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _selectedDayFilter);
+                // EF Core SQL translation for DayOfWeek on coalesced date might be tricky or unsupported depending on version.
+                // Safer to do client side filtering if volume is low, or try direct translation.
+                // Let's try direct translation first, if it fails we fall back.
+                // Using a helper projection or simple evaluation.
+                query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
+            }
+
+            // Load Pagination Stats
+            _totalEntries = await query.CountAsync();
+            
+            // Load Page Data
+            _entries = await query
+                .OrderByDescending(e => e.AdjustedSaleDate ?? e.SaleDate)
+                .Skip((_currentPage - 1) * _pageSize)
+                .Take(_pageSize)
+                .ToListAsync();
+
+            _grandTotalRevenue = await db.BarSaleEntries.SumAsync(e => e.TotalSales);
+            _grandTotalItemsSold = await db.BarSaleEntries.SumAsync(e => e.TotalItemsSold);
+
+            // Load available years based on effective date
+            _availableYears = await db.BarSaleEntries
+                .Select(e => (e.AdjustedSaleDate ?? e.SaleDate).Year)
+                .Distinct()
+                .OrderByDescending(y => y)
+                .ToListAsync();
+
+            if (!_availableYears.Any())
+            {
+                _availableYears.Add(DateTime.Now.Year);
+            }
+            
+            // Default to selecting all available years for comparison initially, ONLY if list is empty (first load)
+            if (!_selectedComparisonYears.Any())
+            {
+                _selectedComparisonYears = new List<int>(_availableYears);
+            }
         }
-
-        // Load Pagination Stats
-        _totalEntries = await query.CountAsync();
-        
-        // Load Page Data
-        _entries = await query
-            .OrderByDescending(e => e.AdjustedSaleDate ?? e.SaleDate)
-            .Skip((_currentPage - 1) * _pageSize)
-            .Take(_pageSize)
-            .ToListAsync();
-
-        _grandTotalRevenue = await db.BarSaleEntries.SumAsync(e => e.TotalSales);
-        _grandTotalItemsSold = await db.BarSaleEntries.SumAsync(e => e.TotalItemsSold);
-
-        // Load available years based on effective date
-        _availableYears = await db.BarSaleEntries
-            .Select(e => (e.AdjustedSaleDate ?? e.SaleDate).Year)
-            .Distinct()
-            .OrderByDescending(y => y)
-            .ToListAsync();
-
-        if (!_availableYears.Any())
+        catch (Exception ex)
         {
-            _availableYears.Add(DateTime.Now.Year);
-        }
-        
-        // Default to selecting all available years for comparison initially, ONLY if list is empty (first load)
-        if (!_selectedComparisonYears.Any())
-        {
-            _selectedComparisonYears = new List<int>(_availableYears);
+            Console.WriteLine($"Error loading data: {ex}");
+            _errorDetails = $"Error loading data: {ex.Message} \n {ex.StackTrace}";
         }
     }
 

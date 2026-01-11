@@ -334,6 +334,7 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("DuesPayments");
             entity.HasKey(d => new { d.MemberId, d.Year });
+            entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<Waiver>(entity =>
@@ -555,11 +556,13 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<HallRental>(entity =>
         {
             entity.ToTable("HallRentals");
+            entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<HallRentalRequest>(entity =>
         {
             entity.ToTable("HallRentalRequests");
+            entity.Property(e => e.TotalPrice).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<StaffShift>(entity =>
@@ -567,9 +570,18 @@ public class GfcDbContext : DbContext
             entity.ToTable("StaffShifts");
         });
 
+        modelBuilder.Entity<StaffMember>(entity =>
+        {
+            entity.ToTable("StaffMembers");
+            entity.Property(e => e.HourlyRate).HasColumnType("decimal(18,2)");
+        });
+
         modelBuilder.Entity<ShiftReport>(entity =>
         {
             entity.ToTable("ShiftReports");
+            entity.Property(e => e.BarSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.LottoSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalDeposit).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<SystemNotification>(entity =>
@@ -595,6 +607,20 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<WebsiteSettings>(entity =>
         {
             entity.ToTable("WebsiteSettings");
+            entity.Property(e => e.AdditionalHourRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.AvEquipmentFee).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.BartenderServiceFee).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.CoalitionMemberRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.CoalitionNonMemberRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.FunctionHallMemberRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.FunctionHallNonMemberRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.KitchenFee).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.MemberRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.NonMemberRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.NonProfitRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.SecurityDepositAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.YouthOrganizationMemberRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.YouthOrganizationNonMemberRate).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<StudioSetting>(entity =>
@@ -658,6 +684,7 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("BarSaleEntries");
             entity.HasIndex(e => e.SaleDate);
+            entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<StudioSectionAsset>(entity =>
