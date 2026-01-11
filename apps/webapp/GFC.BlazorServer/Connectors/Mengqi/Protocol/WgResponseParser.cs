@@ -189,10 +189,10 @@ internal static class WgResponseParser
             timestampUtc = DateTime.UtcNow;
         }
 
-        // Metadata block (Byte 12-15) also contains event type and result
-        // Spec says 01 01 01 01 for Door 1 unlock, 01 01 02 01 for Door 2 unlock.
-        // Usually Byte 15 is the Result/EventType.
-        byte eventTypeRaw = packet[15];
+        // Event result is at Byte 13 (2nd byte of metadata block at 12-15)
+        // Byte 13: 0x01 = Access Granted, 0x00 = Access Denied
+        // Byte 14: Door number (0x01 = Door 1, 0x02 = Door 2)
+        byte eventTypeRaw = packet[13];
         
         // Store raw packet for debugging
         var rawDataHex = string.Join(" ", packet.ToArray().Select(b => b.ToString("X2")));

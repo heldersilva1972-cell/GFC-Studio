@@ -216,10 +216,6 @@
     private int? _unlockingDoorId;
     private bool _isLoadingEvents = false;
     
-    // Track recent unlock commands by door and the max RawIndex at time of unlock
-    private static readonly Dictionary<int, int> _unlockIndexByDoor = new();
-    private static readonly object _unlockTrackingLock = new();
-    
     // Operation feedback
     private string? _operationStatus;
     private string? _operationStatusClass; // e.g., text-info, text-success, text-danger
@@ -229,6 +225,7 @@
     
     private int _lastControllerId;
     private HubConnection? _hubConnection;
+    private System.Threading.Timer? _autoSyncTimer;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -237,8 +234,15 @@
             _lastControllerId = Controller.Id;
             await LoadEvents();
             
-            // DISABLED: Testing manual refresh only
-            // _ = Task.Run(async () => await InitializeSignalR());
+            
+            _ = Task.Run(async () => await InitializeSignalR());
+            
+            // Start background auto-sync every 3 seconds
+            _autoSyncTimer?.Dispose();
+            _autoSyncTimer = new System.Threading.Timer(async _ => 
+            {
+                await InvokeAsync(async () => await SilentBackgroundSync());
+            }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
         }
     }
 
@@ -410,6 +414,30 @@
             await InvokeAsync(StateHasChanged);
         }
     }
+    
+    private async Task SilentBackgroundSync()
+    {
+        if (Controller == null || _isLoadingEvents) return;
+        
+        try
+        {
+            // Sync silently without showing status messages
+            var newCount = await EventService.SyncFromControllerAsync(Controller.SerialNumber, ControllerClient);
+            
+            // Only reload and update UI if there are actually new events
+            if (newCount > 0)
+            {
+                await LoadEvents();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Silent background sync failed");
+            // Don't show error to user for background sync
+        }
+    }
+
 
     private async Task UnlockDoor(Door door)
     {
@@ -433,15 +461,6 @@
                 _unlockedDoors.Remove(door.Id);
                 await InvokeAsync(StateHasChanged);
             });
-            
-            
-            // Track this unlock - record the current max RawIndex
-            lock (_unlockTrackingLock)
-            {
-                var maxIndex = _recentEvents?.Max(e => e.RawIndex) ?? 0;
-                _unlockIndexByDoor[door.Id] = maxIndex;
-            }
-            
              // Trigger a hardware sync to pull the event we just generated
              // We wait 2 seconds because hardware takes time to commit the log entry
              _ = Task.Run(async () => {
@@ -501,22 +520,9 @@
             parts.Add($"Door {evt.DoorOrReader}");
         }
         
-        // Check if this event is one of the first 3 events after an unlock command
-        bool isSystemUnlock = false;
-        if (evt.Door != null)
-        {
-            lock (_unlockTrackingLock)
-            {
-                if (_unlockIndexByDoor.TryGetValue(evt.Door.Id, out var unlockIndex))
-                {
-                    // If this event's RawIndex is within 3 of the unlock index, it's a system unlock
-                    if (evt.RawIndex > unlockIndex && evt.RawIndex <= unlockIndex + 3)
-                    {
-                        isSystemUnlock = true;
-                    }
-                }
-            }
-        }
+        // Check if this is a system-generated unlock (hardware uses card 906285819 for remote unlocks)
+        const long SYSTEM_UNLOCK_CARD = 906285819;
+        bool isSystemUnlock = evt.CardNumber.HasValue && evt.CardNumber.Value == SYSTEM_UNLOCK_CARD;
         
         if (isSystemUnlock)
         {
@@ -529,6 +535,7 @@
         
         string action = code switch
         {
+            0x00 => "Access Denied",
             0x01 => "Access Granted",
             0x05 => "Access Denied (Not Found)",
             0x06 => "Access Denied (Timezone)",

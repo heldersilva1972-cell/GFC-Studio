@@ -227,7 +227,7 @@ public class ControllerEventService
                         EventType = (int)evt.EventType,
                         IsByCard = evt.IsByCard,
                         IsByButton = evt.IsByButton,
-                        RawIndex = (int)i,
+                        RawIndex = (int)evt.RawIndex, // Use actual hardware index, not loop counter
                         DoorOrReader = evt.DoorNumber ?? 0,
                         RawData = evt.RawData, // Store raw packet for debugging
                         CreatedUtc = DateTime.UtcNow
