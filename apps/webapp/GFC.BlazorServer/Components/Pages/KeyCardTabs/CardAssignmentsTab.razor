@@ -4,6 +4,7 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using GFC.Core.Services
+@using Microsoft.AspNetCore.SignalR.Client
 @implements IDisposable
 @inject IDbContextFactory<GfcDbContext> DbContextFactory
 @inject IKeyCardRepository KeyCardRepository
@@ -921,10 +922,15 @@
     // Auto-refresh timer
     private CancellationTokenSource? _refreshCts;
     
+    // ... (existing helper classes) ...
+
+    private HubConnection? _hubConnection;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadCardsAsync();
         _ = StartStatusRefresh();
+        _ = InitializeSignalR();
     }
     
     protected override void OnParametersSet()
@@ -960,15 +966,142 @@
         }
     }
 
-    public void Dispose()
-    {
-        _refreshCts?.Cancel();
-        _refreshCts?.Dispose();
-    }
-    
     public async Task RefreshAsync()
     {
         await LoadCardsAsync();
+    }
+
+    private async Task InitializeSignalR()
+    {
+        try
+        {
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(NavManager.ToAbsoluteUri("/controllereventhub"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On<int>("ReceiveEventUpdate", async (controllerId) =>
+            {
+                // If the detail modal is open, refresh the activity data
+                if (_showDetailModal && _selectedCard != null)
+                {
+                    await InvokeAsync(async () => 
+                    {
+                        await LoadCardActivityDataAsync(_selectedCard.CardId);
+                        StateHasChanged();
+                    });
+                }
+            });
+
+            await _hubConnection.StartAsync();
+            Logger.LogInformation("CardAssignmentsTab: Connected to SignalR Hub");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "CardAssignmentsTab: Failed to connect to SignalR Hub");
+        }
+    }
+
+    public async void Dispose()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
+        if (_hubConnection != null)
+        {
+            await _hubConnection.DisposeAsync();
+        }
+    }
+
+    // ... (rest of methods) ...
+
+    private async Task ViewCard(int cardId)
+    {
+        try
+        {
+            var card = _allCards.FirstOrDefault(c => c.CardId == cardId);
+            if (card == null) return;
+            
+            _selectedCard = card;
+            _showDetailModal = true;
+            
+            await LoadCardActivityDataAsync(cardId);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error opening card details for {CardId}", cardId);
+        }
+    }
+
+    private async Task LoadCardActivityDataAsync(int cardId)
+    {
+        try 
+        {
+            // 1. Reload Deactivation History
+            _cardHistory = await Task.Run(() => DeactivationLogRepository.GetByCardIdAsync(cardId));
+            
+            // 2. Reload Access History & Stats
+            _cardAccessHistory = new List<CardAccessEvent>();
+            _totalScans = 0;
+            
+            // Ensure we have the latest card info (updating LastUsed) if we are refreshing
+            // In a real scenario, we might want to re-fetch the single card from DB, 
+            // but here we are just updating the activity list mostly.
+            // If we want to update _selectedCard.LastUsed, we need to query that too.
+
+            using var db = await DbContextFactory.CreateDbContextAsync();
+            
+            // Re-fetch card number just in case
+            // access _selectedCard safely
+            var currentCard = _selectedCard; 
+            if (currentCard == null) return;
+
+            if (long.TryParse(currentCard.CardNumber, out long cardNumberLong))
+            {
+                 var query = db.ControllerEvents.Where(e => e.CardNumber == cardNumberLong);
+                 _totalScans = await query.CountAsync();
+
+                 var events = await query
+                    .OrderByDescending(e => e.TimestampUtc) // Use raw UTC for sorting
+                    .Take(20)
+                    .Include(e => e.Controller)
+                    .Include(e => e.Door)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                 _cardAccessHistory = events.Select(e => new CardAccessEvent
+                 {
+                     // Add 3 hours to correct the display time as requested
+                     EventTime = e.TimestampUtc.AddHours(3), 
+                     ControllerName = e.Controller?.Name ?? "Unknown Controller",
+                     DoorName = e.Door?.Name ?? (e.RawData != null && e.RawData.Contains("DOOR:0") ? "Main Entry (Door 1)" : "Unknown Door"),
+                     AccessGranted = e.EventType == 1
+                 }).ToList();
+
+                 // Update Last Used on the UI object if we found new events
+                 if (events.Count > 0)
+                 {
+                     var latest = events.First().TimestampUtc.AddHours(3);
+                     if (!currentCard.LastUsed.HasValue || latest > currentCard.LastUsed.Value)
+                     {
+                         currentCard.LastUsed = latest;
+                     }
+                 }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error refreshing card activity data for {CardId}", cardId);
+        }
+    }
+    
+    private void CloseDetailModal()
+    {
+        _showDetailModal = false;
+        _selectedCard = null;
+        _cardHistory.Clear();
+        _cardAccessHistory.Clear();
+        StateHasChanged();
     }
 
     private async Task LoadCardsAsync()
@@ -1228,60 +1361,7 @@
         }
     }
     
-    private async Task ViewCard(int cardId)
-    {
-        try
-        {
-            var card = _allCards.FirstOrDefault(c => c.CardId == cardId);
-            if (card == null) return;
-            
-            _selectedCard = card;
-            
-            // Load deactivation history
-            _cardHistory = await Task.Run(() => DeactivationLogRepository.GetByCardIdAsync(cardId));
-            
-            // Load access history from ControllerEvent table
-            _cardAccessHistory = new List<CardAccessEvent>();
-            _totalScans = 0;
-            using var db = await DbContextFactory.CreateDbContextAsync();
-            if (long.TryParse(card.CardNumber, out long cardNumberLong))
-            {
-                 var query = db.ControllerEvents.Where(e => e.CardNumber == cardNumberLong);
-                 _totalScans = await query.CountAsync();
 
-                 var events = await query
-                    .OrderByDescending(e => e.TimestampUtc)
-                    .Take(20)
-                    .Include(e => e.Controller)
-                    .Include(e => e.Door) // Added Include
-                    .ToListAsync();
-
-                 _cardAccessHistory = events.Select(e => new CardAccessEvent
-                 {
-                     EventTime = e.ControllerEventTime, 
-                     ControllerName = e.Controller?.Name ?? "Unknown Controller",
-                     DoorName = e.Door?.Name ?? (e.RawData != null && e.RawData.Contains("DOOR:0") ? "Main Entry (Door 1)" : "Unknown Door"),
-                     AccessGranted = e.EventType == 1 // 1 = Granted, 2 = Denied (from ControllerEventType)
-                 }).ToList();
-            }
-            
-            _showDetailModal = true;
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading card details for {CardId}", cardId);
-        }
-    }
-    
-    private void CloseDetailModal()
-    {
-        _showDetailModal = false;
-        _selectedCard = null;
-        _cardHistory.Clear();
-        _cardAccessHistory.Clear();
-        StateHasChanged();
-    }
     
     private async Task ReactivateCard(int cardId)
     {
