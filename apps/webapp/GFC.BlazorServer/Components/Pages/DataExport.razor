@@ -5,6 +5,7 @@
 @inject IDataExportService ExportService
 @inject ILogger<DataExport> Logger
 @inject IJSRuntime JSRuntime
+@using System.IO
 
 <PageTitle>Data Export - GFC Membership</PageTitle>
 
@@ -28,7 +29,7 @@
         </div>
     }
 
-    <div class="card">
+    <div class="card mb-4">
         <div class="card-header">
             <h3>Select Data to Export</h3>
         </div>
@@ -131,6 +132,68 @@
             </div>
         </div>
     </div>
+
+    <!-- Import Section -->
+    <div class="card mb-4 border-warning">
+        <div class="card-header bg-warning-subtle text-dark">
+            <h3><i class="bi bi-upload me-2"></i>Import Data from Excel</h3>
+        </div>
+        <div class="card-body">
+            <p class="mb-3">
+                You can update the database by uploading an Excel file.
+                <strong>Ideally, use a file previously exported from this system.</strong>
+            </p>
+            <div class="alert alert-info small">
+                <i class="bi bi-info-circle-fill me-2"></i>
+                Currently, only <strong>Members</strong> updates are supported. The system matches records by <strong>Member ID</strong>.
+                New rows with existing IDs will update the database.
+            </div>
+
+            <div class="mb-3">
+                <InputFile OnChange="HandleFileSelected" class="form-control" accept=".xlsx" />
+            </div>
+
+            @if (_importResult != null)
+            {
+                <div class="mt-3">
+                    <h5>Import Results</h5>
+                    <ul class="list-group">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            processed Rows
+                            <span class="badge bg-primary rounded-pill">@_importResult.ProcessedCount</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center list-group-item-success">
+                            Successfully Updated
+                            <span class="badge bg-success rounded-pill">@_importResult.SuccessCount</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center list-group-item-danger">
+                            Errors
+                            <span class="badge bg-danger rounded-pill">@_importResult.ErrorCount</span>
+                        </li>
+                    </ul>
+                    @if (_importResult.Errors.Any())
+                    {
+                        <div class="alert alert-danger mt-2" style="max-height: 200px; overflow-y: auto;">
+                            <h6>Error Details:</h6>
+                            <ul class="mb-0 small">
+                                @foreach (var err in _importResult.Errors)
+                                {
+                                    <li>@err</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                </div>
+            }
+             @if (_isImporting)
+            {
+                <div class="mt-3 text-center">
+                     <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                     <span>Importing data... please wait.</span>
+                </div>
+            }
+        </div>
+    </div>
 </div>
 
 @code {
@@ -138,6 +201,10 @@
     private bool _isExporting = false;
     private string _errorMessage = string.Empty;
     private string _successMessage = string.Empty;
+    
+    // Import state
+    private bool _isImporting = false;
+    private GFC.Core.Models.ImportResult _importResult;
 
     private void SelectAll()
     {
@@ -163,6 +230,56 @@
         _options.IncludeNpQueue = false;
         _options.IncludeLifeEligibility = false;
         _options.IncludeUsers = false;
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _importResult = null;
+        _errorMessage = string.Empty;
+        _successMessage = string.Empty;
+
+        var file = e.File;
+        if (file == null) return;
+
+        // Max size 10MB
+        long maxFileSize = 1024 * 1024 * 10; 
+
+        _isImporting = true;
+        StateHasChanged();
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxFileSize);
+            // Copy to memory stream because EPPlus might need seekable stream
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            _importResult = await ExportService.ImportFromExcelAsync(ms);
+
+            if (_importResult.SuccessCount > 0)
+            {
+               _successMessage = $"Import completed. {_importResult.SuccessCount} records updated.";
+            }
+            if (_importResult.ErrorCount > 0)
+            {
+                // If we also had success, append.
+                if (!string.IsNullOrEmpty(_successMessage)) 
+                    _errorMessage = "Import completed with some errors. See details below.";
+                else
+                    _errorMessage = "Import completed with errors. See details below.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error importing Excel file");
+            _errorMessage = "Error importing file: " + ex.Message;
+        }
+        finally
+        {
+            _isImporting = false;
+            StateHasChanged();
+        }
     }
 
     private async Task ExportData()

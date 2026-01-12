@@ -3,6 +3,8 @@
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
 @using GFC.BlazorServer.Services
+@using GFC.Core.Services
+@using global::System.IO
 @using Microsoft.AspNetCore.Components.Authorization
 @using global::System.Security.Claims
 
@@ -15,6 +17,8 @@
 @inject IAuthenticationService AuthenticationService
 @using GFC.BlazorServer.Services.DataProtection
 @inject IDataProtectionService DataProtectionService
+@inject IDatabaseBackupService DatabaseBackupService
+@inject BackupConfigService BackupConfigService
 
 <h3 class="mb-4">Hosting & Security Framework</h3>
 
@@ -284,12 +288,25 @@
                                                 <span class="text-danger">NEVER</span>
                                             }
                                         </p>
-                                        <button class="btn btn-success" @onclick="RecordBackup">
-                                            <i class="bi bi-check-circle-fill me-2"></i>Record Successful Backup
-                                        </button>
-                                        <div class="form-text mt-2">
-                                            Click this after you have successfully copied the database backup file to the external drive.
+                                        <div class="d-grid gap-2">
+                                            <button class="btn btn-primary" @onclick="CreateBackup" disabled="@_isProcessingBackup">
+                                                @if (_isProcessingBackup)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-2"></span><span>Processing...</span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-hdd-fill me-2"></i><span>Create Real Backup</span>
+                                                }
+                                            </button>
+                                            <button class="btn btn-outline-success btn-sm" @onclick="RecordBackup">
+                                                <i class="bi bi-check-circle-fill me-2"></i>Log Manual Copy
+                                            </button>
                                         </div>
+                                        @if (!string.IsNullOrEmpty(_backupMessage))
+                                        {
+                                            <div class="alert alert-info mt-3 mb-0 small">@_backupMessage</div>
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -312,11 +329,106 @@
                                         <button class="btn btn-outline-primary" @onclick="RecordRestoreTest">
                                             <i class="bi bi-capslock-fill me-2"></i>Record Restore Test
                                         </button>
-                                        <div class="form-text mt-2">
-                                            Regularly test restoring a backup to a separate environment to ensure data integrity.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Backup Configuration Summary -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Backup Configuration</h5>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _showBackupConfig = !_showBackupConfig">
+                                    <i class="bi @(_showBackupConfig ? "bi-chevron-up" : "bi-pencil")"></i>
+                                    @(_showBackupConfig ? "Hide" : "Edit")
+                                </button>
+                            </div>
+                            @if (_showBackupConfig)
+                            {
+                                <div class="card-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Database Name</label>
+                                            <InputText class="form-control" @bind-Value="_backupConfig.DatabaseName" />
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Retention Days</label>
+                                            <InputNumber class="form-control" @bind-Value="_backupConfig.RetentionDays" />
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label">Backup Folder Path (Server Side)</label>
+                                            <div class="input-group">
+                                                <InputText class="form-control" @bind-Value="_backupConfig.BackupFolder" placeholder="C:\GFC_Backups" />
+                                                <button class="btn btn-outline-secondary" type="button" @onclick="UseDefaultBackupPath">Use Default</button>
+                                            </div>
+                                        </div>
+                                        <div class="col-12 text-end">
+                                            <button type="button" class="btn btn-primary" @onclick="SaveBackupConfig">Save Configuration</button>
                                         </div>
                                     </div>
                                 </div>
+                            }
+                            else
+                            {
+                                <div class="card-body py-2">
+                                    <div class="row small">
+                                        <div class="col-md-4"><strong>Folder:</strong> @(_backupConfig.BackupFolder ?? "Not Set")</div>
+                                        <div class="col-md-4"><strong>Database:</strong> @(_backupConfig.DatabaseName ?? "Not Set")</div>
+                                        <div class="col-md-4"><strong>Retention:</strong> @(_backupConfig.RetentionDays) days</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Available Backups for Restore -->
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Available Backups (Restore)</h5>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="LoadBackups">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                @if (_availableBackups == null)
+                                {
+                                    <p class="p-3 text-center text-muted"><em>Loading backups...</em></p>
+                                }
+                                else if (!_availableBackups.Any())
+                                {
+                                    <div class="text-center p-4">
+                                        <p class="text-muted mt-2">No backup files found.</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive" style="max-height: 250px;">
+                                        <table class="table table-hover mb-0">
+                                            <thead class="table-light sticky-top">
+                                                <tr>
+                                                    <th>Filename</th>
+                                                    <th>Created</th>
+                                                    <th>Size</th>
+                                                    <th class="text-end">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var backup in _availableBackups)
+                                                {
+                                                    <tr>
+                                                        <td>@backup.Name</td>
+                                                        <td>@backup.LastWriteTime.ToString("g")</td>
+                                                        <td>@((backup.Length / 1024f / 1024f).ToString("F2")) MB</td>
+                                                        <td class="text-end">
+                                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmRestore(backup)">
+                                                                <i class="bi bi-arrow-counterclockwise"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
                             </div>
                         </div>
                     </div>
@@ -391,6 +503,13 @@
     private string _safeModeError = "";
     private bool _isVerifying = false;
 
+    // Backup & Restore Logic
+    private bool _showBackupConfig = false;
+    private BackupConfig _backupConfig = new();
+    private IEnumerable<FileInfo> _availableBackups;
+    private bool _isProcessingBackup = false;
+    private string _backupMessage = "";
+
     // Data Protection Logic
     private DataHealthStatus _healthStatus = DataHealthStatus.Unknown;
     private DateTime? _lastBackup;
@@ -419,6 +538,10 @@
         await LoadAuditLogs();
         await LoadDataProtectionStatus();
         LoadEffectiveConfiguration();
+
+        // Load Backup UI state
+        _backupConfig = BackupConfigService.Load();
+        await LoadBackups();
     }
 
     private async Task LoadDataProtectionStatus()
@@ -433,6 +556,85 @@
         await DataProtectionService.LogBackupCompletesAsync(GetCurrentUserId());
         await LoadDataProtectionStatus();
         StateHasChanged();
+    }
+
+    private async Task LoadBackups()
+    {
+        _availableBackups = await DatabaseBackupService.GetAvailableBackupsAsync();
+    }
+
+    private void UseDefaultBackupPath()
+    {
+        _backupConfig.BackupFolder = BackupConfigService.GetDefaultBackupFolder();
+    }
+
+    private void SaveBackupConfig()
+    {
+        _backupConfig.IsConfigured = true;
+        BackupConfigService.Save(_backupConfig);
+        _showBackupConfig = false;
+        _backupMessage = "Configuration saved.";
+    }
+
+    private async Task CreateBackup()
+    {
+        _isProcessingBackup = true;
+        _backupMessage = "Running backup...";
+        StateHasChanged();
+
+        try
+        {
+            var success = await DatabaseBackupService.ExecuteBackupAsync();
+            if (success)
+            {
+                _backupMessage = "Backup completed successfully.";
+                await RecordBackup();
+                await LoadBackups();
+            }
+            else
+            {
+                _backupMessage = "Backup failed. See system logs for details.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _backupMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessingBackup = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConfirmRestore(FileInfo backupFile)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
+            $"ARE YOU ABSOLUTELY SURE? \n\nThis will OVERWRITE the current database with the backup from {backupFile.LastWriteTime}. \n\nFile: {backupFile.Name}");
+
+        if (confirmed)
+        {
+            _backupMessage = "Restoring database... Application will be unavailable.";
+            StateHasChanged();
+
+            try
+            {
+                var success = await DatabaseBackupService.RestoreDatabaseAsync(backupFile.FullName);
+                if (success)
+                {
+                    _backupMessage = "Restore successful! Please refresh the page.";
+                    await RecordRestoreTest();
+                }
+                else
+                {
+                    _backupMessage = "Restore failed. Check logs.";
+                }
+            }
+            catch (Exception ex)
+            {
+                _backupMessage = $"Restore error: {ex.Message}";
+            }
+        }
     }
     
     private async Task RecordRestoreTest()

@@ -231,5 +231,30 @@ public class DatabaseBackupService : IDatabaseBackupService
             return false;
         }
     }
+
+    public Task<IEnumerable<FileInfo>> GetAvailableBackupsAsync()
+    {
+        try
+        {
+            var config = _configService.Load();
+            
+            if (string.IsNullOrWhiteSpace(config.BackupFolder) || !Directory.Exists(config.BackupFolder))
+            {
+                return Task.FromResult(Enumerable.Empty<FileInfo>());
+            }
+
+            var directory = new DirectoryInfo(config.BackupFolder);
+            var backups = directory.GetFiles("*.bak")
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .AsEnumerable();
+
+            return Task.FromResult(backups);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting available backups");
+            return Task.FromResult(Enumerable.Empty<FileInfo>());
+        }
+    }
 }
 

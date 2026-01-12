@@ -518,6 +518,118 @@ namespace GFC.BlazorServer.Services
 
             return keyCards;
         }
+        public async Task<ImportResult> ImportFromExcelAsync(Stream fileStream)
+        {
+            return await Task.Run(() =>
+            {
+                var result = new ImportResult();
+                try
+                {
+                    using var package = new ExcelPackage(fileStream);
+
+                    // Process Members Sheet
+                    var membersSheet = package.Workbook.Worksheets["Members"];
+                    if (membersSheet != null)
+                    {
+                        ProcessMembersSheet(membersSheet, result);
+                    }
+                    else
+                    {
+                         // If no members sheet, we could check others, but for now we just log it as info if strictly looking for members.
+                         // Instead, let's treat it as "nothing to do" or specific error if user expects it.
+                         // But the user might be uploading just Key Cards.
+                         // For this request, I'll focus on Members.
+                         result.Errors.Add("No 'Members' worksheet found. Currently only Member updates are supported.");
+                         result.ErrorCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                     result.Errors.Add($"Critical error reading Excel file: {ex.Message}");
+                     result.ErrorCount++;
+                }
+
+                return result;
+            });
+        }
+
+        private void ProcessMembersSheet(ExcelWorksheet worksheet, ImportResult result)
+        {
+            int row = 2;
+            while (worksheet.Cells[row, 1].Value != null)
+            {
+                result.ProcessedCount++;
+                try
+                {
+                    // 1. Get Member ID
+                    if (!int.TryParse(worksheet.Cells[row, 1].Value?.ToString(), out int memberId))
+                    {
+                        result.Errors.Add($"Row {row}: Invalid Member ID.");
+                        result.ErrorCount++;
+                        row++;
+                        continue;
+                    }
+
+                    // 2. Find Existing Member
+                    var member = _memberRepository.GetMemberById(memberId);
+                    if (member == null)
+                    {
+                        result.Errors.Add($"Row {row}: Member ID {memberId} not found in database.");
+                        result.ErrorCount++;
+                        row++;
+                        continue;
+                    }
+
+                    // 3. Update Fields
+                    // Columns: 
+                    // 1:ID, 2:First, 3:Last, 4:Status, 5:Addr, 6:City, 7:State, 8:Zip, 
+                    // 9:Phone, 10:Cell, 11:Email, 12:JoinDate, 13:AcceptedDate, 14:DOB, 15:NonPort, 16:Notes
+
+                    member.FirstName = GetString(worksheet, row, 2);
+                    member.LastName = GetString(worksheet, row, 3);
+                    member.Status = GetString(worksheet, row, 4);
+                    member.Address1 = GetString(worksheet, row, 5);
+                    member.City = GetString(worksheet, row, 6);
+                    member.State = GetString(worksheet, row, 7);
+                    member.PostalCode = GetString(worksheet, row, 8);
+                    member.Phone = GetString(worksheet, row, 9);
+                    member.CellPhone = GetString(worksheet, row, 10);
+                    member.Email = GetString(worksheet, row, 11);
+                    
+                    member.ApplicationDate = GetDate(worksheet, row, 12);
+                    member.AcceptedDate = GetDate(worksheet, row, 13);
+                    member.DateOfBirth = GetDate(worksheet, row, 14);
+
+                    var npString = GetString(worksheet, row, 15);
+                    member.IsNonPortugueseOrigin = npString?.Equals("Yes", StringComparison.OrdinalIgnoreCase) == true;
+
+                    member.Notes = GetString(worksheet, row, 16);
+
+                    // 4. Save
+                    _memberRepository.UpdateMember(member);
+                    result.SuccessCount++;
+                }
+                catch (Exception ex)
+                {
+                    result.Errors.Add($"Row {row}: Error updating member - {ex.Message}");
+                    result.ErrorCount++;
+                }
+                row++;
+            }
+        }
+
+        private string GetString(ExcelWorksheet ws, int row, int col)
+        {
+            return ws.Cells[row, col].Value?.ToString()?.Trim() ?? string.Empty;
+        }
+
+        private DateTime? GetDate(ExcelWorksheet ws, int row, int col)
+        {
+            var val = ws.Cells[row, col].Value;
+            if (val is DateTime dt) return dt;
+            if (val is string s && DateTime.TryParse(s, out var parsed)) return parsed;
+            return null;
+        }
     }
 }
 
