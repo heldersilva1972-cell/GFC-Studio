@@ -8,6 +8,7 @@
 @inject NavigationManager NavManager
 @inject ILogger<MembersNeedingCardsTab> Logger
 @using GFC.Core.Services
+@inject IKeyCardDashboardRepository KeyCardDashboardRepository
 @inject IDuesRepository DuesRepository
 @inject IBoardRepository BoardRepository
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
@@ -164,83 +165,82 @@
         {
             var year = DateTime.Today.Year;
             
-            // Parallel Load for Performance (same as CardAssignmentsTab)
-            var tasks = new List<Task>();
+            // 1. Fetch data from the robust KeyCardDashboardRepository
+            // This repository handles the merged Waiver tables and missing legacy table gracefully
+            var dashboardRows = await Task.Run(() => KeyCardDashboardRepository.GetMembersForYear(year));
             
-            var t1 = Task.Run(() => MemberRepository.GetAllMembers());
-            var t2 = Task.Run(() => KeyCardRepository.GetAll());
-            var t3 = Task.Run(() => DuesRepository.GetDuesForYear(year));
-            var t4 = Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
-            var t5 = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
-            var t6 = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
-            var t7 = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
-
-            // Wait for all data
-            await Task.WhenAll(t1, t2, t3, t4, t5, t6, t7);
-
-            var membersList = t1.Result;
-            var allCards = t2.Result;
-            var duesCurrent = t3.Result;
-            var duesPrev = t4.Result;
-            var boardCurrent = t5.Result.Select(a => a.MemberID).ToHashSet();
-            var boardPrev = t6.Result.Select(a => a.MemberID).ToHashSet();
-            var settings = t7.Result;
-
-            // Create Maps - Use safe grouping to handle potential multiple records (e.g. payment + waiver)
-            var duesCurrentMap = duesCurrent.ToDictionary(d => d.MemberID);
-            var duesPrevMap = duesPrev.ToDictionary(d => d.MemberID);
-            var cardMemberIds = allCards.Where(c => c.IsActive).Select(c => c.MemberId).ToHashSet();
+            Logger.LogInformation($"LoadDataAsync: Retrieved {dashboardRows.Count} rows from KeyCardDashboardRepository for year {year}");
+            
+            // 2. Fetch Grace Settings
+            var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
+            var graceDate = settings?.GraceEndDate?.Date;
 
             _membersNeedingCards = new List<int>();
             _memberLookup = new Dictionary<int, DuesListItemDto>();
 
-            foreach (var member in membersList)
+            foreach (var row in dashboardRows)
             {
-                // Skip if they already have a card
-                if (cardMemberIds.Contains(member.MemberID)) continue;
-
-                // Check Eligibility
-                bool currentSatisfied = boardCurrent.Contains(member.MemberID) || 
-                                       MemberStatusHelper.IsNewlyAccepted(member, year) ||
-                                       (duesCurrentMap.TryGetValue(member.MemberID, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
-                bool prevSatisfied = boardPrev.Contains(member.MemberID) || (duesPrevMap.TryGetValue(member.MemberID, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                // DIAGNOSTIC: Log member 3 specifically
+                if (row.MemberId == 3)
+                {
+                    Logger.LogWarning($"Member 3 (Fialho): Status={row.MemberStatus}, PaymentType={row.DuesPaymentType}, AssignmentId={row.AssignmentId}, KeyCardId={row.KeyCardId}");
+                }
                 
-                var eligibility = KeyCardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied);
+                // Skip logic: If they have an assignment (AssignmentId is not null), they don't need a card
+                if (row.AssignmentId.HasValue)
+                {
+                    if (row.MemberId == 3) Logger.LogWarning($"Member 3 SKIPPED: Has AssignmentId={row.AssignmentId}");
+                    continue;
+                }
+
+                // Evaluate Eligibility using the centralized KeyCardService logic
+                var eligibility = KeyCardService.EvaluateEligibilityForRow(row, year, graceDate);
+
+                if (row.MemberId == 3)
+                {
+                    Logger.LogWarning($"Member 3 Eligibility: Eligible={eligibility.Eligible}, StatusAllowed={eligibility.StatusAllowed}, CurrentYearSatisfied={eligibility.CurrentYearSatisfied}, PreviousYearSatisfied={eligibility.PreviousYearSatisfied}, GracePeriodActive={eligibility.GracePeriodActive}");
+                }
 
                 if (eligibility.Eligible)
                 {
-                    _membersNeedingCards.Add(member.MemberID);
+                    _membersNeedingCards.Add(row.MemberId);
                     
                     // Parse Enum safely
                     GFC.Core.Enums.MemberStatus memberStatusEnum = GFC.Core.Enums.MemberStatus.Unknown;
-                    if (Enum.TryParse<GFC.Core.Enums.MemberStatus>(member.Status, true, out var parsed))
+                    if (Enum.TryParse<GFC.Core.Enums.MemberStatus>(row.MemberStatus, true, out var parsed))
                     {
                         memberStatusEnum = parsed;
                     }
                     
-                    // Determine Waiver Status
-                    duesCurrentMap.TryGetValue(member.MemberID, out var duesCurrentRecord);
-                    bool isWaived = duesCurrentRecord != null && string.Equals(duesCurrentRecord.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
-                    string? waiverReason = isWaived ? duesCurrentRecord?.Notes : null;
+                    // Determine Waiver Status from the dashboard row directly
+                    bool isWaived = string.Equals(row.DuesPaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
 
-                    // Construct DuesListItemDto (Positional Record)
-                    _memberLookup[member.MemberID] = new DuesListItemDto(
-                        member.MemberID,
-                        $"{member.LastName}, {member.FirstName}", // FullName
-                        memberStatusEnum,                         // Status
-                        year,                                     // Year
-                        null,                                     // Amount
-                        null,                                     // PaidDate
-                        currentSatisfied ? "Paid" : "",           // PaymentType
-                        0,                                        // MonthsOverdue
-                        currentSatisfied,                         // Satisfied
-                        isWaived,                                 // IsWaived
-                        waiverReason,                             // WaiverReason
-                        string.Empty,                             // Notes
-                        boardCurrent.Contains(member.MemberID)    // IsBoardMember
+                    // Map to DuesListItemDto (using data from the Row)
+                    _memberLookup[row.MemberId] = new DuesListItemDto(
+                        row.MemberId,
+                        $"{row.LastName}, {row.FirstName}",
+                        memberStatusEnum,
+                        year,
+                        null, // Amount
+                        row.DuesPaidDate,
+                        row.DuesPaymentType ?? "",
+                        0, // MonthsOverdue (Could calculate but not critical for this view)
+                        eligibility.CurrentYearSatisfied,
+                        isWaived,
+                        isWaived ? "Waived" : null,
+                        string.Empty,
+                        false // IsBoardMember (dashboard row optimizes this away, logic handled in Eligibility)
                     );
+                    
+                    if (row.MemberId == 3) Logger.LogWarning($"Member 3 ADDED to needing cards list");
+                }
+                else if (row.MemberId == 3)
+                {
+                    Logger.LogWarning($"Member 3 NOT ELIGIBLE - excluded from needing cards list");
                 }
             }
+            
+            Logger.LogInformation($"LoadDataAsync: Final count of members needing cards: {_membersNeedingCards.Count}");
         }
         catch (Exception ex)
         {

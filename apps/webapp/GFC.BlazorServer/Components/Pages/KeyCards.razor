@@ -15,6 +15,7 @@
 @using GFC.BlazorServer.Models
 @using Microsoft.EntityFrameworkCore
 @inject IKeyCardRepository KeyCardRepository
+@inject IKeyCardDashboardRepository KeyCardDashboardRepository
 @inject IMemberRepository MemberRepository
 @inject NavigationManager NavManager
 @inject ILogger<KeyCards> Logger
@@ -1326,17 +1327,10 @@
             var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
             var cards = await Task.Run(() => KeyCardRepository.GetAll());
             
-            // For counts, we need some context-heavy calculation (eligibility)
-            var membersList = await Task.Run(() => MemberRepository.GetAllMembers());
-            var duesCurrent = await Task.Run(() => DuesRepository.GetDuesForYear(year));
-            var duesPrev = await Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
-            var boardCurrentList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
-            var boardPrevList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+            // Use KeyCardDashboardRepository for accurate waiver detection
+            var dashboardRows = await Task.Run(() => KeyCardDashboardRepository.GetMembersForYear(year));
+            var graceDate = settings?.GraceEndDate?.Date;
 
-            var duesCurrentMap = duesCurrent.ToDictionary(d => d.MemberID);
-            var duesPrevMap = duesPrev.ToDictionary(d => d.MemberID);
-            var boardCurrent = boardCurrentList.Select(a => a.MemberID).ToHashSet();
-            var boardPrev = boardPrevList.Select(a => a.MemberID).ToHashSet();
             var cardMemberIds = cards.Select(c => c.MemberId).Distinct().ToHashSet();
 
             // Calculate Counts
@@ -1349,15 +1343,10 @@
             
             foreach (var card in cards.Where(c => c.IsActive))
             {
-                var member = membersList.FirstOrDefault(m => m.MemberID == card.MemberId);
-                if (member == null) continue;
+                var row = dashboardRows.FirstOrDefault(r => r.MemberId == card.MemberId);
+                if (row == null) continue;
 
-                bool currentSatisfied = boardCurrent.Contains(card.MemberId) || 
-                                        MemberStatusHelper.IsNewlyAccepted(member, year) ||
-                                        (duesCurrentMap.TryGetValue(card.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
-                bool prevSatisfied = boardPrev.Contains(card.MemberId) || (duesPrevMap.TryGetValue(card.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
-                
-                var eligibility = CardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied);
+                var eligibility = CardService.EvaluateEligibilityForRow(row, year, graceDate);
                 
                 if (!eligibility.CurrentYearSatisfied)
                 {
@@ -1369,22 +1358,17 @@
                 }
             }
 
-            // Needing Cards Count
+            // Needing Cards Count - use dashboard rows for accurate waiver detection
             _countNeeding = 0;
-            foreach (var m in membersList)
+            foreach (var row in dashboardRows)
             {
-                if (!cardMemberIds.Contains(m.MemberID))
+                // Skip if they already have a card
+                if (cardMemberIds.Contains(row.MemberId)) continue;
+
+                var eligibility = CardService.EvaluateEligibilityForRow(row, year, graceDate);
+                if (eligibility.Eligible)
                 {
-                    bool currentSatisfied = boardCurrent.Contains(m.MemberID) || 
-                                            MemberStatusHelper.IsNewlyAccepted(m, year) ||
-                                            (duesCurrentMap.TryGetValue(m.MemberID, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
-                    bool prevSatisfied = boardPrev.Contains(m.MemberID) || (duesPrevMap.TryGetValue(m.MemberID, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
-                    
-                    var eligibility = CardService.GetEligibilityBulk(m, year, settings, currentSatisfied, prevSatisfied);
-                    if (eligibility.Eligible)
-                    {
-                        _countNeeding++;
-                    }
+                    _countNeeding++;
                 }
             }
         }
