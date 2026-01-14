@@ -5,6 +5,7 @@
 @using GFC.Core.Enums
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
+@using GFC.Core.Services
 @inject IDuesInsightService DuesService
 @inject IDuesRepository DuesRepository
 @inject IKeyCardRepository KeyCardRepository
@@ -26,7 +27,6 @@
 <PageTitle>Dues Management - GFC</PageTitle>
 
 <div class="dues-container fade-in">
-    <!-- Header Section -->
     <!-- Header Section -->
     <div class="page-header d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3 mb-4">
         <div>
@@ -336,7 +336,7 @@
                                                     Deactivate
                                                 </button>
                                             }
-                                            else if (item.Status == MemberStatus.Regular || item.Status == MemberStatus.RegularNonPortuguese || item.Status == MemberStatus.Guest)
+                                            else if (CanWaive(item) || item.IsWaived)
                                             {
                                                 <button class="btn btn-sm @(item.IsWaived ? "btn-outline-info" : "btn-info text-white")" 
                                                         @onclick="() => OpenWaiverModal(item)" 
@@ -560,13 +560,6 @@
         <div class="modal fade show d-block" tabindex="-1">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content border-0 shadow-lg text-center">
-    <!-- Payment Success Modal -->
-    @if (_showSuccessModal && _lastPaymentMember != null)
-    {
-        <div class="modal-backdrop fade show"></div>
-        <div class="modal fade show d-block" tabindex="-1">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content border-0 shadow-lg text-center">
                     <div class="modal-body p-5">
                        <div class="mb-3 text-success">
                            <i class="bi bi-check-circle-fill display-1"></i>
@@ -603,10 +596,6 @@
                             </div>
                         }
                     </div>
-                </div>
-            </div>
-        </div>
-    }
                 </div>
             </div>
         </div>
@@ -892,7 +881,6 @@
 
     private async Task OpenWaiverModal(DuesListItemDto item)
     {
-        // Only Life and Board members cannot be manually waived (they are auto-waived)
         if (item.Status == MemberStatus.Life || item.IsBoardMember) return;
         
         _operationInProgress = true;
@@ -959,13 +947,30 @@
         _operationInProgress = true;
         try
         {
+            // NEW: Validate no payments exist for ANY year in the range
+            var startYear = _waiverForm.StartYear;
+            var endYear = _waiverForm.IsPermanent ? 2099 : _waiverForm.EndYear;
+
+            var existingPayments = await Task.Run(() => DuesRepository.GetDuesForMember(_waiverForm.MemberId));
+            var conflictingPayment = existingPayments.FirstOrDefault(p => 
+                p.Year >= startYear && p.Year <= endYear && 
+                p.PaidDate.HasValue && !string.Equals(p.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase));
+
+            if (conflictingPayment != null)
+            {
+                _operationMessage = $"Conflict: The member already has a recorded payment for the year {conflictingPayment.Year}. You cannot waive a year that is already paid.";
+                _operationError = true;
+                _showWaiverModal = true; // Re-open the form so they can fix the range
+                return;
+            }
+
             var currentUser = AuthStateProvider.GetCurrentUser();
             var waiver = new DuesWaiverPeriod
             {
                 WaiverId = _waiverForm.WaiverId ?? 0,
                 MemberId = _waiverForm.MemberId,
-                StartYear = _waiverForm.StartYear,
-                EndYear = _waiverForm.IsPermanent ? 2099 : _waiverForm.EndYear,
+                StartYear = startYear,
+                EndYear = endYear,
                 Reason = _waiverForm.Reason,
                 CreatedBy = currentUser?.Username ?? "System Admin",
                 CreatedDate = DateTime.Now
@@ -982,6 +987,17 @@
 
             _operationMessage = $"Waiver updated for {_waiverForm.MemberName}.";
             _operationError = false;
+            
+            // NEW: Automatically trigger card reactivation if they are now eligible
+            try 
+            {
+                await KeyCardLifecycleService.ProcessMemberAsync(_waiverForm.MemberId, _selectedYear);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to auto-reactivate card after waiver");
+            }
+
             await LoadDataInternal(silent: true);
         }
         catch (Exception ex)
@@ -1492,7 +1508,7 @@
                  var member = await Task.Run(() => MemberRepository.GetMemberById(item.MemberId));
                  if (member != null) {
                      member.InactiveDate = DateTime.Today;
-                     await Task.Run(() => MemberService.UpdateMemberStatus(member, "INACTIVE", "System", false));
+                     await MemberService.UpdateMemberStatusAsync(member, "INACTIVE", "System", false);
                      
                      // Log note
                      await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote {
@@ -1537,14 +1553,17 @@
     private bool IsExempt(DuesListItemDto item) =>
         item.Status == MemberStatus.Life || item.IsBoardMember || item.IsWaived;
 
-    private bool IsPaid(DuesListItemDto item) =>
-        item.PaidDate.HasValue && !item.IsWaived;
+    private bool IsPaid(DuesListItemDto item) => item.Satisfied;
+
+    private bool CanWaive(DuesListItemDto item) =>
+        (item.Status == MemberStatus.Regular || item.Status == MemberStatus.RegularNonPortuguese || item.Status == MemberStatus.Guest) &&
+        !_operationInProgress;
 
     private bool CanRecordPayment(DuesListItemDto item) =>
-        !IsPaid(item) && !IsExempt(item) && !_operationInProgress;
+        !item.Satisfied && !IsExempt(item) && !_operationInProgress;
 
     private bool CanSetInactive(DuesListItemDto item) =>
-        !IsPaid(item) && !IsExempt(item) && item.MonthsOverdue >= 15 && !_operationInProgress;
+        !item.Satisfied && !IsExempt(item) && item.MonthsOverdue >= 15 && !_operationInProgress;
 
     private IEnumerable<DuesListItemDto> FilteredItems
     {
@@ -1556,8 +1575,8 @@
             
             return _activeFilter switch
             {
-                DuesFilter.Paid => items.Where(i => i.PaidDate.HasValue && !i.IsWaived),
-                DuesFilter.Unpaid => items.Where(i => !i.PaidDate.HasValue && !IsExempt(i)),
+                DuesFilter.Paid => items.Where(i => i.Satisfied),
+                DuesFilter.Unpaid => items.Where(i => !i.Satisfied),
                 DuesFilter.Waived => items.Where(i => IsExempt(i)),
                 _ => items
             };
@@ -1583,7 +1602,7 @@
         return $"{parts[0][0]}{parts[^1][0]}".ToUpper();
     }
     
-    private static string GetAvatarClass(DuesListItemDto item) => (item.PaidDate.HasValue && !item.IsWaived) ? "bg-success text-white" : "bg-light text-muted";
+    private static string GetAvatarClass(DuesListItemDto item) => item.Satisfied ? "bg-success text-white" : "bg-light text-muted";
 
     private void ViewSyncQueue() => NavManager.NavigateTo("/keycards/sync-queue");
     private async Task RetryAllSync()

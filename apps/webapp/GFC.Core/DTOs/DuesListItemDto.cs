@@ -12,6 +12,7 @@ public record DuesListItemDto(
     DateTime? PaidDate,
     string PaymentType,
     int MonthsOverdue,
+    bool Satisfied,
     bool IsWaived,
     string? WaiverReason,
     string Notes,

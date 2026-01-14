@@ -63,7 +63,7 @@ public class NpQueueService : INpQueueService
 
         member.IsNonPortugueseOrigin = true;
         var previousStatus = member.Status;
-        _memberService.UpdateMemberStatus(member, "REGULAR");
+        await _memberService.UpdateMemberStatusAsync(member, "REGULAR");
 
         var details = $"Promoted from {previousStatus ?? "unknown"} to REGULAR (previous position {first.Position})";
         _auditLogger.Log(

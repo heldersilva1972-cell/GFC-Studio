@@ -15,35 +15,38 @@ public class MemberService
     private readonly IDuesRepository _duesRepository;
     private readonly IHistoryRepository _historyRepository;
     private readonly IAuditLogger _auditLogger;
+    private readonly KeyCardLifecycleService _keyCardLifecycleService;
 
     public MemberService(
         IMemberRepository memberRepository,
         IGlobalNoteRepository noteRepository,
         IDuesRepository duesRepository,
         IHistoryRepository historyRepository,
-        IAuditLogger auditLogger)
+        IAuditLogger auditLogger,
+        KeyCardLifecycleService keyCardLifecycleService)
     {
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _noteRepository = noteRepository ?? throw new ArgumentNullException(nameof(noteRepository));
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
         _historyRepository = historyRepository ?? throw new ArgumentNullException(nameof(historyRepository));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
+        _keyCardLifecycleService = keyCardLifecycleService ?? throw new ArgumentNullException(nameof(keyCardLifecycleService));
     }
 
     /// <summary>
     /// Updates a member's status and logs the change.
     /// Wrapper that preserves previous call sites.
     /// </summary>
-    public void UpdateMemberStatus(Member member, string newStatus, string? userName = null)
+    public async Task UpdateMemberStatusAsync(Member member, string newStatus, string? userName = null)
     {
-        UpdateMemberStatus(member, newStatus, userName, bypassAutomations: false);
+        await UpdateMemberStatusAsync(member, newStatus, userName, bypassAutomations: false);
     }
 
     /// <summary>
     /// Updates a member's status and logs the change.
     /// Added overload to retain compatibility with callers that pass a bypass flag.
     /// </summary>
-    public void UpdateMemberStatus(Member member, string newStatus, string? userName, bool bypassAutomations)
+    public async Task UpdateMemberStatusAsync(Member member, string newStatus, string? userName, bool bypassAutomations)
     {
         if (member == null)
             throw new ArgumentNullException(nameof(member));
@@ -87,12 +90,18 @@ public class MemberService
 
         // Keep audit behavior consistent; bypass flag reserved for future automation toggles.
         TryAuditStatusChange(member.MemberID, oldStatus, newStatus);
+        
+        // Evaluate key card eligibility immediately
+        if (member.MemberID > 0)
+        {
+            await _keyCardLifecycleService.ProcessMemberAsync(member.MemberID, DateTime.Today.Year);
+        }
     }
 
     /// <summary>
     /// Saves a member (insert or update) and handles status changes.
     /// </summary>
-    public void SaveMember(Member member, string? userName = null)
+    public async Task SaveMemberAsync(Member member, string? userName = null)
     {
         if (member == null)
             throw new ArgumentNullException(nameof(member));
@@ -153,6 +162,12 @@ public class MemberService
             {
                 _historyRepository.LogMemberChange(member.MemberID, "Status", previousStatus, member.Status, userName);
             }
+        }
+
+        // Evaluate key card eligibility immediately
+        if (member.MemberID > 0)
+        {
+            await _keyCardLifecycleService.ProcessMemberAsync(member.MemberID, DateTime.Today.Year);
         }
     }
 

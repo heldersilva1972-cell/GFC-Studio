@@ -55,20 +55,29 @@ public class KeyCardLifecycleService
                 return;
             }
 
-            var isEligible = _keyCardService.IsEligibleForCard(member, year);
+            var eligibility = _keyCardService.GetKeyCardEligibility(memberId, year);
             var activeCard = _keyCardRepository.GetActiveMemberCard(memberId);
 
-            if (isEligible && activeCard != null && !activeCard.IsActive)
+            if (eligibility.Eligible && activeCard != null && !activeCard.IsActive)
             {
                 // Member is now eligible and has an inactive card - reactivate it
-                await ReactivateCardAsync(activeCard.KeyCardId, "Dues paid - automatic reactivation", "System", ct);
+                await ReactivateCardAsync(activeCard.KeyCardId, "Dues paid/Status Satisfied/Auto-Reactivation", "System", ct);
                 _logger.LogInformation("Reactivated card {CardId} for member {MemberId}", activeCard.KeyCardId, memberId);
             }
-            else if (!isEligible && activeCard != null && activeCard.IsActive)
+            else if (!eligibility.Eligible && activeCard != null && activeCard.IsActive)
             {
                 // Member is no longer eligible - deactivate card
-                await DeactivateCardAsync(activeCard.KeyCardId, "DuesUnpaid", "Automatic deactivation - dues not satisfied", "System", ct);
-                _logger.LogInformation("Deactivated card {CardId} for member {MemberId}", activeCard.KeyCardId, memberId);
+                string reason = !eligibility.StatusAllowed ? "MemberStatusChanged" : 
+                               (eligibility.GracePeriodDefined && !eligibility.GracePeriodActive ? "GracePeriodExpired" : "DuesUnpaid");
+                
+                string notes = reason switch {
+                    "MemberStatusChanged" => $"Automatic deactivation: Status is {member.Status}",
+                    "GracePeriodExpired" => "Automatic deactivation: Grace period expired",
+                    _ => "Automatic deactivation: Dues not satisfied"
+                };
+
+                await DeactivateCardAsync(activeCard.KeyCardId, reason, notes, "System", ct);
+                _logger.LogInformation("Deactivated card {CardId} for member {MemberId} (Reason: {Reason})", activeCard.KeyCardId, memberId, reason);
             }
         }
         catch (Exception ex)

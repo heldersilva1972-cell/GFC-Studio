@@ -32,64 +32,89 @@ public class DuesWaiverRepository : IDuesWaiverRepository
             using var connection = Db.GetConnection();
             connection.Open();
 
-            const string sql = @"
-                SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
-                FROM DuesWaiverPeriods
-                WHERE MemberId = @MemberId
-                UNION ALL
-                SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
-                FROM Waivers
-                WHERE MemberId = @MemberId
-                ORDER BY StartYear";
-
-            using var command = new SqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@MemberId", memberId);
-
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            // Try New Table
+            try 
             {
-                waivers.Add(MapReader(reader, nameof(GetWaiversForMember)));
+                const string sqlNew = @"
+                    SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
+                    FROM DuesWaiverPeriods
+                    WHERE MemberId = @MemberId";
+                using var cmdNew = new SqlCommand(sqlNew, connection);
+                cmdNew.Parameters.AddWithValue("@MemberId", memberId);
+                using var readerNew = cmdNew.ExecuteReader();
+                while (readerNew.Read())
+                {
+                    waivers.Add(MapReader(readerNew, nameof(GetWaiversForMember)));
+                }
             }
+            catch (SqlException ex) when (ex.Number == 208) { /* Ignore missing new table if that happens, though unlikely if writes succeed */ }
+
+            // Try Legacy Table
+            try 
+            {
+                const string sqlOld = @"
+                    SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
+                    FROM Waivers
+                    WHERE MemberId = @MemberId";
+                using var cmdOld = new SqlCommand(sqlOld, connection);
+                cmdOld.Parameters.AddWithValue("@MemberId", memberId);
+                using var readerOld = cmdOld.ExecuteReader();
+                while (readerOld.Read())
+                {
+                    waivers.Add(MapReader(readerOld, nameof(GetWaiversForMember)));
+                }
+            }
+            catch (SqlException ex) when (ex.Number == 208) { /* Ignore missing legacy table */ }
         }
-        catch (SqlException ex) when (ex.Number == 208)
+        catch (Exception)
         {
+            // General connection error
             return new List<DuesWaiverPeriod>();
         }
 
-        return waivers;
+        return waivers.OrderBy(w => w.StartYear).ToList();
     }
 
     public List<DuesWaiverPeriod> GetWaiversForYear(int year)
     {
         var waivers = new List<DuesWaiverPeriod>();
 
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        // New Table
         try
         {
-            using var connection = Db.GetConnection();
-            connection.Open();
-
-            const string sql = @"
+            const string sqlNew = @"
                 SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
                 FROM DuesWaiverPeriods
-                WHERE @Year BETWEEN StartYear AND EndYear
-                UNION ALL
+                WHERE @Year BETWEEN StartYear AND EndYear";
+            using var cmdNew = new SqlCommand(sqlNew, connection);
+            cmdNew.Parameters.AddWithValue("@Year", year);
+            using var readerNew = cmdNew.ExecuteReader();
+            while (readerNew.Read())
+            {
+                waivers.Add(MapReader(readerNew, nameof(GetWaiversForYear)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208) { }
+
+        // Legacy Table
+        try
+        {
+            const string sqlOld = @"
                 SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
                 FROM Waivers
                 WHERE [Year] = @Year";
-
-            using var command = new SqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@Year", year);
-
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            using var cmdOld = new SqlCommand(sqlOld, connection);
+            cmdOld.Parameters.AddWithValue("@Year", year);
+            using var readerOld = cmdOld.ExecuteReader();
+            while (readerOld.Read())
             {
-                waivers.Add(MapReader(reader, nameof(GetWaiversForYear)));
+                waivers.Add(MapReader(readerOld, nameof(GetWaiversForYear)));
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
-        {
-            return new List<DuesWaiverPeriod>();
-        }
+        catch (SqlException ex) when (ex.Number == 208) { }
 
         return waivers;
     }
@@ -98,59 +123,49 @@ public class DuesWaiverRepository : IDuesWaiverRepository
     {
         var waivers = new List<DuesWaiverPeriod>();
 
-        try
+        using var connection = Db.GetConnection();
+        connection.Open();
+
+        // New Table
+        try 
         {
-            using var connection = Db.GetConnection();
-            connection.Open();
-
-            const string sql = @"
+            const string sqlNew = @"
                 SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
-                FROM DuesWaiverPeriods
-                UNION ALL
-                SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
-                FROM Waivers
-                ORDER BY MemberId, StartYear";
-
-            using var command = new SqlCommand(sql, connection);
-
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+                FROM DuesWaiverPeriods";
+            
+            using var cmdNew = new SqlCommand(sqlNew, connection);
+            using var readerNew = cmdNew.ExecuteReader();
+            while (readerNew.Read())
             {
-                waivers.Add(MapReader(reader, nameof(GetAllWaivers)));
+                waivers.Add(MapReader(readerNew, nameof(GetAllWaivers)));
             }
         }
-        catch (SqlException ex) when (ex.Number == 208)
-        {
-            return new List<DuesWaiverPeriod>();
-        }
+        catch (SqlException ex) when (ex.Number == 208) { }
 
-        return waivers;
+        // Legacy Table
+        try 
+        {
+            const string sqlOld = @"
+                SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
+                FROM Waivers";
+
+            using var cmdOld = new SqlCommand(sqlOld, connection);
+            using var readerOld = cmdOld.ExecuteReader();
+            while (readerOld.Read())
+            {
+                waivers.Add(MapReader(readerOld, nameof(GetAllWaivers)));
+            }
+        }
+        catch (SqlException ex) when (ex.Number == 208) { }
+
+        return waivers.OrderBy(w => w.MemberId).ThenBy(w => w.StartYear).ToList();
     }
 
     public bool HasWaiverForYear(int memberId, int year)
     {
-        using var connection = Db.GetConnection();
-        connection.Open();
-
-        const string sql = @"
-            SELECT (
-                SELECT COUNT(*)
-                FROM DuesWaiverPeriods
-                WHERE MemberId = @MemberId
-                  AND @Year BETWEEN StartYear AND EndYear
-            ) + (
-                SELECT COUNT(*)
-                FROM Waivers
-                WHERE MemberId = @MemberId
-                  AND [Year] = @Year
-            )";
-
-        using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@MemberId", memberId);
-        command.Parameters.AddWithValue("@Year", year);
-
-        var count = (int)command.ExecuteScalar();
-        return count > 0;
+        // Simple check just fetching waivers for member
+        var waivers = GetWaiversForMember(memberId);
+        return waivers.Any(w => year >= w.StartYear && year <= w.EndYear);
     }
 
     public void AddWaiver(DuesWaiverPeriod waiver)
