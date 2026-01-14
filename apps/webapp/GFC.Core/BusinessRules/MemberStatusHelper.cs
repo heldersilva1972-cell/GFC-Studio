@@ -248,29 +248,33 @@ public static class MemberStatusHelper
 
     public static DateTime? GetRegularSinceDate(Member member, IHistoryRepository? historyRepository = null)
     {
+        DateTime? historyDate = null;
         if (historyRepository != null && member.MemberID > 0)
         {
             try
             {
-                var historyDate = historyRepository.GetEarliestRegularDate(member.MemberID);
-                if (historyDate.HasValue)
-                {
-                    return historyDate.Value;
-                }
+                historyDate = historyRepository.GetEarliestRegularDate(member.MemberID);
             }
             catch
             {
-                // ignore and fall back
+                // ignore
             }
         }
 
+        DateTime? statusDate = null;
         if (NormalizeStatus(member.Status).Equals("REGULAR", StringComparison.OrdinalIgnoreCase) &&
             member.StatusChangeDate.HasValue)
         {
-            return member.StatusChangeDate.Value;
+            statusDate = member.StatusChangeDate.Value;
         }
 
-        return member.AcceptedDate;
+        // If we have both, take the earlier one (trusting manual backdates in StatusChangeDate)
+        if (historyDate.HasValue && statusDate.HasValue)
+        {
+            return historyDate.Value < statusDate.Value ? historyDate.Value : statusDate.Value;
+        }
+
+        return historyDate ?? statusDate ?? member.AcceptedDate;
     }
 
     public static int CalculateAge(DateTime startDate, DateTime endDate)

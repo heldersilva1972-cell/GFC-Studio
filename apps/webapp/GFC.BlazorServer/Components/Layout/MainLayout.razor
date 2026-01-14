@@ -28,34 +28,34 @@
     }
     <header class="app-topbar">
         <div class="app-topbar-left">
+            <button class="menu-toggle-btn" @onclick="ToggleSidebar" title="Toggle Menu">
+                <i class="bi bi-list"></i>
+            </button>
             <span class="app-logo">GFC</span>
             <span class="app-title">GFC Membership System</span>
         </div>
         <div class="app-topbar-right">
             <AuthorizeView>
                 <Authorized>
-                    <div class="security-badge @GetSecurityBadgeClass()">
-                        @GetSecurityBadgeText()
+                    <!-- Desktop only items -->
+                    <div class="desktop-actions d-none d-lg-flex align-items-center gap-3">
+
+                        <div class="connection-status @GetConnectionStatusClass()" title="Card Access Controller Status">
+                            <i class="bi @GetConnectionStatusIcon()"></i>
+                            <span>@_connectionStatus</span>
+                        </div>
+                        <span class="app-user">@_currentUsername</span>
+                        @if (_isAdmin || IsAdminUser())
+                        {
+                            <span class="app-badge">Admin</span>
+                        }
+                        <NavLink class="text-white text-decoration-none small" href="/changepassword" title="Manage your Password and Passcode">
+                            <i class="bi bi-key me-1"></i> Credentials
+                        </NavLink>
+                        <button class="app-link-button" @onclick="HandleLogout" type="button">
+                            Logout
+                        </button>
                     </div>
-                    <div class="connection-status @GetConnectionStatusClass()" title="Card Access Controller Status">
-                        <i class="bi @GetConnectionStatusIcon()"></i>
-                        <span>@_connectionStatus</span>
-                    </div>
-                </Authorized>
-            </AuthorizeView>
-            <AuthorizeView>
-                <Authorized>
-                    <span class="app-user">@_currentUsername</span>
-                    @if (_isAdmin || IsAdminUser())
-                    {
-                        <span class="app-badge">Admin</span>
-                    }
-                    <NavLink class="me-3 text-white text-decoration-none small" href="/changepassword" title="Manage your Password and Passcode">
-                        <i class="bi bi-key me-1"></i> Credentials
-                    </NavLink>
-                    <button class="app-link-button" @onclick="HandleLogout" type="button">
-                        Logout
-                    </button>
                 </Authorized>
                 <NotAuthorized>
                     <a class="app-link-button" href="/login">Login</a>
@@ -84,7 +84,7 @@
     <div class="app-main">
         <AuthorizeView>
             <Authorized>
-                <aside class="app-sidebar">
+                <aside class="app-sidebar @(_sidebarOpen ? "open" : "")">
                     <div class="app-sidebar-inner">
                         <div class="app-sidebar-header">
                             <div class="app-logo-mark">GFC</div>
@@ -92,6 +92,9 @@
                                 <div class="app-sidebar-title__main">Membership</div>
                                 <div class="app-sidebar-title__sub">Control Center</div>
                             </div>
+                            <button class="sidebar-close-btn" @onclick="CloseSidebar">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
                         </div>
 
                         <div style="flex: 1; overflow-y: auto; min-height: 0;">
@@ -99,6 +102,25 @@
                         </div>
 
                         <div class="app-sidebar-footer">
+                            <!-- Mobile only actions -->
+                            <div class="d-lg-none mb-3 d-flex flex-column gap-2">
+                                <div class="p-2 rounded bg-surface border border-glass">
+                                    <small class="text-muted d-block mb-1">Status</small>
+                                    <div class="d-flex align-items-center gap-2 mb-2">
+                                        <i class="bi @GetConnectionStatusIcon() text-@( _isControllerOnline ? "success" : "danger" )"></i>
+                                        <span class="small">@(_isControllerOnline ? "Controller Online" : "Controller Offline")</span>
+                                    </div>
+
+                                </div>
+                                
+                                <NavLink class="btn btn-outline-light w-100 btn-sm text-start" href="/changepassword">
+                                    <i class="bi bi-key me-2"></i> Credentials
+                                </NavLink>
+                                <button class="btn btn-danger w-100 btn-sm text-start" @onclick="HandleLogout">
+                                    <i class="bi bi-box-arrow-right me-2"></i> Logout
+                                </button>
+                            </div>
+
                             <div class="version-info">
                                 <div class="version-info__developer">@VersionService.GetDeveloper() @VersionService.GetYear()</div>
                                 <div class="version-info__revision">Revision @VersionService.GetRevision()</div>
@@ -106,6 +128,10 @@
                         </div>
                     </div>
                 </aside>
+                @if (_sidebarOpen)
+                {
+                    <div class="sidebar-overlay" @onclick="CloseSidebar"></div>
+                }
             </Authorized>
         </AuthorizeView>
 
@@ -131,6 +157,7 @@
 
     private bool _canInstallPwa = false;
     private bool _isPwaInstalled = false;
+    private bool _sidebarOpen = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -291,6 +318,7 @@
 
     private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
     {
+        CloseSidebar();
         LogCurrentPage();
         EnforcePasswordSetup();
         
@@ -440,33 +468,7 @@
         _connectionStatus = _isControllerOnline ? "Card Access Controller: Online" : "Card Access Controller: Offline";
     }
 
-    private string GetSecurityBadgeClass()
-    {
-        return UserConnectionService.LocationType switch
-        {
-            LocationType.VPN => "status-secure",
-            LocationType.LAN => "status-secure",
-            LocationType.Local => "status-secure",
-            LocationType.Public => "status-public",
-            _ => "status-unknown"
-        };
-    }
 
-    private string GetSecurityBadgeText()
-    {
-        // Simple check for HTTPS to determine if we should claim "Secure"
-        var isHttps = Navigation.Uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-        
-        return UserConnectionService.LocationType switch
-        {
-            LocationType.VPN => "🔒 Secure (VPN)",
-            LocationType.LAN => "🔒 Secure (LAN)",
-            // Clarify that Localhost is trusted but distinguish if it's not HTTPS
-            LocationType.Local => isHttps ? "🔒 Secure (Local)" : "💻 Local (No SSL)",
-            LocationType.Public => "⚠️ Public Web",
-            _ => "❓ Unknown Connection"
-        };
-    }
 
     private async Task ValidateSession()
     {
@@ -487,5 +489,18 @@
             }
         }
         catch { /* Ignore JS errors or concurrent disconnects */ }
+    }
+    private void ToggleSidebar()
+    {
+        _sidebarOpen = !_sidebarOpen;
+    }
+
+    private void CloseSidebar()
+    {
+        if (_sidebarOpen)
+        {
+            _sidebarOpen = false;
+            StateHasChanged();
+        }
     }
 }

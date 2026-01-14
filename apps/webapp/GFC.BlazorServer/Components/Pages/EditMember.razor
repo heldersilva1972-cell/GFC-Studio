@@ -1,4 +1,5 @@
 @page "/members/{MemberId:int}/edit"
+@implements IDisposable
 @using Microsoft.AspNetCore.Authorization
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
@@ -8,6 +9,8 @@
 @inject IMemberRepository MemberRepository
 @inject NavigationManager NavManager
 @inject ILogger<EditMember> Logger
+@inject IHistoryRepository HistoryRepository
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Edit Member - GFC Membership</PageTitle>
 
@@ -107,7 +110,7 @@ else if (_showSuccessAnimation)
         </div>
     </div>
 }
-else if (_showKeyCardPrompt)
+else if (_showDuesPrompt)
 {
     <div class="success-overlay">
         <div class="success-card">
@@ -122,17 +125,17 @@ else if (_showKeyCardPrompt)
             
             <div class="alert alert-info border-0 shadow-sm mb-4" style="border-radius: 12px; background: #eef2ff; color: #3730a3; text-align: left;">
                 <div class="d-flex align-items-center gap-2 mb-2">
-                    <i class="bi bi-credit-card-2-front-fill" style="font-size: 1.25rem;"></i>
-                    <strong style="font-weight: 700;">Key Card Eligibility</strong>
+                    <i class="bi bi-cash-coin" style="font-size: 1.25rem;"></i>
+                    <strong style="font-weight: 700;">Record Initial Payment</strong>
                 </div>
-                <p class="mb-0 small">Since this member is now officially accepted, would you like to assign a physical key card/fob right away?</p>
+                <p class="mb-0 small">Since this member is now officially accepted, would you like to record their initial dues payment now?</p>
             </div>
 
             <div class="success-actions d-flex flex-column gap-2">
-                <button class="btn btn-primary btn-lg w-100 py-3 shadow-sm" @onclick="GoToAssignKeyCard" style="border-radius: 14px; font-weight: 700;">
-                    <i class="bi bi-person-check me-2"></i>Yes, Assign Key Card
+                <button class="btn btn-primary btn-lg w-100 py-3 shadow-sm" @onclick="GoToRecordDues" style="border-radius: 14px; font-weight: 700;">
+                    <i class="bi bi-cash me-2"></i>Yes, Record Dues
                 </button>
-                <button class="btn btn-outline-secondary w-100 py-2" @onclick="() => { _showKeyCardPrompt = false; _showSuccessAnimation = true; }" style="border-radius: 12px; border-style: dashed;">
+                <button class="btn btn-outline-secondary w-100 py-2" @onclick="() => { _showDuesPrompt = false; _showSuccessAnimation = true; }" style="border-radius: 12px; border-style: dashed;">
                     Maybe Later
                 </button>
             </div>
@@ -141,7 +144,7 @@ else if (_showKeyCardPrompt)
 }
 else if (_memberForm != null)
 {
-    <EditForm Model="@_memberForm" OnValidSubmit="SaveMember">
+    <EditForm Model="@_memberForm" OnValidSubmit="SaveMember" @onchange="MarkAsChanged">
         <DataAnnotationsValidator />
         
         <div class="row g-4">
@@ -155,24 +158,24 @@ else if (_memberForm != null)
                     <div class="form-card-body">
                         <div class="mb-3">
                             <label class="form-label">First Name <span class="text-danger">*</span></label>
-                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.FirstName" placeholder="Enter first name" disabled="@_saving" />
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.FirstName" @oninput="MarkAsChanged" placeholder="Enter first name" disabled="@_saving" />
                             <ValidationMessage For="@(() => _memberForm.FirstName)" />
                         </div>
                         
                         <div class="mb-3">
                             <label class="form-label">Middle Name</label>
-                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.MiddleName" placeholder="Enter middle name (optional)" disabled="@_saving" />
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.MiddleName" @oninput="MarkAsChanged" placeholder="Enter middle name (optional)" disabled="@_saving" />
                         </div>
                         
                         <div class="mb-3">
                             <label class="form-label">Last Name <span class="text-danger">*</span></label>
-                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.LastName" placeholder="Enter last name" disabled="@_saving" />
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.LastName" @oninput="MarkAsChanged" placeholder="Enter last name" disabled="@_saving" />
                             <ValidationMessage For="@(() => _memberForm.LastName)" />
                         </div>
                         
                         <div class="mb-3">
                             <label class="form-label">Suffix</label>
-                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Suffix" placeholder="Jr., Sr., III, etc." disabled="@_saving" />
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Suffix" @oninput="MarkAsChanged" placeholder="Jr., Sr., III, etc." disabled="@_saving" />
                         </div>
                         
                         <div class="mb-3">
@@ -224,26 +227,26 @@ else if (_memberForm != null)
                     <div class="form-card-body">
                         <div class="mb-3">
                             <label class="form-label">Email</label>
-                            <InputText type="email" class="form-control form-control-modern" @bind-Value="_memberForm.Email" placeholder="member@example.com" disabled="@_saving" />
+                            <InputText type="email" class="form-control form-control-modern" @bind-Value="_memberForm.Email" @oninput="MarkAsChanged" placeholder="member@example.com" disabled="@_saving" />
                             <ValidationMessage For="@(() => _memberForm.Email)" />
                         </div>
                         
                         <div class="mb-3">
                             <label class="form-label">Home Phone <span class="text-danger">*</span></label>
-                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Phone" placeholder="(555) 123-4567" disabled="@_saving" />
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Phone" @oninput="MarkAsChanged" placeholder="(555) 123-4567" disabled="@_saving" />
                             <ValidationMessage For="@(() => _memberForm.Phone)" />
                         </div>
                         
                         <div class="mb-3">
                             <label class="form-label">Cell Phone <span class="text-danger">*</span></label>
-                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.CellPhone" placeholder="(555) 987-6543" disabled="@_saving" />
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.CellPhone" @oninput="MarkAsChanged" placeholder="(555) 987-6543" disabled="@_saving" />
                             <ValidationMessage For="@(() => _memberForm.CellPhone)" />
                             <small class="text-muted">At least one phone number is required</small>
                         </div>
                         
                         <div class="mb-3">
                             <label class="form-label">Address <span class="text-danger">*</span></label>
-                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Address1" placeholder="123 Main Street" disabled="@_saving" />
+                            <InputText class="form-control form-control-modern" @bind-Value="_memberForm.Address1" @oninput="MarkAsChanged" placeholder="123 Main Street" disabled="@_saving" />
                             <ValidationMessage For="@(() => _memberForm.Address1)" />
                         </div>
                         
@@ -252,7 +255,7 @@ else if (_memberForm != null)
                                 <label class="form-label">City <span class="text-danger">*</span></label>
                                 @if (_cities.Any())
                                 {
-                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.City" disabled="@_saving">
+                                <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.City" @onchange="MarkAsChanged" disabled="@_saving">
                                         <option value="">-- Select --</option>
                                         @foreach (var city in _cities)
                                         {
@@ -262,7 +265,7 @@ else if (_memberForm != null)
                                 }
                                 else
                                 {
-                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.City" placeholder="City" disabled="@_saving" />
+                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.City" @oninput="MarkAsChanged" placeholder="City" disabled="@_saving" />
                                 }
                                 <ValidationMessage For="@(() => _memberForm.City)" />
                             </div>
@@ -270,7 +273,7 @@ else if (_memberForm != null)
                                 <label class="form-label">State <span class="text-danger">*</span></label>
                                 @if (_states.Any())
                                 {
-                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.State" disabled="@_saving">
+                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.State" @onchange="MarkAsChanged" disabled="@_saving">
                                         <option value="">-- Select --</option>
                                         @foreach (var state in _states)
                                         {
@@ -280,7 +283,7 @@ else if (_memberForm != null)
                                 }
                                 else
                                 {
-                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.State" placeholder="MA" disabled="@_saving" maxlength="2" />
+                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.State" @oninput="MarkAsChanged" placeholder="MA" disabled="@_saving" maxlength="2" />
                                 }
                                 <ValidationMessage For="@(() => _memberForm.State)" />
                             </div>
@@ -288,7 +291,7 @@ else if (_memberForm != null)
                                 <label class="form-label">Zip Code <span class="text-danger">*</span></label>
                                 @if (_postalCodes.Any())
                                 {
-                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.PostalCode" disabled="@_saving">
+                                    <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.PostalCode" @onchange="MarkAsChanged" disabled="@_saving">
                                         <option value="">-- Select --</option>
                                         @foreach (var zip in _postalCodes)
                                         {
@@ -298,7 +301,7 @@ else if (_memberForm != null)
                                 }
                                 else
                                 {
-                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.PostalCode" placeholder="02101" disabled="@_saving" />
+                                    <InputText class="form-control form-control-modern" @bind-Value="_memberForm.PostalCode" @oninput="MarkAsChanged" placeholder="02101" disabled="@_saving" />
                                 }
                                 <ValidationMessage For="@(() => _memberForm.PostalCode)" />
                             </div>
@@ -317,7 +320,7 @@ else if (_memberForm != null)
                     <div class="form-card-body">
                         <div class="mb-3">
                             <label class="form-label">Status <span class="text-danger">*</span></label>
-                            <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.Status" disabled="@_saving">
+                            <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.Status" @onchange="MarkAsChanged" disabled="@_saving">
                                 <option value="">-- Select Status --</option>
                                 <option value="GUEST">Guest</option>
                                 <option value="REGULAR">Regular</option>
@@ -398,15 +401,13 @@ else if (_memberForm != null)
                                         <option value="@year">@year</option>
                                     }
                                 </select>
-                                <button type="button" class="btn btn-sm btn-outline-danger ms-2" @onclick="ClearAcceptedDate" disabled="@_saving" title="Clear date">
-                                    <i class="bi bi-x-circle"></i> Clear
-                                </button>
+
                             </div>
                             <ValidationMessage For="@(() => _memberForm.AcceptedDate)" />
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Regular Since</label>
+                            <label class="form-label">Regular Membership Start Date</label>
                             <div class="date-picker-group">
                                 <select class="form-select" @bind="_regMonth" disabled="@_saving" @bind:after="UpdateRegularSinceDate">
                                     <option value="0">Month</option>
@@ -437,19 +438,22 @@ else if (_memberForm != null)
                                         <option value="@year">@year</option>
                                     }
                                 </select>
-                                <button type="button" class="btn btn-sm btn-outline-danger ms-2" @onclick="ClearRegularSinceDate" disabled="@_saving" title="Clear date">
-                                    <i class="bi bi-x-circle"></i> Clear
-                                </button>
                             </div>
-                            <small class="text-muted">Date when member became a regular member</small>
+                            <div class="form-text text-muted small mt-2">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Date changed from Guest to Regular/Regular-NP status. Marks start of 15-year tenure for Life Membership.
+                            </div>
+                            @if (_memberForm.RegularSince.HasValue)
+                            {
+                                <div class="alert alert-warning mt-2 py-2 px-3 small border-0 bg-warning bg-opacity-10 text-warning-emphasis">
+                                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                    <strong>Warning:</strong> You are manually overriding the calculated start date. 
+                                    This manual date will be prioritized over the automatic history log.
+                                </div>
+                            }
                         </div>
 
-                        <div class="form-check mb-3">
-                            <InputCheckbox class="form-check-input" @bind-Value="_memberForm.IsNonPortugueseOrigin" disabled="@_saving" id="npOriginCheck" />
-                            <label class="form-check-label" for="npOriginCheck">
-                                Non-Portuguese Origin (NP Queue)
-                            </label>
-                        </div>
+
                     </div>
                 </div>
             </div>
@@ -464,7 +468,7 @@ else if (_memberForm != null)
                     <div class="form-card-body">
                         <div class="mb-3">
                             <label class="form-label">Notes</label>
-                            <InputTextArea class="form-control form-control-modern" @bind-Value="_memberForm.Notes" rows="8" placeholder="Add any additional information about this member..." disabled="@_saving" />
+                            <InputTextArea class="form-control form-control-modern" @bind-Value="_memberForm.Notes" @oninput="MarkAsChanged" rows="8" placeholder="Add any additional information about this member..." disabled="@_saving" />
                         </div>
                     </div>
                 </div>
@@ -565,7 +569,7 @@ else if (_memberForm != null)
     private string? _loadError;
     private bool _saving = false;
     private bool _showSuccessAnimation = false;
-    private bool _showKeyCardPrompt = false;
+    private bool _showDuesPrompt = false;
     private string _errorMessage = "";
     private string _memberName = "";
     private List<string> _cities = new();
@@ -589,14 +593,76 @@ else if (_memberForm != null)
     private int _regDay = 0;
     private int _regYear = 0;
 
+
+
     private int _deathMonth = 0;
     private int _deathDay = 0;
     private int _deathYear = 0;
 
+    private bool _hasUnsavedChanges = false;
+    private bool _isFirstRender = true;
+    private IDisposable? _navigationInterceptor;
+
     protected override async Task OnInitializedAsync()
     {
+        // Register navigation interceptor for in-app navigation
+        _navigationInterceptor = NavManager.RegisterLocationChangingHandler(OnLocationChanging);
+        
         await LoadMemberAsync();
         LoadDropdownData();
+    }
+
+    private ValueTask OnLocationChanging(LocationChangingContext context)
+    {
+        if (_hasUnsavedChanges && !_saving)
+        {
+            // Prevent navigation and show confirmation
+            context.PreventNavigation();
+            
+            // Show async confirmation dialog
+            _ = ConfirmNavigationAsync(context.TargetLocation);
+        }
+        
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task ConfirmNavigationAsync(string targetLocation)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            "You have unsaved changes. Are you sure you want to leave without saving?");
+        
+        if (confirmed)
+        {
+            _hasUnsavedChanges = false;
+            await JSRuntime.InvokeVoidAsync("eval", "window.hasUnsavedChanges = false;");
+            NavManager.NavigateTo(targetLocation);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                window.addEventListener('beforeunload', function (e) {
+                    if (window.hasUnsavedChanges) {
+                        e.preventDefault();
+                        e.returnValue = '';
+                    }
+                });
+            ");
+        }
+
+        if (_hasUnsavedChanges && !_isFirstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "window.hasUnsavedChanges = true;");
+        }
+        else if (!_hasUnsavedChanges)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "window.hasUnsavedChanges = false;");
+        }
+
+        _isFirstRender = false;
     }
 
     private async Task LoadMemberAsync()
@@ -662,12 +728,18 @@ else if (_memberForm != null)
                 _accYear = _memberForm.AcceptedDate.Value.Year;
             }
 
-            if (_memberForm.RegularSince.HasValue)
+            // Calculate 'Regular Since' for display/edit using the helper
+            // This ensures we show the effective date (History or StatusChangeDate)
+            var regularSince = MemberStatusHelper.GetRegularSinceDate(_member, HistoryRepository);
+            if (regularSince.HasValue)
             {
-                _regMonth = _memberForm.RegularSince.Value.Month;
-                _regDay = _memberForm.RegularSince.Value.Day;
-                _regYear = _memberForm.RegularSince.Value.Year;
+                _memberForm.RegularSince = regularSince;
+                _regMonth = regularSince.Value.Month;
+                _regDay = regularSince.Value.Day;
+                _regYear = regularSince.Value.Year;
             }
+
+
 
             if (_memberForm.DateOfDeath.HasValue)
             {
@@ -763,13 +835,69 @@ else if (_memberForm != null)
             _member.City = FormatName(_memberForm.City);
             _member.State = _memberForm.State?.Trim().ToUpperInvariant();
             _member.PostalCode = _memberForm.PostalCode?.Trim();
-            _member.Phone = _memberForm.Phone?.Trim();
-            _member.CellPhone = _memberForm.CellPhone?.Trim();
+            _member.Phone = FormatPhone(_memberForm.Phone);
+            _member.CellPhone = FormatPhone(_memberForm.CellPhone);
             _member.Email = _memberForm.Email?.Trim().ToLowerInvariant();
             _member.ApplicationDate = _memberForm.ApplicationDate;
             _member.AcceptedDate = _memberForm.AcceptedDate;
             _member.RegularSince = _memberForm.RegularSince;
-            _member.Status = _memberForm.Status;
+            // Track status change
+            string oldStatus = _member.Status;
+            string newStatus = _memberForm.Status;
+            bool statusChanged = !string.Equals(oldStatus, newStatus, StringComparison.OrdinalIgnoreCase);
+
+            _member.Status = newStatus;
+
+            if (statusChanged)
+            {
+                // Update the change date
+                _member.StatusChangeDate = DateTime.Today;
+
+                // Log to history
+                try 
+                {
+                    HistoryRepository.LogMemberChange(MemberId, "Status", oldStatus, newStatus);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to log status change history for member {MemberId}", MemberId);
+                }
+            }
+
+            // [FIX] Ensure the RegularSince date from the form is persisted to StatusChangeDate
+            // This allows manual backdating/correction of the "Regular Member Start Date".
+            // We only do this if the user has explicitly set/changed the RegularSince date in the form.
+            if (_memberForm.RegularSince.HasValue)
+            {
+                 // If the user specified a date, save it to StatusChangeDate.
+                 // This effectively "wins" over the DateTime.Today set above if the user backdated it.
+                 _member.StatusChangeDate = _memberForm.RegularSince;
+
+                 // [IMPORTANT] Also log this as a persistent "Historical Event" in the History table.
+                 // This ensures that even if status changes again (e.g. to Inactive), we have a permanent record
+                 // of when they FIRST became regular, which GetRegularSinceDate() will find.
+                 try
+                 {
+                     HistoryRepository.LogHistoricalEvent(
+                         MemberId, 
+                         "Status", 
+                         "GUEST", 
+                         "REGULAR", 
+                         _memberForm.RegularSince.Value, 
+                         $"Manual Correction ({DateTime.Now:MM/dd/yyyy})"
+                     );
+                 }
+                 catch (Exception ex)
+                 {
+                     Logger.LogError(ex, "Failed to log historical regular start date for member {MemberId}", MemberId);
+                 }
+            }
+            else if (statusChanged && newStatus.Equals("REGULAR", StringComparison.OrdinalIgnoreCase))
+            {
+                // If they cleared the date but just became regular, ensure it defaults to today
+                // (Already handled by statusChanged block, but just being explicit if needed)
+            }
+            
             _member.IsNonPortugueseOrigin = _memberForm.IsNonPortugueseOrigin;
             _member.Notes = _memberForm.Notes?.Trim();
             _member.DateOfDeath = _memberForm.DateOfDeath;
@@ -782,10 +910,11 @@ else if (_memberForm != null)
             
             // Show success animation
             _saving = false;
+            _hasUnsavedChanges = false; // Clear unsaved changes flag
 
             if (justAccepted)
             {
-                _showKeyCardPrompt = true;
+                _showDuesPrompt = true;
             }
             else
             {
@@ -819,6 +948,22 @@ else if (_memberForm != null)
         var textInfo = System.Globalization.CultureInfo.CurrentCulture.TextInfo;
         return textInfo.ToTitleCase(address.Trim().ToLowerInvariant());
     }
+    
+    // Format phone numbers to xxx-xxx-xxxx if they are 10 digits
+    private string? FormatPhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return phone;
+        
+        // Remove allowed characters to check for digits
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        
+        if (digits.Length == 10)
+        {
+            return $"{digits.Substring(0, 3)}-{digits.Substring(3, 3)}-{digits.Substring(6)}";
+        }
+        
+        return phone?.Trim();
+    }
 
     private static string GetFullName(Member member)
     {
@@ -829,9 +974,24 @@ else if (_memberForm != null)
         return string.IsNullOrWhiteSpace(suffix) ? name : $"{name} {suffix}";
     }
 
-    private void GoBack()
+    private async Task GoBack()
     {
+        if (_hasUnsavedChanges)
+        {
+            var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "You have unsaved changes. Are you sure you want to leave without saving?");
+            if (!confirmed)
+            {
+                return;
+            }
+        }
+        
+        await JSRuntime.InvokeVoidAsync("eval", "window.hasUnsavedChanges = false;");
         NavManager.NavigateTo("/members");
+    }
+
+    private void MarkAsChanged()
+    {
+        _hasUnsavedChanges = true;
     }
 
     private void GoToMemberDetail()
@@ -839,9 +999,9 @@ else if (_memberForm != null)
         NavManager.NavigateTo($"/members/{MemberId}");
     }
 
-    private void GoToAssignKeyCard()
+    private void GoToRecordDues()
     {
-        NavManager.NavigateTo($"/keycards?assignTo={MemberId}");
+        NavManager.NavigateTo($"/dues?action=pay&memberId={MemberId}");
     }
 
     private void UpdateDateOfBirth()
@@ -852,6 +1012,8 @@ else if (_memberForm != null)
             catch { _memberForm.DateOfBirth = null; }
         }
         else _memberForm.DateOfBirth = null;
+        
+        MarkAsChanged();
     }
 
     private void UpdateApplicationDate()
@@ -862,6 +1024,8 @@ else if (_memberForm != null)
             catch { _memberForm.ApplicationDate = null; }
         }
         else _memberForm.ApplicationDate = null;
+        
+        MarkAsChanged();
     }
 
     private void UpdateAcceptedDate()
@@ -872,6 +1036,8 @@ else if (_memberForm != null)
             catch { _memberForm.AcceptedDate = null; }
         }
         else _memberForm.AcceptedDate = null;
+        
+        MarkAsChanged();
     }
 
     private void UpdateRegularSinceDate()
@@ -882,6 +1048,8 @@ else if (_memberForm != null)
             catch { _memberForm.RegularSince = null; }
         }
         else _memberForm.RegularSince = null;
+        
+        MarkAsChanged();
     }
 
     private void UpdateDateOfDeath()
@@ -892,18 +1060,8 @@ else if (_memberForm != null)
             catch { _memberForm.DateOfDeath = null; }
         }
         else _memberForm.DateOfDeath = null;
-    }
-
-    private void ClearAcceptedDate()
-    {
-        _accMonth = 0; _accDay = 0; _accYear = 0;
-        if (_memberForm != null) _memberForm.AcceptedDate = null;
-    }
-
-    private void ClearRegularSinceDate()
-    {
-        _regMonth = 0; _regDay = 0; _regYear = 0;
-        if (_memberForm != null) _memberForm.RegularSince = null;
+        
+        MarkAsChanged();
     }
 
     private void ClearDateOfDeath()
@@ -965,5 +1123,10 @@ else if (_memberForm != null)
         public DateTime? DateOfDeath { get; set; }
 
         public bool ShowOnWebsite { get; set; }
+    }
+
+    public void Dispose()
+    {
+        _navigationInterceptor?.Dispose();
     }
 }

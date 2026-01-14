@@ -155,6 +155,29 @@ public class HistoryRepository : IHistoryRepository
         return result as DateTime?;
     }
 
+    /// <summary>
+    /// Logs a specific historical event with a manual timestamp.
+    /// </summary>
+    public void LogHistoricalEvent(int memberId, string fieldName, string? oldValue, string newValue, DateTime eventDate, string? changedBy = null)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+        
+        // Ensure we explicitly set the ChangeDate
+        const string sql = @"
+            INSERT INTO MemberChangeHistory (MemberID, FieldName, OldValue, NewValue, ChangedBy, ChangeDate)
+            VALUES (@MemberID, @FieldName, @OldValue, @NewValue, @ChangedBy, @ChangeDate)";
+        
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@MemberID", memberId);
+        command.Parameters.AddWithValue("@FieldName", fieldName);
+        command.Parameters.AddWithValue("@OldValue", (object?)oldValue ?? DBNull.Value);
+        command.Parameters.AddWithValue("@NewValue", newValue); // NewValue is required for historical logs
+        command.Parameters.AddWithValue("@ChangedBy", (object?)changedBy ?? Environment.UserName);
+        command.Parameters.AddWithValue("@ChangeDate", eventDate);
+        
+        command.ExecuteNonQuery();
+    }
 }
 
 /// <summary>

@@ -16,6 +16,7 @@
 @inject ILogger<MemberDetail> Logger
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject IMemberActivityTimelineService ActivityTimelineService
+@inject IHistoryRepository HistoryRepository
 
 <PageTitle>Member Detail</PageTitle>
 
@@ -90,7 +91,7 @@
                 <i class="bi bi-arrow-left-short me-1"></i>
                 Back to Members
             </button>
-            @if (AllowActiveActions())
+            @if (_member is not null)
             {
                 <button class="btn btn-primary" type="button" @onclick="NavigateToEdit">
                     <i class="bi bi-pencil-square me-1"></i>
@@ -188,11 +189,16 @@ else if (_member is not null)
                         <div class="info-label">Accepted Date</div>
                         <div class="info-value">@(FormatDate(_member.AcceptedDate) ?? "—")</div>
                     </div>
-                    @if (!IsGuestMember())
+                    @if (ShouldShowRegularSince())
                     {
                         <div class="col">
-                            <div class="info-label">Regular Since</div>
-                            <div class="info-value">@FormatDate(GetRegularSince())</div>
+                            <div class="info-label">Regular Membership Start Date</div>
+                            <div class="info-value">
+                                @FormatDate(_member?.RegularSince)
+                                <div class="text-muted small fw-normal mt-1" style="font-size: 0.75rem; line-height: 1.2;">
+                                    Date changed from Guest to Regular/Regular-NP
+                                </div>
+                            </div>
                         </div>
                     }
                     @if (!IsGuestMember() && (IsLifeMember() || _member?.LifeEligibleDate.HasValue == true))
@@ -241,7 +247,7 @@ else if (_member is not null)
                         <div class="info-value">@GetDuesStatus()</div>
                     </div>
                     <div class="col">
-                        <div class="info-label">Status Updated</div>
+                        <div class="info-label">Date Status Changed</div>
                         <div class="info-value">@FormatDate(_member.StatusChangeDate)</div>
                     </div>
                     <div class="col">
@@ -251,8 +257,13 @@ else if (_member is not null)
                     @if (IsNpMember())
                     {
                         <div class="col">
-                            <div class="info-label">NP Queue</div>
-                            <div class="info-value">Yes</div>
+                            <div class="info-label">Non-Portuguese Origin</div>
+                            <div class="info-value">
+                                Yes
+                                <div class="text-muted small fw-normal mt-1" style="font-size: 0.75rem; line-height: 1.2;">
+                                    Member is tracked under the Non-Portuguese Origin quota system.
+                                </div>
+                            </div>
                         </div>
                     }
                 </div>
@@ -285,16 +296,16 @@ else if (_member is not null)
                             <div class="col">
                                 <div class="info-label">Phone</div>
                                 <div class="info-value">
-                                    <a href="tel:@_member.Phone">@_member.Phone</a>
+                                    <a href="tel:@_member.Phone">@FormatPhoneNumber(_member.Phone)</a>
                                 </div>
                             </div>
                         }
                         @if (hasSecondary)
                         {
                             <div class="col">
-                                <div class="info-label">Secondary</div>
+                                <div class="info-label">Cell Phone</div>
                                 <div class="info-value">
-                                    <a href="tel:@_member.CellPhone">@_member.CellPhone</a>
+                                    <a href="tel:@_member.CellPhone">@FormatPhoneNumber(_member.CellPhone)</a>
                                 </div>
                             </div>
                         }
@@ -683,7 +694,8 @@ else if (_member is not null)
         { "Guest", "#6b7280" },
         { "Regular", "#14b8a6" },
         { "Life", "#d6b33d" },
-        { "NP Queue", "#2563eb" },
+        { "Non-Portuguese", "#2563eb" },
+        { "NP Queue", "#2563eb" }, // Kept for backward compat if needed
         { "Past Due", "#f97316" },
         { "Paid", "#16a34a" },
         { "Waived", "#0ea5e9" },
@@ -743,6 +755,13 @@ else if (_member is not null)
             }
 
             _isBoardMember = boardTask.Result;
+
+            // [FIX] Explicitly calculate RegularSince so it displays in the UI
+            // This logic uses the new priority: StatusChangeDate (manual) > History > AcceptedDate
+            if (_member != null)
+            {
+                _member.RegularSince = MemberStatusHelper.GetRegularSinceDate(_member, HistoryRepository);
+            }
 
             var duesList = duesTask.Result ?? new List<GFC.Core.Models.DuesPayment>();
             _currentYearDues = duesList.FirstOrDefault(d => d.Year == DateTime.Today.Year);
@@ -841,7 +860,9 @@ else if (_member is not null)
 
         if (_member.IsNonPortugueseOrigin)
         {
-            yield return new StatusPill("NP Queue", GetChipColor("NP Queue"), false);
+            // If Guest, they are in the "Queue". If Regular, they are just "Non-Portuguese Origin".
+            // To simplify, we'll use "Non-Portuguese" for the chip to be clearer.
+            yield return new StatusPill("Non-Portuguese", GetChipColor("Non-Portuguese"), false);
         }
 
         if (IsDeceased())
@@ -1101,6 +1122,31 @@ else if (_member is not null)
         var normalized = MemberStatusHelper.NormalizeStatus(_member?.Status);
         return string.Equals(normalized, "INACTIVE", StringComparison.OrdinalIgnoreCase)
             || string.Equals(normalized, "DECEASED", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool ShouldShowRegularSince()
+    {
+        if (IsGuestMember() || _member is null) return false;
+        
+        // Only show if RegularSince is explicitly set AND different from AcceptedDate
+        // This hides it for members who started remaining regular immediately vs those who converted from guest/NP
+        return _member.RegularSince.HasValue 
+            && (! _member.AcceptedDate.HasValue || _member.RegularSince.Value.Date != _member.AcceptedDate.Value.Date);
+    }
+
+    private string FormatPhoneNumber(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return string.Empty;
+        
+        // Remove all non-numeric characters
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        
+        if (digits.Length == 10)
+        {
+            return $"{digits.Substring(0, 3)}-{digits.Substring(3, 3)}-{digits.Substring(6)}";
+        }
+        
+        return phone; // Return original if not 10 digits
     }
 
     private bool IsNpMember() => _member?.IsNonPortugueseOrigin == true;
