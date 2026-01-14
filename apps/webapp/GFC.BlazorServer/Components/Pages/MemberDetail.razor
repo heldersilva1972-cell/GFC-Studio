@@ -17,6 +17,7 @@
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject IMemberActivityTimelineService ActivityTimelineService
 @inject IHistoryRepository HistoryRepository
+@inject IDuesWaiverRepository DuesWaiverRepository
 
 <PageTitle>Member Detail</PageTitle>
 
@@ -201,6 +202,18 @@ else if (_member is not null)
                             </div>
                         </div>
                     }
+                    @if (GetTenureYears() != null)
+                    {
+                        <div class="col">
+                            <div class="info-label">Membership Tenure</div>
+                            <div class="info-value">
+                                @GetTenureYears()
+                                <div class="text-muted small fw-normal mt-1" style="font-size: 0.75rem; line-height: 1.2;">
+                                    Years in current status
+                                </div>
+                            </div>
+                        </div>
+                    }
                     @if (!IsGuestMember() && (IsLifeMember() || _member?.LifeEligibleDate.HasValue == true))
                     {
                         <div class="col">
@@ -213,6 +226,13 @@ else if (_member is not null)
                         <div class="col">
                             <div class="info-label">Date of Death</div>
                             <div class="info-value text-danger fw-bold">@FormatDate(_member.DateOfDeath)</div>
+                        </div>
+                    }
+                    @if (!IsGuestMember() && !MemberStatusHelper.IsPending(_member))
+                    {
+                        <div class="col">
+                            <div class="info-label">Key Card</div>
+                            <div class="info-value">@GetKeyCardSummary()</div>
                         </div>
                     }
                 </div>
@@ -464,6 +484,45 @@ else if (_member is not null)
                         </div>
                     }
 
+                    @if (_waivers != null && _waivers.Any())
+                    {
+                        <div class="mt-3 pt-3 border-top">
+                            <div class="info-label mb-2">Waiver History</div>
+                            <div class="d-flex flex-column gap-2">
+                                @foreach (var waiver in _waivers.OrderByDescending(w => w.StartYear))
+                                {
+                                    var isActive = DateTime.Today.Year >= waiver.StartYear && DateTime.Today.Year <= waiver.EndYear;
+                                    var badgeClass = isActive ? "bg-info-subtle text-info border border-info" : "bg-light text-muted border";
+                                    
+                                    <div class="p-2 rounded border @(isActive ? "border-info bg-info-subtle" : "")">
+                                        <div class="d-flex align-items-center justify-content-between mb-1">
+                                            <span class="badge @badgeClass">
+                                                @if (isActive)
+                                                {
+                                                    <i class="bi bi-shield-check me-1"></i><text>Active Waiver</text>
+                                                }
+                                                else
+                                                {
+                                                    <text>Past Waiver</text>
+                                                }
+                                            </span>
+                                            <span class="small fw-semibold">@waiver.StartYear - @waiver.EndYear</span>
+                                        </div>
+                                        <div class="small text-muted">
+                                            <strong>Reason:</strong> @waiver.Reason
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(waiver.CreatedBy))
+                                        {
+                                            <div class="small text-muted">
+                                                <strong>Granted by:</strong> @waiver.CreatedBy on @waiver.CreatedDate.ToString("MMM d, yyyy")
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
                     @if (AllowActiveActions())
                     {
                         <button class="btn btn-outline-primary w-100" type="button" @onclick="NavigateToDues">
@@ -473,137 +532,8 @@ else if (_member is not null)
                 </section>
             }
 
-            <section class="detail-card soft-card">
-                <div class="card-header">
-                    <div>
-                        <div class="eyebrow">Alerts</div>
-                        <h2 class="card-title mb-0">Member Alerts</h2>
-                    </div>
-                </div>
-                <div class="d-flex flex-column gap-1">
-                    <div class="text-muted small">Alert filtering by member is not yet available.</div>
-                    <a class="small fw-semibold text-primary" href="/alerts">View All Alerts</a>
-                </div>
-            </section>
-
             <div class="row g-3">
-                @if (ShowKeyCardSection())
-                {
-                    <div class="col-12 col-xl-6">
-                        <section class="detail-card soft-card keycard-card h-100">
-                            <div class="card-header">
-                                <div>
-                                    <div class="eyebrow">Key Cards</div>
-                                    <h2 class="card-title mb-0">Card Number</h2>
-                                </div>
-                                @if (AllowActiveActions())
-                                {
-                                    <button class="btn btn-link btn-sm text-primary p-0" type="button" @onclick="NavigateToKeyCards">
-                                        Manage All Cards
-                                    </button>
-                                }
-                            </div>
-
-                            @if (_keyCardsLoading)
-                            {
-                                <div class="d-flex align-items-center gap-2 text-muted small">
-                                    <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
-                                    <span>Loading key card information...</span>
-                                </div>
-                            }
-                            else if (!string.IsNullOrWhiteSpace(_keyCardsError))
-                            {
-                                <div class="alert alert-danger d-flex align-items-center justify-content-between gap-2 mb-0 py-2 px-3 small">
-                                    <span class="me-2 flex-grow-1">@_keyCardsError</span>
-                                    <button class="btn btn-outline-light btn-sm" type="button" aria-label="Retry loading key cards" @onclick="LoadMemberAsync">Retry</button>
-                                </div>
-                            }
-                            else if (_keyCards.Count == 0 || !_keyCards.Any(a => a.KeyCard?.IsActive == true && !a.ToDate.HasValue))
-                            {
-                                <div class="empty-card-state text-center py-3">
-                                    <div class="text-muted mb-2">No active card assigned.</div>
-                                    @if (AllowCardAssignment())
-                                    {
-                                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="NavigateToKeyCards">
-                                            Assign New Card
-                                        </button>
-                                    }
-                                    else if (AllowActiveActions() && IsPastDueDues())
-                                    {
-                                        <div class="alert alert-warning small mb-0 mt-2">
-                                            <i class="bi bi-exclamation-triangle me-1"></i>
-                                            Dues must be paid before assigning a card.
-                                        </div>
-                                    }
-                                </div>
-                                
-                                @if (_keyCards.Any())
-                                {
-                                    <div class="mt-3 border-top pt-2">
-                                        <small class="text-muted d-block mb-1">History</small>
-                                        <div class="keycard-list">
-                                            @foreach (var assignment in _keyCards.Take(2))
-                                            {
-                                                <div class="keycard-row small opacity-75">
-                                                    <div class="keycard-row__top">
-                                                        <div class="keycard-number">@(assignment.KeyCard?.CardNumber ?? "Unknown")</div>
-                                                        <span class="badge bg-secondary" style="font-size: 0.6rem;">EXPIRED</span>
-                                                    </div>
-                                                </div>
-                                            }
-                                        </div>
-                                    </div>
-                                }
-                            }
-                            else
-                            {
-                                <div class="keycard-list">
-                                    @foreach (var assignment in _keyCards.Where(a => a.KeyCard?.IsActive == true && !a.ToDate.HasValue))
-                                    {
-                                        <div class="keycard-row active-card-highlight">
-                                            <div class="keycard-row__top">
-                                                <div class="keycard-number fw-bold">
-                                                    <i class="bi bi-credit-card-2-front me-2"></i>
-                                                    @((assignment.KeyCard?.CardNumber) ?? $"Card #{assignment.KeyCardId}")
-                                                </div>
-                                                <span class="badge bg-success-subtle text-success border border-success-subtle">
-                                                    ACTIVE
-                                                </span>
-                                            </div>
-                                            <div class="keycard-row__meta">
-                                                <div>
-                                                    <div class="info-label">Current Assignment</div>
-                                                    <div class="info-value">@FormatDate(assignment.FromDate)</div>
-                                                </div>
-                                                @if (assignment.KeyCard?.CardType != null)
-                                                {
-                                                    <div>
-                                                        <div class="info-label">Type</div>
-                                                        <div class="info-value">@assignment.KeyCard.CardType</div>
-                                                    </div>
-                                                }
-                                            </div>
-                                            @if (AllowActiveActions())
-                                            {
-                                                <div class="keycard-row__actions">
-                                                    <button class="btn btn-link btn-sm px-0" type="button" @onclick="() => NavigateToCardDetails(assignment.KeyCardId)">
-                                                        View Details
-                                                    </button>
-                                                    <span class="dot-separator">•</span>
-                                                    <button class="btn btn-link btn-sm px-0" type="button" @onclick="() => NavigateToReplaceCard(assignment.KeyCardId)">
-                                                        Replace Card
-                                                    </button>
-                                                </div>
-                                            }
-                                        </div>
-                                    }
-                                </div>
-                            }
-                        </section>
-                    </div>
-                }
-
-                <div class="col-12 col-xl-6">
+                <div class="col-12">
                     <section class="detail-card soft-card activity-card h-100">
                         <div class="card-header">
                             <div>
@@ -688,6 +618,7 @@ else if (_member is not null)
     private bool _activityLoading;
     private string? _activityError;
     private bool _notesExpanded = true;
+    private List<DuesWaiverPeriod> _waivers = new();
 
     private readonly Dictionary<string, string> _pillPalette = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -770,6 +701,17 @@ else if (_member is not null)
                 .OrderByDescending(d => d.PaidDate ?? DateTime.MinValue)
                 .ThenByDescending(d => d.Year)
                 .FirstOrDefault();
+
+            // Load waivers
+            try
+            {
+                _waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(MemberId));
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[MemberDetail] Failed to load waivers for member {MemberId}", MemberId);
+                _waivers = new List<DuesWaiverPeriod>();
+            }
 
             var keyCardsTask = LoadKeyCardsAsync();
             var activityTask = LoadActivityTimelineAsync();
@@ -1020,6 +962,79 @@ else if (_member is not null)
         return _member.LifeEligibleDate;
     }
 
+    private string? GetTenureYears()
+    {
+        if (_member is null) return null;
+
+        var normalized = MemberStatusHelper.NormalizeStatus(_member.Status);
+        DateTime? startDate = null;
+        string statusLabel = "";
+        string? guestTenure = null;
+
+        switch (normalized)
+        {
+            case "GUEST":
+                // For guests, use AcceptedDate or ApplicationDate
+                startDate = _member.AcceptedDate ?? _member.ApplicationDate;
+                statusLabel = "Guest";
+                break;
+
+            case "REGULAR":
+            case "REGULAR-NP":
+                // For regular members, use RegularSince (which includes history)
+                startDate = _member.RegularSince;
+                statusLabel = normalized == "REGULAR-NP" ? "Regular (Non-Portuguese)" : "Regular";
+                
+                // Calculate Guest tenure if they were promoted from Guest
+                if (_member.RegularSince.HasValue && _member.AcceptedDate.HasValue)
+                {
+                    // If RegularSince is later than AcceptedDate, they were a Guest first
+                    if (_member.RegularSince.Value.Date > _member.AcceptedDate.Value.Date)
+                    {
+                        var guestYears = MemberStatusHelper.CalculateAge(_member.AcceptedDate.Value, _member.RegularSince.Value);
+                        var guestYearsText = guestYears == 1 ? "year" : "years";
+                        guestTenure = $"{guestYears} {guestYearsText} as Guest";
+                    }
+                }
+                break;
+
+            case "LIFE":
+                // For Life members, show years as Regular before becoming Life
+                startDate = _member.RegularSince;
+                statusLabel = "Regular (before Life)";
+                
+                // Also calculate Guest tenure if applicable
+                if (_member.RegularSince.HasValue && _member.AcceptedDate.HasValue)
+                {
+                    if (_member.RegularSince.Value.Date > _member.AcceptedDate.Value.Date)
+                    {
+                        var guestYears = MemberStatusHelper.CalculateAge(_member.AcceptedDate.Value, _member.RegularSince.Value);
+                        var guestYearsText = guestYears == 1 ? "year" : "years";
+                        guestTenure = $"{guestYears} {guestYearsText} as Guest";
+                    }
+                }
+                break;
+
+            default:
+                return null;
+        }
+
+        if (!startDate.HasValue) return null;
+
+        var years = MemberStatusHelper.CalculateAge(startDate.Value, DateTime.Today);
+        var yearsText = years == 1 ? "year" : "years";
+
+        var mainTenure = $"{years} {yearsText} as {statusLabel}";
+        
+        // Combine both tenures if Guest tenure exists
+        if (!string.IsNullOrEmpty(guestTenure))
+        {
+            return $"{mainTenure} • {guestTenure}";
+        }
+
+        return mainTenure;
+    }
+
     private string GetChipColor(string label)
         => _pillPalette.TryGetValue(label, out var color) ? color : "#6b7280";
 
@@ -1092,6 +1107,28 @@ else if (_member is not null)
     }
 
     private void ToggleNotes() => _notesExpanded = !_notesExpanded;
+
+    private string GetKeyCardSummary()
+    {
+        if (_keyCards == null || !_keyCards.Any())
+        {
+            return "Not Assigned";
+        }
+
+        var activeCard = _keyCards.FirstOrDefault(k => k.KeyCard?.IsActive == true);
+        if (activeCard?.KeyCard != null)
+        {
+            return $"#{activeCard.KeyCard.CardNumber} (Active)";
+        }
+
+        var anyCard = _keyCards.FirstOrDefault(k => k.KeyCard != null);
+        if (anyCard?.KeyCard != null)
+        {
+            return $"#{anyCard.KeyCard.CardNumber} (Inactive)";
+        }
+
+        return "Not Assigned";
+    }
 
     private bool HasStatusIndicators()
     {

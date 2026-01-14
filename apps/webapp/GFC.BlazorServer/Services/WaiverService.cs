@@ -12,7 +12,10 @@ public class WaiverService
     private readonly ILogger<WaiverService> _logger;
     private readonly IAuditLogger _auditLogger;
 
-    public WaiverService(IDbContextFactory<GfcDbContext> contextFactory, ILogger<WaiverService> logger, IAuditLogger auditLogger)
+    public WaiverService(
+        IDbContextFactory<GfcDbContext> contextFactory, 
+        ILogger<WaiverService> logger, 
+        IAuditLogger auditLogger)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -73,12 +76,12 @@ public class WaiverService
         var previousSummary = previous == null
             ? "no previous waiver"
             : $"previous reason {previous.Reason}, notes: {previous.Notes ?? "none"}";
-        var details = $"Waiver set for {year}: reason {reason.Trim()}, notes: {notes ?? "none"}; {previousSummary}";
+        var auditDetails = $"Waiver set for {year}: reason {reason.Trim()}, notes: {notes ?? "none"}; {previousSummary}";
         _auditLogger.Log(
             AuditLogActions.DuesWaiverChanged,
             performedByUserId,
             null,
-            details);
+            auditDetails);
     }
 
     public async Task<List<Waiver>> GetWaiversForMemberAsync(int memberId, CancellationToken cancellationToken = default)

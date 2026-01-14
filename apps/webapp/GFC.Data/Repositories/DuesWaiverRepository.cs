@@ -36,6 +36,10 @@ public class DuesWaiverRepository : IDuesWaiverRepository
                 SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
                 FROM DuesWaiverPeriods
                 WHERE MemberId = @MemberId
+                UNION ALL
+                SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
+                FROM Waivers
+                WHERE MemberId = @MemberId
                 ORDER BY StartYear";
 
             using var command = new SqlCommand(sql, connection);
@@ -67,7 +71,11 @@ public class DuesWaiverRepository : IDuesWaiverRepository
             const string sql = @"
                 SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
                 FROM DuesWaiverPeriods
-                WHERE @Year BETWEEN StartYear AND EndYear";
+                WHERE @Year BETWEEN StartYear AND EndYear
+                UNION ALL
+                SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
+                FROM Waivers
+                WHERE [Year] = @Year";
 
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@Year", year);
@@ -98,6 +106,9 @@ public class DuesWaiverRepository : IDuesWaiverRepository
             const string sql = @"
                 SELECT WaiverId, MemberId, StartYear, EndYear, Reason, CreatedDate, CreatedBy
                 FROM DuesWaiverPeriods
+                UNION ALL
+                SELECT Id AS WaiverId, MemberId, CAST([Year] AS INT) AS StartYear, CAST([Year] AS INT) AS EndYear, Reason, CAST('2025-01-01' AS DATETIME) AS CreatedDate, 'System' AS CreatedBy
+                FROM Waivers
                 ORDER BY MemberId, StartYear";
 
             using var command = new SqlCommand(sql, connection);
@@ -122,10 +133,17 @@ public class DuesWaiverRepository : IDuesWaiverRepository
         connection.Open();
 
         const string sql = @"
-            SELECT COUNT(*)
-            FROM DuesWaiverPeriods
-            WHERE MemberId = @MemberId
-              AND @Year BETWEEN StartYear AND EndYear";
+            SELECT (
+                SELECT COUNT(*)
+                FROM DuesWaiverPeriods
+                WHERE MemberId = @MemberId
+                  AND @Year BETWEEN StartYear AND EndYear
+            ) + (
+                SELECT COUNT(*)
+                FROM Waivers
+                WHERE MemberId = @MemberId
+                  AND [Year] = @Year
+            )";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@MemberId", memberId);

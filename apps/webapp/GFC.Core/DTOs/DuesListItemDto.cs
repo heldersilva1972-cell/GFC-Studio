@@ -1,4 +1,5 @@
 using GFC.Core.Enums;
+using System;
 
 namespace GFC.Core.DTOs;
 
@@ -15,4 +16,3 @@ public record DuesListItemDto(
     string? WaiverReason,
     string Notes,
     bool IsBoardMember);
-

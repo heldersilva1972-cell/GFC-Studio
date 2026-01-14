@@ -120,6 +120,31 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
                     Details = details
                 });
             }
+
+            // Also add waiver events
+            var waivers = await _dbContext.Waivers
+                .AsNoTracking()
+                .Where(w => w.MemberId == memberId)
+                .OrderByDescending(w => w.Year)
+                .ToListAsync(ct);
+
+            foreach (var waiver in waivers)
+            {
+                var waiverDate = new DateTime(waiver.Year, 1, 1);
+                var details = $"Year {waiver.Year}; Reason: {waiver.Reason}";
+                if (!string.IsNullOrWhiteSpace(waiver.Notes))
+                {
+                    details += $"; Notes: {waiver.Notes}";
+                }
+
+                events.Add(new MemberActivityEvent
+                {
+                    TimestampUtc = EnsureUtc(waiverDate),
+                    Source = GetSourceLabel("Dues"),
+                    Summary = $"Dues waived",
+                    Details = details
+                });
+            }
         }
         catch (Exception ex)
         {

@@ -24,9 +24,15 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
                     m.FirstName,
                     m.LastName,
                     m.Status AS MemberStatus,
-                    dp.PaymentType,
+                    COALESCE(dp.PaymentType, 
+                        (SELECT TOP 1 'WAIVED' FROM dbo.Waivers WHERE MemberId = m.MemberId AND Year = @Year),
+                        (SELECT TOP 1 'WAIVED' FROM dbo.DuesWaiverPeriods WHERE MemberId = m.MemberId AND @Year BETWEEN StartYear AND EndYear)
+                    ) AS PaymentType,
                     dp.PaidDate,
-                    dpPrev.PaymentType AS PreviousPaymentType,
+                    COALESCE(dpPrev.PaymentType, 
+                        (SELECT TOP 1 'WAIVED' FROM dbo.Waivers WHERE MemberId = m.MemberId AND Year = @PreviousYear),
+                        (SELECT TOP 1 'WAIVED' FROM dbo.DuesWaiverPeriods WHERE MemberId = m.MemberId AND @PreviousYear BETWEEN StartYear AND EndYear)
+                    ) AS PreviousPaymentType,
                     dpPrev.PaidDate AS PreviousPaidDate,
                     currentAssignment.AssignmentId,
                     currentAssignment.KeyCardId,

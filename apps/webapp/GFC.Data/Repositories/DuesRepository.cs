@@ -69,9 +69,9 @@ public class DuesRepository : IDuesRepository
             connection.Open();
 
             const string sql = @"
-                SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes
-                FROM DuesPayments
-                WHERE Year = @Year";
+            SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes
+            FROM DuesPayments
+            WHERE Year = @Year";
 
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@Year", year);
@@ -410,6 +410,12 @@ public class DuesRepository : IDuesRepository
                              WHERE MemberId = @MemberID
                                AND @Year BETWEEN StartYear AND EndYear
                          )
+                         OR EXISTS (
+                             SELECT 1
+                             FROM Waivers
+                             WHERE MemberId = @MemberID
+                               AND Year = @Year
+                         )
                          THEN 1
                          ELSE 0
                        END";
@@ -554,9 +560,6 @@ public class DuesRepository : IDuesRepository
         return "Unpaid";
     }
 
-    /// <summary>
-    /// Appends a note to every unpaid dues row for the specified member. Existing notes are preserved.
-    /// </summary>
     public void AppendNoteToUnpaidDues(int memberId, string note)
     {
         if (memberId <= 0)
@@ -587,6 +590,7 @@ public class DuesRepository : IDuesRepository
 
         command.ExecuteNonQuery();
     }
+
 }
 
 

@@ -118,7 +118,7 @@ public class OverdueCalculationService
         }
         
         int daysOverdue = (today - dueDate).Days;
-        int monthsOverdue = CalculateFullMonths(dueDate, today);
+        int monthsOverdue = CalculateFullMonths(dueDate, today) + 1;
         
         return new OverdueResult
         {
@@ -221,8 +221,8 @@ public class OverdueCalculationService
         // Calculate days overdue
         int daysOverdue = (today - dueDate).Days;
         
-        // Calculate months overdue (full calendar months)
-        int monthsOverdue = CalculateFullMonths(dueDate, today);
+        // Calculate months overdue (inclusive of current month)
+        int monthsOverdue = CalculateFullMonths(dueDate, today) + 1;
         
         return new OverdueResult
         {
