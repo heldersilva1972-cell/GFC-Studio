@@ -16,6 +16,7 @@
 @inject IDuesRepository DuesRepository
 @inject IBoardRepository BoardRepository
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject IDuesWaiverRepository DuesWaiverRepository
 @inject KeyCardService CardService
 @implements IDisposable
 
@@ -829,11 +830,12 @@ else
             var boardCurrentTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
             var boardPrevTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
             var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
+            var waiversTask = Task.Run(() => DuesWaiverRepository.GetAllWaivers());
 
             await Task.WhenAll(
                 listTask, detailsTask, cardsTask, 
                 duesCurrentTask, duesPrevTask, 
-                boardCurrentTask, boardPrevTask, settingsTask
+                boardCurrentTask, boardPrevTask, settingsTask, waiversTask
             );
 
             var list = listTask.Result;
@@ -845,6 +847,15 @@ else
             var boardCurrent = boardCurrentTask.Result.Select(a => a.MemberID).ToHashSet();
             var boardPrev = boardPrevTask.Result.Select(a => a.MemberID).ToHashSet();
             var settings = settingsTask.Result;
+            var allWaivers = waiversTask.Result;
+            
+            // Build waiver lookup: memberId -> set of years covered by waivers
+            var waiverYearsByMember = allWaivers
+                .GroupBy(w => w.MemberId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.SelectMany(w => Enumerable.Range(w.StartYear, w.EndYear - w.StartYear + 1)).ToHashSet()
+                );
 
             var activeCardByMember = allCards
                 .Where(c => c.IsActive)
@@ -866,8 +877,12 @@ else
                     var isBoard = boardCurrent.Contains(item.MemberId);
                     
                     // Determine Dues Status logic (matching KeyCardService rules)
-                    bool currentPaid = isBoard || isLife || (duesCurrent.TryGetValue(item.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
-                    bool prevPaid = isBoard || isLife || (duesPrev.TryGetValue(item.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                    // Check if member has waiver for current/previous year
+                    bool hasCurrentWaiver = waiverYearsByMember.TryGetValue(item.MemberId, out var memberWaiverYears) && memberWaiverYears.Contains(year);
+                    bool hasPrevWaiver = waiverYearsByMember.TryGetValue(item.MemberId, out var memberPrevWaiverYears) && memberPrevWaiverYears.Contains(year - 1);
+                    
+                    bool currentPaid = isBoard || isLife || hasCurrentWaiver || (duesCurrent.TryGetValue(item.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                    bool prevPaid = isBoard || isLife || hasPrevWaiver || (duesPrev.TryGetValue(item.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
                     
                     if (detail == null) return null;
                     var eligibility = CardService.GetEligibilityBulk(detail, year, settings, currentPaid, prevPaid);
