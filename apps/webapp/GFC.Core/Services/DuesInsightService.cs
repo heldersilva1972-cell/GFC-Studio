@@ -18,19 +18,22 @@ public class DuesInsightService : IDuesInsightService
     private readonly OverdueCalculationService _overdueService;
     private readonly IBoardRepository _boardRepository;
     private readonly IDuesWaiverRepository _waiverRepository;
+    private readonly IDuesYearSettingsRepository _settingsRepository;
 
     public DuesInsightService(
         IDuesRepository duesRepository,
         IMemberRepository memberRepository,
         OverdueCalculationService overdueService,
         IBoardRepository boardRepository,
-        IDuesWaiverRepository waiverRepository)
+        IDuesWaiverRepository waiverRepository,
+        IDuesYearSettingsRepository settingsRepository)
     {
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _overdueService = overdueService ?? throw new ArgumentNullException(nameof(overdueService));
         _boardRepository = boardRepository ?? throw new ArgumentNullException(nameof(boardRepository));
         _waiverRepository = waiverRepository ?? throw new ArgumentNullException(nameof(waiverRepository));
+        _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
     }
 
     public async Task<IReadOnlyList<DuesListItemDto>> GetDuesAsync(int year, bool paidTab, CancellationToken cancellationToken = default)
@@ -39,13 +42,15 @@ public class DuesInsightService : IDuesInsightService
         var duesHistory = await Task.Run(() => _duesRepository.GetAllDues(), cancellationToken);
         var waivers = await Task.Run(() => _waiverRepository.GetAllWaivers(), cancellationToken);
         var boardAssignments = await Task.Run(() => _boardRepository.GetAllAssignments(), cancellationToken);
+        var settings = await Task.Run(() => _settingsRepository.GetSettingsForYear(year), cancellationToken);
 
         var context = new OverdueCalculationService.DuesCalculationContext
         {
             DuesByMember = duesHistory.GroupBy(d => d.MemberID).ToDictionary(g => g.Key, g => g.ToList()),
             WaiversByMember = waivers.GroupBy(w => w.MemberId).ToDictionary(g => g.Key, g => g.ToList()),
             BoardAssignmentsByMember = boardAssignments.GroupBy(a => a.MemberID).ToDictionary(g => g.Key, g => g.Select(a => a.TermYear).ToHashSet()),
-            Today = DateTime.Today
+            Today = DateTime.Today,
+            GraceEndDate = settings?.GraceEndDate
         };
 
         var duesLookup = duesHistory.Where(d => d.Year == year).ToLookup(d => d.MemberID);
@@ -69,6 +74,8 @@ public class DuesInsightService : IDuesInsightService
             if (!paidTab && isSatisfied) continue;
 
             var overdueMonths = 0;
+            var isInGracePeriod = false;
+            
             if (!isSatisfied)
             {
                 var overdueResult = _overdueService.CalculateOverdue(member, context);
@@ -76,6 +83,7 @@ public class DuesInsightService : IDuesInsightService
                 {
                     overdueMonths = overdueResult.MonthsOverdue;
                 }
+                isInGracePeriod = overdueResult.IsInGracePeriod;
             }
 
             string? waiverReason = null;
@@ -99,7 +107,8 @@ public class DuesInsightService : IDuesInsightService
                 isWaived,
                 waiverReason,
                 record?.Notes ?? string.Empty,
-                isBoard));
+                isBoard,
+                isInGracePeriod));
         }
 
         return list.OrderBy(i => i.FullName).ToList();

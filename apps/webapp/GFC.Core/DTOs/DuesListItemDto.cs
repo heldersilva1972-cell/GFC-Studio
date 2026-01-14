@@ -16,4 +16,5 @@ public record DuesListItemDto(
     bool IsWaived,
     string? WaiverReason,
     string Notes,
-    bool IsBoardMember);
+    bool IsBoardMember,
+    bool IsInGracePeriod = false);

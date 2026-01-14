@@ -37,6 +37,7 @@ public class OverdueCalculationService
         public Dictionary<int, List<DuesWaiverPeriod>> WaiversByMember { get; set; } = new();
         public Dictionary<int, HashSet<int>> BoardAssignmentsByMember { get; set; } = new();
         public DateTime Today { get; set; } = DateTime.Today;
+        public DateTime? GraceEndDate { get; set; }
     }
 
     /// <summary>
@@ -114,6 +115,24 @@ public class OverdueCalculationService
                 FirstUnpaidYear = firstUnpaidYear,
                 DueDate = dueDate,
                 LastCoveredYear = lastCoveredYear
+            };
+        }
+
+        // Check if we are within the grace period for the first unpaid year
+        // Only applies if the first unpaid year matches the year of the GraceEndDate
+        if (context.GraceEndDate.HasValue && 
+            context.GraceEndDate.Value.Year == firstUnpaidYear && 
+            today <= context.GraceEndDate.Value)
+        {
+            return new OverdueResult
+            {
+                IsOverdue = false,
+                MonthsOverdue = 0,
+                DaysOverdue = 0,
+                FirstUnpaidYear = firstUnpaidYear,
+                DueDate = context.GraceEndDate.Value,
+                LastCoveredYear = lastCoveredYear,
+                IsInGracePeriod = true
             };
         }
         
@@ -448,6 +467,7 @@ public class OverdueResult
     public int FirstUnpaidYear { get; set; }
     public DateTime DueDate { get; set; }
     public int? LastCoveredYear { get; set; }
+    public bool IsInGracePeriod { get; set; }
 }
 
 
