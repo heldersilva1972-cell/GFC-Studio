@@ -115,6 +115,8 @@ public class GfcDbContext : DbContext
     
     // Network Migration
     public DbSet<NetworkMigration> NetworkMigrations => Set<NetworkMigration>();
+    public DbSet<BylawDocument> BylawDocuments => Set<BylawDocument>();
+    public DbSet<BylawRevision> BylawRevisions => Set<BylawRevision>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

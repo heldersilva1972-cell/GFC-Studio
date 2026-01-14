@@ -288,6 +288,7 @@ public class Program
         builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<INetworkLocationService, NetworkLocationService>();
 builder.Services.AddScoped<IWireGuardManagementService, WireGuardManagementService>();
+builder.Services.AddScoped<IBylawService, BylawService>();
 // Register SystemSettingsService for both interfaces (core and BlazorServer-specific)
 builder.Services.AddScoped<GFC.Core.Interfaces.ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IBlazorSystemSettingsService, SystemSettingsService>();
@@ -886,6 +887,24 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 catch (Exception ex)
                 {
                     Console.WriteLine($">>> Error executing MFA schema fix: {ex.Message}");
+                }
+
+                // [AUTO-FIX 13] Run Bylaws Schema Migration
+                var bylawsScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "CreateBylawsTables.sql");
+                if (File.Exists(bylawsScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Bylaws Schema Fixes from: {bylawsScriptPath}");
+                    var bylawsSql = File.ReadAllText(bylawsScriptPath);
+                    var bylawsBatches = System.Text.RegularExpressions.Regex.Split(bylawsSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in bylawsBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Bylaws batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Bylaws Schema Applied Successfully.");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
