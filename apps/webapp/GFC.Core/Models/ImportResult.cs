@@ -6,6 +6,8 @@ namespace GFC.Core.Models
     {
         public int ProcessedCount { get; set; }
         public int SuccessCount { get; set; }
+        public int CreatedCount { get; set; }
+        public int UpdatedCount { get; set; }
         public int ErrorCount { get; set; }
         public List<string> Errors { get; set; } = new();
     }

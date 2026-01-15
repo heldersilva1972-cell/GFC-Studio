@@ -88,23 +88,25 @@ namespace GFC.BlazorServer.Services
             // Headers
             worksheet.Cells[1, 1].Value = "Member ID";
             worksheet.Cells[1, 2].Value = "First Name";
-            worksheet.Cells[1, 3].Value = "Last Name";
-            worksheet.Cells[1, 4].Value = "Status";
-            worksheet.Cells[1, 5].Value = "Address";
-            worksheet.Cells[1, 6].Value = "City";
-            worksheet.Cells[1, 7].Value = "State";
-            worksheet.Cells[1, 8].Value = "Postal Code";
-            worksheet.Cells[1, 9].Value = "Phone";
-            worksheet.Cells[1, 10].Value = "Cell Phone";
-            worksheet.Cells[1, 11].Value = "Email";
-            worksheet.Cells[1, 12].Value = "Join Date";
-            worksheet.Cells[1, 13].Value = "Accepted Date";
-            worksheet.Cells[1, 14].Value = "Date of Birth";
-            worksheet.Cells[1, 15].Value = "Non-Portuguese Origin";
-            worksheet.Cells[1, 16].Value = "Notes";
+            worksheet.Cells[1, 3].Value = "Middle Name";
+            worksheet.Cells[1, 4].Value = "Last Name";
+            worksheet.Cells[1, 5].Value = "Suffix";
+            worksheet.Cells[1, 6].Value = "Status";
+            worksheet.Cells[1, 7].Value = "Address";
+            worksheet.Cells[1, 8].Value = "City";
+            worksheet.Cells[1, 9].Value = "State";
+            worksheet.Cells[1, 10].Value = "Postal Code";
+            worksheet.Cells[1, 11].Value = "Phone";
+            worksheet.Cells[1, 12].Value = "Cell Phone";
+            worksheet.Cells[1, 13].Value = "Email";
+            worksheet.Cells[1, 14].Value = "Join Date";
+            worksheet.Cells[1, 15].Value = "Accepted Date";
+            worksheet.Cells[1, 16].Value = "Date of Birth";
+            worksheet.Cells[1, 17].Value = "Non-Portuguese Origin";
+            worksheet.Cells[1, 18].Value = "Notes";
 
             // Style headers
-            using (var range = worksheet.Cells[1, 1, 1, 16])
+            using (var range = worksheet.Cells[1, 1, 1, 18])
             {
                 range.Style.Font.Bold = true;
                 range.Style.Fill.PatternType = ExcelFillStyle.Solid;
@@ -118,20 +120,22 @@ namespace GFC.BlazorServer.Services
             {
                 worksheet.Cells[row, 1].Value = member.MemberID;
                 worksheet.Cells[row, 2].Value = member.FirstName;
-                worksheet.Cells[row, 3].Value = member.LastName;
-                worksheet.Cells[row, 4].Value = member.Status;
-                worksheet.Cells[row, 5].Value = member.Address1;
-                worksheet.Cells[row, 6].Value = member.City;
-                worksheet.Cells[row, 7].Value = member.State;
-                worksheet.Cells[row, 8].Value = member.PostalCode;
-                worksheet.Cells[row, 9].Value = member.Phone;
-                worksheet.Cells[row, 10].Value = member.CellPhone;
-                worksheet.Cells[row, 11].Value = member.Email;
-                worksheet.Cells[row, 12].Value = member.ApplicationDate?.ToString("yyyy-MM-dd");
-                worksheet.Cells[row, 13].Value = member.AcceptedDate?.ToString("yyyy-MM-dd");
-                worksheet.Cells[row, 14].Value = member.DateOfBirth?.ToString("yyyy-MM-dd");
-                worksheet.Cells[row, 15].Value = member.IsNonPortugueseOrigin ? "Yes" : "No";
-                worksheet.Cells[row, 16].Value = member.Notes;
+                worksheet.Cells[row, 3].Value = member.MiddleName;
+                worksheet.Cells[row, 4].Value = member.LastName;
+                worksheet.Cells[row, 5].Value = member.Suffix;
+                worksheet.Cells[row, 6].Value = member.Status;
+                worksheet.Cells[row, 7].Value = member.Address1;
+                worksheet.Cells[row, 8].Value = member.City;
+                worksheet.Cells[row, 9].Value = member.State;
+                worksheet.Cells[row, 10].Value = member.PostalCode;
+                worksheet.Cells[row, 11].Value = member.Phone;
+                worksheet.Cells[row, 12].Value = member.CellPhone;
+                worksheet.Cells[row, 13].Value = member.Email;
+                worksheet.Cells[row, 14].Value = member.ApplicationDate?.ToString("yyyy-MM-dd");
+                worksheet.Cells[row, 15].Value = member.AcceptedDate?.ToString("yyyy-MM-dd");
+                worksheet.Cells[row, 16].Value = member.DateOfBirth?.ToString("yyyy-MM-dd");
+                worksheet.Cells[row, 17].Value = member.IsNonPortugueseOrigin ? "Yes" : "No";
+                worksheet.Cells[row, 18].Value = member.Notes;
                 row++;
             }
 
@@ -527,19 +531,15 @@ namespace GFC.BlazorServer.Services
                 {
                     using var package = new ExcelPackage(fileStream);
 
-                    // Process Members Sheet
-                    var membersSheet = package.Workbook.Worksheets["Members"];
+                    // Process Members Sheet (case-insensitive, accept common variations)
+                    var membersSheet = FindWorksheet(package.Workbook, "Members", "Member", "Member List", "MemberList");
                     if (membersSheet != null)
                     {
                         ProcessMembersSheet(membersSheet, result);
                     }
                     else
                     {
-                         // If no members sheet, we could check others, but for now we just log it as info if strictly looking for members.
-                         // Instead, let's treat it as "nothing to do" or specific error if user expects it.
-                         // But the user might be uploading just Key Cards.
-                         // For this request, I'll focus on Members.
-                         result.Errors.Add("No 'Members' worksheet found. Currently only Member updates are supported.");
+                         result.Errors.Add("No 'Members' worksheet found. Please ensure your Excel file has a worksheet named 'Members', 'Member', or 'Member List'.");
                          result.ErrorCount++;
                     }
                 }
@@ -553,69 +553,130 @@ namespace GFC.BlazorServer.Services
             });
         }
 
+
+        /// <summary>
+        /// Finds a worksheet by name, case-insensitive, trying multiple common variations.
+        /// </summary>
+        private ExcelWorksheet? FindWorksheet(ExcelWorkbook workbook, params string[] possibleNames)
+        {
+            foreach (var name in possibleNames)
+            {
+                var sheet = workbook.Worksheets.FirstOrDefault(ws => 
+                    ws.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (sheet != null) return sheet;
+            }
+            return null;
+        }
+
         private void ProcessMembersSheet(ExcelWorksheet worksheet, ImportResult result)
         {
             int row = 2;
-            while (worksheet.Cells[row, 1].Value != null)
+            // Continue until we hit a row where FirstName AND LastName are both empty
+            while (!IsRowEmpty(worksheet, row))
             {
                 result.ProcessedCount++;
                 try
                 {
                     // 1. Get Member ID
-                    if (!int.TryParse(worksheet.Cells[row, 1].Value?.ToString(), out int memberId))
-                    {
-                        result.Errors.Add($"Row {row}: Invalid Member ID.");
-                        result.ErrorCount++;
-                        row++;
-                        continue;
-                    }
+                    int memberId = 0;
+                    var idString = worksheet.Cells[row, 1].Value?.ToString();
 
-                    // 2. Find Existing Member
-                    var member = _memberRepository.GetMemberById(memberId);
+                    // If ID is provided, try parse. If blank, treating as 0 (New Member)
+                    if (!string.IsNullOrWhiteSpace(idString) && !int.TryParse(idString, out memberId))
+                    {
+                         // Check if maybe it's just "New" or literal text
+                         if (!string.Equals(idString, "New", StringComparison.OrdinalIgnoreCase))
+                         {
+                             result.Errors.Add($"Row {row}: Invalid Member ID '{idString}'. Use 0 or leave blank for new members.");
+                             result.ErrorCount++;
+                             row++;
+                             continue;
+                         }
+                         memberId = 0;
+                    }
+                    
+                    // 2. Find Existing Member (if ID > 0)
+                    Member member = null;
+                    if (memberId > 0)
+                    {
+                        member = _memberRepository.GetMemberById(memberId);
+                    }
+                    
                     if (member == null)
                     {
-                        result.Errors.Add($"Row {row}: Member ID {memberId} not found in database.");
-                        result.ErrorCount++;
-                        row++;
-                        continue;
+                        // Create New
+                        member = new Member();
+                        MapMemberFromRow(member, worksheet, row);
+                        // Note: Database will assign a new ID, we cannot force the Excel ID without IDENTITY_INSERT
+                        _memberRepository.InsertMember(member);
+                        result.CreatedCount++;
+                        result.SuccessCount++;
                     }
-
-                    // 3. Update Fields
-                    // Columns: 
-                    // 1:ID, 2:First, 3:Last, 4:Status, 5:Addr, 6:City, 7:State, 8:Zip, 
-                    // 9:Phone, 10:Cell, 11:Email, 12:JoinDate, 13:AcceptedDate, 14:DOB, 15:NonPort, 16:Notes
-
-                    member.FirstName = GetString(worksheet, row, 2);
-                    member.LastName = GetString(worksheet, row, 3);
-                    member.Status = GetString(worksheet, row, 4);
-                    member.Address1 = GetString(worksheet, row, 5);
-                    member.City = GetString(worksheet, row, 6);
-                    member.State = GetString(worksheet, row, 7);
-                    member.PostalCode = GetString(worksheet, row, 8);
-                    member.Phone = GetString(worksheet, row, 9);
-                    member.CellPhone = GetString(worksheet, row, 10);
-                    member.Email = GetString(worksheet, row, 11);
-                    
-                    member.ApplicationDate = GetDate(worksheet, row, 12);
-                    member.AcceptedDate = GetDate(worksheet, row, 13);
-                    member.DateOfBirth = GetDate(worksheet, row, 14);
-
-                    var npString = GetString(worksheet, row, 15);
-                    member.IsNonPortugueseOrigin = npString?.Equals("Yes", StringComparison.OrdinalIgnoreCase) == true;
-
-                    member.Notes = GetString(worksheet, row, 16);
-
-                    // 4. Save
-                    _memberRepository.UpdateMember(member);
-                    result.SuccessCount++;
+                    else
+                    {
+                        // Update Existing
+                        MapMemberFromRow(member, worksheet, row);
+                        _memberRepository.UpdateMember(member);
+                        result.UpdatedCount++;
+                        result.SuccessCount++;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    result.Errors.Add($"Row {row}: Error updating member - {ex.Message}");
+                    result.Errors.Add($"Row {row}: Error processing member - {ex.Message}");
                     result.ErrorCount++;
                 }
                 row++;
             }
+        }
+
+        /// <summary>
+        /// Checks if a row is empty by looking at FirstName (col 2) and LastName (col 4).
+        /// </summary>
+        private bool IsRowEmpty(ExcelWorksheet worksheet, int row)
+        {
+            var firstName = worksheet.Cells[row, 2].Value?.ToString();
+            var lastName = worksheet.Cells[row, 4].Value?.ToString();
+            return string.IsNullOrWhiteSpace(firstName) && string.IsNullOrWhiteSpace(lastName);
+        }
+
+        private void MapMemberFromRow(Member member, ExcelWorksheet worksheet, int row)
+        {
+            // Columns: 
+            // 1:ID, 2:First, 3:Middle, 4:Last, 5:Suffix, 6:Status, 7:Addr, 8:City, 9:State, 10:Zip, 
+            // 11:Phone, 12:Cell, 13:Email, 14:JoinDate, 15:AcceptedDate, 16:DOB, 17:NonPort, 18:Notes
+
+            // Normalize and Format Fields (with safe defaults for required fields)
+            var firstName = FormatName(GetString(worksheet, row, 2));
+            var lastName = FormatName(GetString(worksheet, row, 4));
+            var rawStatus = GetString(worksheet, row, 6);
+
+            // Provide safe defaults if required fields are missing
+            member.FirstName = string.IsNullOrWhiteSpace(firstName) ? "Unknown" : firstName;
+            member.MiddleName = FormatName(GetString(worksheet, row, 3));
+            member.LastName = string.IsNullOrWhiteSpace(lastName) ? "Unknown" : lastName;
+            member.Suffix = GetString(worksheet, row, 5); // Suffix usually keeps user styling (Sr., III)
+
+            // Normalize Status using Business Logic Rule (default to GUEST if empty)
+            var normalizedStatus = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(rawStatus);
+            member.Status = string.IsNullOrWhiteSpace(normalizedStatus) ? "GUEST" : normalizedStatus;
+
+            member.Address1 = FormatAddress(GetString(worksheet, row, 7));
+            member.City = FormatName(GetString(worksheet, row, 8));
+            member.State = GetString(worksheet, row, 9)?.Trim().ToUpperInvariant();
+            member.PostalCode = GetString(worksheet, row, 10)?.Trim();
+            member.Phone = FormatPhone(GetString(worksheet, row, 11));
+            member.CellPhone = FormatPhone(GetString(worksheet, row, 12));
+            member.Email = GetString(worksheet, row, 13)?.Trim().ToLowerInvariant();
+            
+            member.ApplicationDate = GetDate(worksheet, row, 14);
+            member.AcceptedDate = GetDate(worksheet, row, 15);
+            member.DateOfBirth = GetDate(worksheet, row, 16);
+
+            var npString = GetString(worksheet, row, 17);
+            member.IsNonPortugueseOrigin = npString?.Equals("Yes", StringComparison.OrdinalIgnoreCase) == true;
+
+            member.Notes = GetString(worksheet, row, 18);
         }
 
         private string GetString(ExcelWorksheet ws, int row, int col)
@@ -626,9 +687,86 @@ namespace GFC.BlazorServer.Services
         private DateTime? GetDate(ExcelWorksheet ws, int row, int col)
         {
             var val = ws.Cells[row, col].Value;
+            
+            // Case 1: Already a DateTime object (Excel stores dates as DateTime)
             if (val is DateTime dt) return dt;
-            if (val is string s && DateTime.TryParse(s, out var parsed)) return parsed;
+            
+            // Case 2: Excel serial date number (e.g., 44927 for 2023-01-01)
+            if (val is double dbl)
+            {
+                try
+                {
+                    return DateTime.FromOADate(dbl);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+            
+            // Case 3: String representation
+            if (val is string s && !string.IsNullOrWhiteSpace(s))
+            {
+                // Try standard parsing first
+                if (DateTime.TryParse(s, out var parsed))
+                {
+                    return parsed;
+                }
+                
+                // Try common formats with 2-digit years (e.g., "1/15/25", "01/15/25")
+                string[] formats = new[]
+                {
+                    "M/d/yy", "MM/dd/yy", "M/dd/yy", "MM/d/yy",
+                    "M-d-yy", "MM-dd-yy", "M-dd-yy", "MM-d-yy",
+                    "M/d/yyyy", "MM/dd/yyyy", "M/dd/yyyy", "MM/d/yyyy",
+                    "M-d-yyyy", "MM-dd-yyyy", "M-dd-yyyy", "MM-d-yyyy",
+                    "yyyy-MM-dd", "yyyy/MM/dd"
+                };
+                
+                if (DateTime.TryParseExact(s, formats, 
+                    System.Globalization.CultureInfo.InvariantCulture, 
+                    System.Globalization.DateTimeStyles.None, 
+                    out var exactParsed))
+                {
+                    return exactParsed;
+                }
+            }
+            
             return null;
+        }
+
+        // --- Formatting Helpers (Matches AddMember.razor logic) ---
+
+        // Format names: Capitalize first letter of each word, lowercase the rest
+        private string? FormatName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return name;
+            
+            var textInfo = System.Globalization.CultureInfo.CurrentCulture.TextInfo;
+            return textInfo.ToTitleCase(name.Trim().ToLowerInvariant());
+        }
+        
+        // Format addresses: Proper capitalization (same as FormatName but semantic naming)
+        private string? FormatAddress(string? address)
+        {
+            return FormatName(address);
+        }
+        
+        // Format phone numbers to xxx-xxx-xxxx if they are 10 digits
+        private string? FormatPhone(string? phone)
+        {
+            if (string.IsNullOrWhiteSpace(phone)) return phone;
+            
+            // Remove allowed characters to check for digits
+            var digits = new string(phone.Where(char.IsDigit).ToArray());
+            
+            // Only reformat if it's exactly 10 digits (US Standard)
+            if (digits.Length == 10)
+            {
+                return $"{digits.Substring(0, 3)}-{digits.Substring(3, 3)}-{digits.Substring(6)}";
+            }
+            
+            return phone?.Trim();
         }
     }
 }
