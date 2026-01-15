@@ -16,6 +16,7 @@ public class KeyCardMemberRow
     public int? AssignmentId { get; set; }
     public int? KeyCardId { get; set; }
     public string? KeyCardNumber { get; set; }
+    public bool IsNonPortugueseOrigin { get; set; }
 
     public string DisplayName => $"{LastName}, {FirstName}";
     public bool HasActiveAssignment => AssignmentId.HasValue;
