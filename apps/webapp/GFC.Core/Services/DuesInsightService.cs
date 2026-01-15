@@ -148,7 +148,9 @@ public class DuesInsightService : IDuesInsightService
     {
         var first = (member.FirstName ?? string.Empty).Trim();
         var last = (member.LastName ?? string.Empty).Trim();
-        return string.IsNullOrWhiteSpace(last) ? first : $"{last}, {first}";
+        var suffix = (member.Suffix ?? string.Empty).Trim();
+        var fullName = string.IsNullOrWhiteSpace(last) ? first : $"{last}, {first}";
+        return string.IsNullOrEmpty(suffix) ? fullName : $"{fullName} {suffix}";
     }
 
     private static MemberStatus MapStatus(string status)

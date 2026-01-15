@@ -108,6 +108,7 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
                 m.LastName,
                 m.Status AS MemberStatus,
                 m.IsNonPortugueseOrigin,
+                m.Suffix,
                 dp.PaymentType,
                 dp.PaidDate,
                 dpPrev.PaymentType AS PreviousPaymentType,
@@ -171,7 +172,8 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
                 AssignmentId = reader["AssignmentId"] is DBNull ? null : (int?)reader["AssignmentId"],
                 KeyCardId = reader["KeyCardId"] is DBNull ? null : (int?)reader["KeyCardId"],
                 KeyCardNumber = reader["CardNumber"] as string,
-                IsNonPortugueseOrigin = reader["IsNonPortugueseOrigin"] != DBNull.Value && (bool)reader["IsNonPortugueseOrigin"]
+                IsNonPortugueseOrigin = reader["IsNonPortugueseOrigin"] != DBNull.Value && (bool)reader["IsNonPortugueseOrigin"],
+                Suffix = reader["Suffix"] as string
             });
         }
 

@@ -17,8 +17,11 @@ public class KeyCardMemberRow
     public int? KeyCardId { get; set; }
     public string? KeyCardNumber { get; set; }
     public bool IsNonPortugueseOrigin { get; set; }
+    public string? Suffix { get; set; }
 
-    public string DisplayName => $"{LastName}, {FirstName}";
+    public string DisplayName => string.IsNullOrEmpty(Suffix) 
+        ? $"{LastName}, {FirstName}" 
+        : $"{LastName}, {FirstName} {Suffix}";
     public bool HasActiveAssignment => AssignmentId.HasValue;
 }
 
