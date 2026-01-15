@@ -523,9 +523,39 @@
                                     <ValidationMessage For="@(() => _paymentForm.Amount)" />
                                 </div>
                                 
-                                <div class="col-6">
+                                <div class="col-12">
                                     <label class="form-label small text-muted text-uppercase fw-bold">Date</label>
-                                    <InputDate class="form-control" @bind-Value="_paymentForm.PaidDate" />
+                                    <div class="d-flex gap-2">
+                                        <select class="form-select" @bind="_paymentMonth" @bind:after="UpdatePaymentDate">
+                                            <option value="0">Month</option>
+                                            <option value="1">01 - January</option>
+                                            <option value="2">02 - February</option>
+                                            <option value="3">03 - March</option>
+                                            <option value="4">04 - April</option>
+                                            <option value="5">05 - May</option>
+                                            <option value="6">06 - June</option>
+                                            <option value="7">07 - July</option>
+                                            <option value="8">08 - August</option>
+                                            <option value="9">09 - September</option>
+                                            <option value="10">10 - October</option>
+                                            <option value="11">11 - November</option>
+                                            <option value="12">12 - December</option>
+                                        </select>
+                                        <select class="form-select" @bind="_paymentDay" @bind:after="UpdatePaymentDate">
+                                            <option value="0">Day</option>
+                                            @for (int i = 1; i <= 31; i++)
+                                            {
+                                                <option value="@i">@i</option>
+                                            }
+                                        </select>
+                                        <select class="form-select" @bind="_paymentYear" @bind:after="UpdatePaymentDate">
+                                            <option value="0">Year</option>
+                                            @for (int year = DateTime.Today.Year; year >= DateTime.Today.Year - 5; year--)
+                                            {
+                                                <option value="@year">@year</option>
+                                            }
+                                        </select>
+                                    </div>
                                     <ValidationMessage For="@(() => _paymentForm.PaidDate)" />
                                 </div>
                                 <div class="col-6">
@@ -888,6 +918,11 @@
     private bool _hasActiveCard;
     private DuesListItemDto? _paymentTarget;
     private PaymentFormModel _paymentForm = PaymentFormModel.CreateDefault();
+    
+    // Date picker backing fields for payment modal
+    private int _paymentMonth = 0;
+    private int _paymentDay = 0;
+    private int _paymentYear = 0;
     
     private bool _showWaiverModal;
     private WaiverFormModel _waiverForm = new();
@@ -1313,6 +1348,13 @@
         _paymentForm = PaymentFormModel.CreateDefault();
         _paymentForm.PaymentType = string.IsNullOrWhiteSpace(item.PaymentType) ? PaymentMethods.First() : item.PaymentType;
         _paymentForm.Year = _selectedYear;
+        
+        // Initialize date dropdowns to today's date
+        var today = DateTime.Today;
+        _paymentMonth = today.Month;
+        _paymentDay = today.Day;
+        _paymentYear = today.Year;
+        
         _showPaymentModal = true;
     }
 
@@ -1320,18 +1362,88 @@
     {
         _showPaymentModal = false;
         _paymentTarget = null;
+        _paymentMonth = 0;
+        _paymentDay = 0;
+        _paymentYear = 0;
+    }
+    
+    private void UpdatePaymentDate()
+    {
+        if (_paymentMonth > 0 && _paymentDay > 0 && _paymentYear > 0)
+        {
+            try
+            {
+                _paymentForm.PaidDate = new DateTime(_paymentYear, _paymentMonth, _paymentDay);
+            }
+            catch
+            {
+                // Invalid date combination (e.g., Feb 30)
+                _paymentForm.PaidDate = DateTime.Today;
+            }
+        }
+        else
+        {
+            _paymentForm.PaidDate = DateTime.Today;
+        }
     }
 
     private void PromptSubmitPayment()
     {
         if (_paymentTarget == null) return;
         
-        _confirmTitle = "Record Payment";
-        _confirmMessage = $"Confirm payment of {_paymentForm.Amount:C} for {_paymentTarget.FullName}?";
-        _confirmSubMessage = $"This will record a {_paymentForm.PaymentType} payment for the year {_paymentForm.Year}.";
-        _confirmActionText = "Record Payment";
-        _confirmType = ConfirmActionModal.ConfirmType.Success;
-        _confirmIcon = "bi-cash-coin";
+        // Check if payment already exists for this member/year
+        var existingPayment = DuesRepository.GetDuesForMemberYear(_paymentTarget.MemberId, _paymentForm.Year);
+        
+        // Check if member is waived (Life, Board, or Manual waiver)
+        bool isLifeMember = _paymentTarget.Status == MemberStatus.Life;
+        bool isBoardMember = _paymentTarget.IsBoardMember;
+        bool hasManualWaiver = DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId)
+            .Any(w => _paymentForm.Year >= w.StartYear && _paymentForm.Year <= w.EndYear);
+        bool hasWaivedPayment = existingPayment?.PaymentType?.Equals("WAIVED", StringComparison.OrdinalIgnoreCase) == true;
+        
+        bool isWaived = isLifeMember || isBoardMember || hasManualWaiver || hasWaivedPayment;
+        
+        if (isWaived)
+        {
+            // Member is waived - show warning
+            string waiverReason = isLifeMember ? "Life Member" :
+                                  isBoardMember ? "Board Member/Director" :
+                                  hasWaivedPayment ? "Manually Waived" :
+                                  "Active Waiver Period";
+            
+            _confirmTitle = "⚠️ Member Has Waived Dues";
+            _confirmMessage = $"{_paymentTarget.FullName} has waived dues for {_paymentForm.Year}.";
+            _confirmSubMessage = $"Waiver Reason: {waiverReason}\n\n" +
+                                 $"Recording a payment will REMOVE the waiver and replace it with:\n" +
+                                 $"{_paymentForm.Amount:C} paid on {_paymentForm.PaidDate:MM/dd/yyyy} via {_paymentForm.PaymentType}\n\n" +
+                                 $"Do you want to proceed?";
+            _confirmActionText = "Yes, Remove Waiver & Record Payment";
+            _confirmType = ConfirmActionModal.ConfirmType.Warning;
+            _confirmIcon = "bi-exclamation-triangle";
+        }
+        else if (existingPayment != null)
+        {
+            // Payment already exists - show warning and ask for confirmation to modify
+            _confirmTitle = "⚠️ Payment Already Exists";
+            _confirmMessage = $"{_paymentTarget.FullName} already has a payment recorded for {_paymentForm.Year}.";
+            _confirmSubMessage = $"Existing: {existingPayment.Amount:C} paid on {existingPayment.PaidDate:MM/dd/yyyy} via {existingPayment.PaymentType}\n\n" +
+                                 $"New: {_paymentForm.Amount:C} on {_paymentForm.PaidDate:MM/dd/yyyy} via {_paymentForm.PaymentType}\n\n" +
+                                 $"Do you want to REPLACE the existing payment with the new one?";
+            _confirmActionText = "Yes, Replace Payment";
+            _confirmType = ConfirmActionModal.ConfirmType.Warning;
+            _confirmIcon = "bi-exclamation-triangle";
+        }
+        else
+        {
+            // No existing payment - normal confirmation
+            _confirmTitle = "Record Payment";
+            _confirmMessage = $"Confirm payment of {_paymentForm.Amount:C} for {_paymentTarget.FullName}?";
+            _confirmSubMessage = $"This will record a {_paymentForm.PaymentType} payment for the year {_paymentForm.Year}.";
+            _confirmActionText = "Record Payment";
+            _confirmType = ConfirmActionModal.ConfirmType.Success;
+            _confirmIcon = "bi-cash-coin";
+        }
+        
         _confirmAction = async () => await SubmitPaymentAsync();
         _showConfirmModal = true;
     }
