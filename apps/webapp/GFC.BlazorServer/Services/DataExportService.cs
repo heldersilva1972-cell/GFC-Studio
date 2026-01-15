@@ -664,7 +664,7 @@ namespace GFC.BlazorServer.Services
             member.Address1 = FormatAddress(GetString(worksheet, row, 7));
             member.City = FormatName(GetString(worksheet, row, 8));
             member.State = GetString(worksheet, row, 9)?.Trim().ToUpperInvariant();
-            member.PostalCode = GetString(worksheet, row, 10)?.Trim();
+            member.PostalCode = GetPostalCode(worksheet, row, 10);
             member.Phone = FormatPhone(GetString(worksheet, row, 11));
             member.CellPhone = FormatPhone(GetString(worksheet, row, 12));
             member.Email = GetString(worksheet, row, 13)?.Trim().ToLowerInvariant();
@@ -682,6 +682,22 @@ namespace GFC.BlazorServer.Services
         private string GetString(ExcelWorksheet ws, int row, int col)
         {
             return ws.Cells[row, col].Value?.ToString()?.Trim() ?? string.Empty;
+        }
+
+        private string GetPostalCode(ExcelWorksheet ws, int row, int col)
+        {
+            var val = ws.Cells[row, col].Value;
+            if (val == null) return string.Empty;
+
+            var s = val.ToString()?.Trim() ?? string.Empty;
+
+            // If it's a number and shorter than 5 digits, pad it to 5 (standard US zip)
+            if (s.Length > 0 && s.Length < 5 && int.TryParse(s, out _))
+            {
+                return s.PadLeft(5, '0');
+            }
+
+            return s;
         }
 
         private DateTime? GetDate(ExcelWorksheet ws, int row, int col)
