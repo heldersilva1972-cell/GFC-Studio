@@ -1,6 +1,9 @@
 using GFC.Core.BusinessRules;
 using GFC.Core.DTOs;
 using GFC.Core.Interfaces;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace GFC.Core.Services;
 
@@ -28,11 +31,20 @@ public class NpQueueService : INpQueueService
                 .Select(item => new NpQueueEntryDto(
                     item.Position,
                     item.MemberID,
-                    $"{item.FirstName} {item.LastName}",
+                    BuildFullName(item.FirstName, item.MiddleName, item.LastName),
                     item.AcceptedDate,
                     item.Position == 1))
                 .ToList();
         }, cancellationToken);
+    }
+
+    private static string BuildFullName(string? first, string? middle, string? last)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(first)) parts.Add(first.Trim());
+        if (!string.IsNullOrWhiteSpace(middle)) parts.Add(middle.Trim());
+        if (!string.IsNullOrWhiteSpace(last)) parts.Add(last.Trim());
+        return string.Join(" ", parts);
     }
 
     public Task<int> GetSlotsAvailableAsync(CancellationToken cancellationToken = default)

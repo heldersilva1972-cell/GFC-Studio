@@ -291,7 +291,7 @@ public class KeyCardLifecycleService
                     {
                         MemberId = card.MemberId,
                         CardId = card.KeyCardId,
-                        FullName = $"{member.FirstName} {member.LastName}",
+                        FullName = BuildFullName(member.FirstName, member.MiddleName, member.LastName),
                         CardNumber = card.CardNumber,
                         GraceEndDate = settings.GraceEndDate,
                         DaysRemaining = settings.GraceEndDate.HasValue ? (settings.GraceEndDate.Value - DateTime.Today).Days : 0,
@@ -303,6 +303,15 @@ public class KeyCardLifecycleService
         }
         
         return riskList;
+    }
+
+    private static string BuildFullName(string? first, string? middle, string? last)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(first)) parts.Add(first.Trim());
+        if (!string.IsNullOrWhiteSpace(middle)) parts.Add(middle.Trim());
+        if (!string.IsNullOrWhiteSpace(last)) parts.Add(last.Trim());
+        return string.Join(" ", parts);
     }
 }
 

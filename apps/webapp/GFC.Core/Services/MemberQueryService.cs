@@ -81,8 +81,8 @@ public class MemberQueryService : IMemberQueryService
         if (!string.IsNullOrWhiteSpace(options.SearchText))
         {
             query = query.Where(m =>
-                $"{m.FirstName} {m.LastName}".Contains(options.SearchText, StringComparison.OrdinalIgnoreCase) ||
-                $"{m.LastName}, {m.FirstName}".Contains(options.SearchText, StringComparison.OrdinalIgnoreCase));
+                $"{m.FirstName} {m.MiddleName} {m.LastName}".Contains(options.SearchText, StringComparison.OrdinalIgnoreCase) ||
+                $"{m.LastName}, {m.FirstName} {m.MiddleName}".Contains(options.SearchText, StringComparison.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrWhiteSpace(options.Status))

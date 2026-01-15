@@ -32,7 +32,7 @@ public class LifeEligibilityService : ILifeEligibilityService
 
                     return new LifeEligibilityDto(
                         m.MemberID,
-                        $"{m.FirstName} {m.LastName}",
+                        BuildFullName(m.FirstName, m.MiddleName, m.LastName),
                         age,
                         regularSince,
                         eligibilityDate,
@@ -41,6 +41,15 @@ public class LifeEligibilityService : ILifeEligibilityService
                 .OrderBy(dto => dto.EligibilityDate ?? DateTime.MaxValue)
                 .ToList();
         }, cancellationToken);
+    }
+
+    private static string BuildFullName(string? first, string? middle, string? last)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(first)) parts.Add(first.Trim());
+        if (!string.IsNullOrWhiteSpace(middle)) parts.Add(middle.Trim());
+        if (!string.IsNullOrWhiteSpace(last)) parts.Add(last.Trim());
+        return string.Join(" ", parts);
     }
 }
 

@@ -625,7 +625,7 @@ FROM Members;";
             connection.Open();
             
             const string sql = @"
-                SELECT MemberID, LastName, FirstName, AcceptedDate
+                SELECT MemberID, LastName, FirstName, MiddleName, AcceptedDate
                 FROM Members
                 WHERE Status = 'GUEST' AND IsNonPortugueseOrigin = 1
                 ORDER BY AcceptedDate, LastName, FirstName";
@@ -641,6 +641,7 @@ FROM Members;";
                     MemberID = (int)reader["MemberID"],
                     LastName = reader["LastName"].ToString() ?? string.Empty,
                     FirstName = reader["FirstName"].ToString() ?? string.Empty,
+                    MiddleName = reader["MiddleName"] as string,
                     AcceptedDate = reader["AcceptedDate"] as DateTime?,
                     Position = position++
                 });

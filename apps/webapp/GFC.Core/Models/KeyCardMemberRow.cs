@@ -7,6 +7,7 @@ public class KeyCardMemberRow
 {
     public int MemberId { get; set; }
     public string FirstName { get; set; } = string.Empty;
+    public string? MiddleName { get; set; }
     public string LastName { get; set; } = string.Empty;
     public string MemberStatus { get; set; } = string.Empty;
     public string? DuesPaymentType { get; set; }
@@ -19,9 +20,15 @@ public class KeyCardMemberRow
     public bool IsNonPortugueseOrigin { get; set; }
     public string? Suffix { get; set; }
 
-    public string DisplayName => string.IsNullOrEmpty(Suffix) 
-        ? $"{LastName}, {FirstName}" 
-        : $"{LastName}, {FirstName} {Suffix}";
+    public string DisplayName
+    {
+        get
+        {
+            var firstPart = string.IsNullOrWhiteSpace(MiddleName) ? FirstName : $"{FirstName} {MiddleName}";
+            var name = string.IsNullOrWhiteSpace(LastName) ? firstPart : $"{LastName}, {firstPart}";
+            return string.IsNullOrWhiteSpace(Suffix) ? name : $"{name} {Suffix}";
+        }
+    }
     public bool HasActiveAssignment => AssignmentId.HasValue;
 }
 

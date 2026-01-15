@@ -147,9 +147,12 @@ public class DuesInsightService : IDuesInsightService
     private static string FormatMemberName(Member member)
     {
         var first = (member.FirstName ?? string.Empty).Trim();
+        var middle = (member.MiddleName ?? string.Empty).Trim();
         var last = (member.LastName ?? string.Empty).Trim();
         var suffix = (member.Suffix ?? string.Empty).Trim();
-        var fullName = string.IsNullOrWhiteSpace(last) ? first : $"{last}, {first}";
+
+        var firstPart = string.IsNullOrWhiteSpace(middle) ? first : $"{first} {middle}";
+        var fullName = string.IsNullOrWhiteSpace(last) ? firstPart : $"{last}, {firstPart}";
         return string.IsNullOrEmpty(suffix) ? fullName : $"{fullName} {suffix}";
     }
 

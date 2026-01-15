@@ -105,6 +105,7 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
             SELECT
                 m.MemberID,
                 m.FirstName,
+                m.MiddleName,
                 m.LastName,
                 m.Status AS MemberStatus,
                 m.IsNonPortugueseOrigin,
@@ -163,6 +164,7 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
             {
                 MemberId = memberId,
                 FirstName = reader["FirstName"]?.ToString() ?? string.Empty,
+                MiddleName = reader["MiddleName"]?.ToString(),
                 LastName = reader["LastName"]?.ToString() ?? string.Empty,
                 MemberStatus = reader["MemberStatus"]?.ToString() ?? string.Empty,
                 DuesPaymentType = finalPaymentType,
