@@ -1,513 +1,471 @@
-// [NEW]
 @page "/admin/security-settings"
 @using GFC.Core.Enums
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services.Vpn
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject IAuthorizedUserService AuthorizedUserService
 @inject IVpnManagementService VpnManagementService
+@inject IVpnConfigurationService VpnConfigurationService
 @inject IJSRuntime JSRuntime
 @inject IUserManagementService UserManagementService
 @inject IUrlHelperService UrlHelperService
-@inject IEmailService EmailService
+@inject IAuthenticationService AuthenticationService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IUserConnectionService UserConnectionService
+@inject ILogger<SecuritySettings> Logger
 
-<h3>Security & Remote Access</h3>
+<PageTitle>Security & Policy Hub</PageTitle>
 
-@if (!string.IsNullOrEmpty(_errorMessage))
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-@if (!string.IsNullOrEmpty(_successMessage))
-{
-    <div class="alert alert-success">@_successMessage</div>
-}
-
-
-@if (_settings == null)
-{
-    @if (string.IsNullOrEmpty(_errorMessage))
-    {
-        <p><em>Loading...</em></p>
-    }
-}
-else
-{
-    @* Health Status Dashboard *@
-    <div class="form-card mt-4">
-        <div class="form-card-header">
-            <i class="bi bi-heart-pulse"></i>
-            <h5>Health Status</h5>
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-shield-lock-fill text-primary"></i> Security & Policy Hub</h2>
+            <p class="text-muted mb-0">Unified management of system governance, identity, and notification policies.</p>
         </div>
-        <div class="form-card-body">
-            <RemoteAccessHealth />
-        </div>
-    </div>
-
-    <EditForm Model="@_settings" OnValidSubmit="SaveChanges">
-        <DataAnnotationsValidator />
-        <ValidationSummary />
-
-        @* Remote Access Configuration *@
-        <div class="form-card mt-4">
-            <div class="form-card-header">
-                <i class="bi bi-diagram-3"></i>
-                <h5>Remote Access Configuration</h5>
-            </div>
-            <div class="form-card-body">
-                <div class="mb-3">
-                    <label for="cloudflareToken" class="form-label">Cloudflare Tunnel Token</label>
-                    <InputText id="cloudflareToken" class="form-control" @bind-Value="_settings.CloudflareTunnelToken" />
-                </div>
-
-                <div class="mb-3">
-                    <label for="wireguardPort" class="form-label">WireGuard Port</label>
-                    <InputNumber id="wireguardPort" class="form-control" @bind-Value="_settings.WireGuardPort" />
-                </div>
-                <div class="mb-3">
-                    <label for="wireguardSubnet" class="form-label">WireGuard Subnet</label>
-                    <InputText id="wireguardSubnet" class="form-control" @bind-Value="_settings.WireGuardSubnet" />
-                </div>
-            </div>
-        </div>
-
-        @* User & Permission Management *@
-        <div class="form-card mt-4">
-            <div class="form-card-header">
-                <i class="bi bi-people"></i>
-                <h5>User & Permission Management</h5>
-            </div>
-            <div class="form-card-body">
-                <h6>Director Access Management</h6>
-                <div class="mb-3">
-                    <label for="directorExpiry" class="form-label">Director Access Expiry Date</label>
-                    <InputDate id="directorExpiry" class="form-control" @bind-Value="_settings.DirectorAccessExpiryDate" />
-                </div>
-                <hr />
-                <h6>Additional Authorized Users</h6>
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>User</th>
-                            <th>Access Level</th>
-                            <th>Expires</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var user in _authorizedUsers)
-                        {
-                            <tr>
-                                <td>@user.User?.Username</td>
-                                <td>@user.AccessLevel</td>
-                                <td>@(user.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never")</td>
-                                <td>
-                                    <button class="btn btn-danger btn-sm" @onclick="() => RemoveAuthorizedUser(user.Id, user.UserId)">Remove</button>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-                <div class="mt-3">
-                    <h6>Add Authorized User</h6>
-                    <div class="row">
-                        <div class="col-md-4">
-                            <InputSelect @bind-Value="_newAuthorizedUser.UserId" class="form-select">
-                                <option value="0">Select User...</option>
-                                @foreach (var user in _allUsers)
-                                {
-                                    <option value="@user.UserId">@user.Username</option>
-                                }
-                            </InputSelect>
-                        </div>
-                        <div class="col-md-4">
-                            <InputSelect @bind-Value="_newAuthorizedUser.AccessLevel" class="form-select">
-                                <option value="View Only">View Only</option>
-                                <option value="Full Access">Full Access</option>
-                            </InputSelect>
-                        </div>
-                        <div class="col-md-4">
-                            <button class="btn btn-success" @onclick="AddAuthorizedUser">Add User</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        @* Security "Hardening" Toggles *@
-        <div class="form-card mt-4">
-            <div class="form-card-header">
-                <i class="bi bi-shield-lock"></i>
-                <h5>Security "Hardening" Toggles</h5>
-            </div>
-            <div class="form-card-body">
-                <div class="form-check form-switch mb-3 p-3 border rounded @(_settings.EnableTwoFactorAuth ? "bg-primary-subtle border-primary" : "bg-light")">
-                    <InputCheckbox id="enable2fa" class="form-check-input ms-0" @bind-Value="_settings.EnableTwoFactorAuth" />
-                    <label for="enable2fa" class="form-check-label fw-bold ms-2">MASTER SWITCH: Enable Multi-Factor Authentication</label>
-                    <div class="small text-muted mt-1 ms-2">
-                        When ON, users who have MFA enabled in their profiles will be forced to verify their identity via code.
-                    </div>
-                </div>
-
-                @if (_settings.EnableTwoFactorAuth)
-                {
-                    <div class="ps-4 border-start border-primary border-4 ms-2">
-                        <div class="mb-3 mt-3">
-                            <label class="form-label fw-semibold">Primary Delivery Method</label>
-                            <InputSelect @bind-Value="_settings.PreferredMagicLinkMethod" class="form-select">
-                                <option value="Email">Email Only</option>
-                                <option value="SMS">SMS (Requires Twilio)</option>
-                                <option value="Both">Both Email and SMS</option>
-                            </InputSelect>
-                            <div class="form-text">Choose how verification codes are sent to users.</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Trusted Device Duration</label>
-                            <div class="input-group">
-                                <InputNumber @bind-Value="_settings.TrustedDeviceDurationDays" class="form-control" />
-                                <span class="input-group-text">days</span>
-                            </div>
-                            <div class="form-text">How long a device remains "trusted" before requiring a new code.</div>
-                        </div>
-
-                        @if (_settings.PreferredMagicLinkMethod == "SMS" || _settings.PreferredMagicLinkMethod == "Both")
-                        {
-                            <div class="card bg-light border-0 mt-3">
-                                <div class="card-body">
-                                    <h6 class="card-title fw-bold text-primary"><i class="bi bi-chat-dots me-1"></i> Twilio SMS Configuration</h6>
-                                    <div class="mb-2">
-                                        <label class="form-label small mb-1">Account SID</label>
-                                        <InputText @bind-Value="_settings.TwilioAccountSid" class="form-control form-control-sm" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label small mb-1">Auth Token</label>
-                                        <InputText @bind-Value="_settings.TwilioAuthToken" type="password" class="form-control form-control-sm" placeholder="••••••••••••••••••••••••••••••••" />
-                                    </div>
-                                    <div class="mb-0">
-                                        <label class="form-label small mb-1">From Number</label>
-                                        <InputText @bind-Value="_settings.TwilioFromNumber" class="form-control form-control-sm" placeholder="+15550001234" />
-                                    </div>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                }
-                <div class="form-check form-switch mb-2">
-                    <InputCheckbox id="enableSessionTimeout" class="form-check-input" @bind-Value="_settings.EnableSessionTimeout" />
-                    <label for="enableSessionTimeout" class="form-check-label">Enable Session Timeout</label>
-                </div>
-                <div class="mb-3">
-                    <label for="sessionTimeoutMinutes" class="form-label">Session Timeout (minutes)</label>
-                    <InputNumber id="sessionTimeoutMinutes" class="form-control" @bind-Value="_settings.SessionTimeoutMinutes" />
-                </div>
-                <div class="form-check form-switch mb-2">
-                    <InputCheckbox id="enableFailedLoginProtection" class="form-check-input" @bind-Value="_settings.EnableFailedLoginProtection" />
-                    <label for="enableFailedLoginProtection" class="form-check-label">Enable Failed Login Protection</label>
-                </div>
-                <div class="mb-3">
-                    <label for="maxFailedLogins" class="form-label">Max Failed Logins</label>
-                    <InputNumber id="maxFailedLogins" class="form-control" @bind-Value="_settings.MaxFailedLoginAttempts" />
-                </div>
-                <div class="mb-3">
-                    <label for="loginLockDuration" class="form-label">Login Lock Duration (minutes)</label>
-                    <InputNumber id="loginLockDuration" class="form-control" @bind-Value="_settings.LoginLockDurationMinutes" />
-                </div>
-                <div class="form-check form-switch mb-2">
-                    <InputCheckbox id="enableIpFiltering" class="form-check-input" @bind-Value="_settings.EnableIPFiltering" />
-                    <label for="enableIpFiltering" class="form-check-label">Enable IP Filtering</label>
-                </div>
-                <div class="mb-3">
-                    <label for="ipFilterMode" class="form-label">IP Filter Mode</label>
-                    <InputSelect id="ipFilterMode" class="form-select" @bind-Value="_settings.IPFilterMode">
-                        <option value="Blacklist">Blacklist</option>
-                        <option value="Whitelist">Whitelist</option>
-                    </InputSelect>
-                </div>
-                <div class="form-check form-switch mb-2">
-                    <InputCheckbox id="enableWatermarking" class="form-check-input" @bind-Value="_settings.EnableWatermarking" />
-                    <label for="enableWatermarking" class="form-check-label">Enable Watermarking</label>
-                </div>
-                 <div class="mb-3">
-                    <label for="watermarkPosition" class="form-label">Watermark Position</label>
-                    <InputSelect id="watermarkPosition" class="form-select" @bind-Value="_settings.WatermarkPosition">
-                        <option value="BottomRight">Bottom Right</option>
-                        <option value="BottomLeft">Bottom Left</option>
-                        <option value="TopRight">Top Right</option>
-                        <option value="TopLeft">Top Left</option>
-                    </InputSelect>
-                </div>
-            </div>
-        </div>
-
-        @* VPN & Remote Enforcement *@
-        <div class="form-card mt-4">
-            <div class="form-card-header">
-                <i class="bi bi-shield-shaded"></i>
-                <h5>VPN & Remote Enforcement</h5>
-            </div>
-            <div class="form-card-body">
-                <div class="form-check form-switch mb-3">
-                    <InputCheckbox id="enforceVpn" class="form-check-input" @bind-Value="_settings.EnforceVpn" @onchange="OnEnforceVpnChanged" />
-                    <label class="form-check-label" for="enforceVpn">Enforce VPN Access Policy</label>
-                </div>
-
-                @if (_showVpnWarning)
-                {
-                    <div class="alert alert-warning">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        <strong>Warning:</strong> You are currently on a Public connection. Enabling VPN enforcement will instantly disconnect your current session unless you are connected via VPN.
-                    </div>
-                }
-
-                <div class="mb-3">
-                    <label for="accessMode" class="form-label">Access Mode Policy</label>
-                    <InputSelect id="accessMode" class="form-select" @bind-Value="_settings.AccessMode">
-                        <option value="@AccessMode.Open">Open Access (Public + LAN)</option>
-                        <option value="@AccessMode.LanOrVpn">LAN or VPN Only</option>
-                        <option value="@AccessMode.VpnOnly">VPN Only (Strict)</option>
-                    </InputSelect>
-                    <div class="form-text">
-                        Determines the baseline accessibility for the membership system.
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        @* System Limits *@
-        <div class="form-card mt-4">
-            <div class="form-card-header">
-                <i class="bi bi-sliders"></i>
-                <h5>System Limits & Quality</h5>
-            </div>
-            <div class="form-card-body">
-                <div class="mb-3">
-                    <label for="maxViewers" class="form-label">Max Simultaneous Viewers</label>
-                    <InputNumber id="maxViewers" class="form-control" @bind-Value="_settings.MaxSimultaneousViewers" />
-                </div>
-                <div class="mb-3">
-                    <label for="remoteBitrate" class="form-label">Remote Quality Max Bitrate (Mbps)</label>
-                    <InputNumber id="remoteBitrate" class="form-control" @bind-Value="_settings.RemoteQualityMaxBitrate" />
-                </div>
-                <div class="mb-3">
-                    <label for="localBitrate" class="form-label">Local Quality Max Bitrate (Mbps)</label>
-                    <InputNumber id="localBitrate" class="form-control" @bind-Value="_settings.LocalQualityMaxBitrate" />
-                </div>
-            </div>
-        </div>
-
-        <div class="action-bar mt-4">
-            <button type="submit" class="btn btn-primary">Save Changes</button>
-        </div>
-    </EditForm>
-
-    @* Domain Management *@
-    <div class="form-card mt-4">
-        <div class="form-card-header">
-            <i class="bi bi-globe"></i>
-            <h5>Domain & URLs</h5>
-        </div>
-        <div class="form-card-body">
-            <div class="mb-3">
-                <label for="allowedDomains" class="form-label">Allowed Domains</label>
-                <div class="input-group mb-3">
-                    <InputText @bind-Value="_newAllowedDomain" class="form-control" placeholder="e.g., app.lovanow.com" />
-                    <button class="btn btn-outline-secondary" type="button" @onclick="AddAllowedDomain">Add</button>
-                </div>
-                <ul class="list-group">
-                    @foreach (var domain in _allowedDomains)
-                    {
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            @domain
-                            <button class="btn btn-danger btn-sm" @onclick="() => RemoveAllowedDomain(domain)">Remove</button>
-                        </li>
-                    }
-                </ul>
-            </div>
-            <div class="mb-3">
-                <label for="primaryDomain" class="form-label">Primary Domain</label>
-                <InputSelect id="primaryDomain" class="form-select" @bind-Value="_settings.PrimaryDomain">
-                    @foreach (var domain in _allowedDomains)
-                    {
-                        <option value="@domain">@domain</option>
-                    }
-                </InputSelect>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Base URL Preview</label>
-                <p><code>https://@_settings.PrimaryDomain</code></p>
-            </div>
-            @if (!string.IsNullOrEmpty(_settings.DomainSwitchPending))
-            {
-                <div class="alert alert-warning">
-                    <p>You have changed the domain to <strong>@_settings.DomainSwitchPending</strong>. Please confirm this change within 10 minutes, or it will revert.</p>
-                    <button class="btn btn-warning" @onclick="ConfirmDomainChange">Confirm Domain</button>
-                </div>
-            }
-        </div>
-    </div>
-
-    @* Emergency Lockdown *@
-    <div class="form-card mt-4 border-danger">
-        <div class="form-card-header bg-danger text-white">
-            <i class="bi bi-exclamation-octagon"></i>
-            <h5>Emergency Lockdown</h5>
-        </div>
-        <div class="form-card-body">
-            <p>This will instantly disconnect ALL remote users and disable remote access.</p>
-            <button class="btn btn-danger" @onclick="TriggerEmergencyLockdown">
-                <i class="bi bi-power"></i> Activate Emergency Lockdown
+        <div>
+            <button class="btn btn-primary shadow-sm" @onclick="SaveChanges">
+                <i class="bi bi-save me-2"></i> Save All Policies
             </button>
         </div>
     </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> @_errorMessage
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(_successMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i> @_successMessage
+            <button type="button" class="btn-close" @onclick="() => _successMessage = null"></button>
+        </div>
+    }
+
+    <!-- TABS -->
+    <ul class="nav nav-pills mb-4 bg-light p-1 rounded border shadow-sm" id="securityTabs">
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "governance" ? "active" : "")" @onclick="@(() => _activeTab = "governance")">
+                <i class="bi bi-shield-shaded me-2"></i>Governance
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "auth" ? "active" : "")" @onclick="@(() => _activeTab = "auth")">
+                <i class="bi bi-key-fill me-2"></i>Auth & Identity
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "users" ? "active" : "")" @onclick="@(() => _activeTab = "users")">
+                <i class="bi bi-people-fill me-2"></i>Authorized Users
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "notifications" ? "active" : "")" @onclick="@(() => _activeTab = "notifications")">
+                <i class="bi bi-bell-fill me-2"></i>Notifications
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_activeTab == "domain" ? "active" : "")" @onclick="@(() => _activeTab = "domain")">
+                <i class="bi bi-globe me-2"></i>Domain Policy
+            </button>
+        </li>
+    </ul>
+
+    @if (_settings == null)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Synchronizing policy state...</p>
+        </div>
+    }
+    else
+    {
+        <div class="tab-content border rounded p-4 bg-white shadow-sm min-vh-50">
+            
+            <!-- GOVERNANCE TAB -->
+            @if (_activeTab == "governance")
+            {
+                <div class="row">
+                    <div class="col-lg-8">
+                        <div class="card border-danger mb-4 shadow-sm">
+                            <div class="card-header bg-danger text-white py-3">
+                                <h5 class="mb-0 small fw-bold text-uppercase"><i class="bi bi-exclamation-octagon-fill me-2"></i>Emergency Multi-Factor Lockdown</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row align-items-center">
+                                    <div class="col">
+                                        <h6 class="fw-bold mb-1">Safe Mode Governance</h6>
+                                        <p class="text-muted small mb-0">Instantly blocks non-admin access and suspends all public onboarding flows.</p>
+                                    </div>
+                                    <div class="col-auto">
+                                        <div class="form-check form-switch custom-switch-lg">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="safeModeToggle" checked="@_settings.SafeModeEnabled" @onchange="InitiateSafeModeChange">
+                                        </div>
+                                    </div>
+                                </div>
+                                <hr />
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="small text-muted">Public Access Killswitch: Forcefully terminatate all active sessions.</span>
+                                    <button class="btn btn-sm btn-outline-danger px-4" @onclick="TriggerEmergencyLockdown">Terminate All Sessions</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- AUTH TAB -->
+            @if (_activeTab == "auth")
+            {
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="mb-4 p-3 border rounded @(_settings.EnableTwoFactorAuth ? "bg-primary bg-opacity-10 border-primary" : "bg-light")">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="enable2fa" @bind="_settings.EnableTwoFactorAuth" />
+                                <label for="enable2fa" class="form-check-label fw-bold h6 mb-0">Enable Multi-Factor Authentication</label>
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Magic Link Delivery</label>
+                                <select class="form-select form-select-sm" @bind="_settings.PreferredMagicLinkMethod">
+                                    <option value="Email">Email Only</option>
+                                    <option value="SMS">SMS (Twilio)</option>
+                                    <option value="Both">Both</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Device Trust (Days)</label>
+                                <input type="number" class="form-control form-control-sm" @bind="_settings.TrustedDeviceDurationDays" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                         <div class="card bg-light border-0">
+                            <div class="card-body">
+                                <h6 class="fw-bold mb-3 small text-uppercase text-muted">Session Resilience</h6>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <label class="x-small fw-bold">Idle Timeout (m)</label>
+                                        <input type="number" class="form-control form-control-sm" @bind="_settings.IdleTimeoutMinutes" />
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="x-small fw-bold">Absolute Max (m)</label>
+                                        <input type="number" class="form-control form-control-sm" @bind="_settings.AbsoluteSessionMaxMinutes" />
+                                    </div>
+                                </div>
+                            </div>
+                         </div>
+                    </div>
+                </div>
+            }
+
+            <!-- NOTIFICATIONS TAB -->
+            @if (_activeTab == "notifications")
+            {
+                <div class="row">
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="fw-bold mb-0">System Notification Matrix</h6>
+                            <div class="d-flex gap-2">
+                                <input type="text" class="form-control form-control-sm" style="width: 250px;" placeholder="Search users..." @bind="_notifSearchText" @bind:event="oninput" @bind:after="ApplyNotifFilter" />
+                            </div>
+                        </div>
+                        <div class="table-responsive border rounded">
+                             <table class="table table-hover table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-3">User</th>
+                                        <th class="text-center">Member Signup</th>
+                                        <th class="text-center">Dues Payment</th>
+                                        <th class="text-center">System Alerts</th>
+                                        <th class="text-center">Lottery Sales</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach(var u in _filteredUsers)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 fw-bold small">@u.UserName</td>
+                                            <td class="text-center">
+                                                <div class="form-check form-check-inline m-0">
+                                                    <input type="checkbox" class="form-check-input" @bind="u.MemberSignupNotifyEmail" />
+                                                </div>
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="form-check form-check-inline m-0">
+                                                    <input type="checkbox" class="form-check-input" @bind="u.DuesPaymentNotifyEmail" />
+                                                </div>
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="form-check form-check-inline m-0">
+                                                    <input type="checkbox" class="form-check-input" @bind="u.SystemAlertNotifyEmail" />
+                                                </div>
+                                            </td>
+                                             <td class="text-center">
+                                                <div class="form-check form-check-inline m-0">
+                                                    <input type="checkbox" class="form-check-input" @bind="u.LotterySalesNotifyEmail" />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                             </table>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- USERS TAB -->
+            @if (_activeTab == "users")
+            {
+                <div class="row">
+                    <div class="col-lg-12">
+                         <div class="card border-0">
+                            <div class="card-body p-0">
+                                <div class="d-flex justify-content-between mb-3">
+                                    <h6 class="fw-bold mb-0">Administrator Access Grants</h6>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => _showAddUser = !_showAddUser"><i class="bi bi-plus"></i> Grant Access</button>
+                                </div>
+                                @if (_showAddUser)
+                                {
+                                    <div class="bg-light p-3 rounded mb-3 border">
+                                        <div class="row g-2">
+                                            <div class="col-md-6">
+                                                <select class="form-select form-select-sm" @bind="_newAuthorizedUser.UserId">
+                                                    <option value="0">Select User...</option>
+                                                    @foreach (var user in _allAppUsers)
+                                                    {
+                                                        <option value="@user.UserId">@user.Username @(string.IsNullOrEmpty(user.MemberName) ? "" : $"({user.MemberName})")</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <select class="form-select form-select-sm" @bind="_newAuthorizedUser.AccessLevel">
+                                                    <option value="Full Access">Full Access (Admin)</option>
+                                                    <option value="View Only">View Only</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <button class="btn btn-primary btn-sm w-100" @onclick="AddAuthorizedUser">Add</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                                <div class="table-responsive border rounded">
+                                    <table class="table table-sm hover mb-0">
+                                        <thead class="table-light"><tr><th class="ps-3">Name</th><th>Level</th><th class="text-end pe-3">Actions</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var user in _authorizedUsers)
+                                            {
+                                                <tr>
+                                                    <td class="ps-3 fw-bold small">@user.User?.Username</td>
+                                                    <td><span class="badge @(user.AccessLevel == "Full Access" ? "bg-primary" : "bg-secondary") px-2">@user.AccessLevel</span></td>
+                                                    <td class="text-end pe-3">
+                                                        <button class="btn btn-link btn-sm text-danger" @onclick="() => RemoveAuthorizedUser(user.Id, user.UserId)"><i class="bi bi-trash"></i></button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                         </div>
+                    </div>
+                </div>
+            }
+
+            <!-- DOMAIN TAB -->
+            @if (_activeTab == "domain")
+            {
+                <div class="row">
+                    <div class="col-lg-6">
+                         <div class="card bg-primary text-white mb-4">
+                            <div class="card-body">
+                                <h6 class="fw-bold mb-3"><i class="bi bi-person-plus-fill me-2"></i>VPN Onboarding</h6>
+                                <p class="x-small opacity-75">Generate single-use encrypted tunnel onboarding links.</p>
+                                <div class="row g-2">
+                                    <div class="col-8">
+                                        <select class="form-select form-select-sm bg-white text-dark" @bind="_inviteUserId">
+                                            @foreach (var user in _allAppUsers) { <option value="@user.UserId">@user.Username</option> }
+                                        </select>
+                                    </div>
+                                    <div class="col-4">
+                                        <button class="btn btn-light btn-sm w-100" @onclick="GenerateInviteLink">Invite</button>
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(_generatedLink))
+                                {
+                                    <div class="mt-3 p-2 bg-white text-dark rounded border shadow-sm small">
+                                        <code class="user-select-all text-break d-block">@_generatedLink</code>
+                                    </div>
+                                }
+                            </div>
+                         </div>
+                    </div>
+                    <div class="col-lg-6">
+                         <h6 class="fw-bold small text-uppercase text-muted mb-3">Authorized Origins</h6>
+                         <div class="input-group input-group-sm mb-3">
+                             <input type="text" class="form-control" placeholder="e.g. status.lovanow.com" @bind="_newAllowedDomain" />
+                             <button class="btn btn-outline-secondary" @onclick="AddAllowedDomain">Add</button>
+                         </div>
+                         <ul class="list-group list-group-flush x-small border rounded">
+                             @foreach (var domain in _allowedDomains)
+                             {
+                                 <li class="list-group-item d-flex justify-content-between">@domain <i class="bi bi-x-circle text-danger pointer" @onclick="() => RemoveAllowedDomain(domain)"></i></li>
+                             }
+                         </ul>
+                    </div>
+                </div>
+            }
+
+        </div>
+    }
+</div>
+
+@if (_showSafeModeModal)
+{
+    <div class="modal-backdrop show" style="background-color: rgba(0,0,0,0.8);"></div>
+    <div class="modal show d-block" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white border-0 py-3">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-shield-lock me-2"></i>AUTHORIZE SYSTEM LOCKDOWN</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CancelSafeModeChange"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <p class="lead fw-bold text-danger mb-3">Administrative Password Required</p>
+                    <input type="password" class="form-control form-control-lg" @bind="_safeModePassword" placeholder="Confirm your identity" />
+                    @if (!string.IsNullOrEmpty(_safeModeError)) { <div class="text-danger small mt-2 fw-bold">@_safeModeError</div> }
+                </div>
+                <div class="modal-footer border-0">
+                    <button type="button" class="btn btn-light" @onclick="CancelSafeModeChange">Abort</button>
+                    <button type="button" class="btn btn-danger px-4" @onclick="ConfirmSafeModeChange" disabled="@_isVerifying">Confirm Policy Change</button>
+                </div>
+            </div>
+        </div>
+    </div>
 }
+
+<style>
+    .custom-switch-lg .form-check-input { width: 3.5rem; height: 1.75rem; cursor: pointer; }
+    .x-small { font-size: 0.75rem; }
+    .pointer { cursor: pointer; }
+    .nav-pills .nav-link { cursor: pointer; color: #6c757d; font-weight: 500; font-size: 0.9rem; border-radius: 8px; margin-right: 4px; }
+    .nav-pills .nav-link.active { background-color: #0d6efd; box-shadow: 0 4px 12px rgba(13,110,253,0.2); }
+</style>
 
 @using GFC.Core.DTOs
 @code {
+    private string _activeTab = "governance";
     private SystemSettings _settings;
-    private bool _showVpnWarning;
     private List<AuthorizedUser> _authorizedUsers = new();
-    private AuthorizedUser _newAuthorizedUser = new();
-    private List<UserListItemDto> _allUsers = new();
+    private AuthorizedUser _newAuthorizedUser = new() { AccessLevel = "Full Access" };
+    private List<UserListItemDto> _allAppUsers = new();
+    private List<UserNotificationPreferencesModel> _notifUsers = new();
+    private List<UserNotificationPreferencesModel> _filteredUsers = new();
+    private string _notifSearchText = "";
+    
     private string _errorMessage;
     private string _successMessage;
     private List<string> _allowedDomains = new();
     private string _newAllowedDomain;
+    private bool _showAddUser = false;
+    private int _inviteUserId;
+    private string _generatedLink;
+
+    private bool _showSafeModeModal = false;
+    private bool _pendingSafeModeState = false;
+    private string _safeModePassword = "";
+    private string _safeModeError = "";
+    private bool _isVerifying = false;
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _settings = await SystemSettingsService.GetAsync();
-            if (_settings.DomainSwitchExpiryUtc.HasValue && _settings.DomainSwitchExpiryUtc.Value < DateTime.UtcNow)
-            {
-                _settings.DomainSwitchPending = null;
-                _settings.DomainSwitchExpiryUtc = null;
-                await SystemSettingsService.UpdateAsync(_settings);
-            }
             _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
-            _allUsers = UserManagementService.GetAllUsers();
-            _allowedDomains = _settings.AllowedDomains?.Split(',').ToList() ?? new List<string>();
+            _allAppUsers = UserManagementService.GetAllUsers();
+            _allowedDomains = _settings.AllowedDomains?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList() ?? new List<string>();
+            if (_allAppUsers.Any()) _inviteUserId = _allAppUsers.First().UserId;
+            
+            // Load notification users (using Username as primary identifier)
+            _notifUsers = _allAppUsers.Select(u => new UserNotificationPreferencesModel { UserName = u.Username, Email = "" }).ToList();
+            ApplyNotifFilter();
         }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error loading security settings: {ex.Message}.";
-        }
+        catch (Exception ex) { _errorMessage = "Initialization Error: " + ex.Message; }
+    }
+
+    private void ApplyNotifFilter()
+    {
+        _filteredUsers = string.IsNullOrWhiteSpace(_notifSearchText) 
+            ? _notifUsers 
+            : _notifUsers.Where(u => u.UserName.Contains(_notifSearchText, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     private async Task SaveChanges()
     {
-        _errorMessage = null;
-        _successMessage = null;
+        _errorMessage = null; _successMessage = null;
         try
         {
+            _settings.AllowedDomains = string.Join(",", _allowedDomains);
             await SystemSettingsService.UpdateAsync(_settings);
-            _successMessage = "Settings saved successfully!";
+            _successMessage = "System security and notification policies synchronized.";
         }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error saving settings: {ex.Message}";
-        }
+        catch (Exception ex) { _errorMessage = "Save Error: " + ex.Message; }
     }
 
-    private void AddAllowedDomain()
-    {
-        if (!string.IsNullOrWhiteSpace(_newAllowedDomain) && !_allowedDomains.Contains(_newAllowedDomain))
-        {
-            _allowedDomains.Add(_newAllowedDomain);
-            _newAllowedDomain = string.Empty;
-        }
-    }
+    private void AddAllowedDomain() { if (!string.IsNullOrWhiteSpace(_newAllowedDomain) && !_allowedDomains.Contains(_newAllowedDomain)) { _allowedDomains.Add(_newAllowedDomain); _newAllowedDomain = ""; } }
+    private void RemoveAllowedDomain(string domain) { if (domain != _settings.PrimaryDomain) _allowedDomains.Remove(domain); }
 
-    private void RemoveAllowedDomain(string domain)
+    private async Task InitiateSafeModeChange(ChangeEventArgs e) { _pendingSafeModeState = (bool)e.Value!; _safeModePassword = ""; _safeModeError = ""; _showSafeModeModal = true; }
+    private void CancelSafeModeChange() { _showSafeModeModal = false; StateHasChanged(); }
+    
+    private async Task ConfirmSafeModeChange()
     {
-        if (domain == _settings.PrimaryDomain || domain == _settings.LastConfirmedDomain)
-        {
-            _errorMessage = "You cannot remove the active primary domain.";
-            return;
-        }
-        _allowedDomains.Remove(domain);
-    }
-
-    private async Task ConfirmDomainChange()
-    {
-        _errorMessage = null;
-        _successMessage = null;
-        try
-        {
-            _settings.LastConfirmedDomain = _settings.DomainSwitchPending;
-            _settings.PrimaryDomain = _settings.DomainSwitchPending;
-            _settings.DomainSwitchPending = null;
-            _settings.DomainSwitchExpiryUtc = null;
+        _isVerifying = true;
+        try {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var result = await AuthenticationService.LoginAsync(authState.User.Identity?.Name, _safeModePassword);
+            if (result.Code != LoginResultCode.Success && result.Code != LoginResultCode.MfaRequired) { _safeModeError = "Validation failed."; return; }
+            _settings.SafeModeEnabled = _pendingSafeModeState;
             await SystemSettingsService.UpdateAsync(_settings);
-            _successMessage = "Domain change confirmed successfully!";
-            await EmailService.SendEmailAsync("admin@test.com", "Domain Change Confirmation", "The primary domain for the application has been successfully changed.");
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error confirming domain change: {ex.Message}";
-        }
-    }
-
-    private async Task TriggerEmergencyLockdown()
-    {
-        _errorMessage = null;
-        _successMessage = null;
-        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to activate the Emergency Lockdown? This will disconnect all remote users immediately.");
-        if (confirmed)
-        {
-            await VpnManagementService.DisconnectAllUsersAsync();
-            _successMessage = "Emergency Lockdown Activated. All remote users have been disconnected.";
-            StateHasChanged();
-        }
+            _showSafeModeModal = false;
+            _successMessage = $"Safe Mode {(_pendingSafeModeState ? "Enabled" : "Disabled")}.";
+        } catch (Exception ex) { _safeModeError = ex.Message; } finally { _isVerifying = false; }
     }
 
     private async Task AddAuthorizedUser()
     {
-        _errorMessage = null;
-        _successMessage = null;
-        try
-        {
-            await AuthorizedUserService.AddAuthorizedUserAsync(_newAuthorizedUser);
-            _newAuthorizedUser = new AuthorizedUser();
-            _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
-            _successMessage = "Authorized user added successfully!";
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error adding authorized user: {ex.Message}";
-        }
+        if (_newAuthorizedUser.UserId <= 0) return;
+        await AuthorizedUserService.AddAuthorizedUserAsync(_newAuthorizedUser);
+        _newAuthorizedUser = new AuthorizedUser() { AccessLevel = "Full Access" };
+        _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
+        _showAddUser = false;
     }
 
-    private async Task RemoveAuthorizedUser(int authorizedUserId, int appUserId)
+    private async Task RemoveAuthorizedUser(int id, int userId) { await VpnManagementService.RevokeUserAccessAsync(userId); await AuthorizedUserService.RemoveAuthorizedUserAsync(id); _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync(); }
+    
+    private async Task TriggerEmergencyLockdown() { if (await JSRuntime.InvokeAsync<bool>("confirm", "TERMINATE ALL SESSIONS?")) { await VpnManagementService.DisconnectAllUsersAsync(); _successMessage = "All sessions terminated."; } }
+
+    private async Task GenerateInviteLink() { var token = await VpnConfigurationService.CreateOnboardingTokenAsync(_inviteUserId); _generatedLink = $"{NavigationManager.BaseUri.TrimEnd('/')}/setup/{token}"; }
+
+    private class UserNotificationPreferencesModel
     {
-        _errorMessage = null;
-        _successMessage = null;
-        try
-        {
-            await VpnManagementService.RevokeUserAccessAsync(appUserId);
-            await AuthorizedUserService.RemoveAuthorizedUserAsync(authorizedUserId);
-            _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
-            _successMessage = "Authorized user removed and VPN access revoked successfully!";
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error removing authorized user: {ex.Message}";
-        }
+        public string UserName { get; set; }
+        public string Email { get; set; }
+        public bool MemberSignupNotifyEmail { get; set; } = true;
+        public bool DuesPaymentNotifyEmail { get; set; } = true;
+        public bool SystemAlertNotifyEmail { get; set; } = true;
+        public bool LotterySalesNotifyEmail { get; set; } = false;
     }
 
-    private void OnEnforceVpnChanged(ChangeEventArgs e)
-    {
-        bool isEnforced = (bool)(e.Value ?? false);
-        if (isEnforced && UserConnectionService.LocationType == LocationType.Public)
-        {
-            _showVpnWarning = true;
-        }
-        else
-        {
-            _showVpnWarning = false;
-        }
-    }
+    [Inject] private NavigationManager NavigationManager { get; set; }
 }

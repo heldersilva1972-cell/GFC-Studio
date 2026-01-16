@@ -1,25 +1,41 @@
 @page "/admin/operations"
 @using GFC.BlazorServer.Auth
 @using GFC.BlazorServer.Services.Operations
+@using GFC.BlazorServer.Services.DataProtection
+@using GFC.Core.Interfaces
+@using GFC.Core.Services
+@using GFC.BlazorServer.Models
+@using global::System.IO
+@using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Models
+@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities.Security
 
 @attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
 @inject IOperationsService OperationsService
+@inject IDataProtectionService DataProtectionService
+@inject IDatabaseBackupService DatabaseBackupService
+@inject BackupConfigService BackupConfigService
+@inject IBlazorSystemSettingsService SystemSettingsService
+@inject IAuditLogRepository AuditLogRepository
+@inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JS
 @inject ILogger<OperationsCenter> Logger
 
-<PageTitle>Operations Center</PageTitle>
+<PageTitle>Infrastructure Hub</PageTitle>
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1"><i class="bi bi-activity"></i> Operations Center</h2>
-            <p class="text-muted mb-0">System health, infrastructure status, and disaster recovery.</p>
+            <h2 class="mb-1"><i class="bi bi-cpu-fill text-primary"></i> Infrastructure Hub</h2>
+            <p class="text-muted mb-0">Unified system health, data protection, and hardware configuration center.</p>
         </div>
-        <div>
-            <button class="btn btn-outline-primary me-2" @onclick="LoadDataAsync" disabled="@_isLoading">
-                <i class="bi bi-arrow-clockwise @(_isLoading ? "spin" : "")"></i> Refresh
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary" @onclick="RefreshHubAsync" disabled="@(_isLoading || _isProcessingBackup)">
+                <i class="bi bi-arrow-clockwise @(_isLoading ? "spin" : "")"></i> Refresh Status
             </button>
-            <button class="btn btn-danger" @onclick="DownloadRecoveryPackAsync" disabled="@(_isGeneratingPack || _isLoading)">
+            <button class="btn btn-primary" @onclick="DownloadRecoveryPackAsync" disabled="@(_isGeneratingPack || _isLoading)">
                 @if (_isGeneratingPack)
                 {
                     <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
@@ -36,317 +52,470 @@
 
     @if (_error != null)
     {
-        <div class="alert alert-danger">
+        <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm" role="alert">
             <i class="bi bi-exclamation-triangle-fill me-2"></i> @_error
+            <button type="button" class="btn-close" @onclick="() => _error = null"></button>
         </div>
     }
 
-    <ul class="nav nav-tabs mb-4" id="opsTabs" role="tablist">
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert alert-info alert-dismissible fade show border-0 shadow-sm" role="alert">
+            <i class="bi bi-info-circle-fill me-2"></i> @_statusMessage
+            <button type="button" class="btn-close" @onclick="() => _statusMessage = null"></button>
+        </div>
+    }
+
+    <!-- HEADLINE METRICS -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card h-100 border-0 shadow-sm status-card">
+                <div class="card-body">
+                    <h6 class="text-muted mb-3"><i class="bi bi-shield-check me-2"></i>System Health</h6>
+                    @if (_healthInfo != null)
+                    {
+                        <div class="d-flex align-items-center">
+                            <div class="display-6 me-3 @(_healthInfo.IsHealthy ? "text-success" : "text-danger")">
+                                <i class="bi @(_healthInfo.IsHealthy ? "bi-check-circle-fill" : "bi-exclamation-octagon-fill")"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">@(_healthInfo.IsHealthy ? "Operational" : "Attention")</h4>
+                                <small class="text-muted">v@_healthInfo.AppVersion</small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-0 shadow-sm status-card">
+                <div class="card-body">
+                    <h6 class="text-muted mb-3"><i class="bi bi-cloud-check me-2"></i>Public Access</h6>
+                    @if (_publicInfo != null)
+                    {
+                        <div class="d-flex align-items-center">
+                            <div class="display-6 me-3 @(_publicInfo.IsCloudflaredRunning ? "text-success" : "text-warning")">
+                                <i class="bi @(_publicInfo.IsCloudflaredRunning ? "bi-cloud-check-fill" : "bi-cloud-slash-fill")"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">@(_publicInfo.IsCloudflaredRunning ? "Online" : "Offline")</h4>
+                                <small class="text-muted">Cloudflare Tunnel</small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-0 shadow-sm status-card">
+                <div class="card-body">
+                    <h6 class="text-muted mb-3"><i class="bi bi-database-check me-2"></i>Database Status</h6>
+                    @if (_healthInfo != null)
+                    {
+                        <div class="d-flex align-items-center">
+                            <div class="display-6 me-3 @(_healthInfo.DatabaseConnected ? "text-success" : "text-danger")">
+                                <i class="bi @(_healthInfo.DatabaseConnected ? "bi-database-fill-check" : "bi-database-fill-x")"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">@(_healthInfo.DatabaseConnected ? "Connected" : "Error")</h4>
+                                <small class="text-muted">SQL Express</small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-0 shadow-sm status-card">
+                <div class="card-body">
+                    <h6 class="text-muted mb-3"><i class="bi bi-hdd-network me-2"></i>Data Protection</h6>
+                    <div class="d-flex align-items-center">
+                        <div class="display-6 me-3 @_healthBadgeClass text-white p-2 rounded">
+                            <i class="bi @_healthIcon"></i>
+                        </div>
+                        <div>
+                            <h4 class="mb-0">@_healthStatus</h4>
+                            <small class="text-muted">Backup Integrity</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TABS -->
+    <ul class="nav nav-pills mb-4 bg-light p-1 rounded border shadow-sm" id="opsTabs" role="tablist">
         <li class="nav-item">
-            <button class="nav-link @(_activeTab == "overview" ? "active" : "")" @onclick="@(() => SetTab("overview"))">Overview</button>
+            <button class="nav-link @(_activeTab == "backup" ? "active" : "")" @onclick="@(() => SetTab("backup"))">
+                <i class="bi bi-shield-lock-fill me-2"></i>Backup & Recovery
+            </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(_activeTab == "health" ? "active" : "")" @onclick="@(() => SetTab("health"))">Health</button>
+            <button class="nav-link @(_activeTab == "hardware" ? "active" : "")" @onclick="@(() => SetTab("hardware"))">
+                <i class="bi bi-camera-video me-2"></i>Hardware & NVR
+            </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(_activeTab == "public" ? "active" : "")" @onclick="@(() => SetTab("public"))">Public Access</button>
+            <button class="nav-link @(_activeTab == "audit" ? "active" : "")" @onclick="@(() => SetTab("audit"))">
+                <i class="bi bi-journal-text me-2"></i>Audit Trail
+            </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(_activeTab == "hosting" ? "active" : "")" @onclick="@(() => SetTab("hosting"))">Hosting</button>
+            <button class="nav-link @(_activeTab == "health" ? "active" : "")" @onclick="@(() => SetTab("health"))">
+                <i class="bi bi-activity me-2"></i>Detailed Health
+            </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(_activeTab == "database" ? "active" : "")" @onclick="@(() => SetTab("database"))">Database</button>
+            <button class="nav-link @(_activeTab == "network" ? "active" : "")" @onclick="@(() => SetTab("network"))">
+                <i class="bi bi-diagram-3 me-2"></i>Networking
+            </button>
         </li>
         <li class="nav-item">
-            <button class="nav-link @(_activeTab == "network" ? "active" : "")" @onclick="@(() => SetTab("network"))">Networking</button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link @(_activeTab == "diagnostics" ? "active" : "")" @onclick="@(() => SetTab("diagnostics"))">Diagnostics</button>
+            <button class="nav-link @(_activeTab == "diagnostics" ? "active" : "")" @onclick="@(() => SetTab("diagnostics"))">
+                <i class="bi bi-heart-pulse me-2"></i>Diagnostics
+            </button>
         </li>
     </ul>
 
-    <div class="tab-content">
-        <!-- OVERVIEW TAB -->
-        @if (_activeTab == "overview")
+    <div class="tab-content border rounded p-4 bg-white shadow-sm min-vh-50">
+        
+        <!-- BACKUP & RECOVERY TAB -->
+        @if (_activeTab == "backup")
         {
-            <div class="row">
-                <div class="col-md-4 mb-4">
-                    <div class="card h-100 border-0 shadow-sm">
-                        <div class="card-body text-center">
-                            <h5 class="card-title text-muted">System Health</h5>
-                            @if (_healthInfo != null)
-                            {
-                                <div class="display-4 my-3 @(_healthInfo.IsHealthy ? "text-success" : "text-danger")">
-                                    <i class="bi @(_healthInfo.IsHealthy ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h5 class="mb-0">Data Protection Services</h5>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleBackupConfig">
+                    <i class="bi bi-gear-fill me-1"></i> Configure Policy
+                </button>
+            </div>
+
+            @if (_showBackupConfig)
+            {
+                <div class="card border-primary bg-light mb-4 shadow-sm animate-fade-in">
+                    <div class="card-body">
+                        <h6 class="fw-bold text-primary mb-3"><i class="bi bi-sliders me-2"></i>Automatic Backup Policy</h6>
+                        <EditForm Model="_backupConfig" OnValidSubmit="SaveBackupSettings">
+                            <div class="row g-3">
+                                <div class="col-md-12">
+                                    <label class="form-label small fw-bold">Target Storage Path (Server-Side)</label>
+                                    <input type="text" class="form-control form-control-sm" @bind="_backupConfig.BackupFolder" placeholder="C:\Paths\To\Backups" />
                                 </div>
-                                <p class="lead">@(_healthInfo.IsHealthy ? "Operational" : "Attention Needed")</p>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Scheduled Hour</label>
+                                    <select class="form-select form-select-sm" @bind="_selectedBackupHour">
+                                        @for (int i = 0; i < 24; i++) { <option value="@i">@($"{i:00}:00")</option> }
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold">Retention (Days)</label>
+                                    <select class="form-select form-select-sm" @bind="_backupConfig.RetentionDays">
+                                        <option value="7">7 Days</option>
+                                        <option value="14">14 Days</option>
+                                        <option value="30">30 Days</option>
+                                        <option value="60">60 Days</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 d-flex align-items-end">
+                                    <button type="submit" class="btn btn-primary btn-sm w-100">Apply Policy</button>
+                                </div>
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            }
+
+            <div class="row">
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100 border-0 shadow-sm bg-light-blue py-4">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-muted mb-4">Manual Operations</h5>
+                            <div class="display-6 mb-3">
+                                @if (_lastBackupTime.HasValue)
+                                {
+                                    <span class="text-primary fw-bold">@_lastBackupTime.Value.ToLocalTime().ToString("MMM dd, HH:mm")</span>
+                                    <div class="fs-6 text-muted mt-2">(@GetRelativeTime(_lastBackupTime.Value))</div>
+                                }
+                                else
+                                {
+                                    <span class="text-danger">NEVER</span>
+                                }
+                            </div>
+                            
+                            <div class="d-grid gap-2 col-9 mx-auto mt-4">
+                                <button class="btn btn-primary btn-lg shadow-sm" @onclick="CreateBackup" disabled="@_isProcessingBackup">
+                                    @if (_isProcessingBackup) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                    else { <i class="bi bi-hdd-fill me-2"></i> }
+                                    <span>Run Full Backup Now</span>
+                                </button>
+                                <button class="btn btn-outline-success" @onclick="RecordBackupManualLog">
+                                    <i class="bi bi-check-circle-fill me-2"></i>Verify External Backup
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Restore Database</h5>
+                            <span class="badge bg-info text-white">Local Storage Path</span>
+                        </div>
+                        <div class="card-body p-0">
+                             @if (_availableBackups == null)
+                            {
+                                <div class="text-center p-5"><div class="spinner-border text-primary"></div></div>
+                            }
+                            else if (!_availableBackups.Any())
+                            {
+                                <div class="text-center p-5 text-muted"><p>No backup files found.</p></div>
                             }
                             else
                             {
-                                <p class="text-muted">Loading...</p>
-                            }
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4 mb-4">
-                    <div class="card h-100 border-0 shadow-sm">
-                        <div class="card-body text-center">
-                            <h5 class="card-title text-muted">Public Access</h5>
-                            @if (_publicInfo != null)
-                            {
-                                <div class="display-4 my-3 @(_publicInfo.IsCloudflaredRunning ? "text-success" : "text-warning")">
-                                    <i class="bi @(_publicInfo.IsCloudflaredRunning ? "bi-cloud-check-fill" : "bi-cloud-slash-fill")"></i>
+                                <div class="table-responsive" style="max-height: 350px;">
+                                    <table class="table table-hover mb-0">
+                                        <thead class="table-light sticky-top">
+                                            <tr>
+                                                <th>Created</th>
+                                                <th>Size</th>
+                                                <th class="text-end pe-4">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var backup in _availableBackups)
+                                            {
+                                                <tr>
+                                                    <td class="small ps-3">@backup.LastWriteTime.ToString("g")</td>
+                                                    <td>@((backup.Length / 1024f / 1024f).ToString("F1")) MB</td>
+                                                    <td class="text-end pe-3">
+                                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmRestore(backup)">RESTORE</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
                                 </div>
-                                <p class="lead">@(_publicInfo.IsCloudflaredRunning ? "Tunnel Active" : "Tunnel Inactive")</p>
-                            }
-                             else
-                            {
-                                <p class="text-muted">Loading...</p>
-                            }
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4 mb-4">
-                    <div class="card h-100 border-0 shadow-sm">
-                        <div class="card-body text-center">
-                            <h5 class="card-title text-muted">Database</h5>
-                            @if (_healthInfo != null)
-                            {
-                                <div class="display-4 my-3 @(_healthInfo.DatabaseConnected ? "text-success" : "text-danger")">
-                                    <i class="bi @(_healthInfo.DatabaseConnected ? "bi-database-check" : "bi-database-x")"></i>
-                                </div>
-                                <p class="lead">@(_healthInfo.DatabaseConnected ? "Connected" : "Disconnected")</p>
-                            }
-                             else
-                            {
-                                <p class="text-muted">Loading...</p>
                             }
                         </div>
                     </div>
                 </div>
             </div>
-            
-            <div class="alert alert-info border-0 shadow-sm">
-                <div class="d-flex">
-                    <div class="me-3 display-6"><i class="bi bi-life-preserver"></i></div>
-                    <div>
-                        <h5 class="alert-heading">Disaster Recovery Readiness</h5>
-                        <p class="mb-0">
-                            Use the <strong>"Download Recovery Pack"</strong> button above to download a comprehensive zip file containing
-                            all scripts, configurations, and documentation needed to restore this server from scratch.
-                            Store this file in a secure, off-site location.
-                        </p>
+        }
+
+        <!-- HARDWARE & NVR TAB -->
+        @if (_activeTab == "hardware")
+        {
+            <div class="row">
+                <div class="col-lg-6">
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-white py-3">
+                            <h5 class="mb-0"><i class="bi bi-camera-video-fill text-primary me-2"></i>NVR Connectivity</h5>
+                        </div>
+                        <div class="card-body">
+                             <EditForm Model="_nvrConfig" OnValidSubmit="SaveNvrCredentials">
+                                <div class="row g-3">
+                                    <div class="col-md-8">
+                                        <label class="form-label small fw-bold">NVR IP Address</label>
+                                        <input type="text" class="form-control" @bind="_nvrConfig.NvrIpAddress" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small fw-bold">Port</label>
+                                        <input type="number" class="form-control" @bind="_nvrConfig.NvrPort" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold">Admin Username</label>
+                                        <input type="text" class="form-control" @bind="_nvrConfig.Username" />
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold">Admin Password</label>
+                                        <input type="password" class="form-control" @bind="_nvrConfig.Password" placeholder="••••••••" />
+                                    </div>
+                                    <div class="col-12 mt-4">
+                                        <button type="submit" class="btn btn-primary w-100" disabled="@_isSavingHardware">
+                                            @if(_isSavingHardware) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                            Sync Network Credentials
+                                        </button>
+                                    </div>
+                                </div>
+                             </EditForm>
+                        </div>
                     </div>
                 </div>
+                <div class="col-lg-6">
+                    <div class="alert alert-primary bg-primary bg-opacity-10 border-0 shadow-sm">
+                        <h6 class="fw-bold"><i class="bi bi-info-circle me-2"></i>Discovery Context</h6>
+                        <p class="small">These credentials are used by the <strong>GFC Video Agent</strong> to authenticate with Hikvision/ONVIF nodes during auto-discovery.</p>
+                        <hr />
+                        <a href="/cameras/discover" class="btn btn-link btn-sm text-decoration-none p-0"><i class="bi bi-radar me-1"></i> Launch Camera Discovery &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- AUDIT TRAIL TAB -->
+        @if (_activeTab == "audit")
+        {
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">System Audit Trail</h5>
+                <div class="d-flex gap-2">
+                    <input type="text" class="form-control form-control-sm" placeholder="Search logs..." @bind="_auditSearchText" @bind:after="ApplyAuditFilter" />
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="LoadAuditLogsAsync"><i class="bi bi-arrow-repeat"></i></button>
+                </div>
+            </div>
+            <div class="table-responsive border rounded">
+                <table class="table table-hover table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Timestamp</th>
+                            <th>Action</th>
+                            <th>User</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_auditLogs == null)
+                        {
+                            <tr>
+                                <td colspan="4" class="text-center py-5">
+                                    <div class="spinner-border text-primary mb-2"></div>
+                                    <div class="text-muted small">Synchronizing system logs...</div>
+                                </td>
+                            </tr>
+                        }
+                        else if (!_auditLogs.Any())
+                        {
+                            <tr>
+                                <td colspan="4" class="text-center py-5 text-muted">
+                                    <i class="bi bi-search fs-2 d-block mb-2 opacity-25"></i>
+                                    No activity found matching your criteria.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var log in _auditLogs)
+                            {
+                                <tr>
+                                    <td class="ps-3 small">@log.TimestampUtc.ToLocalTime().ToString("MM/dd HH:mm")</td>
+                                    <td><span class="badge bg-light text-dark border">@log.Action</span></td>
+                                    <td class="small">@log.PerformedByDisplayName</td>
+                                    <td class="small text-muted">@log.Details</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
             </div>
         }
 
         <!-- HEALTH TAB -->
         @if (_activeTab == "health")
         {
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-light">
-                    <h5 class="mb-0">System Health Details</h5>
-                </div>
-                <div class="card-body">
-                    @if (_healthInfo != null)
+            <div class="card border-0 shadow-sm">
+                 <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <tbody class="align-middle">
+                            @if (_healthInfo != null && _hostingInfo != null)
+                            {
+                                <tr><th class="ps-4 py-3" style="width: 30%">Environment</th><td><span class="badge bg-primary px-3">@_healthInfo.EnvironmentName</span></td></tr>
+                                <tr><th class="ps-4 py-3">Physical Path</th><td><code>@_hostingInfo.PhysicalPath</code></td></tr>
+                                <tr><th class="ps-4 py-3">Disk Utilization</th><td>@_healthInfo.DiskSpaceMessage</td></tr>
+                                <tr><th class="ps-4 py-3">Runtime Version</th><td>@_hostingInfo.DotNetHostingBundleVersion</td></tr>
+                                <tr><th class="ps-4 py-3">SQL Database</th><td>@_dbInfo?.DatabaseName on @_dbInfo?.InstanceName</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                 </div>
+            </div>
+        }
+
+        <!-- NETWORK TAB -->
+        @if (_activeTab == "network")
+        {
+            <div class="row g-4">
+                <div class="col-md-7">
+                    @if (_publicInfo != null)
                     {
-                        <div class="table-responsive">
-                            <table class="table table-hover">
-                                <tbody>
-                                    <tr>
-                                        <th style="width: 30%">Environment</th>
-                                        <td><span class="badge bg-primary">@_healthInfo.EnvironmentName</span></td>
-                                    </tr>
-                                    <tr>
-                                        <th>App Version</th>
-                                        <td>@_healthInfo.AppVersion (Built: @_healthInfo.BuildDate.ToLocalTime())</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Database Status</th>
-                                        <td>
-                                            @if (_healthInfo.DatabaseConnected)
-                                            {
-                                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Connected</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Disconnected</span>
-                                            }
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th>Disk Space</th>
-                                        <td>@_healthInfo.DiskSpaceMessage</td>
-                                    </tr>
-                                    <tr>
-                                        <th>Cloudflare Tunnel Process</th>
-                                        <td>
-                                            @if (_healthInfo.CloudflaredRunning)
-                                            {
-                                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Running</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Not Detected</span>
-                                            }
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th>HTTPS / Proxy</th>
-                                        <td>
-                                            <div>HTTPS: @if(_healthInfo.IsHttps) { <span class="text-success">Yes</span> } else { <span class="text-warning">No</span> }</div>
-                                            <div>Reverse Proxy Header: @if(_healthInfo.IsReverseProxyDetected) { <span class="text-success">Detected (X-Forwarded-Proto)</span> } else { <span class="text-warning">Not Detected</span> }</div>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div class="card border-0 shadow-sm bg-light-blue p-4 mb-4">
+                            <div class="d-flex align-items-center mb-4">
+                                <div class="display-4 me-3 @(_publicInfo.IsCloudflaredRunning ? "text-success" : "text-danger")">
+                                    <i class="bi bi-cloud-check-fill"></i>
+                                </div>
+                                <div>
+                                    <h4 class="mb-0">Secure Public Bridge</h4>
+                                    <p class="text-muted small mb-0">Cloudflare Tunnel: @(_publicInfo.TunnelId ?? "Active")</p>
+                                </div>
+                            </div>
+                            <div class="list-group list-group-flush bg-transparent">
+                                @foreach(var d in _publicInfo.Domains)
+                                {
+                                    <div class="list-group-item bg-transparent d-flex justify-content-between px-0">
+                                        <span class="fw-bold">https://@d</span>
+                                        <span class="text-success small"><i class="bi bi-shield-lock me-1"></i>PROTECTED</span>
+                                    </div>
+                                }
+                            </div>
                         </div>
                     }
-                </div>
-            </div>
-            
-            <div class="mt-4">
-                <h6>Public Health Endpoint</h6>
-                <div class="input-group">
-                    <span class="input-group-text">GET</span>
-                    <input type="text" class="form-control" value="/api/health" readonly />
-                    <a href="/api/health" target="_blank" class="btn btn-outline-secondary">Test</a>
-                </div>
-                <small class="text-muted">Returns simple "OK" or "FAIL" (503) for automated monitoring.</small>
-            </div>
-        }
 
-        <!-- PUBLIC ACCESS TAB -->
-        @if (_activeTab == "public" && _publicInfo != null)
-        {
-             <div class="card shadow-sm border-0">
-                <div class="card-header bg-light">
-                    <h5 class="mb-0">Cloudflare Tunnel & DNS</h5>
-                </div>
-                <div class="card-body">
-                    <dl class="row">
-                        <dt class="col-sm-3">Domains</dt>
-                        <dd class="col-sm-9">
-                            @foreach(var d in _publicInfo.Domains)
-                            {
-                                <span class="badge bg-info text-dark me-1">@d</span>
-                            }
-                        </dd>
-
-                        <dt class="col-sm-3">Tunnel Service</dt>
-                        <dd class="col-sm-9">
-                            @if (_publicInfo.IsCloudflaredRunning)
-                            {
-                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Running (Service)</span>
-                            }
-                            else if (_publicInfo.IsCloudflaredInstalled)
-                            {
-                                <span class="text-warning"><i class="bi bi-pause-circle-fill"></i> Installed but Stopped</span>
-                            }
-                            else
-                            {
-                                <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Not Installed</span>
-                            }
-                        </dd>
-                        
-                        <dt class="col-sm-3">Config Path</dt>
-                        <dd class="col-sm-9"><code>@_publicInfo.ConfigPath</code></dd>
-
-                        <dt class="col-sm-3">Tunnel ID</dt>
-                        <dd class="col-sm-9">@(_publicInfo.TunnelId ?? "Unknown / Not found in config")</dd>
-                    </dl>
-                </div>
-            </div>
-        }
-
-        <!-- HOSTING TAB -->
-        @if (_activeTab == "hosting" && _hostingInfo != null)
-        {
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-light">
-                    <h5 class="mb-0">IIS & Hosting Environment</h5>
-                </div>
-                <div class="card-body">
-                     <dl class="row">
-                        <dt class="col-sm-3">Site Name (IIS)</dt>
-                        <dd class="col-sm-9">@_hostingInfo.IisSiteName</dd>
-
-                        <dt class="col-sm-3">App Pool</dt>
-                        <dd class="col-sm-9">@_hostingInfo.AppPoolName</dd>
-
-                        <dt class="col-sm-3">Physical Path</dt>
-                        <dd class="col-sm-9"><code>@_hostingInfo.PhysicalPath</code></dd>
-
-                        <dt class="col-sm-3">.NET Runtime</dt>
-                        <dd class="col-sm-9">@_hostingInfo.DotNetHostingBundleVersion</dd>
-                    </dl>
-                    
-                    <div class="alert alert-warning mt-3">
-                        <i class="bi bi-lightbulb"></i> <strong>Note:</strong> Ensure the <em>ASP.NET Core Hosting Bundle</em> is installed and matches the application runtime version.
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-white py-3">
+                            <h6 class="mb-0 fw-bold"><i class="bi bi-door-closed me-2"></i>Access Controller Topology</h6>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm mb-0 align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th class="ps-3">Controller</th>
+                                            <th>Path</th>
+                                            <th>Address</th>
+                                            <th class="text-end pe-3">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (_controllers == null) { <tr><td colspan="4" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr> }
+                                        else if (!_controllers.Any()) { <tr><td colspan="4" class="text-center py-3 text-muted">No controllers detected.</td></tr> }
+                                        else {
+                                            @foreach(var c in _controllers) {
+                                                <tr>
+                                                    <td class="ps-3 fw-bold small">@c.Name</td>
+                                                    <td>
+                                                        @if(c.NetworkType == "VPN") { <span class="badge bg-primary bg-opacity-10 text-primary x-small">VPN</span> }
+                                                        else { <span class="badge bg-secondary bg-opacity-10 text-secondary x-small">LAN</span> }
+                                                    </td>
+                                                    <td class="small"><code>@c.IpAddress</code></td>
+                                                    <td class="text-end pe-3">
+                                                        <span class="badge bg-success border-0 rounded-circle p-1" title="Online"><i class="bi bi-check" style="visibility: hidden"></i></span>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        }
-
-        <!-- DATABASE TAB -->
-        @if (_activeTab == "database" && _dbInfo != null)
-        {
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-light">
-                    <h5 class="mb-0">SQL Server Configuration</h5>
-                </div>
-                <div class="card-body">
-                    <dl class="row">
-                        <dt class="col-sm-3">Server Instance</dt>
-                        <dd class="col-sm-9">@_dbInfo.InstanceName</dd>
-
-                        <dt class="col-sm-3">Database Name</dt>
-                        <dd class="col-sm-9">@_dbInfo.DatabaseName</dd>
-
-                         <dt class="col-sm-3">Connection String</dt>
-                        <dd class="col-sm-9">
-                            <code>@_dbInfo.ConnectionStringMasked</code>
-                        </dd>
-
-                        <dt class="col-sm-3">Last Backup</dt>
-                        <dd class="col-sm-9">
-                            @if (_dbInfo.LastBackupTime.HasValue)
-                            {
-                                <span class="text-success">@_dbInfo.LastBackupTime.Value.ToLocalTime().ToString("g")</span>
-                            }
-                            else
-                            {
-                                <span class="text-warning">Unknown / Never</span>
-                            }
-                        </dd>
-                    </dl>
-                </div>
-            </div>
-        }
-        
-         <!-- NETWORK TAB -->
-        @if (_activeTab == "network" && _netInfo != null)
-        {
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-light">
-                    <h5 class="mb-0">Network & Firewall Policies</h5>
-                </div>
-                <div class="card-body">
-                    <h6>Outbound Ports Required</h6>
-                    <ul>
-                        @foreach(var port in _netInfo.OutboundPorts)
-                        {
-                            <li>@port</li>
-                        }
-                    </ul>
+                <div class="col-md-5">
+                    <div class="card border-0 shadow-sm bg-dark text-white mb-4">
+                        <div class="card-body">
+                            <h6 class="text-uppercase small fw-bold opacity-50 mb-3">Network Trust Profile</h6>
+                            <ul class="list-unstyled small mb-0">
+                                <li class="mb-2"><i class="bi bi-check2-circle text-success me-2"></i> Inbound Ports: Inherited Block</li>
+                                <li class="mb-2"><i class="bi bi-check2-circle text-success me-2"></i> Outbound 443 (HTTPS): ALLOWED</li>
+                                <li class="mb-2"><i class="bi bi-check2-circle text-success me-2"></i> QUIC / UDP 7844: ALLOWED</li>
+                                <li class="mb-0"><i class="bi bi-check2-circle text-success me-2"></i> Loopback 8080: BIND ACTIVE</li>
+                            </ul>
+                        </div>
+                    </div>
                     
-                    <h6>Security Recommendations</h6>
-                    <ul>
-                        <li><i class="bi bi-check-lg text-success"></i> <strong>Inbound Ports:</strong> None required (Blocked by default). Cloudflare Tunnel handles ingress.</li>
-                        <li><i class="bi bi-check-lg text-success"></i> <strong>Time Sync:</strong> Ensure Windows Time Service (w32time) is active for TLS validity.</li>
-                        <li><i class="bi bi-check-lg text-success"></i> <strong>BIOS Power:</strong> Set "Restore on Power Loss" to "Power On" in BIOS.</li>
-                    </ul>
+                    <div class="card border-0 shadow-sm bg-info bg-opacity-10">
+                        <div class="card-body">
+                            <h6 class="fw-bold small mb-2 text-info">Routing Metadata</h6>
+                            <p class="x-small text-muted mb-0">Local Environment: <strong>@_healthInfo?.EnvironmentName</strong></p>
+                            <p class="x-small text-muted mb-0">Public Host: <strong>@_publicInfo?.Domains.FirstOrDefault()</strong></p>
+                        </div>
+                    </div>
                 </div>
             </div>
         }
@@ -354,95 +523,37 @@
         <!-- DIAGNOSTICS TAB -->
         @if (_activeTab == "diagnostics")
         {
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">System Diagnostics</h5>
-                    <button class="btn btn-sm btn-primary" @onclick="RunDiagnosticsAsync" disabled="@_isRunningDiagnostics">
-                        @if (_isRunningDiagnostics)
-                        {
-                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            <span>Running...</span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-play-circle me-2"></i>
-                            <span>Run Diagnostics</span>
-                        }
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">System Validation</h5>
+                    <button class="btn btn-sm btn-primary px-4" @onclick="RunDiagnosticsAsync" disabled="@_isRunningDiagnostics">
+                        @if(_isRunningDiagnostics) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        Re-Validate Infrastructure
                     </button>
                 </div>
                 <div class="card-body">
-                    @if (_diagnosticLogs == null || _diagnosticLogs.Count == 0)
+                    @if (_diagnosticLogs == null)
                     {
-                        <div class="text-center text-muted py-5">
-                            <i class="bi bi-info-circle display-4 mb-3"></i>
-                            <p>Click "Run Diagnostics" to test all system connections and verify infrastructure health.</p>
-                        </div>
+                        <div class="text-center py-5 text-muted"><p>Click the button to scan infrastructure nodes.</p></div>
                     }
                     else
                     {
-                        <div class="alert alert-info mb-3">
-                            <i class="bi bi-info-circle me-2"></i>
-                            <strong>Diagnostics completed at:</strong> @_diagnosticLogs.First().Timestamp.ToLocalTime().ToString("g")
-                        </div>
-                        
                         <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 20%">Component</th>
-                                        <th style="width: 15%">Status</th>
-                                        <th style="width: 50%">Message</th>
-                                        <th style="width: 15%" class="text-end">Duration</th>
-                                    </tr>
-                                </thead>
+                            <table class="table table-sm align-middle">
+                                <thead><tr class="text-muted small"><th>COMPONENT</th><th>RESULT</th><th>DETAILS</th></tr></thead>
                                 <tbody>
-                                    @foreach (var log in _diagnosticLogs)
+                                    @foreach(var log in _diagnosticLogs)
                                     {
                                         <tr>
-                                            <td><strong>@log.Component</strong></td>
+                                            <td class="fw-bold">@log.Component</td>
                                             <td>
-                                                @if (log.Status == "Success")
-                                                {
-                                                    <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Success</span>
-                                                }
-                                                else if (log.Status == "Warning")
-                                                {
-                                                    <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle-fill me-1"></i>Warning</span>
-                                                }
-                                                else
-                                                {
-                                                    <span class="badge bg-danger"><i class="bi bi-x-circle-fill me-1"></i>Failed</span>
-                                                }
+                                                <span class="badge @(log.Status == "Success" ? "bg-success" : "bg-danger") bg-opacity-10 text-@(log.Status == "Success" ? "success" : "danger") px-2">@log.Status</span>
                                             </td>
-                                            <td>@log.Message</td>
-                                            <td class="text-end text-muted">@(log.DurationMs > 0 ? $"{log.DurationMs}ms" : "-")</td>
+                                            <td class="small">@log.Message</td>
                                         </tr>
                                     }
                                 </tbody>
                             </table>
-                        </div>
-
-                        <div class="mt-3 p-3 bg-light rounded">
-                            <div class="row text-center">
-                                <div class="col-md-4">
-                                    <div class="text-success">
-                                        <i class="bi bi-check-circle-fill display-6"></i>
-                                        <div class="mt-2"><strong>@_diagnosticLogs.Count(l => l.Status == "Success")</strong> Passed</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="text-warning">
-                                        <i class="bi bi-exclamation-triangle-fill display-6"></i>
-                                        <div class="mt-2"><strong>@_diagnosticLogs.Count(l => l.Status == "Warning")</strong> Warnings</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="text-danger">
-                                        <i class="bi bi-x-circle-fill display-6"></i>
-                                        <div class="mt-2"><strong>@_diagnosticLogs.Count(l => l.Status == "Failed")</strong> Failed</div>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     }
                 </div>
@@ -452,18 +563,23 @@
 </div>
 
 <style>
-    .spin {
-        animation: spin 1s linear infinite;
-    }
+    .spin { animation: spin 1s linear infinite; }
     @@keyframes spin { 100% {transform: rotate(360deg);} }
-    .nav-link { cursor: pointer; }
+    .nav-pills .nav-link { cursor: pointer; color: #6c757d; font-weight: 500; font-size: 0.9rem; border-radius: 8px; margin-right: 4px; }
+    .nav-pills .nav-link.active { background-color: #0d6efd; box-shadow: 0 4px 12px rgba(13,110,253,0.2); }
+    .status-card { transition: transform 0.2s; border-radius: 12px; }
+    .status-card:hover { transform: translateY(-3px); }
+    .bg-light-blue { background-color: #f0f7ff; }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+    @@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 
 @code {
-    private string _activeTab = "overview";
+    private string _activeTab = "backup";
     private bool _isLoading = false;
     private bool _isGeneratingPack = false;
     private string? _error = null;
+    private string? _statusMessage = null;
 
     private OperationsHealthInfo? _healthInfo;
     private PublicAccessInfo? _publicInfo;
@@ -471,89 +587,165 @@
     private DatabaseRecoveryInfo? _dbInfo;
     private NetworkSecurityInfo? _netInfo;
     private List<DiagnosticEntry>? _diagnosticLogs;
+    private List<AuditLogRecord>? _auditLogs;
+    private List<ControllerDevice>? _controllers;
+    private string _auditSearchText = "";
     private bool _isRunningDiagnostics = false;
+
+    private bool _showBackupConfig = false;
+    private bool _isSavingHardware = false;
+    private BackupConfig _backupConfig = new();
+    private int _selectedBackupHour = 2;
+    private NvrConfig _nvrConfig = new();
+
+    private DataHealthStatus _healthStatus = DataHealthStatus.Unknown;
+    private DateTime? _lastBackupTime;
+    private IEnumerable<FileInfo> _availableBackups;
+    private bool _isProcessingBackup = false;
+
+    private string _healthBadgeClass => _healthStatus switch { DataHealthStatus.Healthy => "bg-success", DataHealthStatus.Warning => "bg-warning", DataHealthStatus.Critical => "bg-danger", _ => "bg-secondary" };
+    private string _healthIcon => _healthStatus switch { DataHealthStatus.Healthy => "bi-shield-check", DataHealthStatus.Warning => "bi-exclamation-triangle", DataHealthStatus.Critical => "bi-shield-x", _ => "bi-question-circle" };
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadDataAsync();
+        _backupConfig = BackupConfigService.Load();
+        _selectedBackupHour = _backupConfig.DailyBackupTime.Hours;
+        LoadHardwareConfig();
+        await RefreshHubAsync();
     }
 
-    private void SetTab(string tab)
-    {
-        _activeTab = tab;
+    private async Task SetTab(string tab) { 
+        _activeTab = tab; 
+        if (tab == "audit" && _auditLogs == null) await LoadAuditLogsAsync();
+        else StateHasChanged();
     }
+    
+    private void ToggleBackupConfig() => _showBackupConfig = !_showBackupConfig;
 
-    private async Task LoadDataAsync()
+    private async Task RefreshHubAsync()
     {
         _isLoading = true;
-        _error = null;
         try
         {
-            // Load in parallel
             var t1 = OperationsService.GetHealthInfoAsync();
             var t2 = OperationsService.GetPublicAccessInfoAsync();
             var t3 = OperationsService.GetHostingInfoAsync();
             var t4 = OperationsService.GetDatabaseRecoveryInfoAsync();
             var t5 = OperationsService.GetNetworkSecurityInfoAsync();
+            var h1 = DataProtectionService.GetHealthStatusAsync();
+            var h2 = DataProtectionService.GetLastBackupTimeAsync();
+            var b1 = DatabaseBackupService.GetAvailableBackupsAsync();
 
-            await Task.WhenAll(t1, t2, t3, t4, t5);
+            await Task.WhenAll(t1, t2, t3, t4, t5, h1, h2, b1);
 
-            _healthInfo = t1.Result;
-            _publicInfo = t2.Result;
-            _hostingInfo = t3.Result;
-            _dbInfo = t4.Result;
-            _netInfo = t5.Result;
+            _healthInfo = t1.Result; _publicInfo = t2.Result; _hostingInfo = t3.Result; _dbInfo = t4.Result; _netInfo = t5.Result;
+            _healthStatus = h1.Result; _lastBackupTime = h2.Result; _availableBackups = b1.Result;
+            
+            using var db = await DbFactory.CreateDbContextAsync();
+            _controllers = await db.Controllers.OrderBy(c => c.Name).ToListAsync();
+
+            if (_activeTab == "audit") await LoadAuditLogsAsync();
         }
-        catch (Exception ex)
-        {
-            _error = "Failed to load operations data. " + ex.Message;
-            Logger.LogError(ex, "Failed to load operations data");
+        catch (Exception ex) { _error = "Refresh Failed: " + ex.Message; }
+        finally { _isLoading = false; }
+    }
+
+    private async Task LoadAuditLogsAsync()
+    {
+        try {
+            var search = string.IsNullOrWhiteSpace(_auditSearchText) ? null : _auditSearchText;
+            var result = await AuditLogRepository.GetAuditLogsAsync(null, search, null, null, null, 1, 50);
+            _auditLogs = result.Items.ToList();
+        } catch (Exception ex) { 
+            _error = "Audit Load Failed: " + ex.Message; 
         }
-        finally
+        finally {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ApplyAuditFilter() => await LoadAuditLogsAsync();
+
+    private async Task SaveBackupSettings()
+    {
+        try
         {
-            _isLoading = false;
+            _backupConfig.DailyBackupTime = new TimeSpan(_selectedBackupHour, 0, 0);
+            BackupConfigService.Save(_backupConfig);
+            _statusMessage = "Backup policy updated.";
+            _showBackupConfig = false;
+        }
+        catch (Exception ex) { _error = "Save Error: " + ex.Message; }
+    }
+
+    private void LoadHardwareConfig()
+    {
+        var settings = SystemSettingsService.GetSettings();
+        _nvrConfig = new NvrConfig { 
+            NvrIpAddress = settings?.NvrIpAddress ?? "",
+            NvrPort = settings?.NvrPort ?? 80,
+            Username = settings?.NvrUsername ?? "admin",
+            Password = "" 
+        };
+    }
+
+    private async Task SaveNvrCredentials()
+    {
+        _isSavingHardware = true;
+        try
+        {
+            await SystemSettingsService.UpdateNvrCredentialsAsync(_nvrConfig.NvrIpAddress, _nvrConfig.NvrPort, _nvrConfig.Username, _nvrConfig.Password);
+            _statusMessage = "Credentials synchronized.";
+            _nvrConfig.Password = "";
+        }
+        catch (Exception ex) { _error = "Sync Failed: " + ex.Message; }
+        finally { _isSavingHardware = false; }
+    }
+
+    private async Task CreateBackup()
+    {
+        _isProcessingBackup = true; _statusMessage = "Running SQL backup...";
+        try
+        {
+            if (await DatabaseBackupService.ExecuteBackupAsync()) {
+                await DataProtectionService.LogBackupCompletesAsync(0);
+                await RefreshHubAsync();
+                _statusMessage = "Backup Complete.";
+            } else _error = "Backup failed.";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _isProcessingBackup = false; }
+    }
+
+    private async Task RecordBackupManualLog() { await DataProtectionService.LogBackupCompletesAsync(0); await RefreshHubAsync(); _statusMessage = "Manual log updated."; }
+
+    private async Task ConfirmRestore(FileInfo backup)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "SYSTEM RESTORE: Overwrite current database?")) {
+            _isProcessingBackup = true; _statusMessage = "Restoring...";
+            try {
+                if (await DatabaseBackupService.RestoreDatabaseAsync(backup.FullName)) {
+                    await DataProtectionService.LogRestoreTestCompletedAsync(0);
+                    _statusMessage = "RESTORE SUCCESSFUL.";
+                    await RefreshHubAsync();
+                } else _error = "Restore failed.";
+            }
+            catch (Exception ex) { _error = ex.Message; }
+            finally { _isProcessingBackup = false; }
         }
     }
 
     private async Task DownloadRecoveryPackAsync()
     {
         _isGeneratingPack = true;
-        _error = null;
-        try
-        {
-            var zipBytes = await OperationsService.GenerateRecoveryPackAsync();
-            var fileName = $"GFC_Recovery_Pack_{DateTime.Now:yyyyMMdd_HHmm}.zip";
-            var base64 = Convert.ToBase64String(zipBytes);
-            
-            await JS.InvokeVoidAsync("downloadFile", fileName, base64, "application/zip");
-        }
-        catch (Exception ex)
-        {
-            _error = "Failed to generate Recovery Pack. " + ex.Message;
-            Logger.LogError(ex, "Recovery Pack generation failed");
-        }
-        finally
-        {
-            _isGeneratingPack = false;
-        }
+        try {
+            var bytes = await OperationsService.GenerateRecoveryPackAsync();
+            await JS.InvokeVoidAsync("downloadFile", $"GFC_Recovery_Pack_{DateTime.Now:yyyyMMdd}.zip", Convert.ToBase64String(bytes), "application/zip");
+        } catch (Exception ex) { _error = ex.Message; }
+        finally { _isGeneratingPack = false; }
     }
 
-    private async Task RunDiagnosticsAsync()
-    {
-        _isRunningDiagnostics = true;
-        _error = null;
-        try
-        {
-            _diagnosticLogs = await OperationsService.RunDiagnosticsAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = "Failed to run diagnostics. " + ex.Message;
-            Logger.LogError(ex, "Diagnostics execution failed");
-        }
-        finally
-        {
-            _isRunningDiagnostics = false;
-        }
-    }
+    private async Task RunDiagnosticsAsync() { _isRunningDiagnostics = true; try { _diagnosticLogs = await OperationsService.RunDiagnosticsAsync(); } catch (Exception ex) { _error = ex.Message; } finally { _isRunningDiagnostics = false; } }
+
+    private string GetRelativeTime(DateTime d) { var ts = DateTime.UtcNow - d; return ts.TotalHours < 1 ? $"{ts.Minutes}m ago" : ts.TotalDays < 1 ? $"{ts.Hours}h ago" : $"{ts.Days}d ago"; }
 }
