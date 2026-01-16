@@ -674,8 +674,7 @@ namespace GFC.BlazorServer.Services
             member.AcceptedDate = GetDate(worksheet, row, 15);
             member.DateOfBirth = GetDate(worksheet, row, 16);
 
-            var npString = GetString(worksheet, row, 17);
-            member.IsNonPortugueseOrigin = npString?.Equals("Yes", StringComparison.OrdinalIgnoreCase) == true;
+            member.IsNonPortugueseOrigin = GetBool(worksheet, row, 17);
 
             member.Notes = GetString(worksheet, row, 18);
         }
@@ -750,6 +749,18 @@ namespace GFC.BlazorServer.Services
             }
             
             return null;
+        }
+
+        private bool GetBool(ExcelWorksheet ws, int row, int col)
+        {
+            var val = ws.Cells[row, col].Value;
+            if (val == null) return false;
+            if (val is bool b) return b;
+
+            var s = val.ToString()?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+
+            return s == "yes" || s == "y" || s == "true" || s == "1" || s == "sim" || s == "s" || s == "checked" || s == "x";
         }
 
         // --- Formatting Helpers (Matches AddMember.razor logic) ---
