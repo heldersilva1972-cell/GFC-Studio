@@ -145,6 +145,39 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
                     Details = details
                 });
             }
+
+            // [NEW] Add multi-year waiver periods
+            var multiWaivers = await _dbContext.DuesWaiverPeriods
+                .AsNoTracking()
+                .Where(w => w.MemberId == memberId)
+                .OrderByDescending(w => w.StartYear)
+                .ToListAsync(ct);
+
+            foreach (var mw in multiWaivers)
+            {
+                // Use CreatedDate if available, otherwise fallback to start of the first year
+                var timestamp = mw.CreatedDate != default 
+                    ? mw.CreatedDate 
+                    : new DateTime(mw.StartYear, 1, 1);
+
+                var period = mw.StartYear == mw.EndYear 
+                    ? $"{mw.StartYear}" 
+                    : $"{mw.StartYear}-{mw.EndYear}";
+
+                var details = $"Multi-year waiver for {period}; Reason: {mw.Reason}";
+                if (!string.IsNullOrWhiteSpace(mw.CreatedBy))
+                {
+                    details += $" (Granted by {mw.CreatedBy})";
+                }
+
+                events.Add(new MemberActivityEvent
+                {
+                    TimestampUtc = EnsureUtc(timestamp),
+                    Source = GetSourceLabel("Dues"),
+                    Summary = $"Multi-year waiver granted",
+                    Details = details
+                });
+            }
         }
         catch (Exception ex)
         {

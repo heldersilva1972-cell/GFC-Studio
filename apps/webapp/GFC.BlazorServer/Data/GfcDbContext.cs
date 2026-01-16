@@ -38,6 +38,7 @@ public class GfcDbContext : DbContext
     public DbSet<Waiver> Waivers => Set<Waiver>();
     public DbSet<GFC.BlazorServer.Data.Entities.NPQueueEntry> NPQueueEntries => Set<GFC.BlazorServer.Data.Entities.NPQueueEntry>();
     public DbSet<KeyHistory> KeyHistories => Set<KeyHistory>();
+    public DbSet<DuesWaiverPeriod> DuesWaiverPeriods => Set<DuesWaiverPeriod>();
     public DbSet<ReimbursementRequest> ReimbursementRequests => Set<ReimbursementRequest>();
     public DbSet<ReimbursementItem> ReimbursementItems => Set<ReimbursementItem>();
     public DbSet<ReimbursementCategory> ReimbursementCategories => Set<ReimbursementCategory>();
@@ -343,6 +344,13 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("Waivers");
             entity.HasIndex(w => new { w.MemberId, w.Year });
+        });
+
+        modelBuilder.Entity<DuesWaiverPeriod>(entity =>
+        {
+            entity.ToTable("DuesWaiverPeriods");
+            entity.HasKey(w => w.WaiverId);
+            entity.HasIndex(w => w.MemberId);
         });
 
         modelBuilder.Entity<GFC.BlazorServer.Data.Entities.NPQueueEntry>(entity =>

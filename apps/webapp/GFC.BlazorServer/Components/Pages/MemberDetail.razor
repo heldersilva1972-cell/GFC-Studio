@@ -468,9 +468,9 @@ else if (_member is not null)
                             <div class="metric-value">@GetDuesStatus()</div>
                         </div>
                         <div>
-                            <div class="info-label">Last payment</div>
+                            <div class="info-label">Last Activity</div>
                             <div class="metric-value">@FormatDate(_latestPayment?.PaidDate)</div>
-                            @if (_latestPayment?.Amount.HasValue == true)
+                            @if (_latestPayment?.Amount.HasValue == true && _latestPayment.Amount > 0)
                             {
                                 <div class="text-muted small">Amount @(_latestPayment.Amount.Value.ToString("C0", new CultureInfo("en-US")))</div>
                             }
@@ -855,6 +855,11 @@ else if (_member is not null)
         if (IsDirector()) return "Paid";
         
         var year = DateTime.Today.Year;
+
+        // Check active waivers first for accurate labeling
+        if (_waivers != null && _waivers.Any(w => year >= w.StartYear && year <= w.EndYear))
+            return "Waived";
+
         var eligibility = KeyCardService.GetKeyCardEligibility(_member.MemberID, year);
         
         if (eligibility.CurrentYearSatisfied) return "Paid";
@@ -1146,7 +1151,11 @@ else if (_member is not null)
     private bool IsDirector() => _isBoardMember;
 
     private bool HasDuesWaiver()
-        => string.Equals(_currentYearDues?.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
+    {
+        var year = DateTime.Today.Year;
+        var hasActiveWaiver = _waivers != null && _waivers.Any(w => year >= w.StartYear && year <= w.EndYear);
+        return hasActiveWaiver || string.Equals(_currentYearDues?.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase);
+    }
 
     private bool IsLifeMember()
         => string.Equals(_member?.Status, "LIFE", StringComparison.OrdinalIgnoreCase);
@@ -1196,7 +1205,14 @@ else if (_member is not null)
 
     private bool IsNpMember() => _member?.IsNonPortugueseOrigin == true;
 
-    private bool ShowDuesCard() => !IsGuestMember() && !MemberStatusHelper.IsPending(_member);
+    private bool ShowDuesCard() 
+    {
+        if (_member is null || MemberStatusHelper.IsPending(_member)) return false;
+        
+        // Show card if they are a Regular/Life member (standard requirement)
+        // OR if they are a Guest who happens to have waiver or payment history
+        return !IsGuestMember() || (_waivers != null && _waivers.Any()) || _latestPayment != null;
+    }
 
     private bool ShowKeyCardSection() => !IsGuestMember() && !MemberStatusHelper.IsPending(_member);
 
