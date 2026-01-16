@@ -1,0 +1,154 @@
+@page "/studio/preview/{Slug}"
+@layout GFC.BlazorServer.Components.Layout.FullPageLayout
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@inject IDbContextFactory<GfcDbContext> DbContextFactory
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Preview: @Slug</PageTitle>
+
+<div class="preview-container bg-white">
+    @if (sections == null || !sections.Any())
+    {
+        <div class="d-flex flex-column justify-content-center align-items-center vh-100 text-muted">
+            <i class="bi bi-canvas display-1 opacity-25 mb-3"></i>
+            <h3>Empty Canvas</h3>
+            <p>Drag components here to start building.</p>
+        </div>
+    }
+    else
+    {
+        <div class="generated-page">
+            @foreach (var sec in sections.OrderBy(s => s.OrderIndex))
+            {
+                <div id="@($"section-{sec.Id}")" 
+                     data-studio-section="@sec.ClientId" 
+                     data-studio-id="@sec.ClientId"
+                     class="page-section" 
+                     style="@GetSectionStyles(sec)">
+                    @RenderSection(sec)
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<script>
+    window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'UPDATE_SECTIONS') {
+            console.log('Preview received update:', event.data.payload);
+            window.dotNetPreviewHelper.invokeMethodAsync('UpdateSections', JSON.stringify(event.data.payload));
+        }
+    });
+
+    // Notify parent that we are ready
+    window.onload = () => {
+        if (window.parent) {
+            window.parent.postMessage({ type: 'PREVIEW_READY' }, '*');
+        }
+    };
+</script>
+
+@code {
+    [Parameter] public string Slug { get; set; }
+
+    private List<StudioSection> sections = new();
+    private DotNetObjectReference<StudioPreview>? dotNetHelper;
+
+    protected override async Task OnInitializedAsync()
+    {
+        dotNetHelper = DotNetObjectReference.Create(this);
+        await JSRuntime.InvokeVoidAsync("eval", "window.dotNetPreviewHelper = " + "null"); // reset
+        // We use eval to set a global so the script above can access it. 
+        // Better: use a dedicated JS function.
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "window.dotNetPreviewHelper = DotNet.createDotNetObjectReference(arguments[0])", dotNetHelper);
+            
+            // Initial load from DB if needed
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            var page = await context.StudioPages
+                .Include(p => p.Sections)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Slug == Slug);
+
+            if (page != null)
+            {
+                sections = page.Sections.ToList();
+                foreach(var s in sections) s.SyncDataToProperties();
+                StateHasChanged();
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void UpdateSections(string json)
+    {
+        try 
+        {
+            sections = JsonSerializer.Deserialize<List<StudioSection>>(json) ?? new();
+            foreach(var s in sections) s.SyncDataToProperties();
+            StateHasChanged();
+        }
+        catch(Exception ex) 
+        {
+             Console.WriteLine("Preview Update Error: " + ex.Message);
+        }
+    }
+
+    private string GetSectionStyles(StudioSection section)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (section.Styles != null)
+        {
+            foreach (var style in section.Styles)
+            {
+                sb.Append($"{style.Key}: {style.Value};");
+            }
+        }
+        return sb.ToString();
+    }
+
+    private RenderFragment RenderSection(StudioSection section) => builder =>
+    {
+        switch (section.ComponentType)
+        {
+             case "Heading":
+                builder.OpenElement(0, "h1");
+                builder.AddContent(1, section.properties.ContainsKey("content") ? section.properties["content"].ToString() : (section.properties.ContainsKey("headline") ? section.properties["headline"].ToString() : section.Title));
+                builder.CloseElement();
+                break;
+                
+            case "TextBlock":
+            case "RichTextBlock":
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "text-content");
+                builder.AddMarkupContent(2, section.properties.ContainsKey("content") ? section.properties["content"]?.ToString() : "");
+                builder.CloseElement();
+                break;
+                
+            case "Image":
+                if (section.properties.ContainsKey("src"))
+                {
+                    builder.OpenElement(0, "img");
+                    builder.AddAttribute(1, "src", section.properties["src"]?.ToString() ?? "");
+                    builder.AddAttribute(2, "class", "img-fluid");
+                    builder.CloseElement();
+                }
+                break;
+                
+            default:
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "p-3 border rounded bg-light text-muted small mb-2");
+                builder.AddContent(2, $"[{section.ComponentType}] {section.Title}");
+                builder.CloseElement();
+                break;
+        }
+    };
+}

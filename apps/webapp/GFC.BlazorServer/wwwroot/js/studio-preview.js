@@ -10,7 +10,7 @@ window.sendSectionsToPreview = function (iframeElement, sectionsJson) {
         iframeElement.contentWindow.postMessage({
             type: 'UPDATE_SECTIONS',
             payload: sections
-        }, 'http://localhost:3000');
+        }, '*');
 
         console.log('Sent sections to preview:', sections);
     } catch (error) {
@@ -21,7 +21,6 @@ window.sendSectionsToPreview = function (iframeElement, sectionsJson) {
 // Wait for preview iframe to be ready
 window.waitForPreviewReady = function (iframeElement, callback) {
     const messageHandler = (event) => {
-        if (event.origin !== 'http://localhost:3000') return;
         if (event.data.type === 'PREVIEW_READY') {
             console.log('Preview iframe is ready');
             window.removeEventListener('message', messageHandler);

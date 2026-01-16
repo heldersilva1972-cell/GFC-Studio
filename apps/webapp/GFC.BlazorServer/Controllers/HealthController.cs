@@ -38,16 +38,24 @@ public class HealthController : ControllerBase
         try 
         {
             var info = await _operationsService.GetHealthInfoAsync();
-            if (info.IsHealthy)
+            
+            // Return specific failure code for monitoring systems
+            if (!info.IsHealthy)
             {
-                return Ok("OK");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { status = "unhealthy", timestamp = DateTime.UtcNow });
             }
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, "FAIL");
+
+            return Ok(new
+            {
+                status = "healthy",
+                timestamp = DateTime.UtcNow,
+                version = info.AppVersion
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Health check failed");
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, "FAIL");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { status = "error", message = "Internal Health Check Failure" });
         }
     }
 
@@ -61,23 +69,6 @@ public class HealthController : ControllerBase
     {
         var info = await _operationsService.GetHealthInfoAsync();
         return Ok(info);
-    }
-
-    /// <summary>
-    /// Legacy API endpoint
-    /// </summary>
-    [HttpGet]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<IActionResult> Get()
-    {
-        // For backward compatibility, return a simple JSON
-        var info = await _operationsService.GetHealthInfoAsync();
-        return Ok(new
-        {
-            status = info.IsHealthy ? "healthy" : "unhealthy",
-            timestamp = DateTime.UtcNow,
-            version = info.AppVersion
-        });
     }
 
     /// <summary>
