@@ -102,8 +102,8 @@ public class KeyCardService
         var statusAllowed = IsStatusEligible(row.MemberStatus);
         var isLifeMember = string.Equals(MemberStatusHelper.NormalizeStatus(row.MemberStatus), "LIFE", StringComparison.OrdinalIgnoreCase);
         
-        var currentYearSatisfied = isLifeMember || IsDuesSatisfied(row.DuesPaymentType, row.DuesPaidDate);
-        var previousYearSatisfied = isLifeMember || IsDuesSatisfied(row.PreviousYearPaymentType, row.PreviousYearPaidDate);
+        var currentYearSatisfied = row.IsDirectorCurrent || isLifeMember || IsDuesSatisfied(row.DuesPaymentType, row.DuesPaidDate);
+        var previousYearSatisfied = row.IsDirectorPrevious || isLifeMember || IsDuesSatisfied(row.PreviousYearPaymentType, row.PreviousYearPaidDate);
         
         return BuildEligibility(statusAllowed, currentYearSatisfied, previousYearSatisfied, row.MemberStatus, graceEndDate?.Date);
     }

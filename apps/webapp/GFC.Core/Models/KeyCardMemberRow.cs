@@ -19,6 +19,8 @@ public class KeyCardMemberRow
     public string? KeyCardNumber { get; set; }
     public bool IsNonPortugueseOrigin { get; set; }
     public string? Suffix { get; set; }
+    public bool IsDirectorCurrent { get; set; }
+    public bool IsDirectorPrevious { get; set; }
 
     public string DisplayName
     {

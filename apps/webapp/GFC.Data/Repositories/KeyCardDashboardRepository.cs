@@ -100,7 +100,7 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
         }
         catch (SqlException ex) when (ex.Number == 208) { } // Ignore if table missing
 
-        // 5. Fetch Members and Payments (Standard)
+        // 5. Fetch Members, Payments, and Board Status
         const string sql = @"
             SELECT
                 m.MemberID,
@@ -116,7 +116,9 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
                 dpPrev.PaidDate AS PreviousPaidDate,
                 currentAssignment.AssignmentId,
                 currentAssignment.KeyCardId,
-                kc.CardNumber
+                kc.CardNumber,
+                CASE WHEN ba.AssignmentID IS NOT NULL THEN 1 ELSE 0 END AS IsDirectorCurrent,
+                CASE WHEN baPrev.AssignmentID IS NOT NULL THEN 1 ELSE 0 END AS IsDirectorPrevious
             FROM dbo.Members AS m
             LEFT JOIN dbo.DuesPayments AS dp
                 ON dp.MemberID = m.MemberID
@@ -124,6 +126,12 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
             LEFT JOIN dbo.DuesPayments AS dpPrev
                 ON dpPrev.MemberID = m.MemberID
                AND dpPrev.Year = @PreviousYear
+            LEFT JOIN dbo.BoardAssignments AS ba
+                ON ba.MemberID = m.MemberID
+               AND ba.TermYear = @Year
+            LEFT JOIN dbo.BoardAssignments AS baPrev
+                ON baPrev.MemberID = m.MemberID
+               AND baPrev.TermYear = @PreviousYear
             OUTER APPLY (
                 SELECT TOP 1 AssignmentId, KeyCardId
                 FROM dbo.MemberKeycardAssignments
@@ -175,7 +183,9 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
                 KeyCardId = reader["KeyCardId"] is DBNull ? null : (int?)reader["KeyCardId"],
                 KeyCardNumber = reader["CardNumber"] as string,
                 IsNonPortugueseOrigin = reader["IsNonPortugueseOrigin"] != DBNull.Value && (bool)reader["IsNonPortugueseOrigin"],
-                Suffix = reader["Suffix"] as string
+                Suffix = reader["Suffix"] as string,
+                IsDirectorCurrent = (int)reader["IsDirectorCurrent"] == 1,
+                IsDirectorPrevious = (int)reader["IsDirectorPrevious"] == 1
             });
         }
 
