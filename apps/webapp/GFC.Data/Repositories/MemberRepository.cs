@@ -627,7 +627,9 @@ FROM Members;";
             const string sql = @"
                 SELECT MemberID, LastName, FirstName, MiddleName, AcceptedDate
                 FROM Members
-                WHERE Status = 'GUEST' AND IsNonPortugueseOrigin = 1
+                WHERE Status = 'GUEST' AND IsNonPortugueseOrigin = 1 
+                  AND AcceptedDate IS NOT NULL 
+                  AND AcceptedDate > '1950-01-01'
                 ORDER BY AcceptedDate, LastName, FirstName";
             
             using var command = new SqlCommand(sql, connection);
@@ -674,7 +676,9 @@ FROM Members;";
                 SELECT COUNT(*)
                 FROM Members
                 WHERE Status = 'GUEST'
-                  AND IsNonPortugueseOrigin = 1";
+                  AND IsNonPortugueseOrigin = 1
+                  AND AcceptedDate IS NOT NULL
+                  AND AcceptedDate > '1950-01-01'";
 
             using var command = new SqlCommand(sql, connection);
             var count = (int)command.ExecuteScalar();
