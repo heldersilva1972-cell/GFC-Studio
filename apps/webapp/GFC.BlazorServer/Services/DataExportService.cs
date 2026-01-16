@@ -667,7 +667,8 @@ namespace GFC.BlazorServer.Services
             member.PostalCode = GetPostalCode(worksheet, row, 10);
             member.Phone = FormatPhone(GetString(worksheet, row, 11));
             member.CellPhone = FormatPhone(GetString(worksheet, row, 12));
-            member.Email = GetString(worksheet, row, 13)?.Trim().ToLowerInvariant();
+            var email = GetString(worksheet, row, 13);
+            member.Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
             
             member.ApplicationDate = GetDate(worksheet, row, 14);
             member.AcceptedDate = GetDate(worksheet, row, 15);
