@@ -335,12 +335,18 @@
                                                     Pay
                                                 </button>
                                             }
-                                            
-                                            @if (item.Status == MemberStatus.Life || item.IsBoardMember)
+                                            else if (item.Status == MemberStatus.Life || item.IsBoardMember)
                                             {
                                                 <button class="btn btn-sm btn-light border text-muted pe-none" disabled>
                                                     <i class="bi bi-shield-lock"></i>
                                                     <span class="d-none d-lg-inline ms-1">Auto-Waived</span>
+                                                </button>
+                                            }
+                                            else if (IsPaid(item))
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEditPaymentModal(item)" title="Edit Payment">
+                                                    <i class="bi bi-pencil"></i>
+                                                    <span class="d-none d-lg-inline ms-1">Edit</span>
                                                 </button>
                                             }
                                             else if (item.MonthsOverdue >= 15 && CanSetInactive(item))
@@ -357,10 +363,6 @@
                                                     <i class="bi @(item.IsWaived ? "bi-shield-check" : "bi-shield-plus")"></i>
                                                     <span class="d-none d-lg-inline ms-1">@(item.IsWaived ? "Waiver" : "Waive")</span>
                                                 </button>
-                                            }
-                                            else if (IsPaid(item))
-                                            {
-                                                <button class="btn btn-sm btn-light text-muted" disabled>Paid</button>
                                             }
                                         </div>
                                     </td>
@@ -644,6 +646,120 @@
         </div>
     }
 
+    @* Edit Payment Modal *@
+    @if (_showEditPaymentModal && _editPaymentTarget != null)
+    {
+        <div class="modal-backdrop fade show"></div>
+        <div class="modal fade show d-block" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg modal-glass">
+                    <div class="modal-header border-bottom-0">
+                        <div class="d-flex align-items-center w-100">
+                            <div class="icon-shape bg-warning-subtle text-warning me-3">
+                                <i class="bi bi-pencil-square"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h5 class="modal-title fw-bold mb-0">Edit Payment</h5>
+                                <small class="text-muted">@_editPaymentTarget.FullName - ID: @_editPaymentTarget.MemberId</small>
+                            </div>
+                            <button type="button" class="btn-close" @onclick="CloseEditPaymentModal"></button>
+                        </div>
+                    </div>
+                    <div class="modal-body">
+                        <EditForm Model="_editPaymentForm" OnValidSubmit="PromptEditPaymentConfirmation">
+                            <DataAnnotationsValidator />
+                            
+                            <div class="alert alert-warning border-0 mb-4">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                <strong>Caution:</strong> Editing this payment will update the record and log the change for audit purposes.
+                            </div>
+                            
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Amount</label>
+                                    <div class="input-group input-group-lg">
+                                        <span class="input-group-text bg-white text-muted">$</span>
+                                        <InputNumber class="form-control fw-bold" @bind-Value="_editPaymentForm.Amount" />
+                                    </div>
+                                    <ValidationMessage For="@(() => _editPaymentForm.Amount)" />
+                                </div>
+                                
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Date</label>
+                                    <div class="d-flex gap-2">
+                                        <select class="form-select" @bind="_editPaymentMonth" @bind:after="UpdateEditPaymentDate">
+                                            <option value="0">Month</option>
+                                            <option value="1">01 - January</option>
+                                            <option value="2">02 - February</option>
+                                            <option value="3">03 - March</option>
+                                            <option value="4">04 - April</option>
+                                            <option value="5">05 - May</option>
+                                            <option value="6">06 - June</option>
+                                            <option value="7">07 - July</option>
+                                            <option value="8">08 - August</option>
+                                            <option value="9">09 - September</option>
+                                            <option value="10">10 - October</option>
+                                            <option value="11">11 - November</option>
+                                            <option value="12">12 - December</option>
+                                        </select>
+                                        <select class="form-select" @bind="_editPaymentDay" @bind:after="UpdateEditPaymentDate">
+                                            <option value="0">Day</option>
+                                            @for (int i = 1; i <= 31; i++)
+                                            {
+                                                <option value="@i">@i</option>
+                                            }
+                                        </select>
+                                        <select class="form-select" @bind="_editPaymentYear" @bind:after="UpdateEditPaymentDate">
+                                            <option value="0">Year</option>
+                                            @for (int year = DateTime.Today.Year; year >= DateTime.Today.Year - 5; year--)
+                                            {
+                                                <option value="@year">@year</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <ValidationMessage For="@(() => _editPaymentForm.PaidDate)" />
+                                </div>
+                                
+                                <div class="col-6">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Method</label>
+                                    <InputSelect class="form-select" @bind-Value="_editPaymentForm.PaymentType">
+                                        @foreach (var method in PaymentMethods)
+                                        {
+                                            <option value="@method">@method</option>
+                                        }
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => _editPaymentForm.PaymentType)" />
+                                </div>
+                                
+                                <div class="col-12">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Notes</label>
+                                    <InputText class="form-control" placeholder="Check #, Reference, etc." @bind-Value="_editPaymentForm.Notes" />
+                                    <ValidationMessage For="@(() => _editPaymentForm.Notes)" />
+                                </div>
+                            </div>
+
+                            <div class="d-grid gap-2 mt-4">
+                                <button class="btn btn-warning text-white btn-lg" type="submit" disabled="@_operationInProgress">
+                                    @if (_operationInProgress)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span>Updating...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-check-circle me-2"></i>
+                                        <span>Update Payment</span>
+                                    }
+                                </button>
+                                <button type="button" class="btn btn-light" @onclick="CloseEditPaymentModal" disabled="@_operationInProgress">Cancel</button>
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
     <!-- Waiver Modal -->
     @if (_showWaiverModal)
     {
@@ -876,6 +992,15 @@
     private int _gracePeriodDay;
     private string _gracePeriodError = string.Empty;
     private bool _savingGracePeriod;
+    
+    // Edit Payment Modal State
+    private bool _showEditPaymentModal;
+    private DuesListItemDto? _editPaymentTarget;
+    private PaymentFormModel _editPaymentForm = new();
+    private int _editPaymentMonth;
+    private int _editPaymentDay;
+    private int _editPaymentYear;
+    private int _originalPaymentId;
 
     // Confirmation Modal State
     private bool _showConfirmModal = false;
@@ -1674,6 +1799,127 @@
              }
         };
         _showConfirmModal = true;
+    }
+    
+    // Edit Payment Methods
+    private async Task OpenEditPaymentModal(DuesListItemDto item)
+    {
+        _editPaymentTarget = item;
+        
+        // Fetch the existing payment record
+        var payment = await Task.Run(() => DuesRepository.GetDuesForMemberYear(item.MemberId, item.Year));
+        if (payment == null)
+        {
+            _operationMessage = "Payment record not found.";
+            _operationError = true;
+            return;
+        }
+        
+        _originalPaymentId = payment.DuesPaymentID;
+        
+        // Populate the form
+        _editPaymentForm = new PaymentFormModel
+        {
+            Year = item.Year,
+            Amount = payment.Amount,
+            PaidDate = payment.PaidDate ?? DateTime.Today,
+            PaymentType = payment.PaymentType ?? "CASH",
+            Notes = payment.Notes ?? string.Empty
+        };
+        
+        // Set date dropdowns
+        if (payment.PaidDate.HasValue)
+        {
+            _editPaymentMonth = payment.PaidDate.Value.Month;
+            _editPaymentDay = payment.PaidDate.Value.Day;
+            _editPaymentYear = payment.PaidDate.Value.Year;
+        }
+        else
+        {
+            var today = DateTime.Today;
+            _editPaymentMonth = today.Month;
+            _editPaymentDay = today.Day;
+            _editPaymentYear = today.Year;
+        }
+        
+        _showEditPaymentModal = true;
+    }
+    
+    private void UpdateEditPaymentDate()
+    {
+        if (_editPaymentMonth > 0 && _editPaymentDay > 0 && _editPaymentYear > 0)
+        {
+            try
+            {
+                _editPaymentForm.PaidDate = new DateTime(_editPaymentYear, _editPaymentMonth, _editPaymentDay);
+            }
+            catch
+            {
+                // Invalid date combination - keep current date
+            }
+        }
+    }
+    
+    private void PromptEditPaymentConfirmation()
+    {
+        _confirmTitle = "Confirm Payment Edit";
+        _confirmMessage = $"Are you sure you want to update the payment for {_editPaymentTarget?.FullName}?";
+        _confirmSubMessage = $"Amount: {_editPaymentForm.Amount:C} | Date: {_editPaymentForm.PaidDate.ToString("MMM d, yyyy")} | Method: {_editPaymentForm.PaymentType}";
+        _confirmActionText = "Update Payment";
+        _confirmType = ConfirmActionModal.ConfirmType.Warning;
+        _confirmIcon = "bi-pencil-square";
+        _confirmAction = SubmitEditPayment;
+        _showConfirmModal = true;
+    }
+    
+    private async Task SubmitEditPayment()
+    {
+        _operationInProgress = true;
+        try
+        {
+            // Update the payment record
+            var payment = await Task.Run(() => DuesRepository.GetDuesForMemberYear(_editPaymentTarget.MemberId, _editPaymentTarget.Year));
+            if (payment != null)
+            {
+                payment.Amount = _editPaymentForm.Amount;
+                payment.PaidDate = _editPaymentForm.PaidDate;
+                payment.PaymentType = _editPaymentForm.PaymentType;
+                payment.Notes = _editPaymentForm.Notes;
+                await Task.Run(() => DuesRepository.UpdateDuesRecord(payment));
+            }
+            
+            // Log the change for audit
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote
+            {
+                NoteDate = DateTime.Now,
+                Category = "PAYMENT EDIT",
+                Text = $"Payment edited for {_editPaymentTarget?.FullName} (ID {_editPaymentTarget?.MemberId}) - Year: {_editPaymentForm.Year}, Amount: {_editPaymentForm.Amount:C}, Date: {_editPaymentForm.PaidDate.ToString("yyyy-MM-dd")}, Method: {_editPaymentForm.PaymentType} by {currentUser?.Username ?? "Unknown"}"
+            }));
+            
+            _operationMessage = $"Payment for {_editPaymentTarget?.FullName} updated successfully.";
+            _operationError = false;
+            
+            _showEditPaymentModal = false;
+            await LoadDataInternal();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating payment");
+            _operationMessage = "Failed to update payment.";
+            _operationError = true;
+        }
+        finally
+        {
+            _operationInProgress = false;
+        }
+    }
+    
+    private void CloseEditPaymentModal()
+    {
+        _showEditPaymentModal = false;
+        _editPaymentTarget = null;
+        _editPaymentForm = new PaymentFormModel();
     }
 
     private bool IsExempt(DuesListItemDto item) =>
