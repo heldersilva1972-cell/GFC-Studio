@@ -54,7 +54,7 @@ public class DuesService
         };
     }
 
-    public async Task RecordPaymentAsync(int memberId, int year, decimal amount, DateTime paidDate, string? notes, int? performedByUserId = null, CancellationToken cancellationToken = default)
+    public async Task RecordPaymentAsync(int memberId, int year, decimal amount, DateTime paidDate, string? notes, string? paymentType = null, int? performedByUserId = null, CancellationToken cancellationToken = default)
     {
         if (amount <= 0)
         {
@@ -75,6 +75,7 @@ public class DuesService
             {
                 existing.Amount,
                 existing.PaidDate,
+                existing.PaymentType,
                 existing.Notes
             };
 
@@ -82,6 +83,7 @@ public class DuesService
         {
             existing.Amount = amount;
             existing.PaidDate = paidDate;
+            existing.PaymentType = paymentType;
             existing.Notes = notes;
             _dbContext.DuesPayments.Update(existing);
         }
@@ -93,6 +95,7 @@ public class DuesService
                 Year = year,
                 Amount = amount,
                 PaidDate = paidDate,
+                PaymentType = paymentType,
                 Notes = notes
             };
             _dbContext.DuesPayments.Add(payment);

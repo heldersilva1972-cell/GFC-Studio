@@ -15,6 +15,9 @@ public class DuesPayment
 
     public DateTime? PaidDate { get; set; }
 
+    [MaxLength(50)]
+    public string? PaymentType { get; set; }
+
     [MaxLength(500)]
     public string? Notes { get; set; }
 }

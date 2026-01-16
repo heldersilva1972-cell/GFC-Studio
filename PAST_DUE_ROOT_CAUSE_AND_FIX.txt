@@ -1,0 +1,76 @@
+# ROOT CAUSE ANALYSIS: "Past Due" Status Issue
+
+## Problem:
+Robert E Fitch shows "Past Due" even though he paid $50 for 2026 on Jan 16, 2026.
+
+## Root Cause Found:
+
+### The Issue:
+The `DuesPayments` table in the database is **MISSING the `PaymentType` column**.
+
+### Evidence:
+1. **Database Schema** (from migration file):
+   - Created with only: MemberId, Year, Amount, PaidDate, Notes
+   - NO PaymentType column
+
+2. **EF Core Entity** (DuesPayment.cs):
+   - Recently added PaymentType property
+   - But database was never updated
+
+3. **ADO.NET Repository Query** (DuesRepository.cs):
+   - Checks: `PaymentType IS NOT NULL AND UPPER(PaymentType) = 'WAIVED'`
+   - Since column doesn't exist, query may fail or return wrong results
+
+### Why This Causes "Past Due":
+1. Payment is saved via EF Core with PaymentType = "Cash"
+2. Database column doesn't exist, so PaymentType is silently ignored
+3. When checking dues status, the query looks for PaidDate OR PaymentType='WAIVED'
+4. The missing column causes the eligibility check to fail
+5. Member shows as "Past Due" even though they paid
+
+## The Fix:
+
+### Step 1: Add PaymentType Column to Database
+Run the SQL script: `Add_PaymentType_Column.sql`
+
+This will:
+- Add `PaymentType NVARCHAR(50) NULL` column to DuesPayments table
+- Update existing paid records to set PaymentType = 'CASH'
+- Ensure all existing payments are recognized
+
+### Step 2: Verify the Fix
+After running the script:
+1. Refresh the Member Detail page for Robert E Fitch
+2. Status should change from "Past Due" to "Paid"
+3. All members who have paid should show correct status
+
+## How to Run the Fix:
+
+### Option 1: SQL Server Management Studio (SSMS)
+1. Open SSMS
+2. Connect to `.\SQLEXPRESS`
+3. Select `ClubMembership` database
+4. Open `Add_PaymentType_Column.sql`
+5. Click Execute (F5)
+
+### Option 2: Command Line
+```cmd
+sqlcmd -S .\SQLEXPRESS -d ClubMembership -i "Add_PaymentType_Column.sql"
+```
+
+## Files Modified:
+1. ✅ `DuesPayment.cs` (EF Entity) - Added PaymentType property
+2. ✅ `DuesService.cs` - Updated to accept and save PaymentType
+3. ✅ `Dues.razor` - Updated to pass PaymentType to service
+4. ⚠️ **DATABASE** - Needs PaymentType column added (run SQL script)
+
+## After the Fix:
+- All new payments will save PaymentType correctly
+- All existing payments will be recognized as "CASH"
+- Dues status will calculate correctly
+- "Past Due" issue will be resolved
+
+---
+
+**Status**: Ready to apply fix
+**Action Required**: Run `Add_PaymentType_Column.sql` on the database
