@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using GFC.BlazorServer.Auth
 @inject IUserManagementService UserManagementService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 
@@ -175,9 +176,18 @@
                                         <button class="btn btn-sm btn-icon" title="Edit" @onclick="() => OpenEditUserModal(user)">
                                             <i class="bi bi-pencil"></i>
                                         </button>
-                                        <button class="btn btn-sm btn-icon" title="Delete" @onclick="() => ConfirmDeleteUser(user)">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
+                                        @if (user.Username.ToLowerInvariant() != "admin" && user.UserId != _currentUserId)
+                                        {
+                                            <button class="btn btn-sm btn-icon" title="Delete" @onclick="() => ConfirmDeleteUser(user)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <div class="btn btn-sm btn-icon disabled" style="opacity: 0.3; cursor: not-allowed;" title="Cannot delete system admin or your own account">
+                                                <i class="bi bi-trash"></i>
+                                            </div>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -450,6 +460,7 @@
     private bool _showUserModal = false;
     private bool _showPermissionsModal = false;
     private bool _showDefaultPermissionsModal = false;
+    private int _currentUserId;
     
     // User Modal
     private UserListItemDto? _editingUser = null;
@@ -483,7 +494,16 @@
             await Task.WhenAll(
                 Task.Run(() => _users = UserManagementService.GetAllUsers()),
                 Task.Run(() => _availableMembers = UserManagementService.GetActiveMembersForUserCreation()),
-                Task.Run(() => _allPages = UserManagementService.GetAllPages().ToList())
+                Task.Run(() => _allPages = UserManagementService.GetAllPages().ToList()),
+                Task.Run(async () => {
+                    var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                    var user = authState.User;
+                    var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                    if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var id))
+                    {
+                        _currentUserId = id;
+                    }
+                })
             );
             
             // Group pages by category and sort categories by the DisplayOrder of the first page in each group
@@ -786,6 +806,18 @@
 
     private async Task ConfirmDeleteUser(UserListItemDto user)
     {
+        if (user.Username.ToLowerInvariant() == "admin")
+        {
+            await JS.InvokeVoidAsync("alert", "The primary system administrator account ('admin') cannot be deleted.");
+            return;
+        }
+
+        if (user.UserId == _currentUserId)
+        {
+            await JS.InvokeVoidAsync("alert", "You cannot delete your own account.");
+            return;
+        }
+
         var confirmed = await JS.InvokeAsync<bool>("confirm", 
             $"Are you sure you want to delete user '{user.Username}'? This action cannot be undone.");
         
