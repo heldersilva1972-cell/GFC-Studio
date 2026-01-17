@@ -457,14 +457,14 @@ public class PagePermissionRepository : IPagePermissionRepository
     {
         return new AppPage
         {
-            PageId = (int)reader["PageId"],
-            PageName = reader["PageName"].ToString() ?? string.Empty,
-            PageRoute = reader["PageRoute"].ToString() ?? string.Empty,
+            PageId = reader["PageId"] != DBNull.Value ? (int)reader["PageId"] : 0,
+            PageName = reader["PageName"]?.ToString() ?? string.Empty,
+            PageRoute = reader["PageRoute"]?.ToString() ?? string.Empty,
             Description = reader["Description"] as string,
             Category = reader["Category"] as string,
-            RequiresAdmin = (bool)reader["RequiresAdmin"],
-            IsActive = (bool)reader["IsActive"],
-            DisplayOrder = (int)reader["DisplayOrder"]
+            RequiresAdmin = reader["RequiresAdmin"] != DBNull.Value && (bool)reader["RequiresAdmin"],
+            IsActive = reader["IsActive"] != DBNull.Value && (bool)reader["IsActive"],
+            DisplayOrder = reader["DisplayOrder"] != DBNull.Value ? (int)reader["DisplayOrder"] : 0
         };
     }
 
@@ -472,11 +472,11 @@ public class PagePermissionRepository : IPagePermissionRepository
     {
         return new UserPagePermission
         {
-            PermissionId = (int)reader["PermissionId"],
-            UserId = (int)reader["UserId"],
-            PageId = (int)reader["PageId"],
-            CanAccess = (bool)reader["CanAccess"],
-            GrantedDate = (DateTime)reader["GrantedDate"],
+            PermissionId = reader["PermissionId"] != DBNull.Value ? (int)reader["PermissionId"] : 0,
+            UserId = reader["UserId"] != DBNull.Value ? (int)reader["UserId"] : 0,
+            PageId = reader["PageId"] != DBNull.Value ? (int)reader["PageId"] : 0,
+            CanAccess = reader["CanAccess"] != DBNull.Value && (bool)reader["CanAccess"],
+            GrantedDate = reader["GrantedDate"] != DBNull.Value ? (DateTime)reader["GrantedDate"] : DateTime.MinValue,
             GrantedBy = reader["GrantedBy"] as string
         };
     }

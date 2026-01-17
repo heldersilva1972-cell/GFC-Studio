@@ -251,6 +251,7 @@ public class UserManagementService : IUserManagementService
         {
             EnsurePasswordIsValid(username, password);
             user.PasswordHash = PasswordHelper.HashPassword(password);
+            user.PasswordChangeRequired = true; // Force change on next login
             passwordChanged = true;
         }
         user.IsAdmin = isAdmin;
