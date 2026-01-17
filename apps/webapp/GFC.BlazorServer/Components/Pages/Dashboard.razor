@@ -30,6 +30,9 @@
 @using GFC.BlazorServer.Services.DataProtection
 @inject IDataProtectionService DataProtectionService
 @inject TutorialService TutorialService
+@inject IUserManagementService UserManagementService
+@using GFC.BlazorServer.Services
+@inject CustomAuthenticationStateProvider AuthStateProvider
 
 @if (_showSplash)
 {
@@ -48,7 +51,17 @@
             <i class="bi bi-exclamation-octagon-fill fs-4 me-3"></i>
             <div>
                 <strong>CRITICAL: Backup Overdue</strong>
-                <div class="small">No backup recorded for over 3 days. Please rotate USB drives and record a backup immediately in <a href="/admin/hosting-security" class="alert-link">Hosting & Security</a>.</div>
+                <div class="small">
+                    No backup recorded for over 3 days. Please rotate USB drives and record a backup immediately
+                    @if (_hasHostingSecurityAccess)
+                    {
+                        <text>in <a href="/admin/hosting-security" class="alert-link">Hosting & Security</a>.</text>
+                    }
+                    else
+                    {
+                        <text>in Hosting & Security.</text>
+                    }
+                </div>
             </div>
             <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Close" @onclick="@(() => _dataHealth = DataHealthStatus.Unknown)"></button>
         </div>
@@ -1222,6 +1235,7 @@
 
     private string _systemTimeZoneId = "Eastern Standard Time";
     private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+    private bool _hasHostingSecurityAccess = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1239,6 +1253,22 @@
 
         bool showSplash = !SessionState.HasShownSplash;
         if (showSplash) SessionState.HasShownSplash = true;
+        
+        // Check page permissions with error handling
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser != null)
+            {
+                _hasHostingSecurityAccess = UserManagementService.UserHasPageAccess(currentUser.UserId, "/admin/hosting-security");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard:permissions] {ex.Message}");
+            // Default to no access if permission check fails
+            _hasHostingSecurityAccess = false;
+        }
         
         await LoadDashboardAsync(includeSplash: showSplash);
     }

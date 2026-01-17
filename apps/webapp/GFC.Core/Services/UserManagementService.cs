@@ -203,9 +203,34 @@ public class UserManagementService : IUserManagementService
 
         var newUserId = _userRepository.CreateUser(user);
 
-        if (isAdmin)
+        // Grant default permissions
+        try
         {
-            _auditLogger.LogAdminCreation(createdByUserId, newUserId, username, memberId);
+            if (isAdmin)
+            {
+                // Admins get all permissions
+                _pagePermissionRepository.GrantAllPermissions(newUserId, createdBy ?? "System");
+                _auditLogger.LogAdminCreation(createdByUserId, newUserId, username, memberId);
+            }
+            else
+            {
+                // Non-admins get basic permissions (dashboard and membership pages)
+                var defaultPages = _pagePermissionRepository.GetAllPages()
+                    .Where(p => p.IsActive && !p.RequiresAdmin && 
+                               (p.Category == "Dashboard" || p.Category == "Membership"))
+                    .Select(p => p.PageId)
+                    .ToList();
+                
+                if (defaultPages.Any())
+                {
+                    _pagePermissionRepository.SetUserPermissions(newUserId, defaultPages, createdBy ?? "System");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail user creation if permission granting fails
+            Console.Error.WriteLine($"[UserManagement] Failed to grant default permissions for user {newUserId}: {ex.Message}");
         }
 
         return newUserId;

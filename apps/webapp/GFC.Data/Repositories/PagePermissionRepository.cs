@@ -136,7 +136,7 @@ public class PagePermissionRepository : IPagePermissionRepository
         
         const string sql = @"SELECT upp.*, u.Username 
               FROM UserPagePermissions upp
-              INNER JOIN Users u ON upp.UserId = u.UserId
+              INNER JOIN AppUsers u ON upp.UserId = u.UserId
               WHERE upp.PageId = @PageId AND upp.CanAccess = 1";
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@PageId", pageId);
@@ -175,7 +175,7 @@ public class PagePermissionRepository : IPagePermissionRepository
         connection.Open();
         
         // First check if user is admin
-        const string adminSql = "SELECT IsAdmin FROM Users WHERE UserId = @UserId";
+        const string adminSql = "SELECT IsAdmin FROM AppUsers WHERE UserId = @UserId";
         using var adminCommand = new SqlCommand(adminSql, connection);
         adminCommand.Parameters.AddWithValue("@UserId", userId);
         var isAdmin = (bool?)adminCommand.ExecuteScalar();
