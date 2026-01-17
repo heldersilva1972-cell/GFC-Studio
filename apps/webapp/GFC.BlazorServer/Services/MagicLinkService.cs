@@ -90,19 +90,19 @@ public class MagicLinkService : IMagicLinkService
         context.MagicLinkTokens.Add(magicToken);
         await context.SaveChangesAsync();
 
-        // 4. Send using preferred method
+        // 4. Send using enabled method(s)
         var settings = await _settingsService.GetSystemSettingsAsync();
         var baseUrl = await _urlHelper.GetBaseUrlAsync();
         var magicLink = $"{baseUrl}/auth/magic-login?token={token}";
         
-        // Always log to console for debugging
-        Console.WriteLine($"[MAGIC LINK] for {email}: {magicLink}");
-
         try 
         {
-            if (settings.PreferredMagicLinkMethod == "SMS")
+            bool smsAttempted = false;
+            bool emailAttempted = false;
+
+            // SMS DELIVERY
+            if (settings.SmsEnabled && (settings.PreferredMagicLinkMethod == "SMS" || settings.PreferredMagicLinkMethod == "Both"))
             {
-                // Try to find phone number from Member profile
                 string? phoneNumber = null;
                 if (user.MemberId.HasValue)
                 {
@@ -110,34 +110,34 @@ public class MagicLinkService : IMagicLinkService
                     phoneNumber = member?.CellPhone ?? member?.Phone;
                 }
 
-                if (string.IsNullOrEmpty(phoneNumber))
-                {
-                    _logger.LogWarning("Preferred method is SMS but no phone number found for user {UserId}", user.UserId);
-                    // Fallback to email or return false? For now, let's try email as fallback if phone missing
-                }
-                else
+                if (!string.IsNullOrEmpty(phoneNumber))
                 {
                     var smsSent = await _smsService.SendSmsAsync(phoneNumber, $"GFC Secure Login: {magicLink}. This link expires in 15 mins.");
                     if (smsSent)
                     {
                         _auditLogger.Log(AuditLogActions.MagicLinkSent, user.UserId, user.UserId, $"Sent via SMS to {phoneNumber}");
-                        return true;
+                        smsAttempted = true;
                     }
                 }
             }
 
-            // Default to Email
-            await _emailService.SendEmailAsync(
-                email, 
-                "Your Magic Login Link - GFC Studio", 
-                $"<p>Click the link below to log in securely:</p><p><a href='{magicLink}'>{magicLink}</a></p><p>This link expires in 15 minutes.</p>");
+            // EMAIL DELIVERY (Use as default or if specified/failed)
+            if (settings.EmailEnabled && (settings.PreferredMagicLinkMethod == "Email" || settings.PreferredMagicLinkMethod == "Both" || (settings.PreferredMagicLinkMethod == "SMS" && !smsAttempted)))
+            {
+                await _emailService.SendEmailAsync(
+                    email, 
+                    "Your Magic Login Link - GFC Studio", 
+                    $"<p>Click the link below to log in securely:</p><p><a href='{magicLink}'>{magicLink}</a></p><p>This link expires in 15 minutes.</p>");
 
-            _auditLogger.Log(AuditLogActions.MagicLinkSent, user.UserId, user.UserId, $"Sent via Email to {email}");
-            return true;
+                _auditLogger.Log(AuditLogActions.MagicLinkSent, user.UserId, user.UserId, $"Sent via Email to {email}");
+                emailAttempted = true;
+            }
+
+            return smsAttempted || emailAttempted;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send magic link to {Email} (Method: {Method})", email, settings.PreferredMagicLinkMethod);
+            _logger.LogError(ex, "Failed to send magic link to {Email}", email);
             return false;
         }
     }

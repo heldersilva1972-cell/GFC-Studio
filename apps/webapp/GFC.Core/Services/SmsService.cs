@@ -20,6 +20,12 @@ public class SmsService : ISmsService
 
     public async Task<bool> SendSmsAsync(string phoneNumber, string message)
     {
+        if (!await _settingsService.GetSmsEnabledAsync())
+        {
+            _logger.LogInformation("SMS sending skipped: Globally disabled in settings.");
+            return false;
+        }
+
         var accountSid = await _settingsService.GetTwilioAccountSidAsync();
         var authTokenStr = await _settingsService.GetTwilioAuthTokenAsync();
         var fromNumber = await _settingsService.GetTwilioFromNumberAsync();
@@ -28,8 +34,8 @@ public class SmsService : ISmsService
             string.IsNullOrWhiteSpace(authTokenStr) || 
             string.IsNullOrWhiteSpace(fromNumber))
         {
-            _logger.LogInformation("[SMS MOCK] To {PhoneNumber}: {Message}", phoneNumber, message);
-            return true;
+            _logger.LogWarning("SMS sending failed: Twilio credentials not fully configured.");
+            return false;
         }
 
         try

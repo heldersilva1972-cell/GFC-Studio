@@ -122,6 +122,18 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         return settings.PreferredMagicLinkMethod ?? "Email";
     }
 
+    public async Task<bool> GetSmsEnabledAsync()
+    {
+        var settings = await GetAsync();
+        return settings.SmsEnabled;
+    }
+
+    public async Task<bool> GetEmailEnabledAsync()
+    {
+        var settings = await GetAsync();
+        return settings.EmailEnabled;
+    }
+
     public SystemSettings GetSettings()
     {
         // Try to get from cache first
@@ -241,9 +253,21 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.SystemTimeZoneId = settings.SystemTimeZoneId;
 
         // SMS & Twilio Settings
+        existingSettings.SmsEnabled = settings.SmsEnabled;
         existingSettings.TwilioAccountSid = settings.TwilioAccountSid;
         existingSettings.TwilioAuthToken = settings.TwilioAuthToken;
         existingSettings.TwilioFromNumber = settings.TwilioFromNumber;
+        
+        // Email & SMTP Settings
+        existingSettings.EmailEnabled = settings.EmailEnabled;
+        existingSettings.SmtpHost = settings.SmtpHost;
+        existingSettings.SmtpPort = settings.SmtpPort;
+        existingSettings.SmtpUsername = settings.SmtpUsername;
+        existingSettings.SmtpPassword = settings.SmtpPassword;
+        existingSettings.SmtpEnableSsl = settings.SmtpEnableSsl;
+        existingSettings.SmtpFromAddress = settings.SmtpFromAddress;
+        existingSettings.SmtpFromName = settings.SmtpFromName;
+
         existingSettings.PreferredMagicLinkMethod = settings.PreferredMagicLinkMethod;
 
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;

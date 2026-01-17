@@ -120,9 +120,22 @@ public class SystemSettings
     
     public bool MaintenanceModeEnabled { get; set; } = false;
     
+    // Communication Settings & Toggles
+    public bool SmsEnabled { get; set; } = false;
+    public bool EmailEnabled { get; set; } = false;
+    public string PreferredMagicLinkMethod { get; set; } = "Email"; // "Email" or "SMS"
+
     // SMS Settings (Twilio)
     public string? TwilioAccountSid { get; set; }
     public string? TwilioAuthToken { get; set; }
     public string? TwilioFromNumber { get; set; }
-    public string PreferredMagicLinkMethod { get; set; } = "Email"; // "Email" or "SMS"
+
+    // Email Settings (SMTP)
+    public string? SmtpHost { get; set; }
+    public int SmtpPort { get; set; } = 587;
+    public string? SmtpUsername { get; set; }
+    public string? SmtpPassword { get; set; }
+    public bool SmtpEnableSsl { get; set; } = true;
+    public string? SmtpFromAddress { get; set; }
+    public string? SmtpFromName { get; set; } = "GFC System";
 }

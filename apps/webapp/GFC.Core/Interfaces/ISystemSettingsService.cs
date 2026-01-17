@@ -28,5 +28,7 @@ namespace GFC.Core.Interfaces
         Task<string?> GetTwilioAuthTokenAsync();
         Task<string?> GetTwilioFromNumberAsync();
         Task<string> GetPreferredMfaMethodAsync();
+        Task<bool> GetSmsEnabledAsync();
+        Task<bool> GetEmailEnabledAsync();
     }
 }
