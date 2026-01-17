@@ -318,10 +318,25 @@
                 }
             </div>
             <div class="mb-3">
-                <label class="form-label">@(_editingUserId.HasValue ? "New Password (leave blank to keep current)" : "Password (optional)")</label>
-                <InputText type="password" class="form-control" @bind-Value="_userForm.Password" placeholder="@(_editingUserId.HasValue ? "" : "Leave blank to force setup on first login")" />
+                <label class="form-label">
+                    @(_editingUserId.HasValue ? "New Password (leave blank to keep current)" : "Temporary Password") 
+                    @if (!_editingUserId.HasValue)
+                    {
+                        <span class="text-danger">*</span>
+                    }
+                </label>
+                <InputText type="password" class="form-control" @bind-Value="_userForm.Password" placeholder="@(_editingUserId.HasValue ? "Leave blank to keep current" : "Enter temporary password")" />
                 <ValidationMessage For="@(() => _userForm.Password)" />
-                <small class="text-muted d-block">If left blank, the user will be forced to create a password or passcode when they first log in.</small>
+                <small class="text-muted d-block">
+                    @if (_editingUserId.HasValue)
+                    {
+                        <text>Leave blank to keep the current password unchanged.</text>
+                    }
+                    else
+                    {
+                        <text>The user will be required to change this password on their first login.</text>
+                    }
+                </small>
             </div>
             <div class="mb-3">
                 <div class="form-check">
@@ -1119,9 +1134,15 @@
             }
             else
             {
-                bool forceChange = string.IsNullOrWhiteSpace(_userForm.Password);
+                // NEW USER: Password is REQUIRED
+                if (string.IsNullOrWhiteSpace(_userForm.Password))
+                {
+                    _modalError = "Password is required when creating a new user.";
+                    _savingUser = false;
+                    return;
+                }
                 
-                if (!string.IsNullOrWhiteSpace(_userForm.Password) && !ValidatePasswordField())
+                if (!ValidatePasswordField())
                 {
                     _savingUser = false;
                     return;
@@ -1147,6 +1168,7 @@
                     }
                 }
                 
+                // ALWAYS force password change for new users (this is a temporary password)
                 await Task.Run(() => UserService.CreateUser(
                     _userForm.Username,
                     _userForm.Password,
@@ -1154,7 +1176,7 @@
                     _userForm.MemberId,
                     _userForm.Notes,
                     currentUsername,
-                    passwordChangeRequired: forceChange,
+                    passwordChangeRequired: true,  // ALWAYS true for new users
                     createdByUserId: currentUserId,
                     mfaEnabled: _userForm.MfaEnabled));
             }
