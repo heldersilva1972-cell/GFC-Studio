@@ -261,6 +261,8 @@ public class Program
         builder.Services.AddScoped<ThemeService>();
         builder.Services.AddScoped<IOperationsService, OperationsService>();
         builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+        builder.Services.AddScoped<PageDiscoveryService>();
+        builder.Services.AddHostedService<PageDiscoveryHostedService>();
 
 
         builder.Services.AddScoped<IDataProtectionService, DataProtectionService>();

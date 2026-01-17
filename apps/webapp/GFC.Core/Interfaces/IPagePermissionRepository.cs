@@ -10,6 +10,8 @@ public interface IPagePermissionRepository
     IEnumerable<AppPage> GetPagesByCategory(string category);
     AppPage? GetPageById(int pageId);
     AppPage? GetPageByRoute(string route);
+    void AddPage(AppPage page);
+    void UpdatePage(AppPage page);
     
     // Permission management
     IEnumerable<UserPagePermission> GetUserPermissions(int userId);

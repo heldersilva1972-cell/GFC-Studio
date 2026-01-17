@@ -217,7 +217,7 @@ public class UserManagementService : IUserManagementService
                 // Non-admins get basic permissions (dashboard and membership pages)
                 var defaultPages = _pagePermissionRepository.GetAllPages()
                     .Where(p => p.IsActive && !p.RequiresAdmin && 
-                               (p.Category == "Dashboard" || p.Category == "Membership"))
+                               (p.Category == "DASHBOARD" || p.Category == "MEMBERSHIP"))
                     .Select(p => p.PageId)
                     .ToList();
                 

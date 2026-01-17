@@ -1,0 +1,810 @@
+@page "/users"
+@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@using GFC.BlazorServer.Services
+@using GFC.Core.DTOs
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@using GFC.BlazorServer.Auth
+@inject IUserManagementService UserManagementService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>User Management - GFC</PageTitle>
+
+<div class="user-management-container">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">User Management</h1>
+            <p class="page-subtitle">Manage user accounts and permissions</p>
+        </div>
+        <button class="btn btn-primary" @onclick="OpenAddUserModal">
+            <i class="bi bi-person-plus me-2"></i>Add User
+        </button>
+    </div>
+
+    @* Quick Stats *@
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon bg-primary">
+                <i class="bi bi-people-fill"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">@_users.Count</div>
+                <div class="stat-label">Total Users</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon bg-success">
+                <i class="bi bi-check-circle-fill"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">@_users.Count(u => u.IsActive)</div>
+                <div class="stat-label">Active</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon bg-warning">
+                <i class="bi bi-shield-fill-check"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">@_users.Count(u => u.IsAdmin)</div>
+                <div class="stat-label">Admins</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon bg-info">
+                <i class="bi bi-person-badge"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">@_users.Count(u => u.IsDirector)</div>
+                <div class="stat-label">Directors</div>
+            </div>
+        </div>
+    </div>
+
+    @* Users Table *@
+    <div class="content-card">
+        <div class="card-header">
+            <h2 class="card-title">Users</h2>
+            <div class="card-actions">
+                <div class="search-box">
+                    <i class="bi bi-search"></i>
+                    <input type="text" 
+                           class="form-control" 
+                           placeholder="Search users..."
+                           @bind="_searchQuery"
+                           @bind:event="oninput" />
+                </div>
+                <button class="btn btn-outline-secondary" @onclick="OpenDefaultPermissionsModal">
+                    <i class="bi bi-gear me-2"></i>Default Permissions
+                </button>
+            </div>
+        </div>
+
+        @if (_loading)
+        {
+            <div class="loading-state">
+                <div class="spinner-border text-primary"></div>
+                <p>Loading users...</p>
+            </div>
+        }
+        else if (FilteredUsers.Any())
+        {
+            <div class="table-responsive">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Last Login</th>
+                            <th>Permissions</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in FilteredUsers)
+                        {
+                            <tr class="@(!user.IsActive ? "inactive-row" : "")">
+                                <td>
+                                    <div class="user-cell">
+                                        <div class="user-avatar">
+                                            <i class="bi bi-person-circle"></i>
+                                        </div>
+                                        <div class="user-info">
+                                            <div class="user-name">@user.Username</div>
+                                            @if (!string.IsNullOrEmpty(user.MemberName))
+                                            {
+                                                <div class="user-member">@user.MemberName</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (user.IsAdmin)
+                                    {
+                                        <span class="badge badge-admin">
+                                            <i class="bi bi-shield-fill-check me-1"></i>Admin
+                                        </span>
+                                    }
+                                    else if (user.IsDirector)
+                                    {
+                                        <span class="badge badge-director">
+                                            <i class="bi bi-person-badge me-1"></i>Director
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-user">
+                                            <i class="bi bi-person me-1"></i>User
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (user.IsActive)
+                                    {
+                                        <span class="status-badge status-active">
+                                            <i class="bi bi-check-circle-fill"></i>Active
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-inactive">
+                                            <i class="bi bi-x-circle-fill"></i>Inactive
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (user.LastLoginDate.HasValue)
+                                    {
+                                        <span class="text-muted small">@user.LastLoginDate.Value.ToString("MMM d, yyyy")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">Never</span>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-link" @onclick="() => OpenPermissionsModal(user)">
+                                        <i class="bi bi-key me-1"></i>Manage
+                                    </button>
+                                </td>
+                                <td class="text-end">
+                                    <div class="action-buttons">
+                                        <button class="btn btn-sm btn-icon" title="Edit" @onclick="() => OpenEditUserModal(user)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon" title="Delete" @onclick="() => ConfirmDeleteUser(user)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="empty-state">
+                <i class="bi bi-people"></i>
+                <h3>No users found</h3>
+                <p>Try adjusting your search or add a new user</p>
+            </div>
+        }
+    </div>
+</div>
+
+@* Add/Edit User Modal *@
+@if (_showUserModal)
+{
+    <div class="modal-overlay" @onclick="CloseUserModal">
+        <div class="modal-container" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2 class="modal-title">@(_editingUser == null ? "Add New User" : "Edit User")</h2>
+                <button class="btn-close" @onclick="CloseUserModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Username <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" @bind="_userForm.Username" placeholder="Enter username" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Member</label>
+                    <select class="form-select" @bind="_userForm.MemberId" @bind:after="OnMemberSelected">
+                        <option value="">-- Select Member (Optional) --</option>
+                        @foreach (var member in _availableMembers)
+                        {
+                            <option value="@member.MemberId">@member.DisplayName</option>
+                        }
+                    </select>
+                    @if (_editingUser == null)
+                    {
+                        <small class="form-text">Username will be auto-generated from member name</small>
+                    }
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        @(_editingUser == null ? "Temporary Password" : "New Password (leave blank to keep current)")
+                        @if (_editingUser == null) { <span class="text-danger">*</span> }
+                    </label>
+                    <input type="password" class="form-control" @bind="_userForm.Password" placeholder="Enter password" />
+                    <small class="form-text">User will be required to change this on first login</small>
+                </div>
+
+                <div class="form-group">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" @bind="_userForm.IsAdmin" id="isAdminCheck" />
+                        <label class="form-check-label" for="isAdminCheck">
+                            <i class="bi bi-shield-fill-check me-1"></i>Administrator
+                        </label>
+                    </div>
+                    <small class="form-text">Admins have access to all pages and settings</small>
+                </div>
+
+                <div class="form-group">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" @bind="_userForm.IsActive" id="isActiveCheck" />
+                        <label class="form-check-label" for="isActiveCheck">
+                            <i class="bi bi-check-circle me-1"></i>Active
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" @bind="_userForm.Notes" rows="3" placeholder="Optional notes about this user"></textarea>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_userModalError))
+                {
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>@_userModalError
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" @onclick="CloseUserModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveUser" disabled="@_savingUser">
+                    @if (_savingUser)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-check-lg me-1"></i>@(_editingUser == null ? "Create User" : "Save Changes")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Permissions Modal *@
+@if (_showPermissionsModal && _selectedUser != null)
+{
+    <div class="modal-overlay" @onclick="ClosePermissionsModal">
+        <div class="modal-container modal-lg" @onclick:stopPropagation>
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title">Page Access Permissions</h2>
+                    <p class="modal-subtitle">Managing access for @_selectedUser.Username</p>
+                </div>
+                <button class="btn-close" @onclick="ClosePermissionsModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="permissions-actions mb-3">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="SelectAllPermissions">
+                        <i class="bi bi-check-all me-1"></i>Grant All
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ClearAllPermissions">
+                        <i class="bi bi-x-lg me-1"></i>Revoke All
+                    </button>
+                </div>
+
+                <div class="permissions-grid">
+                    @foreach (var category in _pagesByCategory)
+                    {
+                        <div class="permission-category">
+                            <h4 class="category-title">
+                                <i class="bi bi-folder2-open me-2"></i>@category.Key
+                                <span class="badge badge-secondary ms-2">@category.Value.Count pages</span>
+                            </h4>
+                            <div class="permission-list">
+                                @foreach (var page in category.Value)
+                                {
+                                    <div class="permission-item">
+                                        <div class="form-check">
+                                            <input class="form-check-input" 
+                                                   type="checkbox" 
+                                                   id="page-@(page.PageId)"
+                                                   checked="@_selectedPermissions.Contains(page.PageId)"
+                                                   @onchange="@(e => TogglePermission(page.PageId, (bool)e.Value))" />
+                                            <label class="form-check-label" for="page-@(page.PageId)">
+                                                <strong>@(page.PageName)</strong>
+                                                @if (!string.IsNullOrEmpty(page.Description))
+                                                {
+                                                    <br /><small class="text-muted">@(page.Description)</small>
+                                                }
+                                            </label>
+                                        </div>
+                                        @if (page.RequiresAdmin)
+                                        {
+                                            <span class="badge badge-warning">
+                                                <i class="bi bi-shield-fill-check"></i>Admin Only
+                                            </span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" @onclick="ClosePermissionsModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SavePermissions" disabled="@_savingPermissions">
+                    @if (_savingPermissions)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-check-lg me-1"></i>Apply Permissions
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Default Permissions Modal *@
+@if (_showDefaultPermissionsModal)
+{
+    <div class="modal-overlay" @onclick="CloseDefaultPermissionsModal">
+        <div class="modal-container modal-lg" @onclick:stopPropagation>
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title">Default Permissions Configuration</h2>
+                    <p class="modal-subtitle">Set which permissions are automatically granted to new users</p>
+                </div>
+                <button class="btn-close" @onclick="CloseDefaultPermissionsModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Note:</strong> These permissions will be automatically granted to all newly created non-admin users. 
+                    Admin users always have access to all pages.
+                </div>
+
+                <div class="permissions-grid">
+                    @foreach (var category in _pagesByCategory)
+                    {
+                        <div class="permission-category">
+                            <h4 class="category-title">
+                                <i class="bi bi-folder2-open me-2"></i>@category.Key
+                            </h4>
+                            <div class="permission-list">
+                                @foreach (var page in category.Value)
+                                {
+                                    <div class="permission-item @(page.RequiresAdmin ? "admin-only-item" : "")">
+                                        <div class="form-check">
+                                            @if (page.RequiresAdmin)
+                                            {
+                                                <input class="form-check-input" type="checkbox" disabled checked="true" id="default-page-@(page.PageId)" />
+                                            }
+                                            else
+                                            {
+                                                <input class="form-check-input" 
+                                                       type="checkbox" 
+                                                       id="default-page-@(page.PageId)"
+                                                       checked="@_defaultPermissions.Contains(page.PageId)"
+                                                       @onchange="@(e => ToggleDefaultPermission(page.PageId, (bool)e.Value))" />
+                                            }
+                                            <label class="form-check-label" for="default-page-@(page.PageId)">
+                                                <div class="d-flex align-items-center">
+                                                    <strong>@(page.PageName)</strong>
+                                                    @if (page.RequiresAdmin)
+                                                    {
+                                                        <span class="badge bg-light text-dark ms-2 border" style="font-size: 0.65rem;">
+                                                            <i class="bi bi-shield-lock me-1"></i>ADMIN
+                                                        </span>
+                                                    }
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(page.Description))
+                                                {
+                                                    <small class="text-muted d-block mt-1">@(page.Description)</small>
+                                                }
+                                            </label>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" @onclick="CloseDefaultPermissionsModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveDefaultPermissions" disabled="@_savingDefaultPermissions">
+                    @if (_savingDefaultPermissions)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-check-lg me-1"></i>Save Default Permissions
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<UserListItemDto> _users = new();
+    private List<ActiveMemberDto> _availableMembers = new();
+    private List<AppPage> _allPages = new();
+    private Dictionary<string, List<AppPage>> _pagesByCategory = new();
+    private HashSet<int> _defaultPermissions = new();
+    
+    private string _searchQuery = "";
+    private bool _loading = true;
+
+    // Modals
+    private bool _showUserModal = false;
+    private bool _showPermissionsModal = false;
+    private bool _showDefaultPermissionsModal = false;
+    
+    // User Modal
+    private UserListItemDto? _editingUser = null;
+    private UserFormModel _userForm = new();
+    private string _userModalError = "";
+    private bool _savingUser = false;
+    
+    // Permissions Modal
+    private UserListItemDto? _selectedUser = null;
+    private HashSet<int> _selectedPermissions = new();
+    private bool _savingPermissions = false;
+    
+    // Default Permissions Modal
+    private bool _savingDefaultPermissions = false;
+
+    private IEnumerable<UserListItemDto> FilteredUsers =>
+        _users.Where(u => string.IsNullOrEmpty(_searchQuery) ||
+                         u.Username.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                         (u.MemberName?.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            await Task.WhenAll(
+                Task.Run(() => _users = UserManagementService.GetAllUsers()),
+                Task.Run(() => _availableMembers = UserManagementService.GetActiveMembersForUserCreation()),
+                Task.Run(() => _allPages = UserManagementService.GetAllPages().ToList())
+            );
+            
+            // Group pages by category
+            _pagesByCategory = _allPages
+                .Where(p => p.IsActive)
+                .GroupBy(p => p.Category ?? "Other")
+                .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
+            
+            // Load default permissions from system settings (you'll need to implement this)
+            await LoadDefaultPermissions();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error loading data: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadUsers()
+    {
+        try
+        {
+            _users = await Task.Run(() => UserManagementService.GetAllUsers());
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error loading users: {ex.Message}");
+        }
+    }
+
+    private async Task LoadDefaultPermissions()
+    {
+        try
+        {
+            // TODO: Load from SystemSettings or a dedicated DefaultPermissions table
+            // For now, default to Dashboard and basic Membership pages
+            _defaultPermissions = _allPages
+                .Where(p => p.IsActive && !p.RequiresAdmin && 
+                           (p.Category == "DASHBOARD" || p.Category == "MEMBERSHIP"))
+                .Select(p => p.PageId)
+                .ToHashSet();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error loading default permissions: {ex.Message}");
+        }
+    }
+
+    // User Modal Methods
+    private void OpenAddUserModal()
+    {
+        _editingUser = null;
+        _userForm = new UserFormModel { IsActive = true };
+        _userModalError = "";
+        _showUserModal = true;
+    }
+
+    private void OpenEditUserModal(UserListItemDto user)
+    {
+        _editingUser = user;
+        _userForm = new UserFormModel
+        {
+            Username = user.Username,
+            MemberId = user.MemberId?.ToString() ?? "",
+            IsAdmin = user.IsAdmin,
+            IsActive = user.IsActive,
+            Notes = user.Notes ?? ""
+        };
+        _userModalError = "";
+        _showUserModal = true;
+    }
+
+    private void CloseUserModal()
+    {
+        _showUserModal = false;
+        _editingUser = null;
+        _userForm = new();
+        _userModalError = "";
+    }
+
+    private void OnMemberSelected()
+    {
+        // Only auto-generate username when creating a new user
+        if (_editingUser != null || string.IsNullOrEmpty(_userForm.MemberId))
+            return;
+
+        var memberId = int.Parse(_userForm.MemberId);
+        var selectedMember = _availableMembers.FirstOrDefault(m => m.MemberId == memberId);
+        
+        if (selectedMember != null)
+        {
+            // Generate username: First initial + Last name (e.g., "HSilva" for "Helder Silva")
+            var nameParts = selectedMember.DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (nameParts.Length >= 2)
+            {
+                var firstInitial = nameParts[0][0];
+                var lastName = nameParts[nameParts.Length - 1];
+                _userForm.Username = $"{firstInitial}{lastName}";
+            }
+            else if (nameParts.Length == 1)
+            {
+                // If only one name, use it as is
+                _userForm.Username = nameParts[0];
+            }
+        }
+    }
+
+    private async Task SaveUser()
+    {
+        _userModalError = "";
+        
+        if (string.IsNullOrWhiteSpace(_userForm.Username))
+        {
+            _userModalError = "Username is required";
+            return;
+        }
+
+        if (_editingUser == null && string.IsNullOrWhiteSpace(_userForm.Password))
+        {
+            _userModalError = "Password is required for new users";
+            return;
+        }
+
+        _savingUser = true;
+        try
+        {
+            int? memberId = string.IsNullOrEmpty(_userForm.MemberId) ? null : int.Parse(_userForm.MemberId);
+            
+            if (_editingUser == null)
+            {
+                // Create new user
+                UserManagementService.CreateUser(
+                    _userForm.Username,
+                    _userForm.Password,
+                    _userForm.IsAdmin,
+                    memberId,
+                    _userForm.Notes,
+                    "admin", // TODO: Get current user
+                    passwordChangeRequired: true
+                );
+            }
+            else
+            {
+                // Update existing user
+                UserManagementService.UpdateUser(
+                    _editingUser.UserId,
+                    _userForm.Username,
+                    string.IsNullOrWhiteSpace(_userForm.Password) ? null : _userForm.Password,
+                    memberId,
+                    _userForm.Notes,
+                    isAdmin: _userForm.IsAdmin,
+                    isActive: _userForm.IsActive
+                );
+            }
+
+            await LoadUsers();
+            CloseUserModal();
+        }
+        catch (Exception ex)
+        {
+            _userModalError = ex.Message;
+        }
+        finally
+        {
+            _savingUser = false;
+        }
+    }
+
+    // Permissions Modal Methods
+    private async Task OpenPermissionsModal(UserListItemDto user)
+    {
+        _selectedUser = user;
+        _selectedPermissions.Clear();
+        
+        try
+        {
+            var userPermissions = await Task.Run(() => UserManagementService.GetUserPagePermissions(user.UserId));
+            _selectedPermissions = userPermissions.Select(p => p.PageId).ToHashSet();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error loading user permissions: {ex.Message}");
+        }
+        
+        _showPermissionsModal = true;
+    }
+
+    private void ClosePermissionsModal()
+    {
+        _showPermissionsModal = false;
+        _selectedUser = null;
+        _selectedPermissions.Clear();
+    }
+
+    private void TogglePermission(int pageId, bool isChecked)
+    {
+        if (isChecked)
+            _selectedPermissions.Add(pageId);
+        else
+            _selectedPermissions.Remove(pageId);
+    }
+
+    private void SelectAllPermissions()
+    {
+        _selectedPermissions = _allPages.Where(p => p.IsActive).Select(p => p.PageId).ToHashSet();
+    }
+
+    private void ClearAllPermissions()
+    {
+        _selectedPermissions.Clear();
+    }
+
+    private async Task SavePermissions()
+    {
+        if (_selectedUser == null) return;
+        
+        _savingPermissions = true;
+        try
+        {
+            UserManagementService.SetUserPagePermissions(
+                _selectedUser.UserId,
+                _selectedPermissions.ToList(),
+                "admin" // TODO: Get current user
+            );
+            
+            ClosePermissionsModal();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error saving permissions: {ex.Message}");
+        }
+        finally
+        {
+            _savingPermissions = false;
+        }
+    }
+
+    // Default Permissions Modal Methods
+    private async Task OpenDefaultPermissionsModal()
+    {
+        _savingDefaultPermissions = false;
+        // Show ALL pages so it matches the sidebar structure exactly
+        _allPages = UserManagementService.GetAllPages().ToList();
+        
+        // Load whatever defaults were previously selected
+        // TODO: Load from the actual settings table
+        
+        _showDefaultPermissionsModal = true;
+    }
+
+    private void CloseDefaultPermissionsModal()
+    {
+        _showDefaultPermissionsModal = false;
+    }
+
+    private void ToggleDefaultPermission(int pageId, bool isChecked)
+    {
+        if (isChecked)
+            _defaultPermissions.Add(pageId);
+        else
+            _defaultPermissions.Remove(pageId);
+    }
+
+    private async Task SaveDefaultPermissions()
+    {
+        _savingDefaultPermissions = true;
+        try
+        {
+            // TODO: Save to SystemSettings or dedicated DefaultPermissions table
+            // For now, just update the in-memory collection
+            await Task.Delay(500); // Simulate save
+            
+            CloseDefaultPermissionsModal();
+            await JS.InvokeVoidAsync("alert", "Default permissions saved successfully!");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error saving default permissions: {ex.Message}");
+            await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            _savingDefaultPermissions = false;
+        }
+    }
+
+    private async Task ConfirmDeleteUser(UserListItemDto user)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to delete user '{user.Username}'? This action cannot be undone.");
+        
+        if (confirmed)
+        {
+            try
+            {
+                UserManagementService.DeleteUser(user.UserId);
+                await LoadUsers();
+            }
+            catch (Exception ex)
+            {
+                await JS.InvokeVoidAsync("alert", $"Error deleting user: {ex.Message}");
+            }
+        }
+    }
+
+    private class UserFormModel
+    {
+        public string Username { get; set; } = "";
+        public string MemberId { get; set; } = "";
+        public string Password { get; set; } = "";
+        public bool IsAdmin { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string Notes { get; set; } = "";
+    }
+}

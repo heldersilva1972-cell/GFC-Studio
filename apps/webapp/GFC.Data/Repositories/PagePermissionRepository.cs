@@ -104,6 +104,50 @@ public class PagePermissionRepository : IPagePermissionRepository
         return null;
     }
 
+    public void AddPage(AppPage page)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+        
+        const string sql = @"INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
+              VALUES (@PageName, @PageRoute, @Description, @Category, @RequiresAdmin, @IsActive, @DisplayOrder)";
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@PageName", page.PageName);
+        command.Parameters.AddWithValue("@PageRoute", page.PageRoute);
+        command.Parameters.AddWithValue("@Description", (object?)page.Description ?? DBNull.Value);
+        command.Parameters.AddWithValue("@Category", (object?)page.Category ?? DBNull.Value);
+        command.Parameters.AddWithValue("@RequiresAdmin", page.RequiresAdmin);
+        command.Parameters.AddWithValue("@IsActive", page.IsActive);
+        command.Parameters.AddWithValue("@DisplayOrder", page.DisplayOrder);
+        command.ExecuteNonQuery();
+    }
+
+    public void UpdatePage(AppPage page)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+        
+        const string sql = @"UPDATE AppPages SET 
+              PageName = @PageName, 
+              PageRoute = @PageRoute, 
+              Description = @Description, 
+              Category = @Category, 
+              RequiresAdmin = @RequiresAdmin, 
+              IsActive = @IsActive, 
+              DisplayOrder = @DisplayOrder
+              WHERE PageId = @PageId";
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@PageId", page.PageId);
+        command.Parameters.AddWithValue("@PageName", page.PageName);
+        command.Parameters.AddWithValue("@PageRoute", page.PageRoute);
+        command.Parameters.AddWithValue("@Description", (object?)page.Description ?? DBNull.Value);
+        command.Parameters.AddWithValue("@Category", (object?)page.Category ?? DBNull.Value);
+        command.Parameters.AddWithValue("@RequiresAdmin", page.RequiresAdmin);
+        command.Parameters.AddWithValue("@IsActive", page.IsActive);
+        command.Parameters.AddWithValue("@DisplayOrder", page.DisplayOrder);
+        command.ExecuteNonQuery();
+    }
+
     // Permission management
     public IEnumerable<UserPagePermission> GetUserPermissions(int userId)
     {
