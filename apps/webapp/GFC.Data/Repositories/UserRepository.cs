@@ -289,6 +289,7 @@ public class UserRepository : IUserRepository
             command.Parameters.AddWithValue("@CreatedBy", (object?)user.CreatedBy ?? DBNull.Value);
             command.Parameters.AddWithValue("@Notes", (object?)user.Notes ?? DBNull.Value);
             command.Parameters.AddWithValue("@PasswordChangeRequired", user.PasswordChangeRequired);
+            command.Parameters.AddWithValue("@PassCodeHash", (object?)user.PassCodeHash ?? DBNull.Value);
             command.Parameters.AddWithValue("@MfaEnabled", user.MfaEnabled);
             command.Parameters.AddWithValue("@MfaSecretKey", (object?)user.MfaSecretKey ?? DBNull.Value);
             return (int)command.ExecuteScalar();

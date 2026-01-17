@@ -1,0 +1,93 @@
+@inject IJSRuntime JSRuntime
+
+@if (Show && !string.IsNullOrEmpty(TargetSelector))
+{
+    <div class="tutorial-highlight-overlay" @onclick="OnOverlayClick">
+        <div class="highlight-cutout" id="tutorial-highlight"></div>
+    </div>
+}
+
+<style>
+    .tutorial-highlight-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 9998;
+    }
+
+    .highlight-cutout {
+        position: absolute;
+        border: 3px solid #6366f1;
+        border-radius: 12px;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5),
+                    0 0 20px rgba(99, 102, 241, 0.6),
+                    inset 0 0 20px rgba(99, 102, 241, 0.3);
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        transition: all 0.4s cubic-bezier(0.4, 0.0, 0.2, 1);
+        pointer-events: none;
+    }
+
+    @@keyframes pulse {
+        0%, 100% {
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5),
+                        0 0 20px rgba(99, 102, 241, 0.6),
+                        inset 0 0 20px rgba(99, 102, 241, 0.3);
+        }
+        50% {
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5),
+                        0 0 30px rgba(99, 102, 241, 0.8),
+                        inset 0 0 30px rgba(99, 102, 241, 0.5);
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string TargetSelector { get; set; } = "";
+    [Parameter] public EventCallback OnOverlayClick { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Show && !string.IsNullOrEmpty(TargetSelector))
+        {
+            await UpdateHighlightPositionAsync();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Show && !string.IsNullOrEmpty(TargetSelector))
+        {
+            await Task.Delay(100); // Wait for DOM to settle
+            await UpdateHighlightPositionAsync();
+        }
+    }
+
+    private async Task UpdateHighlightPositionAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const target = document.querySelector('{TargetSelector}');
+                    const highlight = document.getElementById('tutorial-highlight');
+                    if (target && highlight) {{
+                        const rect = target.getBoundingClientRect();
+                        const padding = 8;
+                        highlight.style.top = (rect.top - padding) + 'px';
+                        highlight.style.left = (rect.left - padding) + 'px';
+                        highlight.style.width = (rect.width + padding * 2) + 'px';
+                        highlight.style.height = (rect.height + padding * 2) + 'px';
+                    }}
+                }})();
+            ");
+        }
+        catch (Exception)
+        {
+            // Silently fail if element not found yet
+        }
+    }
+}

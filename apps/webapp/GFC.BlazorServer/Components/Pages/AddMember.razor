@@ -1,4 +1,5 @@
 @page "/members/new"
+@implements IDisposable
 @using Microsoft.AspNetCore.Authorization
 @using GFC.Core.Models
 @using GFC.Core.Interfaces
@@ -8,6 +9,7 @@
 @inject IMemberRepository MemberRepository
 @inject NavigationManager NavManager
 @inject ILogger<AddMember> Logger
+@inject TutorialService TutorialService
 
 <PageTitle>Add New Member - GFC Membership</PageTitle>
 
@@ -55,6 +57,38 @@
     </div>
 </div>
 
+@* Tutorial Step 3: Fill out member form *@
+@if (TutorialService.ShouldShowStep(3))
+{
+    <TutorialBubble 
+        Show="true"
+        Title="Profile Details"
+        Message="Enter the member's core information. Required fields are marked with an asterisk."
+        Tip="In sample mode, some fields are pre-filled to help you learn faster!"
+        Position="top-center"
+        ShowNext="false"
+        ShowWait="true"
+        WaitingText="Waiting for you to save the member..."
+        AllowCancel="true"
+        OnCancel="@(async () => await TutorialService.CancelTutorialAsync())" />
+}
+
+@* Tutorial Step 4: Member saved successfully *@
+@if (TutorialService.ShouldShowStep(4))
+{
+    <TutorialBubble 
+        Show="true"
+        Title="Member Created"
+        Message="Profile saved successfully. Next: initialize dues and payment history."
+        Tip="Click 'Record Dues' to continue the onboarding process."
+        Position="top-center"
+        ShowNext="false"
+        ShowWait="true"
+        WaitingText="Waiting for you to click Record Dues..."
+        AllowCancel="true"
+        OnCancel="@(async () => await TutorialService.CancelTutorialAsync())" />
+}
+
 @if (_showSuccessAnimation)
 {
     <div class="success-overlay">
@@ -101,7 +135,7 @@
             </div>
 
             <div class="success-actions d-flex flex-column gap-2">
-                <button class="btn btn-primary btn-lg w-100 py-3 shadow-sm" @onclick="GoToRecordDues" style="border-radius: 14px; font-weight: 700;">
+                <button class="btn btn-primary btn-lg w-100 py-3 shadow-sm @(TutorialService.ShouldShowStep(4) ? "tutorial-pulse" : "")" @onclick="GoToRecordDues" style="border-radius: 14px; font-weight: 700;">
                     <i class="bi bi-wallet2 me-2"></i>Yes, Record Payment
                 </button>
                 <button class="btn btn-outline-secondary w-100 py-2" @onclick="() => { _showDuesPrompt = false; _showSuccessAnimation = true; }" style="border-radius: 12px; border-style: dashed;">
@@ -126,7 +160,7 @@
                 <div class="form-card-body">
                     <div class="mb-3">
                         <label class="form-label">First Name <span class="text-danger">*</span></label>
-                        <InputText class="form-control form-control-modern" @bind-Value="_memberForm.FirstName" placeholder="Enter first name" disabled="@_saving" />
+                        <InputText class="@($"form-control form-control-modern {(TutorialService.ShouldShowStep(3) ? "tutorial-pulse" : "")}")" @bind-Value="_memberForm.FirstName" placeholder="Enter first name" disabled="@_saving" />
                         <ValidationMessage For="@(() => _memberForm.FirstName)" />
                     </div>
                     
@@ -408,7 +442,7 @@
             <button type="button" class="btn btn-outline-secondary" @onclick="GoBack" disabled="@_saving">
                 <i class="bi bi-x-circle me-2"></i>Cancel
             </button>
-            <button type="submit" class="btn-save @(_saving ? "saving" : "")" disabled="@_saving">
+            <button type="submit" class="btn-save @(_saving ? "saving" : "") @(TutorialService.ShouldShowStep(3) ? "tutorial-pulse" : "")" disabled="@_saving">
                 @if (_saving)
                 {
                     <span class="spinner"></span>
@@ -456,6 +490,14 @@
     {
         // Don't set default values - let user fill them out
         
+        TutorialService.OnTutorialStateChanged += HandleTutorialStateChanged;
+
+        // Auto-advance from Step 2 (Navigate to Membership) to Step 3 (Fill out form)
+        if (TutorialService.ShouldShowStep(2))
+        {
+            _ = TutorialService.NextStepAsync();
+        }
+
         // Load existing cities, states and postal codes for dropdowns
         try
         {
@@ -628,6 +670,12 @@
             // Show success animation or prompt
             _saving = false;
 
+            // Tutorial: Advance to Step 4 after saving
+            if (TutorialService.ShouldShowStep(3))
+            {
+                await TutorialService.NextStepAsync();
+            }
+
             if (member.AcceptedDate.HasValue)
             {
                 _showDuesPrompt = true;
@@ -708,7 +756,22 @@
 
     private void GoToRecordDues()
     {
+        // Tutorial: Advance to Step 5 (Navigate to Dues) if we're on Step 4
+        if (TutorialService.ShouldShowStep(4))
+        {
+            _ = TutorialService.NextStepAsync();
+        }
         NavManager.NavigateTo($"/members/{_newMemberId}/dues");
+    }
+
+    private void HandleTutorialStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        TutorialService.OnTutorialStateChanged -= HandleTutorialStateChanged;
     }
 
     private class MemberFormModel

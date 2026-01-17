@@ -29,6 +29,7 @@
 @inject IKeyCardRepository KeyCardRepository
 @using GFC.BlazorServer.Services.DataProtection
 @inject IDataProtectionService DataProtectionService
+@inject TutorialService TutorialService
 
 @if (_showSplash)
 {
@@ -37,6 +38,7 @@
 
 <div class="dash-page @(_showSplash && !_isSplashFadingOut ? "dash-hidden" : "dash-visible")">
     <VpnSetupNotificationBanner />
+    <TutorialResumeBanner ShowBanner="@_showTutorialResume" OnResume="@HandleTutorialResume" OnCancel="@HandleTutorialCancel" />
     @* <GFC.BlazorServer.Components.Shared.PwaInstallBanner /> *@
 
 
@@ -94,6 +96,42 @@
                 </button>
             </div>
         </div>
+
+        @* Tutorial Step 1: Welcome *@
+        @if (TutorialService.ShouldShowStep(1))
+        {
+            <TutorialBubble 
+                Show="true"
+                Title="Welcome to the Member Onboarding Tutorial!"
+                Message="This interactive guide will walk you through adding a new member, recording their dues payment, and activating their access card. Let's get started!"
+                CurrentStep="1"
+                TotalSteps="10"
+                ShowNext="true"
+                AllowCancel="true"
+                OnNext="@(async () => await TutorialService.NextStepAsync())"
+                OnCancel="@(async () => await TutorialService.CancelTutorialAsync())" />
+        }
+
+        @* Tutorial Step 2: Navigate to Membership *@
+        @if (TutorialService.ShouldShowStep(2))
+        {
+            <TutorialBubble 
+                Show="true"
+                Title="Navigate to Membership"
+                Message="Click on 'Membership' in the left sidebar to go to the Members page where we'll add a new member."
+                Tip="The Membership section is where you manage all member records."
+                CurrentStep="2"
+                TotalSteps="10"
+                ShowNext="false"
+                ShowWait="true"
+                WaitingText="Waiting for you to navigate to Membership..."
+                AllowCancel="true"
+                OnCancel="@(async () => await TutorialService.CancelTutorialAsync())" />
+        }
+
+
+
+
 
         @if (IsAutoRefreshEnabled)
         {
@@ -818,6 +856,13 @@
                                 </div>
                             </div>
                         }
+
+                        @* Tutorial Start Card *@
+                        @* DEBUG: _showTutorialResume=@_showTutorialResume, IsActive=@(TutorialService?.CurrentState?.IsActive ?? true) *@
+                        @if (TutorialService != null && !_showTutorialResume && !TutorialService.CurrentState.IsActive)
+                        {
+                            <TutorialStartCard OnTutorialStarted="@HandleTutorialStarted" />
+                        }
                     </div>
                 </div>
             </div>
@@ -1203,8 +1248,18 @@
         if (firstRender)
         {
             await LoadPreferencesAsync();
+            // Subscribe to tutorial state changes
+            TutorialService.OnTutorialStateChanged += HandleTutorialStateChanged;
+            // Don't initialize tutorial here - it causes JSInterop errors
+            // Tutorial will start fresh each session
             StateHasChanged();
         }
+    }
+
+    private void HandleTutorialStateChanged()
+    {
+        Console.WriteLine($"[Dashboard] Tutorial state changed! IsActive={TutorialService.CurrentState.IsActive}, Step={TutorialService.CurrentState.CurrentStep}");
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadDashboardAsync(bool includeSplash)
@@ -1809,6 +1864,42 @@
         if (diff.TotalHours >= 1) return $"{(int)diff.TotalHours}h ago";
         if (diff.TotalMinutes >= 1) return $"{(int)diff.TotalMinutes}m ago";
         return "just now";
+    }
+
+    // Tutorial Management
+    private bool _showTutorialResume = false;
+
+    private async Task InitializeTutorialAsync()
+    {
+        try
+        {
+            await TutorialService.InitializeAsync();
+            _showTutorialResume = TutorialService.CurrentState.IsActive && TutorialService.CurrentState.CurrentStep > 1;
+        }
+        catch (Exception ex)
+        {
+            // Silently fail - tutorial is optional functionality
+            Console.WriteLine($"Tutorial initialization failed: {ex.Message}");
+            _showTutorialResume = false;
+        }
+    }
+
+    private void HandleTutorialResume()
+    {
+        _showTutorialResume = false;
+        StateHasChanged();
+    }
+
+    private async Task HandleTutorialCancel()
+    {
+        await TutorialService.CancelTutorialAsync();
+        _showTutorialResume = false;
+        StateHasChanged();
+    }
+
+    private void HandleTutorialStarted()
+    {
+        StateHasChanged();
     }
 }
 

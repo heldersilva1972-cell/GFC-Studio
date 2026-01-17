@@ -22,6 +22,7 @@
 @inject NavigationManager NavManager
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject KeyCardLifecycleService KeyCardLifecycleService
+@inject TutorialService TutorialService
 @implements IDisposable
 
 <PageTitle>Dues Management - GFC</PageTitle>
@@ -89,6 +90,53 @@
     }
     else
     {
+        @* Tutorial Step 5: Find the member on Dues page *@
+        @if (TutorialService.ShouldShowStep(5))
+        {
+            <TutorialBubble 
+                Show="true"
+                Title="Initialize Dues"
+                Message="Search for the member to log their initial dues payment."
+                Tip="You can also scan a member's card to find them instantly!"
+                Position="top-center"
+                ShowNext="false"
+                ShowWait="true"
+                WaitingText="Waiting for you to click 'Pay'..."
+                AllowCancel="true"
+                OnCancel="@(async () => await TutorialService.CancelTutorialAsync())" />
+        }
+
+        @* Tutorial Step 6: Complete the payment form *@
+        @if (TutorialService.ShouldShowStep(6))
+        {
+            <TutorialBubble 
+                Show="true"
+                Title="Payment Entry"
+                Message="Select payment method and confirm the transaction."
+                Position="top-center"
+                ShowNext="false"
+                ShowWait="true"
+                WaitingText="Waiting for you to confirm the payment..."
+                AllowCancel="true"
+                OnCancel="@(async () => await TutorialService.CancelTutorialAsync())" />
+        }
+
+        @* Tutorial Step 7: Payment recorded success *@
+        @if (TutorialService.ShouldShowStep(7))
+        {
+            <TutorialBubble 
+                Show="true"
+                Title="Transaction Complete"
+                Message="Payment verified. Final Step: Provision a physical key card."
+                Tip="Click 'Yes, Assign & Activate Card' to proceed."
+                Position="top-center"
+                ShowNext="false"
+                ShowWait="true"
+                WaitingText="Waiting for you to proceed to Key Cards..."
+                AllowCancel="true"
+                OnCancel="@(async () => await TutorialService.CancelTutorialAsync())" />
+        }
+
         <!-- Metrics Grid -->
         <!-- Desktop Metrics  -->
         <div class="metrics-grid mb-4 d-none d-lg-grid">
@@ -172,7 +220,7 @@
         <div class="search-toolbar-modern mb-4">
             <div class="search-container-modern">
                 <i class="bi bi-search search-icon-modern"></i>
-                <input class="search-input-modern"
+                <input class="search-input-modern @(TutorialService.ShouldShowStep(5) ? "tutorial-pulse" : "")"
                        placeholder="Search by name..."
                        @bind="_searchText"
                        @bind:event="oninput" />
@@ -330,7 +378,7 @@
                                         <div class="d-flex justify-content-end gap-2">
                                             @if (CanRecordPayment(item))
                                             {
-                                                <button class="btn btn-sm btn-primary px-3" @onclick="() => OpenPaymentModal(item)" title="Record Payment">
+                                                <button class="btn btn-sm btn-primary px-3 @(TutorialService.ShouldShowStep(5) ? "tutorial-pulse" : "")" @onclick="() => OpenPaymentModal(item)" title="Record Payment">
                                                     Pay
                                                 </button>
                                             }
@@ -578,7 +626,7 @@
                             </div>
 
                             <div class="d-grid mt-4">
-                                <button class="btn btn-primary btn-lg" type="submit" disabled="@_operationInProgress">
+                                <button class="btn btn-primary btn-lg @(TutorialService.ShouldShowStep(6) ? "tutorial-pulse" : "")" type="submit" disabled="@_operationInProgress">
                                     @if (_operationInProgress)
                                     {
                                         <span class="spinner-border spinner-border-sm me-2"></span>
@@ -624,7 +672,7 @@
                             </div>
                             
                             <div class="d-grid gap-2 col-10 mx-auto">
-                                <button class="btn btn-primary btn-lg mb-2" @onclick="NavigateToAssignCard">
+                                <button class="btn btn-primary btn-lg mb-2 @(TutorialService.ShouldShowStep(7) ? "tutorial-pulse" : "")" @onclick="NavigateToAssignCard">
                                     <i class="bi bi-credit-card-2-front me-2"></i>Yes, Assign & Activate Card
                                 </button>
                                 <button class="btn btn-outline-secondary" @onclick="CloseSuccessModal">No, Close</button>
@@ -1270,6 +1318,14 @@
 
     protected override async Task OnInitializedAsync()
     {
+        TutorialService.OnTutorialStateChanged += HandleTutorialStateChanged;
+
+        // Auto-advance from Step 4 (AddMember success) to Step 5 (Navigate to Dues)
+        if (TutorialService.ShouldShowStep(4))
+        {
+            _ = TutorialService.NextStepAsync();
+        }
+
         _scanTimer = new System.Timers.Timer(100); // 100ms timeout for rapid variance
         _scanTimer.Elapsed += (s, e) => _scanBuffer = "";
         _scanTimer.AutoReset = false;
@@ -1382,9 +1438,15 @@
 
     public void Dispose()
     {
+        TutorialService.OnTutorialStateChanged -= HandleTutorialStateChanged;
         _scanTimer?.Dispose();
         _objRef?.Dispose();
         JSRuntime.InvokeVoidAsync("blazorInterop.unregisterKeyListener").AsTask();
+    }
+
+    private void HandleTutorialStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task OnYearChanged()
@@ -1481,6 +1543,12 @@
         _paymentYear = today.Year;
         
         _showPaymentModal = true;
+
+        // Tutorial: Advance to Step 6 when payment modal opens
+        if (TutorialService.ShouldShowStep(5))
+        {
+            _ = TutorialService.NextStepAsync();
+        }
     }
 
     private void ClosePaymentModal()
@@ -1623,6 +1691,12 @@
             _lastPaymentMemberId = memberId;
             _hasActiveCard = _memberCards.ContainsKey(memberId);
             _showSuccessModal = true;
+
+            // Tutorial: Advance to Step 7 after success
+            if (TutorialService.ShouldShowStep(6))
+            {
+                await TutorialService.NextStepAsync();
+            }
             
             // Note: Card prompt removed from here as per preference for receipt first.
             // If card is missing, user can navigate manually or we can add a nudge in success modal later.
@@ -1736,6 +1810,13 @@
     private void NavigateToAssignCard()
     {
         _showSuccessModal = false;
+
+        // Tutorial: Advance to Step 8 (Navigate to Key Cards)
+        if (TutorialService.ShouldShowStep(7))
+        {
+            _ = TutorialService.NextStepAsync();
+        }
+
         NavManager.NavigateTo($"/keycards?assignTo={_lastPaymentMemberId}");
     }
 

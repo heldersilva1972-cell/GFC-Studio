@@ -96,18 +96,26 @@ public class UserManagementService : IUserManagementService
     {
         var currentYear = DateTime.Now.Year;
         var allMembers = _memberRepository.GetAllMembers();
-        var duesRecords = _duesRepository.GetDuesForYear(currentYear);
-        var duesLookup = duesRecords.ToDictionary(d => d.MemberID, d => d);
         
-        // OPTIMIZATION: Get directors once in bulk
-        var currentDirectors = new HashSet<int>();
-        try {
-            currentDirectors = _boardRepository.GetAssignmentsByYear(currentYear).Select(a => a.MemberID).ToHashSet();
-        } catch { }
+        // Fetch current and previous year directors (transitional) in bulk
+        var currentDirectors = _boardRepository.GetAssignmentsByYear(currentYear)
+            .Select(a => a.MemberID)
+            .ToHashSet();
+            
+        var confirmation = _boardTermConfirmationService.GetConfirmation(currentYear);
+        if (confirmation == null)
+        {
+            var prevYearDirectors = _boardRepository.GetAssignmentsByYear(currentYear - 1)
+                .Select(a => a.MemberID);
+            foreach (var id in prevYearDirectors) 
+            {
+                currentDirectors.Add(id);
+            }
+        }
 
-        // Get members who are active and have paid/waived dues for current year
-        var activePaidMembers = allMembers
-            .Where(m => IsActiveForDues(m) && HasPaidOrWaivedDuesOptimized(m, duesLookup, currentYear, currentDirectors))
+        // Filter for members who are both active and currently on the board/directors list.
+        var eligibleDirectors = allMembers
+            .Where(m => IsActiveForDues(m) && currentDirectors.Contains(m.MemberID))
             .OrderBy(m => m.LastName)
             .ThenBy(m => m.FirstName)
             .Select(m => new ActiveMemberDto(
@@ -118,7 +126,7 @@ public class UserManagementService : IUserManagementService
                 m.Status))
             .ToList();
 
-        return activePaidMembers;
+        return eligibleDirectors;
     }
 
     private static bool IsActiveForDues(Member member)
