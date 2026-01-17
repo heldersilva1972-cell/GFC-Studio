@@ -1,5 +1,12 @@
--- DEFINITIVE SYNC: Align AppPages table 100% with NavMenu.razor sidebar
--- This script ensures every sidebar link exists in the permission system with the correct label and category
+-- First, ensure the DefaultPermissions table exists for the new system
+IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DefaultPermissions]') AND type in (N'U'))
+BEGIN
+    CREATE TABLE [dbo].[DefaultPermissions] (
+        [PageId] INT NOT NULL,
+        CONSTRAINT [PK_DefaultPermissions] PRIMARY KEY CLUSTERED ([PageId] ASC),
+        CONSTRAINT [FK_DefaultPermissions_AppPages] FOREIGN KEY ([PageId]) REFERENCES [dbo].[AppPages] ([PageId]) ON DELETE CASCADE
+    );
+END
 
 -- First, set all current pages to inactive so we can rebuild accurately
 UPDATE AppPages SET IsActive = 0;

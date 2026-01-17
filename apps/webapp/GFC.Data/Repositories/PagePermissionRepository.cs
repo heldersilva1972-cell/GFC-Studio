@@ -381,6 +381,77 @@ public class PagePermissionRepository : IPagePermissionRepository
         }
     }
 
+    public IEnumerable<int> GetDefaultPageIds()
+    {
+        var ids = new List<int>();
+        try 
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+            
+            // Check if table exists first to avoid crashing
+            const string checkSql = "SELECT OBJECT_ID(N'[dbo].[DefaultPermissions]', N'U')";
+            using var checkCmd = new SqlCommand(checkSql, connection);
+            if (checkCmd.ExecuteScalar() == DBNull.Value) return ids;
+
+            const string sql = "SELECT PageId FROM DefaultPermissions";
+            using var command = new SqlCommand(sql, connection);
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                ids.Add((int)reader["PageId"]);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DB ERROR] Failed to load DefaultPermissions: {ex.Message}");
+        }
+        return ids;
+    }
+
+    public void SetDefaultPageIds(IEnumerable<int> pageIds)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+        
+        // AUTO-FIX: Ensure table exists before saving
+        const string createSql = @"
+            IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DefaultPermissions]') AND type in (N'U'))
+            BEGIN
+                CREATE TABLE [dbo].[DefaultPermissions] (
+                    [PageId] INT NOT NULL,
+                    CONSTRAINT [PK_DefaultPermissions] PRIMARY KEY CLUSTERED ([PageId] ASC),
+                    CONSTRAINT [FK_DefaultPermissions_AppPages] FOREIGN KEY ([PageId]) REFERENCES [dbo].[AppPages] ([PageId]) ON DELETE CASCADE
+                );
+            END";
+        using (var createCmd = new SqlCommand(createSql, connection))
+        {
+            createCmd.ExecuteNonQuery();
+        }
+
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            using (var deleteCmd = new SqlCommand("DELETE FROM DefaultPermissions", connection, transaction))
+            {
+                deleteCmd.ExecuteNonQuery();
+            }
+
+            foreach (var id in pageIds)
+            {
+                using var insertCmd = new SqlCommand("INSERT INTO DefaultPermissions (PageId) VALUES (@PageId)", connection, transaction);
+                insertCmd.Parameters.AddWithValue("@PageId", id);
+                insertCmd.ExecuteNonQuery();
+            }
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
     // Helper methods
     private static AppPage MapReaderToAppPage(SqlDataReader reader)
     {

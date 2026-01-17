@@ -26,4 +26,8 @@ public interface IUserManagementService
     void SetUserPagePermissions(int userId, List<int> pageIds, string grantedBy);
     void GrantAllPagePermissions(int userId, string grantedBy);
     void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy);
+    
+    // Default Permissions
+    List<int> GetDefaultPageIds();
+    void SetDefaultPageIds(List<int> pageIds);
 }

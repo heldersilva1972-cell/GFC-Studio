@@ -391,26 +391,20 @@
                             <div class="permission-list">
                                 @foreach (var page in category.Value)
                                 {
-                                    <div class="permission-item @(page.RequiresAdmin ? "admin-only-item" : "")">
+                                    <div class="permission-item @(page.RequiresAdmin ? "admin-page-item" : "")">
                                         <div class="form-check">
-                                            @if (page.RequiresAdmin)
-                                            {
-                                                <input class="form-check-input" type="checkbox" disabled checked="true" id="default-page-@(page.PageId)" />
-                                            }
-                                            else
-                                            {
-                                                <input class="form-check-input" 
-                                                       type="checkbox" 
-                                                       id="default-page-@(page.PageId)"
-                                                       checked="@_defaultPermissions.Contains(page.PageId)"
-                                                       @onchange="@(e => ToggleDefaultPermission(page.PageId, (bool)e.Value))" />
-                                            }
+                                            <input class="form-check-input" 
+                                                   type="checkbox" 
+                                                   id="default-page-@(page.PageId)"
+                                                   checked="@_defaultPermissions.Contains(page.PageId)"
+                                                   @onchange="@(e => ToggleDefaultPermission(page.PageId, (bool)e.Value))" />
+                                            
                                             <label class="form-check-label" for="default-page-@(page.PageId)">
                                                 <div class="d-flex align-items-center">
                                                     <strong>@(page.PageName)</strong>
                                                     @if (page.RequiresAdmin)
                                                     {
-                                                        <span class="badge bg-light text-dark ms-2 border" style="font-size: 0.65rem;">
+                                                        <span class="badge bg-light text-dark ms-2 border" style="font-size: 0.65rem; opacity: 0.8;">
                                                             <i class="bi bi-shield-lock me-1"></i>ADMIN
                                                         </span>
                                                     }
@@ -435,7 +429,7 @@
                     {
                         <span class="spinner-border spinner-border-sm me-2"></span>
                     }
-                    <i class="bi bi-check-lg me-1"></i>Save Default Permissions
+                    <i class="bi bi-check-lg me-1"></i>Save Default Access
                 </button>
             </div>
         </div>
@@ -492,10 +486,11 @@
                 Task.Run(() => _allPages = UserManagementService.GetAllPages().ToList())
             );
             
-            // Group pages by category
+            // Group pages by category and sort categories by the DisplayOrder of the first page in each group
             _pagesByCategory = _allPages
                 .Where(p => p.IsActive)
-                .GroupBy(p => p.Category ?? "Other")
+                .GroupBy(p => p.Category ?? "UNSPECIFIED")
+                .OrderBy(g => g.Min(p => p.DisplayOrder))
                 .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
             
             // Load default permissions from system settings (you'll need to implement this)
@@ -527,13 +522,17 @@
     {
         try
         {
-            // TODO: Load from SystemSettings or a dedicated DefaultPermissions table
-            // For now, default to Dashboard and basic Membership pages
-            _defaultPermissions = _allPages
-                .Where(p => p.IsActive && !p.RequiresAdmin && 
-                           (p.Category == "DASHBOARD" || p.Category == "MEMBERSHIP"))
-                .Select(p => p.PageId)
-                .ToHashSet();
+            _defaultPermissions = ((GFC.Core.Interfaces.IUserManagementService)UserManagementService).GetDefaultPageIds().ToHashSet();
+            
+            // If no defaults are set yet, fall back to basic membership for new systems
+            if (_defaultPermissions.Count == 0)
+            {
+                _defaultPermissions = _allPages
+                    .Where(p => p.IsActive && !p.RequiresAdmin && 
+                               (p.Category == "DASHBOARD" || p.Category == "MEMBERSHIP"))
+                    .Select(p => p.PageId)
+                    .ToHashSet();
+            }
         }
         catch (Exception ex)
         {
@@ -585,17 +584,19 @@
         if (selectedMember != null)
         {
             // Generate username: First initial + Last name (e.g., "HSilva" for "Helder Silva")
-            var nameParts = selectedMember.DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (nameParts.Length >= 2)
+            var firstInitial = !string.IsNullOrEmpty(selectedMember.FirstName) ? selectedMember.FirstName[0].ToString().ToUpperInvariant() : "";
+            var lastName = selectedMember.LastName ?? "";
+            
+            // Remove spaces or hyphens from last name
+            lastName = lastName.Replace(" ", "").Replace("-", "");
+
+            if (!string.IsNullOrEmpty(firstInitial) && !string.IsNullOrEmpty(lastName))
             {
-                var firstInitial = nameParts[0][0];
-                var lastName = nameParts[nameParts.Length - 1];
                 _userForm.Username = $"{firstInitial}{lastName}";
             }
-            else if (nameParts.Length == 1)
+            else
             {
-                // If only one name, use it as is
-                _userForm.Username = nameParts[0];
+                _userForm.Username = selectedMember.DisplayName.Replace(" ", "").Replace(",", "");
             }
         }
     }
@@ -730,15 +731,22 @@
         }
     }
 
-    // Default Permissions Modal Methods
     private async Task OpenDefaultPermissionsModal()
     {
         _savingDefaultPermissions = false;
-        // Show ALL pages so it matches the sidebar structure exactly
+        
+        // Ensure we have the latest page list
         _allPages = UserManagementService.GetAllPages().ToList();
         
-        // Load whatever defaults were previously selected
-        // TODO: Load from the actual settings table
+        // Group pages by category and sort them for the UI
+        _pagesByCategory = _allPages
+            .Where(p => p.IsActive)
+            .GroupBy(p => p.Category ?? "UNSPECIFIED")
+            .OrderBy(g => g.Min(p => p.DisplayOrder))
+            .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
+
+        // Load ACTUAL saved defaults from the database
+        await LoadDefaultPermissions();
         
         _showDefaultPermissionsModal = true;
     }
@@ -761,12 +769,9 @@
         _savingDefaultPermissions = true;
         try
         {
-            // TODO: Save to SystemSettings or dedicated DefaultPermissions table
-            // For now, just update the in-memory collection
-            await Task.Delay(500); // Simulate save
-            
-            CloseDefaultPermissionsModal();
-            await JS.InvokeVoidAsync("alert", "Default permissions saved successfully!");
+            await Task.Run(() => ((GFC.Core.Interfaces.IUserManagementService)UserManagementService).SetDefaultPageIds(_defaultPermissions.ToList()));
+            _showDefaultPermissionsModal = false;
+            // Optionally show a success toast here
         }
         catch (Exception ex)
         {

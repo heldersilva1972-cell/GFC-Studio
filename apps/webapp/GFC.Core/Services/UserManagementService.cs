@@ -214,12 +214,8 @@ public class UserManagementService : IUserManagementService
             }
             else
             {
-                // Non-admins get basic permissions (dashboard and membership pages)
-                var defaultPages = _pagePermissionRepository.GetAllPages()
-                    .Where(p => p.IsActive && !p.RequiresAdmin && 
-                               (p.Category == "DASHBOARD" || p.Category == "MEMBERSHIP"))
-                    .Select(p => p.PageId)
-                    .ToList();
+                // Non-admins get the system-configured default permissions
+                var defaultPages = _pagePermissionRepository.GetDefaultPageIds().ToList();
                 
                 if (defaultPages.Any())
                 {
@@ -421,5 +417,14 @@ public class UserManagementService : IUserManagementService
     {
         _pagePermissionRepository.CopyPermissions(sourceUserId, targetUserId, grantedBy);
     }
-}
 
+    public List<int> GetDefaultPageIds()
+    {
+        return _pagePermissionRepository.GetDefaultPageIds().ToList();
+    }
+
+    public void SetDefaultPageIds(List<int> pageIds)
+    {
+        _pagePermissionRepository.SetDefaultPageIds(pageIds);
+    }
+}

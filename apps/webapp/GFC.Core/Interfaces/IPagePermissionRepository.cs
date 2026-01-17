@@ -28,4 +28,8 @@ public interface IPagePermissionRepository
     // Bulk operations
     void GrantAllPermissions(int userId, string grantedBy);
     void CopyPermissions(int sourceUserId, int targetUserId, string grantedBy);
+
+    // Default Permissions
+    IEnumerable<int> GetDefaultPageIds();
+    void SetDefaultPageIds(IEnumerable<int> pageIds);
 }

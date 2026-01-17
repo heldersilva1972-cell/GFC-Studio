@@ -1,6 +1,8 @@
 @implements IDisposable
 @inject NavigationManager Navigation
 @inject GFC.BlazorServer.Services.TutorialService TutorialService
+@inject GFC.Core.Interfaces.IUserManagementService UserService
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Routing
 @using GFC.BlazorServer.Components.Shared
@@ -32,11 +34,8 @@
         </li>
 
 
-
-
-
         <!-- Membership Section -->
-        @if (ShouldShowSection("Membership"))
+        @if (ShouldShowSection("Membership") && (IsAdmin || HasAccessToAnyIn("MEMBERSHIP")))
         {
             var isTutorialStep2 = TutorialService.ShouldShowStep(2);
             <li class="nav-group @(IsSectionExpanded("Membership") || (isTutorialStep2 && !IsSectionExpanded("Membership")) ? "expanded" : "") @(isTutorialStep2 ? "tutorial-highlight" : "")">
@@ -83,7 +82,7 @@
 
 
         <!-- Controllers -->
-        @if (IsAdmin && ShouldShowSection("Controllers"))
+        @if (ShouldShowSection("Controllers") && (IsAdmin || HasAccessToAnyIn("CONTROLLERS")))
         {
             <li class="nav-group @(IsSectionExpanded("Controllers") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("Controllers") ? "active" : "")" @onclick="@(() => ToggleSection("Controllers"))">
@@ -108,7 +107,7 @@
         }
 
         <!-- Finance & Ops -->
-        @if (ShouldShowSection("Finance"))
+        @if (ShouldShowSection("Finance") && (IsAdmin || HasAccessToAnyIn("FINANCE")))
         {
             <li class="nav-group @(IsSectionExpanded("Finance") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("Finance") ? "active" : "")" @onclick="@(() => ToggleSection("Finance"))">
@@ -148,7 +147,7 @@
         }
 
         <!-- Administration -->
-        @if (ShouldShowSection("Admin"))
+        @if (ShouldShowSection("Admin") && (IsAdmin || HasAccessToAnyIn("ADMINISTRATION")))
         {
             <li class="nav-group @(IsSectionExpanded("Admin") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("Admin") ? "active" : "")" @onclick="@(() => ToggleSection("Admin"))">
@@ -180,7 +179,7 @@
         }
 
         <!-- Website -->
-        @if (IsAdmin && ShouldShowSection("Website"))
+        @if (ShouldShowSection("Website") && (IsAdmin || HasAccessToAnyIn("WEBSITE")))
         {
             <li class="nav-group @(IsSectionExpanded("Website") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("Website") ? "active" : "")" @onclick="@(() => ToggleSection("Website"))">
@@ -225,7 +224,7 @@
         }
 
         <!-- Hall Rentals -->
-        @if (IsAdmin && ShouldShowSection("HallRentals"))
+        @if (ShouldShowSection("HallRentals") && (IsAdmin || HasAccessToAnyIn("HALL RENTALS")))
         {
             <li class="nav-group @(IsSectionExpanded("HallRentals") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("HallRentals") ? "active" : "")" @onclick="@(() => ToggleSection("HallRentals"))">
@@ -246,7 +245,7 @@
         }
 
         <!-- System -->
-        @if (IsAdmin && ShouldShowSection("System"))
+        @if (ShouldShowSection("System") && (IsAdmin || HasAccessToAnyIn("SYSTEM")))
         {
             <li class="nav-group @(IsSectionExpanded("System") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("System") ? "active" : "")" @onclick="@(() => ToggleSection("System"))">
@@ -268,7 +267,7 @@
 
 
         <!-- Camera System (Consolidated) -->
-        @if (IsAdmin && ShouldShowSection("Cameras"))
+        @if (ShouldShowSection("Cameras") && (IsAdmin || HasAccessToAnyIn("CAMERA SYSTEM")))
         {
             <li class="nav-group @(IsSectionExpanded("Cameras") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("Cameras") ? "active" : "")" @onclick="@(() => ToggleSection("Cameras"))">
@@ -293,7 +292,7 @@
         }
 
         <!-- GFC Studio Section -->
-        @if (IsAdmin && ShouldShowSection("Studio"))
+        @if (ShouldShowSection("Studio") && (IsAdmin || HasAccessToAnyIn("GFC STUDIO")))
         {
             <li class="nav-group @(IsSectionExpanded("Studio") ? "expanded" : "")">
                 <div class="nav-group-header @(IsSectionActive("Studio") ? "active" : "")" @onclick="@(() => ToggleSection("Studio"))">
@@ -317,6 +316,20 @@
     public bool IsAdmin { get; set; }
 
     private string SearchTerm { get; set; } = "";
+    private List<int> UserPermissionIds { get; set; } = new();
+    private List<GFC.Core.Models.AppPage> AllPages { get; set; } = new();
+    
+    private bool HasAccessToAnyIn(string category)
+    {
+        if (IsAdmin) return true;
+        
+        // Find all pages in this category and check if user has ID in their list
+        var categoryPageIds = AllPages
+            .Where(p => p.Category == category && p.IsActive)
+            .Select(p => p.PageId);
+            
+        return categoryPageIds.Any(id => UserPermissionIds.Contains(id));
+    }
     
     // Track expanded state of groups.
     private Dictionary<string, bool> ExpandedSections = new()
@@ -332,11 +345,25 @@
         { "System", false }
     };
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         Navigation.LocationChanged += HandleLocationChanged;
         TutorialService.OnTutorialStateChanged += HandleTutorialStateChanged;
         
+        // Load permissions for dynamic sidebar
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+            {
+                UserPermissionIds = UserService.GetUserPagePermissions(userId).Select(p => p.PageId).ToList();
+            }
+        }
+        
+        AllPages = UserService.GetAllPages().ToList();
+
         // Auto-expand the section that is currently active on first load
         foreach (var section in ExpandedSections.Keys.ToList())
         {
