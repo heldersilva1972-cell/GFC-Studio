@@ -202,7 +202,12 @@ public class AuthenticationService : IAuthenticationService
         // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin) { ... }
 
         _currentUser = user;
-        var (newToken, _) = await RotateDeviceTokenAsync(trustedDevice);
+        
+        // Update Session Timing without rotating the token to prevent race conditions
+        trustedDevice.LastUsedUtc = DateTime.UtcNow;
+        var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
+        trustedDevice.ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays);
+        await _trustedDeviceRepository.UpdateAsync(trustedDevice);
 
         await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "Login via device token successful");
 
@@ -211,7 +216,7 @@ public class AuthenticationService : IAuthenticationService
             Code = LoginResultCode.Success,
             User = user,
             PasswordChangeRequired = user.PasswordChangeRequired,
-            DeviceToken = newToken
+            DeviceToken = trustedDevice.DeviceToken
         };
     }
 

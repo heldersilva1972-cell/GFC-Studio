@@ -11,6 +11,8 @@ namespace GFC.BlazorServer.Middleware
         private readonly RequestDelegate _next;
         private static readonly string[] PublicPaths = new[] 
         { 
+            "/login",
+            "/changepassword",
             "/setup", 
             "/api", 
             "/error", 
