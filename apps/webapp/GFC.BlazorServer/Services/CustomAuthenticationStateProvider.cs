@@ -182,9 +182,13 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
 
         if (serviceUser != null && serviceUser.IsActive)
         {
-            if (_currentUser == null ||
-                _currentUser.UserId != serviceUser.UserId ||
-                _currentPrincipal.Identity?.IsAuthenticated != true)
+            // Update if user changed, or if key flags like PasswordChangeRequired have been updated
+            bool stateChanged = _currentUser == null || 
+                               _currentUser.UserId != serviceUser.UserId || 
+                               _currentUser.PasswordChangeRequired != serviceUser.PasswordChangeRequired ||
+                               _currentPrincipal.Identity?.IsAuthenticated != true;
+
+            if (stateChanged)
             {
                 _currentUser = serviceUser;
                 _currentPrincipal = BuildPrincipal(serviceUser);
