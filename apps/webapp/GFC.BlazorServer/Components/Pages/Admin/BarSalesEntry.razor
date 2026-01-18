@@ -660,20 +660,13 @@
             // Base Query
             var query = db.BarSaleEntries.AsQueryable();
 
-            // Apply Day Filter (Client-Side evaluation for DayOfWeek often safer/easier if small dataset, 
-            // but for pagination we want Server-Side. 
-            // NOTE: EF Core can translate DateTime.DayOfWeek usually. Let's try.)
             if (!string.IsNullOrEmpty(_selectedDayFilter))
             {
                 var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _selectedDayFilter);
-                // EF Core SQL translation for DayOfWeek on coalesced date might be tricky or unsupported depending on version.
-                // Safer to do client side filtering if volume is low, or try direct translation.
-                // Let's try direct translation first, if it fails we fall back.
-                // Using a helper projection or simple evaluation.
                 query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
             }
 
-            // Load Pagination Stats
+            // Execute Count and Stats in parallel or combined if possible
             _totalEntries = await query.CountAsync();
             
             // Load Page Data
@@ -683,31 +676,34 @@
                 .Take(_pageSize)
                 .ToListAsync();
 
+            // These are still global, but they are fast SQL aggregations
             _grandTotalRevenue = await db.BarSaleEntries.SumAsync(e => e.TotalSales);
             _grandTotalItemsSold = await db.BarSaleEntries.SumAsync(e => e.TotalItemsSold);
 
-            // Load available years based on effective date
-            _availableYears = await db.BarSaleEntries
-                .Select(e => (e.AdjustedSaleDate ?? e.SaleDate).Year)
-                .Distinct()
-                .OrderByDescending(y => y)
-                .ToListAsync();
-
+            // Fetch available years once (cached-like)
             if (!_availableYears.Any())
             {
-                _availableYears.Add(DateTime.Now.Year);
-            }
-            
-            // Default to selecting all available years for comparison initially, ONLY if list is empty (first load)
-            if (!_selectedComparisonYears.Any())
-            {
-                _selectedComparisonYears = new List<int>(_availableYears);
+                _availableYears = await db.BarSaleEntries
+                    .Select(e => (e.AdjustedSaleDate ?? e.SaleDate).Year)
+                    .Distinct()
+                    .OrderByDescending(y => y)
+                    .ToListAsync();
+
+                if (!_availableYears.Any())
+                {
+                    _availableYears.Add(DateTime.Now.Year);
+                }
+                
+                if (!_selectedComparisonYears.Any())
+                {
+                    _selectedComparisonYears = new List<int>(_availableYears);
+                }
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error loading data: {ex}");
-            _errorDetails = $"Error loading data: {ex.Message} \n {ex.StackTrace}";
+            _errorDetails = $"Error loading data: {ex.Message}";
         }
     }
 
@@ -738,24 +734,45 @@
             using var db = await DbFactory.CreateDbContextAsync();
             var now = DateTime.Now;
             
-            // 1. Fetch ALL data first (Robustness)
-            var allData = await db.BarSaleEntries.ToListAsync();
+            // 1. SELECTIVE DATA FETCHING (Don't load everything!)
+            var query = db.BarSaleEntries.AsQueryable();
 
-            // 2. Apply Day Filter if selected
+            // Apply Period and Filter logic at the Database Level
+            if (_selectedPeriod != "year")
+            {
+                DateTime startDate = now, endDate = now;
+                if (_selectedPeriod == "week") { startDate = now.AddDays(-6).Date; endDate = now.Date; }
+                else if (_selectedPeriod == "month") { startDate = now.AddDays(-29).Date; endDate = now.Date; }
+                else if (_selectedPeriod == "thisMonth") { startDate = new DateTime(now.Year, now.Month, 1); endDate = now.Date; }
+                else if (_selectedPeriod == "lastMonth") { 
+                    var last = now.AddMonths(-1); 
+                    startDate = new DateTime(last.Year, last.Month, 1); 
+                    endDate = new DateTime(last.Year, last.Month, DateTime.DaysInMonth(last.Year, last.Month)); 
+                }
+                else if (_selectedPeriod == "custom") { startDate = _customStartDate.Date; endDate = _customEndDate.Date; }
+
+                query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Date >= startDate && (e.AdjustedSaleDate ?? e.SaleDate).Date <= endDate);
+            }
+            else if (_selectedComparisonYears.Any())
+            {
+                var minYear = _selectedComparisonYears.Min();
+                var maxYear = _selectedComparisonYears.Max();
+                query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Year >= minYear && (e.AdjustedSaleDate ?? e.SaleDate).Year <= maxYear);
+            }
+
             if (!string.IsNullOrEmpty(_chartDayFilter))
             {
                 var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _chartDayFilter);
-                if (allData.Any()) 
-                {
-                    allData = allData.Where(e => GetEffectiveDate(e).DayOfWeek == targetDay).ToList();
-                }
+                query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
             }
 
-            // 3. Apply Shift Filter if selected
             if (!string.IsNullOrEmpty(_chartShiftFilter))
             {
-                 allData = allData.Where(e => e.Shift == _chartShiftFilter).ToList();
+                 query = query.Where(e => e.Shift == _chartShiftFilter);
             }
+
+            // Fetch only what's needed for the current chart view
+            var allData = await query.ToListAsync();
             
             List<string> labels = new();
             var datasets = new List<object>();
@@ -786,7 +803,7 @@
             // LOGIC B: Standard Time Periods
             else
             {
-                // Define Date Range
+                // Define Date Range for filtering in-memory (already narrowed down by DB query)
                 DateTime startDate = now, endDate = now;
                 if (_selectedPeriod == "week") { startDate = now.AddDays(-6).Date; endDate = now.Date; }
                 else if (_selectedPeriod == "month") { startDate = now.AddDays(-29).Date; endDate = now.Date; }
@@ -861,7 +878,6 @@
                 _selectedDay = maxDays;
             }
 
-            // Construct date from persistent components (hour is in 24hr format)
             _model.SaleDate = new DateTime(
                 _selectedEntryYear, 
                 _selectedMonth, 
@@ -869,8 +885,6 @@
                 _selectedHour,
                 _selectedMinute, 
                 0);
-
-            await Task.Delay(1000);
 
             using var db = await DbFactory.CreateDbContextAsync();
             _model.CreatedAt = DateTime.UtcNow;
