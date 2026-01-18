@@ -44,8 +44,7 @@ public class PageDiscoveryService
                 
                 if (existing == null)
                 {
-                    // Brand new page found in code - add it as a placeholder
-                    page.Category = "UNSPECIFIED";
+                    // Brand new page found in code - add it
                     _pagePermissionRepository.AddPage(page);
                     added++;
                 }

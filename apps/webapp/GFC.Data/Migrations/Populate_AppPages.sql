@@ -77,6 +77,10 @@ IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/bartender-shift')
     INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
     VALUES ('Bartender Shift', '/bartender-shift', 'Bartender shift management', 'Finance', 0, 1, 35);
 
+IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/finance/insights')
+    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
+    VALUES ('Financial Insights', '/finance/insights', 'In-depth financial performance analysis', 'Finance', 0, 1, 36);
+
 -- ADMINISTRATION
 IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/users')
     INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
@@ -144,6 +148,10 @@ IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/infrastructure-hub')
 IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/migration-wizard')
     INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
     VALUES ('Migration Wizard', '/migration-wizard', 'Data migration tools', 'System', 1, 1, 71);
+
+IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/admin/system/communications')
+    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
+    VALUES ('Text & Email Setup', '/admin/system/communications', 'Configure outbound communication channels', 'System', 1, 1, 72);
 
 -- CAMERA SYSTEM
 IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/camera-monitor')

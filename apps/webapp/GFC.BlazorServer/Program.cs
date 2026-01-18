@@ -798,7 +798,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> Applying Member Access Schema Fixes from: {accessScriptPath}");
                     var accessSqlFile = File.ReadAllText(accessScriptPath);
                     var accessBatches = System.Text.RegularExpressions.Regex.Split(accessSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
+                    
                     foreach (var batch in accessBatches)
                     {
                         if (!string.IsNullOrWhiteSpace(batch))
@@ -816,6 +816,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 {
                     Console.WriteLine($">>> WARNING: Member Access schema script not found at {accessScriptPath}");
                 }
+
 
 
                 // [AUTO-FIX 9] Run Backup Schema Migration
