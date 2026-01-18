@@ -12,7 +12,6 @@ namespace GFC.BlazorServer.Middleware
         private static readonly string[] PublicPaths = new[] 
         { 
             "/setup", 
-            "/login",
             "/api", 
             "/error", 
             "/_framework", 
@@ -70,40 +69,49 @@ namespace GFC.BlazorServer.Middleware
             var mode = settings?.AccessMode ?? AccessMode.Open;
             var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-            // HOST BYPASS: Always allowed only from the server itself (localhost)
+            // [FIX] RESPECT ACCESS MODE
+            // 1. Local Bypass (Host PC always allowed)
             if (connectionService.LocationType == LocationType.Local)
             {
                 await _next(context);
                 return;
             }
 
-            // [FIX] RESPECT ACCESS MODE
-            // If the system is in Open mode, allow all LAN traffic (but still block public internet if needed, 
-            // though Open usually implies fully open).
-            // Add Debug Logging since this check is failing
-
-
-            if (mode == AccessMode.Open)
+            // 2. VPN-Only Mode Enforcement
+            if (mode == AccessMode.VpnOnly && connectionService.LocationType != LocationType.VPN)
             {
-                await _next(context);
-                return;
+                // Fall through to block below for non-VPN connections in VPN-only mode
             }
-
-            // ALL EXTERNAL DEVICES (LAN, VPN, PUBLIC): Must have valid device trust token
-            bool hasValidDeviceTrust = false;
-            string? token = null;
-
-            if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && 
-                !string.IsNullOrEmpty(token))
+            else
             {
-                hasValidDeviceTrust = deviceTrustService.ValidateToken(token);
-            }
+                // 3. Device Trust Check (Cookies)
+                bool hasValidDeviceTrust = false;
+                string? token = null;
 
-            // If device is trusted, allow access
-            if (hasValidDeviceTrust)
-            {
-                await _next(context);
-                return;
+                if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && 
+                    !string.IsNullOrEmpty(token))
+                {
+                    hasValidDeviceTrust = deviceTrustService.ValidateToken(token);
+                }
+
+                if (hasValidDeviceTrust)
+                {
+                    await _next(context);
+                    return;
+                }
+
+                // 4. "Open Access" Mode Bypasses (LAN/VPN Only)
+                // If the system is in Open mode, we allow LAN and VPN connections without tokens.
+                // Public internet traffic (LTE, Coffee Shop) MUST still be trusted even in "Open" mode.
+                if (mode == AccessMode.Open)
+                {
+                    if (connectionService.LocationType == LocationType.LAN || 
+                        connectionService.LocationType == LocationType.VPN)
+                    {
+                        await _next(context);
+                        return;
+                    }
+                }
             }
 
             // --- ALL CODE BELOW THIS POINT IS FOR UNTRUSTED ACCESS ---

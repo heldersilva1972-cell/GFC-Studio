@@ -13,7 +13,8 @@ public interface IDeviceTrustService
 {
     Task<bool> ValidateDeviceTokenAsync(string token, int userId);
     Task<string> CreateDeviceTokenAsync(int userId, string userAgent, string ipAddress, int durationDays);
-    Task RevokeDeviceTokenAsync(string token);
+    Task<bool> RevokeDeviceTokenAsync(string token);
+    Task RevokeAllUserDevicesAsync(int userId);
     Task CleanupExpiredTokensAsync();
     bool ValidateToken(string token); // For middleware - validates token exists and is not expired/revoked
     Task<int?> GetUserIdByTokenAsync(string token);
@@ -141,7 +142,7 @@ public class DeviceTrustService : IDeviceTrustService
     /// <summary>
     /// Revokes a device token
     /// </summary>
-    public async Task RevokeDeviceTokenAsync(string token)
+    public async Task<bool> RevokeDeviceTokenAsync(string token)
     {
         try
         {
@@ -155,11 +156,42 @@ public class DeviceTrustService : IDeviceTrustService
                 device.IsRevoked = true;
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Revoked device token for user {UserId}", device.UserId);
+                return true;
             }
+            return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error revoking device token");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Revokes all active device tokens for a specific user.
+    /// </summary>
+    public async Task RevokeAllUserDevicesAsync(int userId)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var devices = await context.TrustedDevices
+                .Where(t => t.UserId == userId && !t.IsRevoked)
+                .ToListAsync();
+            
+            if (devices.Any())
+            {
+                foreach (var device in devices)
+                {
+                    device.IsRevoked = true;
+                }
+                await context.SaveChangesAsync();
+                _logger.LogInformation("Revoked {Count} active device tokens for user {UserId}.", devices.Count, userId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error revoking all device tokens for user {UserId}", userId);
         }
     }
 

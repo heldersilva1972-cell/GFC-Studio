@@ -70,3 +70,54 @@ self.addEventListener('fetch', (event) => {
             })
     );
 });
+// Push notification handler
+self.addEventListener('push', (event) => {
+    console.log('[Service Worker] Push Received.');
+    let data = { title: 'GFC Alert', body: 'System notification received.' };
+
+    if (event.data) {
+        try {
+            data = event.data.json();
+        } catch (e) {
+            data = { title: 'GFC Alert', body: event.data.text() };
+        }
+    }
+
+    const options = {
+        body: data.body,
+        icon: '/images/pwa-icon-192.png',
+        badge: '/images/pwa-icon-192.png',
+        vibrate: [100, 50, 100],
+        data: data.url || '/',
+        actions: [
+            { action: 'open', title: 'Open GFC' }
+        ]
+    };
+
+    event.waitUntil(
+        self.registration.showNotification(data.title, options)
+    );
+});
+
+// Notification click handler
+self.addEventListener('notificationclick', (event) => {
+    console.log('[Service Worker] Notification click Received.');
+
+    event.notification.close();
+
+    const urlToOpen = event.notification.data || '/';
+
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+            for (let i = 0; i < windowClients.length; i++) {
+                const client = windowClients[i];
+                if (client.url === urlToOpen && 'focus' in client) {
+                    return client.focus();
+                }
+            }
+            if (clients.openWindow) {
+                return clients.openWindow(urlToOpen);
+            }
+        })
+    );
+});

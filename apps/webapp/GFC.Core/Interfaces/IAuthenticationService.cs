@@ -10,6 +10,7 @@ public interface IAuthenticationService
     Task<LoginResult> VerifyMfaCodeAsync(int userId, string code, string? ipAddress = null, bool rememberDevice = false);
     Task<LoginResult> LoginMagicLinkAsync(int userId, string? ipAddress = null);
     Task<LoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null);
+    Task<LoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null);
     MfaSetupInfo GenerateMfaSetup(AppUser user);
     Task LogoutAsync(string? deviceToken = null);
     AppUser? GetCurrentUser();

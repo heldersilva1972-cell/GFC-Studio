@@ -86,6 +86,7 @@ public class UserManagementService : IUserManagementService
                 memberName,
                 user.LastLoginDate,
                 user.Notes,
+                user.Email,
                 isDirector));
         }
 

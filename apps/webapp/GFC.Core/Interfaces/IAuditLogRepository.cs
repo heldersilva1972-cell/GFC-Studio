@@ -19,4 +19,6 @@ public interface IAuditLogRepository
         int pageSize);
 
     Task<IReadOnlyList<string>> GetDistinctActionsAsync();
+    Task<IReadOnlyList<AuditLogRecord>> GetLiveActivityAsync();
+    void UpdateDuration(int userId, string pageUrl, int additionalSeconds);
 }

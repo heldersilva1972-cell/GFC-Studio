@@ -22,4 +22,8 @@ public class AuditLogRecord
     public string Action { get; set; } = string.Empty;
 
     public string? Details { get; set; }
+
+    public string? PageUrl { get; set; }
+
+    public int DurationSeconds { get; set; }
 }

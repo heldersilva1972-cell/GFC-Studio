@@ -38,7 +38,7 @@
             <AuthorizeView>
                 <Authorized>
                     <!-- Desktop only items -->
-                    <div class="desktop-actions d-none d-lg-flex align-items-center gap-3">
+                    <div class="desktop-actions d-flex align-items-center gap-3">
 
                         <div class="connection-status @GetConnectionStatusClass()" title="Card Access Controller Status">
                             <i class="bi @GetConnectionStatusIcon()"></i>
@@ -49,9 +49,9 @@
                         {
                             <span class="app-badge">Admin</span>
                         }
-                        <NavLink class="text-white text-decoration-none small" href="/changepassword" title="Manage your Password and Passcode">
-                            <i class="bi bi-key me-1"></i> Credentials
-                        </NavLink>
+                        <a class="nav-link text-white d-flex align-items-center gap-1 small" href="/my-security" title="Security Settings">
+                            <i class="bi bi-shield-lock-fill"></i> Security
+                        </a>
                         <button class="app-link-button" @onclick="HandleLogout" type="button">
                             Logout
                         </button>
@@ -113,8 +113,8 @@
 
                                 </div>
                                 
-                                <NavLink class="btn btn-outline-light w-100 btn-sm text-start" href="/changepassword">
-                                    <i class="bi bi-key me-2"></i> Credentials
+                                <NavLink class="btn btn-outline-light w-100 btn-sm text-start" href="/my-security">
+                                    <i class="bi bi-shield-lock-fill me-2"></i> Security & Devices
                                 </NavLink>
                                 <button class="btn btn-danger w-100 btn-sm text-start" @onclick="HandleLogout">
                                     <i class="bi bi-box-arrow-right me-2"></i> Logout
@@ -153,6 +153,7 @@
     private string _connectionStatus = "Checking...";
     private System.Threading.Timer? _healthTimer;
     private System.Threading.Timer? _sessionTimer;
+    private System.Threading.Timer? _activityTimer;
     private bool _isControllerOnline = false;
 
     private bool _canInstallPwa = false;
@@ -211,6 +212,11 @@
                     await HandleLogout();
                 }
             }, null, 60000, 60000);
+
+            _activityTimer = new System.Threading.Timer(_ => 
+            {
+                RecordActivityHeartbeat();
+            }, null, 30000, 30000);
             
             AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
 
@@ -302,6 +308,7 @@
     {
         _healthTimer?.Dispose();
         _sessionTimer?.Dispose();
+        _activityTimer?.Dispose();
         AuthStateProvider.AuthenticationStateChanged -= HandleAuthenticationStateChanged;
         ThemeService.OnThemeChanged -= StateHasChanged;
         Navigation.LocationChanged -= HandleLocationChanged;
@@ -354,6 +361,22 @@
         {
             Logger.LogWarning(ex, "Failed to log page view");
         }
+    }
+
+    private void RecordActivityHeartbeat()
+    {
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser != null)
+            {
+                var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri);
+                if (string.IsNullOrEmpty(relativeUri)) relativeUri = "Dashboard";
+                
+                AuditLogger.UpdatePageViewDuration(currentUser.UserId, relativeUri, 30);
+            }
+        }
+        catch { /* Best effort */ }
     }
 
     private void EnforcePasswordSetup()

@@ -143,6 +143,18 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         return result;
     }
 
+    public async Task<LoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
+    {
+        var result = await _authenticationService.LoginWithPasskeyAsync(username, ipAddress);
+        if (result.Success)
+        {
+            _userSessionService.SetLoginTime(DateTime.UtcNow);
+        }
+        RefreshFromAuthenticationService();
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+        return result;
+    }
+
     public async Task LogoutAsync(string? deviceToken = null)
     {
         await _authenticationService.LogoutAsync(deviceToken);

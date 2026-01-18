@@ -12,7 +12,7 @@ public class AuditLogRepository : IAuditLogRepository
     private static bool _isInitialized;
     private static readonly object _initLock = new();
 
-    public void Insert(AuditLogEntry entry)
+    public void Insert(GFC.Core.Models.AuditLogEntry entry)
     {
         try
         {
@@ -25,7 +25,7 @@ public class AuditLogRepository : IAuditLogRepository
         }
     }
 
-    private static void InsertInternal(AuditLogEntry entry)
+    private static void InsertInternal(GFC.Core.Models.AuditLogEntry entry)
     {
         EnsureInitialized();
 
@@ -38,8 +38,8 @@ public class AuditLogRepository : IAuditLogRepository
         connection.Open();
 
         const string sql = @"
-INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details)
-VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details);";
+INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details, PageUrl, DurationSeconds)
+VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @PageUrl, @DurationSeconds);";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@TimestampUtc", entry.TimestampUtc == default ? DateTime.UtcNow : entry.TimestampUtc);
@@ -47,6 +47,8 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details);";
         command.Parameters.AddWithValue("@TargetUserId", entry.TargetUserId.HasValue ? entry.TargetUserId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@Action", entry.Action);
         command.Parameters.AddWithValue("@Details", (object?)entry.Details ?? DBNull.Value);
+        command.Parameters.AddWithValue("@PageUrl", (object?)entry.PageUrl ?? DBNull.Value);
+        command.Parameters.AddWithValue("@DurationSeconds", entry.DurationSeconds);
 
         command.ExecuteNonQuery();
     }
@@ -108,7 +110,7 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details);";
         var countSql = $"SELECT COUNT(*) FROM AuditLogs al {whereClause};";
 
         var pageSql = $@"
-SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details,
+SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds,
        pb.Username AS PerformedByUsername, pb.MemberId AS PerformedByMemberId,
        tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId,
        pbm.FirstName AS PerformedByFirstName, pbm.LastName AS PerformedByLastName,
@@ -179,6 +181,69 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
         }
     }
 
+    public void UpdateDuration(int userId, string pageUrl, int additionalSeconds)
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            connection.Open();
+
+            const string sql = @"
+UPDATE TOP(1) AuditLogs 
+SET DurationSeconds = DurationSeconds + @Seconds
+WHERE PerformedByUserId = @UserId 
+  AND Action = 'PageView' 
+  AND PageUrl = @PageUrl
+  AND TimestampUtc > DATEADD(hour, -2, GETUTCDATE())
+ORDER BY AuditLogId DESC;";
+
+            using var command = new SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@UserId", userId);
+            command.Parameters.AddWithValue("@PageUrl", pageUrl);
+            command.Parameters.AddWithValue("@Seconds", additionalSeconds);
+            command.ExecuteNonQuery();
+        }
+        catch { /* Best effort for heartbeat */ }
+    }
+
+    public async Task<IReadOnlyList<AuditLogRecord>> GetLiveActivityAsync()
+    {
+        try
+        {
+            using var connection = Db.GetConnection();
+            await connection.OpenAsync();
+
+            const string sql = @"
+SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds,
+       pb.Username AS PerformedByUsername, pb.MemberId AS PerformedByMemberId,
+       tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId,
+       pbm.FirstName AS PerformedByFirstName, pbm.LastName AS PerformedByLastName,
+       tbm.FirstName AS TargetFirstName, tbm.LastName AS TargetLastName
+FROM AuditLogs al
+INNER JOIN (
+    SELECT PerformedByUserId, MAX(AuditLogId) as MaxId
+    FROM AuditLogs
+    WHERE TimestampUtc > DATEADD(minute, -60, GETUTCDATE())
+    GROUP BY PerformedByUserId
+) latest ON al.AuditLogId = latest.MaxId
+LEFT JOIN AppUsers pb ON al.PerformedByUserId = pb.UserId
+LEFT JOIN AppUsers tb ON al.TargetUserId = tb.UserId
+LEFT JOIN Members pbm ON pb.MemberId = pbm.MemberID
+LEFT JOIN Members tbm ON tb.MemberId = tbm.MemberID
+ORDER BY al.TimestampUtc DESC;";
+
+            var results = new List<AuditLogRecord>();
+            using var command = new SqlCommand(sql, connection);
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                results.Add(MapReaderToRecord(reader));
+            }
+            return results;
+        }
+        catch { return new List<AuditLogRecord>(); }
+    }
+
     private static void EnsureInitialized()
     {
         if (_isInitialized)
@@ -213,6 +278,8 @@ BEGIN
         [TargetUserId] INT NULL,
         [Action] NVARCHAR(100) NOT NULL,
         [Details] NVARCHAR(MAX) NULL,
+        [PageUrl] NVARCHAR(255) NULL,
+        [DurationSeconds] INT NOT NULL DEFAULT 0,
         CONSTRAINT [FK_AuditLogs_PerformedBy] FOREIGN KEY ([PerformedByUserId]) REFERENCES [dbo].[AppUsers]([UserId]),
         CONSTRAINT [FK_AuditLogs_Target] FOREIGN KEY ([TargetUserId]) REFERENCES [dbo].[AppUsers]([UserId])
     );
@@ -252,6 +319,8 @@ END";
             TargetUserId = targetUserId,
             Action = reader.GetString(reader.GetOrdinal("Action")),
             Details = reader["Details"] as string,
+            PageUrl = reader["PageUrl"] as string,
+            DurationSeconds = reader.IsDBNull(reader.GetOrdinal("DurationSeconds")) ? 0 : reader.GetInt32(reader.GetOrdinal("DurationSeconds")),
             PerformedByDisplayName = BuildDisplayName(performedByUserId, reader["PerformedByUsername"] as string, performedByMemberName),
             TargetDisplayName = BuildDisplayName(targetUserId, reader["TargetUsername"] as string, targetMemberName)
         };

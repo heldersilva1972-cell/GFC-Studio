@@ -7,4 +7,5 @@ public interface IAuditLogger
     void LogPasswordReset(int? performedByUserId, int targetUserId, bool isSelfService, string? notes = null);
     void LogSuspiciousLoginAttempt(string username, string? ipAddress, string reason, int? targetUserId = null);
     void LogPageView(int userId, string pageUrl, string? pageTitle = null);
+    void UpdatePageViewDuration(int userId, string pageUrl, int seconds);
 }

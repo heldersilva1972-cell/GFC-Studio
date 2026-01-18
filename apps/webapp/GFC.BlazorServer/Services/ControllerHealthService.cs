@@ -49,49 +49,82 @@ public class ControllerHealthService
     /// </summary>
     public async Task<bool> PingControllerAsync(CancellationToken ct = default)
     {
+        bool wasOnline = _isOnline;
+        bool currentlyOnline;
+
+        using var scope = _scopeFactory.CreateScope();
+        var controllerClient = scope.ServiceProvider.GetRequiredService<IControllerClient>();
+        var notifService = scope.ServiceProvider.GetRequiredService<INotificationService>();
+
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var controllerClient = scope.ServiceProvider.GetRequiredService<IControllerClient>();
-            
             // Try to ping controller - this is a lightweight operation
             var success = await controllerClient.PingAsync(ct);
             
             if (success)
             {
-                // Success
-                _isOnline = true;
+                currentlyOnline = true;
                 _lastSuccessfulPing = DateTime.UtcNow;
-                _consecutiveFailures = 0;
-                
                 _logger.LogDebug("Controller ping successful");
-                return true;
             }
             else
             {
-                 throw new Exception("Ping returned false");
+                throw new Exception("Ping returned false");
             }
         }
         catch (Exception ex)
         {
-            // Failure
-            _isOnline = false;
+            currentlyOnline = false;
             _lastFailedPing = DateTime.UtcNow;
-            _consecutiveFailures++;
             
-            if (_consecutiveFailures == 1)
+            if (_consecutiveFailures == 0)
             {
-                // First failure - log as warning
                 _logger.LogWarning(ex, "Controller ping failed - controller may be offline");
             }
             else if (_consecutiveFailures % 10 == 0)
             {
-                // Every 10th failure - log as error
                 _logger.LogError(ex, "Controller ping failed {Count} consecutive times", _consecutiveFailures);
             }
-            
-            return false;
         }
+
+        // State Change Logic
+        if (currentlyOnline)
+        {
+            if (!wasOnline && _consecutiveFailures >= 3)
+            {
+                // We were confirmed offline, now we are back
+                _ = notifService.NotifySystemAlertAsync(
+                    "✅ Primary Controller RESTORED",
+                    "Communication with the GFC Access Controller has been re-established.",
+                    "/controllers");
+            }
+            _consecutiveFailures = 0;
+            _isOnline = true;
+        }
+        else
+        {
+            _consecutiveFailures++;
+            if (wasOnline && _consecutiveFailures == 3)
+            {
+                // We've failed 3 times, officially mark as offline and notify
+                _isOnline = false;
+                _ = notifService.NotifySystemAlertAsync(
+                    "🚨 Primary Controller OFFLINE",
+                    "The GFC Access Controller is not responding to heartbeats. Physical door tracking may be interrupted.",
+                    "/controllers/maintenance");
+            }
+            else if (_consecutiveFailures < 3)
+            {
+                // Don't mark offline yet, wait for 3 failures to avoid noise
+                _isOnline = true; 
+            }
+            else
+            {
+                _isOnline = false;
+            }
+        }
+
+        return currentlyOnline;
     }
 
     /// <summary>

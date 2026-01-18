@@ -11,6 +11,17 @@ namespace GFC.BlazorServer.Services
         void EnabbleMasterKillSwitch();
         void DisableMasterKillSwitch();
         bool IsMasterKillSwitchEnabled();
+        Task NotifySystemAlertAsync(string title, string body, string? url = null);
+        
+        // Push Notifications
+        Task SubscribeToPushAsync(int userId, string endpoint, string p256dh, string auth, string? deviceName);
+        Task UnsubscribeFromPushAsync(int userId, string endpoint);
+        Task SendPushNotificationAsync(int userId, string title, string body, string? url = null);
+        
+        // Notification Preferences
+        Task<GFC.BlazorServer.Data.Entities.UserNotificationPreferences?> GetUserPreferencesAsync(int userId);
+        Task SaveUserPreferencesAsync(GFC.BlazorServer.Data.Entities.UserNotificationPreferences preferences);
+        Task<List<GFC.BlazorServer.Data.Entities.UserNotificationPreferences>> GetAllPreferencesAsync();
         
         // Rental notification methods
         Task SendRentalConfirmationEmailAsync(HallRentalRequest request);

@@ -21,26 +21,32 @@ public class UserNotificationPreferences
     // Reimbursement Notifications
     public bool ReimbursementNotifyEmail { get; set; } = false;
     public bool ReimbursementNotifySMS { get; set; } = false;
+    public bool ReimbursementNotifyPush { get; set; } = false;
 
     // Member Signup Notifications
     public bool MemberSignupNotifyEmail { get; set; } = false;
     public bool MemberSignupNotifySMS { get; set; } = false;
+    public bool MemberSignupNotifyPush { get; set; } = false;
 
     // Dues Payment Notifications
     public bool DuesPaymentNotifyEmail { get; set; } = false;
     public bool DuesPaymentNotifySMS { get; set; } = false;
+    public bool DuesPaymentNotifyPush { get; set; } = false;
 
     // System Alerts
     public bool SystemAlertNotifyEmail { get; set; } = false;
     public bool SystemAlertNotifySMS { get; set; } = false;
+    public bool SystemAlertNotifyPush { get; set; } = false;
 
     // Lottery Sales Notifications
     public bool LotterySalesNotifyEmail { get; set; } = false;
     public bool LotterySalesNotifySMS { get; set; } = false;
+    public bool LotterySalesNotifyPush { get; set; } = false;
 
     // Controller/Access Control Events
     public bool ControllerEventNotifyEmail { get; set; } = false;
     public bool ControllerEventNotifySMS { get; set; } = false;
+    public bool ControllerEventNotifyPush { get; set; } = false;
 
     // Reminder tracking
     public bool NotificationReminderDismissed { get; set; } = false;

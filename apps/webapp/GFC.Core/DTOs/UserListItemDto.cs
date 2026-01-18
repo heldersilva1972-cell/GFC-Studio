@@ -12,5 +12,6 @@ public record UserListItemDto(
     string? MemberName,
     DateTime? LastLoginDate,
     string? Notes,
+    string? Email = null,
     bool IsDirector = false);
 

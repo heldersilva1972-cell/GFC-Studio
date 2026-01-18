@@ -1,0 +1,478 @@
+@page "/my-security"
+@attribute [Authorize]
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@using GFC.Core.Models.Security
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IPasskeyService PasskeyService
+@inject INotificationService NotificationService
+@inject IDeviceTrustService DeviceTrustService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@inject IBlazorSystemSettingsService SystemSettingsService
+@inject NavigationManager Navigation
+@inject ILogger<MySecurity> Logger
+
+<PageTitle>Personal Security - GFC</PageTitle>
+
+<div class="security-premium-container">
+    <div class="header-section mb-5">
+        <h1 class="display-5 fw-bold text-dark">Personal Security</h1>
+        <p class="lead text-muted">Manage your biometric keys, trusted devices, and active login sessions.</p>
+    </div>
+
+    <div class="row g-4">
+        <!-- Main Controls -->
+        <div class="col-lg-8">
+            
+            <!-- PASSKEYS CARD -->
+            <div class="card shadow-sm border-0 rounded-4 mb-4">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-start mb-4">
+                        <div>
+                            <h4 class="card-title fw-bold"><i class="bi bi-fingerprint text-primary me-2"></i>Biometric Passkeys</h4>
+                            <p class="small text-muted mb-0">Passwordless login using FaceID, TouchID, or Windows Hello.</p>
+                        </div>
+                        <button class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="PreparePasskeyRegistration" disabled="@(_isProcessing || _loading)">
+                            <i class="bi bi-plus-lg me-1"></i> Register New Key
+                        </button>
+                    </div>
+
+                    @if (_loading)
+                    {
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status"></div>
+                        </div>
+                    }
+                    else if (!_passkeys.Any())
+                    {
+                        <div class="text-center py-5 bg-light rounded-4 border border-dashed">
+                            <i class="bi bi-shield-lock text-muted opacity-25" style="font-size: 3.5rem;"></i>
+                            <p class="mt-3 text-muted">You haven't registered any passkeys yet.</p>
+                            <button class="btn btn-outline-primary btn-sm" @onclick="PreparePasskeyRegistration">Get Started</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var pk in _passkeys)
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center bg-transparent border-bottom px-0 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="icon-box bg-primary bg-opacity-10 text-primary rounded-circle me-3">
+                                            <i class="bi bi-key-fill"></i>
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold fs-5">@(string.IsNullOrEmpty(pk.FriendlyName) ? $"Passkey #{pk.Id}" : pk.FriendlyName)</div>
+                                            <div class="text-muted small">
+                                                Registered @pk.CreatedAtUtc.ToLocalTime().ToString("MMM d, yyyy") · 
+                                                Last used @(pk.LastUsedUtc?.ToLocalTime().ToString("MMM d, h:mm tt") ?? "Never")
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-link text-danger p-0" @onclick="() => RevokePasskey(pk.Id)" title="Remove Key">
+                                        <i class="bi bi-trash3 fs-5"></i>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- TRUSTED DEVICES -->
+            <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-body p-4">
+                    <h4 class="card-title fw-bold mb-4"><i class="bi bi-shield-shaded text-success me-2"></i>Trusted Devices</h4>
+                    
+                    @if (!_devices.Any())
+                    {
+                        <div class="alert alert-light border-0 py-3 px-4 rounded-4 mb-0">
+                            <i class="bi bi-info-circle text-primary me-2"></i> No other trusted devices found for this account.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var device in _devices)
+                            {
+                                var isCurrent = IsCurrentDevice(device.DeviceToken);
+                                <div class="list-group-item d-flex justify-content-between align-items-center bg-transparent border-bottom px-0 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="icon-box @(isCurrent ? "bg-success" : "bg-dark") bg-opacity-10 @(isCurrent ? "text-success" : "text-dark") rounded-circle me-3">
+                                            <i class="bi @(GetDeviceIcon(device.UserAgent ?? ""))"></i>
+                                        </div>
+                                        <div>
+                                            <div class="fw-bold d-flex align-items-center">
+                                                @ParseUserAgent(device.UserAgent ?? "")
+                                                @if (isCurrent) { <span class="badge bg-success bg-opacity-10 text-success ms-2 small fw-normal">This Device</span> }
+                                            </div>
+                                            <div class="text-muted small">IP: @device.IpAddress · Expires: @device.ExpiresAtUtc.ToLocalTime().ToString("MMM d")</div>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-sm @(isCurrent ? "btn-outline-danger" : "btn-link text-danger")" @onclick="() => RevokeDevice(device.DeviceToken)">
+                                        @(isCurrent ? "Revoke & Log Out" : "Revoke Access")
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                        <div class="mt-4 text-end">
+                            <button class="btn btn-link text-danger text-decoration-none small" @onclick="SignOutOfAllDevices">
+                                <i class="bi bi-door-closed me-1"></i> Sign Out of All Other Sessions
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Side: Status & Notifications -->
+        <div class="col-lg-4">
+            <!-- STATUS -->
+            <div class="card shadow-sm border-0 rounded-4 bg-primary text-white mb-4">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">System Health</h5>
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="me-3 fs-3">
+                            <i class="bi @(_passkeys.Any() ? "bi-check-circle-fill text-white" : "bi-exclamation-triangle-fill text-warning")"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold">@(_passkeys.Any() ? "Account Secured" : "Security Warning")</div>
+                            <div class="small opacity-75">@(_passkeys.Any() ? "Biometric access is active." : "Setup a passkey for better safety.")</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PUSH NOTIFICATIONS -->
+            <div class="card shadow-sm border-0 rounded-4 mb-4">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">Live Alerts</h5>
+                    <p class="small text-muted">Receive real-time push notifications for membership events and system alerts.</p>
+                    
+                    @if (_isPushSupported)
+                    {
+                        <div class="d-grid">
+                            <button class="btn @(_isSubscribedToPush ? "btn-outline-danger" : "btn-info text-white") rounded-pill py-2 fw-bold" 
+                                    @onclick="@(_isSubscribedToPush ? HandleUnsubscribePush : HandleSubscribePush)"
+                                    disabled="@_isActionPending">
+                                @if (_isActionPending) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                <i class="bi bi-bell-fill me-2"></i>
+                                @(_isSubscribedToPush ? "Stop Notifications" : "Turn On Notifications")
+                            </button>
+                        </div>
+                        <div class="mt-2 text-center">
+                             <span class="x-small text-muted">Status: @(_isSubscribedToPush ? "Active" : "Disabled")</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-secondary mb-0 py-2 small border-0">
+                            Push alerts require HTTPS and a compatible browser.
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="help-box p-4 bg-light rounded-4">
+                <h6 class="fw-bold"><i class="bi bi-question-circle me-2"></i>Account Access</h6>
+                <p class="x-small text-muted mb-0">Setting up a passkey allows you to bypass your password entirely. Your biometric data never leaves your device.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PASSKEY NAME MODAL -->
+@if (_showAddPasskeyModal)
+{
+    <div class="modal-backdrop show"></div>
+    <div class="modal show d-block" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 rounded-4 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">Register New Passkey</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showAddPasskeyModal = false"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <p class="text-muted small mb-3">Give this key a name (e.g. "Work Macbook", "Personal iPad") so you can identify it later.</p>
+                    <div class="form-floating mb-3">
+                        <input type="text" class="form-control" id="pkName" placeholder="My Device" @bind="_newPasskeyName" @bind:event="oninput">
+                        <label for="pkName">Device / Key Name</label>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => _showAddPasskeyModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4" @onclick="RegisterPasskey" disabled="@(string.IsNullOrWhiteSpace(_newPasskeyName))">
+                        Next <i class="bi bi-arrow-right ms-1"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showError)
+{
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 2000;">
+        <div class="toast show align-items-center text-white bg-danger border-0 shadow-lg" role="alert">
+            <div class="d-flex">
+                <div class="toast-body p-3">
+                    <i class="bi bi-exclamation-circle me-2"></i> @_errorMessage
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" @onclick="() => _showError = false"></button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .security-premium-container { padding: 3rem 1.5rem; max-width: 1100px; margin: 0 auto; }
+    .icon-box { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; }
+    .icon-box.bg-dark { background-color: #f1f1f1 !important; color: #333 !important; }
+    .x-small { font-size: 0.8rem; }
+    .border-dashed { border-style: dashed !important; }
+    .card { transition: transform 0.2s; }
+    .card-title { letter-spacing: -0.5px; }
+    .modal-backdrop { background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _isProcessing = false;
+    private List<UserPasskey> _passkeys = new();
+    private List<TrustedDevice> _devices = new();
+    private string? _currentDeviceToken;
+    private int _userId;
+    private string _username = "";
+    
+    // Passkey Registration
+    private bool _showAddPasskeyModal = false;
+    private string _newPasskeyName = "";
+    private SystemSettings? _settings;
+
+    private bool _showError;
+    private string _errorMessage = "";
+
+    private bool _isActionPending = false;
+    private bool _isPushSupported = true;
+    private bool _isSubscribedToPush = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SystemSettingsService.GetAsync();
+        await LoadUserData();
+        
+        _isPushSupported = await JSRuntime.InvokeAsync<bool>("eval", "('serviceWorker' in navigator && 'PushManager' in window)");
+        if (_isPushSupported)
+        {
+            try {
+                var sub = await JSRuntime.InvokeAsync<object>("GFC_Notifications.getSubscription");
+                _isSubscribedToPush = sub != null;
+            } catch { _isSubscribedToPush = false; }
+        }
+    }
+
+    private async Task LoadUserData()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            _username = user.Identity.Name ?? "";
+            var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var id))
+            {
+                _userId = id;
+            }
+        }
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            _passkeys = await PasskeyService.GetUserPasskeysAsync(_userId);
+            var devices = await DeviceTrustService.GetDevicesForUserAsync(_userId);
+            _devices = devices.ToList();
+            _currentDeviceToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Database Sync Issue: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void PreparePasskeyRegistration()
+    {
+        _newPasskeyName = "";
+        _showAddPasskeyModal = true;
+    }
+
+    private async Task RegisterPasskey()
+    {
+        if (string.IsNullOrWhiteSpace(_newPasskeyName)) return;
+        
+        _showAddPasskeyModal = false;
+        _isProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            var options = await PasskeyService.RequestRegistrationOptionsAsync(_userId, _username);
+            var responseJson = await JSRuntime.InvokeAsync<string>("GFC_Passkeys.register", options);
+            
+            using var doc = System.Text.Json.JsonDocument.Parse(responseJson);
+            var credentialId = doc.RootElement.GetProperty("id").GetString() ?? "";
+            var publicKey = doc.RootElement.GetProperty("response").GetProperty("attestationObject").GetString() ?? "";
+            
+            if (!string.IsNullOrEmpty(credentialId))
+            {
+                var success = await PasskeyService.CompleteRegistrationAsync(_userId, credentialId, publicKey, _newPasskeyName);
+                if (success)
+                {
+                    await LoadData();
+                }
+                else
+                {
+                    ShowError("Server verification failed. Please try again.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Passkey Registration Failed");
+            ShowError("Registration cancelled or failed by your browser.");
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RevokePasskey(int id)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", "Delete this security key? You will no longer be able to log in using biometrics on that device."))
+        {
+            await PasskeyService.RevokePasskeyAsync(id);
+            await LoadData();
+        }
+    }
+
+    private bool IsCurrentDevice(string token) => token == _currentDeviceToken;
+
+    private string GetDeviceIcon(string userAgent)
+    {
+        userAgent = userAgent.ToLower();
+        if (userAgent.Contains("iphone") || userAgent.Contains("android")) return "bi-phone-fill";
+        if (userAgent.Contains("ipad") || userAgent.Contains("tablet")) return "bi-tablet-fill";
+        return "bi-laptop-fill";
+    }
+
+    private string ParseUserAgent(string userAgent)
+    {
+        if (userAgent.Contains("Windows")) return "Windows PC";
+        if (userAgent.Contains("Macintosh")) return "Apple MacBook";
+        if (userAgent.Contains("iPhone")) return "iPhone App";
+        if (userAgent.Contains("Android")) return "Android Phone";
+        return "Authenticated Browser";
+    }
+
+    private async Task RevokeDevice(string token)
+    {
+        var msg = IsCurrentDevice(token) 
+            ? "Securely end your current session and log out of this device?" 
+            : "Revoke access for this device? It will be immediately logged out.";
+
+        if (await JSRuntime.InvokeAsync<bool>("confirm", msg))
+        {
+            await DeviceTrustService.RevokeDeviceTokenAsync(token);
+            if (IsCurrentDevice(token))
+            {
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+                Navigation.NavigateTo("/login", true);
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+    }
+
+    private async Task SignOutOfAllDevices()
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", "This will disconnect EVERY trusted session associated with your account. You will need to log back in on all devices. Continue?"))
+        {
+            await DeviceTrustService.RevokeAllUserDevicesAsync(_userId);
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+            Navigation.NavigateTo("/login", true);
+        }
+    }
+
+    private async Task HandleSubscribePush()
+    {
+        _isActionPending = true;
+        try
+        {
+            var permission = await JSRuntime.InvokeAsync<string>("GFC_Notifications.requestPermission");
+            if (permission != "granted")
+            {
+                ShowError("Permission denied. Check your browser's lock icon settings.");
+                return;
+            }
+
+            var vapidPublicKey = _settings?.VapidPublicKey;
+            if (string.IsNullOrEmpty(vapidPublicKey))
+            {
+                ShowError("Push notification system is not fully configured by administrator.");
+                return;
+            }
+
+            var subscriptionJson = await JSRuntime.InvokeAsync<string>("GFC_Notifications.subscribe", vapidPublicKey);
+            
+            using var doc = System.Text.Json.JsonDocument.Parse(subscriptionJson);
+            var root = doc.RootElement;
+            var endpoint = root.GetProperty("endpoint").GetString() ?? "";
+            var p256dh = root.GetProperty("keys").GetProperty("p256dh").GetString() ?? "";
+            var auth = root.GetProperty("keys").GetProperty("auth").GetString() ?? "";
+
+            await NotificationService.SubscribeToPushAsync(_userId, endpoint, p256dh, auth, "Browser Client");
+            _isSubscribedToPush = true;
+        }
+        catch { ShowError("Push notification setup failed. Standard setup requires an HTTPS connection."); }
+        finally { _isActionPending = false; }
+    }
+
+    private async Task HandleUnsubscribePush()
+    {
+        _isActionPending = true;
+        try
+        {
+            var subObj = await JSRuntime.InvokeAsync<System.Text.Json.JsonElement>("GFC_Notifications.getSubscription");
+            if (subObj.ValueKind != System.Text.Json.JsonValueKind.Null)
+            {
+                 var endpoint = subObj.GetProperty("endpoint").GetString() ?? "";
+                 await NotificationService.UnsubscribeFromPushAsync(_userId, endpoint);
+            }
+            await JSRuntime.InvokeVoidAsync("GFC_Notifications.unsubscribe");
+            _isSubscribedToPush = false;
+        }
+        catch { }
+        finally { _isActionPending = false; }
+    }
+
+    private void ShowError(string message)
+    {
+        _errorMessage = message;
+        _showError = true;
+        StateHasChanged();
+    }
+}

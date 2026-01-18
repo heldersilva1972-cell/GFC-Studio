@@ -51,7 +51,19 @@ public class AuditLogger : IAuditLogger
     public void LogPageView(int userId, string pageUrl, string? pageTitle = null)
     {
         var details = string.IsNullOrWhiteSpace(pageTitle) ? pageUrl : $"{pageTitle} ({pageUrl})";
-        Log(AuditLogActions.PageView, userId, null, details);
+        WriteEntry(new AuditLogEntry
+        {
+            PerformedByUserId = userId,
+            Action = AuditLogActions.PageView,
+            Details = details,
+            PageUrl = pageUrl,
+            TimestampUtc = DateTime.UtcNow
+        });
+    }
+
+    public void UpdatePageViewDuration(int userId, string pageUrl, int seconds)
+    {
+        _repository.UpdateDuration(userId, pageUrl, seconds);
     }
 
     private static bool IsUserAccountAction(string action)
@@ -102,6 +114,11 @@ public static class AuditLogActions
     public const string MagicLinkSent = "MagicLinkSent";
     public const string LoginSuccessPassword = "LoginSuccess (Password)";
     public const string LoginSuccessMagicLink = "LoginSuccess (Magic Link)";
+    public const string LoginSuccessPasskey = "LoginSuccess (Passkey)";
+    public const string PasskeyRegistered = "PasskeyRegistered";
+    public const string PasskeyRevoked = "PasskeyRevoked";
+    public const string DeviceRevoked = "DeviceRevoked";
+    public const string DeviceInviteCreated = "DeviceInviteCreated";
     public const string LogoutIdle = "LogoutIdle";
     public const string LogoutAbsolute = "LogoutAbsolute";
     public const string SessionInvalidatedVpnLost = "SessionInvalidatedVpnLost";
@@ -151,6 +168,11 @@ public static class AuditLogActions
         MagicLinkSent,
         LoginSuccessPassword,
         LoginSuccessMagicLink,
+        LoginSuccessPasskey,
+        PasskeyRegistered,
+        PasskeyRevoked,
+        DeviceRevoked,
+        DeviceInviteCreated,
         LogoutIdle,
         LogoutAbsolute,
         SessionInvalidatedVpnLost,

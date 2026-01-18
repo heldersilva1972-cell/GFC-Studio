@@ -1,0 +1,199 @@
+@page "/setup/device"
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@inject IDeviceInviteService DeviceInviteService
+@inject IDeviceTrustService DeviceTrustService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+@inject ISystemSettingsService SettingsService
+
+<PageTitle>Device Setup - GFC System</PageTitle>
+
+<div class="setup-container">
+    <div class="setup-card">
+        <div class="header">
+            <i class="bi bi-shield-lock-fill icon"></i>
+            <h1>Secure Device Enrollment</h1>
+            <p>Introducing your device to the GFC System</p>
+        </div>
+
+        @if (_isProcessing)
+        {
+            <div class="status-msg processing">
+                <div class="spinner-border text-primary mb-3" role="status"></div>
+                <p>Verifying your secure token...</p>
+            </div>
+        }
+        else if (_error != null)
+        {
+            <div class="status-msg error">
+                <i class="bi bi-exclamatation-triangle-fill error-icon"></i>
+                <h3>Access Denied</h3>
+                <p>@_error</p>
+                <div class="mt-4">
+                    <p class="small text-muted">This link may have expired or was already used. Please request a new setup link from an administrator.</p>
+                </div>
+            </div>
+        }
+        else if (_success)
+        {
+            <div class="status-msg success">
+                <i class="bi bi-check-circle-fill success-icon"></i>
+                <h3>Device Trusted!</h3>
+                <p>Your device has been successfully registered and is now authorized to see the login page.</p>
+                
+                <div class="next-steps mt-4">
+                    <button class="btn btn-primary w-100 py-2" @onclick="GoToLogin">
+                        Continue to Login <i class="bi bi-arrow-right ms-2"></i>
+                    </button>
+                    
+                    <div class="mt-4 p-3 bg-light rounded shadow-sm text-start">
+                        <h6 class="fw-bold"><i class="bi bi-lightbulb me-2"></i>Pro-Tip:</h6>
+                        <p class="small mb-0 text-muted">For the best experience, we recommend **Installing the App** once you log in. This will give you one-tap access from your home screen and enable notifications.</p>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .setup-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 80vh;
+        padding: 2rem;
+        background: #f8f9fa;
+    }
+
+    .setup-card {
+        background: white;
+        padding: 2.5rem;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+        max-width: 450px;
+        width: 100%;
+        text-align: center;
+        border-top: 5px solid #0d6efd;
+    }
+
+    .header .icon {
+        font-size: 3.5rem;
+        color: #0d6efd;
+        margin-bottom: 1rem;
+        display: block;
+    }
+
+    .header h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        color: #212529;
+    }
+
+    .header p {
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+
+    .status-msg {
+        margin-top: 2rem;
+    }
+
+    .error-icon {
+        font-size: 3rem;
+        color: #dc3545;
+        margin-bottom: 1rem;
+        display: block;
+    }
+
+    .success-icon {
+        font-size: 3rem;
+        color: #198754;
+        margin-bottom: 1rem;
+        display: block;
+    }
+
+    .status-msg h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+    }
+
+    .status-msg p {
+        color: #495057;
+    }
+</style>
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? Token { get; set; }
+
+    private bool _isProcessing = true;
+    private string? _error;
+    private bool _success;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await ProcessToken();
+        }
+    }
+
+    private async Task ProcessToken()
+    {
+        if (string.IsNullOrWhiteSpace(Token))
+        {
+            _error = "No setup token was provided.";
+            _isProcessing = false;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            var invite = await DeviceInviteService.ValidateTokenAsync(Token);
+            if (invite == null)
+            {
+                _error = "The provided setup token is invalid, expired, or has already been used.";
+                _isProcessing = false;
+                StateHasChanged();
+                return;
+            }
+
+            // Create actual Device Trust Token
+            var userAgent = await JSRuntime.InvokeAsync<string>("eval", "navigator.userAgent");
+            var ipAddress = "detected-at-auth"; // Will be updated during first login or via middleware
+            
+            var duration = await SettingsService.GetTrustedDeviceDurationDaysAsync();
+
+            var trustToken = await DeviceTrustService.CreateDeviceTokenAsync(invite.UserId, userAgent, ipAddress, duration);
+
+            // Save to LocalStorage and Cookies
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", trustToken);
+            await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", trustToken, duration);
+
+            // Mark invite as used
+            await DeviceInviteService.MarkTokenAsUsedAsync(Token);
+
+            _success = true;
+        }
+        catch (Exception ex)
+        {
+            _error = $"An internal error occurred: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void GoToLogin()
+    {
+        NavigationManager.NavigateTo("/login", true);
+    }
+}

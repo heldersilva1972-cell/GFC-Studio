@@ -296,6 +296,32 @@ public class AuthenticationService : IAuthenticationService
         };
     }
 
+    public async Task<LoginResult> LoginWithPasskeyAsync(string username, string? ipAddress = null)
+    {
+        _currentUser = null;
+        var user = _userRepository.GetByUsername(username);
+
+        if (user == null || !user.IsActive)
+        {
+            string reason = user == null ? "User not found" : "User inactive";
+            await SafeLogLogin(username, user?.UserId, false, ipAddress, reason);
+            return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
+        }
+
+        _currentUser = user;
+        _userRepository.UpdateLastLogin(user.UserId, DateTime.UtcNow);
+        await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "Passkey login successful");
+        
+        _auditLogger.Log(AuditLogActions.LoginSuccessPasskey, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
+
+        return new LoginResult
+        {
+            Code = LoginResultCode.Success,
+            User = user,
+            PasswordChangeRequired = user.PasswordChangeRequired
+        };
+    }
+
     public async Task<LoginResult> FinalizeMfaLoginAsync(int userId, bool rememberDevice, string? ipAddress = null)
     {
         var user = _userRepository.GetById(userId);

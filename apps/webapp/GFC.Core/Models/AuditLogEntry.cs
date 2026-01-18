@@ -1,4 +1,4 @@
-using System;
+using System; 
 
 namespace GFC.Core.Models;
 
@@ -11,4 +11,6 @@ public class AuditLogEntry
     public int? TargetUserId { get; set; }
     public string Action { get; set; } = string.Empty;
     public string? Details { get; set; }
+    public string? PageUrl { get; set; }
+    public int DurationSeconds { get; set; }
 }

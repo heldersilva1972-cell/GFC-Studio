@@ -1,0 +1,235 @@
+@page "/admin/system/alerts"
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Authorization
+@inject INotificationService NotificationService
+@inject NavigationManager Navigation
+@attribute [Authorize]
+
+<PageTitle>Alert Registry - GFC</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-exclamation-octagon-fill text-danger me-2"></i>System Alert Registry</h2>
+            <p class="text-muted mb-0">Live log of all automated communications and system triggers.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshAsync">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+            <div class="btn-group btn-group-sm">
+                <button class="btn @(GetFilterClass("All"))" @onclick='() => SetFilter("All")'>All</button>
+                <button class="btn @(GetFilterClass("Email"))" @onclick='() => SetFilter("Email")'>Email</button>
+                <button class="btn @(GetFilterClass("SMS"))" @onclick='() => SetFilter("SMS")'>SMS</button>
+                <button class="btn @(GetFilterClass("Push"))" @onclick='() => SetFilter("Push")'>Push</button>
+            </div>
+        </div>
+    </div>
+
+    @if (_alerts == null)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Retrieving alert history...</p>
+        </div>
+    }
+    else if (!_alerts.Any())
+    {
+        <div class="text-center py-5 bg-white rounded-4 shadow-sm">
+            <div class="display-1 text-muted opacity-25 mb-4">
+                <i class="bi bi-shield-check"></i>
+            </div>
+            <h4 class="text-muted">Registry is clear</h4>
+            <p class="text-muted">No system alerts have been triggered yet.</p>
+        </div>
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light text-muted small text-uppercase fw-bold">
+                        <tr>
+                            <th class="ps-4 py-3">Timestamp</th>
+                            <th>Channel</th>
+                            <th>Subject / Trigger</th>
+                            <th>Recipient</th>
+                            <th>Status</th>
+                            <th class="text-end pe-4">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var alert in GetFilteredAlerts())
+                        {
+                            <tr>
+                                <td class="ps-4 py-3">
+                                    <div class="fw-bold">@alert.SentAt?.ToLocalTime().ToString("MMM dd, HH:mm:ss")</div>
+                                    <div class="x-small text-muted">@(alert.SentAt?.ToLocalTime().ToString("yyyy"))</div>
+                                </td>
+                                <td>
+                                    <span class="badge rounded-pill @GetChannelClass(alert.Channel)">
+                                        <i class="bi @GetChannelIcon(alert.Channel) me-1"></i> @alert.Channel
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="fw-bold text-dark">@alert.Subject</div>
+                                    <div class="small text-muted text-truncate" style="max-width: 300px;">@alert.Message</div>
+                                </td>
+                                <td>
+                                    <div class="small">@alert.RecipientEmail</div>
+                                </td>
+                                <td>
+                                    @if (alert.Status == "Sent")
+                                    {
+                                        <span class="text-success small fw-bold"><i class="bi bi-check-circle-fill me-1"></i> Delivered</span>
+                                    }
+                                    else if (alert.Status == "Blocked by Policy")
+                                    {
+                                        <span class="text-warning small fw-bold"><i class="bi bi-shield-lock-fill me-1"></i> Blocked</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-danger small fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i> @alert.Status</span>
+                                    }
+                                </td>
+                                <td class="text-end pe-4">
+                                    <button class="btn btn-sm btn-link text-decoration-none" @onclick="() => ViewAlert(alert)">
+                                        View <i class="bi bi-chevron-right ms-1"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@if (_selectedAlert != null)
+{
+    <div class="modal-backdrop show"></div>
+    <div class="modal show d-block" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 rounded-4 shadow-lg">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <h5 class="modal-title fw-bold">Alert Detail</h5>
+                    <button type="button" class="btn-close" @onclick="() => _selectedAlert = null"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <div class="mb-4">
+                        <label class="text-muted x-small text-uppercase fw-bold mb-1">Subject</label>
+                        <div class="h5 fw-bold">@_selectedAlert.Subject</div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="text-muted x-small text-uppercase fw-bold mb-1">Raw Message Content</label>
+                        <div class="p-3 bg-light rounded-3 font-monospace small">@_selectedAlert.Message</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-3">
+                            <label class="text-muted x-small text-uppercase fw-bold mb-1">Channel</label>
+                            <div>@_selectedAlert.Channel</div>
+                        </div>
+                        <div class="col-6 mb-3">
+                            <label class="text-muted x-small text-uppercase fw-bold mb-1">Recipient</label>
+                            <div>@_selectedAlert.RecipientEmail</div>
+                        </div>
+                        <div class="col-6">
+                            <label class="text-muted x-small text-uppercase fw-bold mb-1">Status</label>
+                            <div class="fw-bold text-@(GetStatusColor(_selectedAlert.Status))">@_selectedAlert.Status</div>
+                        </div>
+                        <div class="col-6">
+                            <label class="text-muted x-small text-uppercase fw-bold mb-1">Timestamp</label>
+                            <div>@_selectedAlert.SentAt?.ToLocalTime().ToString("MMM dd, yyyy HH:mm:ss")</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-secondary rounded-pill px-4" @onclick="() => _selectedAlert = null">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .rounded-4 { border-radius: 1rem !important; }
+    .x-small { font-size: 0.75rem; }
+    .badge { padding: 0.5em 0.8em; font-weight: 500; }
+    .bg-light-blue { background-color: #f0f7ff; color: #007bff; }
+    .bg-light-purple { background-color: #f3f0ff; color: #6f42c1; }
+    .bg-light-orange { background-color: #fffaf0; color: #fd7e14; }
+    .card { transition: all 0.2s ease; }
+    .modal-backdrop { background-color: rgba(0,0,0,0.4); backdrop-filter: blur(4px); }
+</style>
+
+@code {
+    private List<SystemNotification>? _alerts;
+    private string _filter = "All";
+    private SystemNotification? _selectedAlert;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _alerts = (await NotificationService.GetActiveNotificationsAsync())
+                    .OrderByDescending(n => n.SentAt)
+                    .ToList();
+        StateHasChanged();
+    }
+
+    private void SetFilter(string filter)
+    {
+        _filter = filter;
+    }
+
+    private IEnumerable<SystemNotification> GetFilteredAlerts()
+    {
+        if (_alerts == null) return Enumerable.Empty<SystemNotification>();
+        if (_filter == "All") return _alerts;
+        return _alerts.Where(a => a.Channel.Equals(_filter, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string GetFilterClass(string filter)
+    {
+        return _filter == filter ? "btn-primary" : "btn-outline-secondary";
+    }
+
+    private string GetChannelClass(string channel)
+    {
+        return channel.ToLower() switch
+        {
+            "email" => "bg-light-blue",
+            "sms" => "bg-light-purple",
+            "push" => "bg-light-orange",
+            _ => "bg-light"
+        };
+    }
+
+    private string GetChannelIcon(string channel)
+    {
+        return channel.ToLower() switch
+        {
+            "email" => "bi-envelope-fill",
+            "sms" => "bi-chat-left-text-fill",
+            "push" => "bi-bell-fill",
+            _ => "bi-info-circle-fill"
+        };
+    }
+
+    private string GetStatusColor(string status)
+    {
+        if (status == "Sent") return "success";
+        if (status == "Blocked by Policy") return "warning";
+        return "danger";
+    }
+
+    private void ViewAlert(SystemNotification alert)
+    {
+        _selectedAlert = alert;
+    }
+}

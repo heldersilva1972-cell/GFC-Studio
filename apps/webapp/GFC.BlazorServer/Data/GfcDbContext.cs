@@ -46,6 +46,8 @@ public class GfcDbContext : DbContext
     public DbSet<ReimbursementChangeLog> ReimbursementChangeLogs => Set<ReimbursementChangeLog>();
     public DbSet<ReimbursementSettings> ReimbursementSettings => Set<ReimbursementSettings>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
+    public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+    public DbSet<AppUser> AppUsers => Set<AppUser>();
     
     // Diagnostics System
     public DbSet<GFC.Core.Models.Diagnostics.PerformanceSnapshot> PerformanceSnapshots => Set<GFC.Core.Models.Diagnostics.PerformanceSnapshot>();
@@ -69,6 +71,8 @@ public class GfcDbContext : DbContext
     public DbSet<AuthorizedUser> AuthorizedUsers => Set<AuthorizedUser>();
     public DbSet<GFC.Core.Models.KeyCard> KeyCards => Set<GFC.Core.Models.KeyCard>();
     public DbSet<TrustedDevice> TrustedDevices => Set<TrustedDevice>();
+    public DbSet<DeviceInviteToken> DeviceInviteTokens => Set<DeviceInviteToken>();
+    public DbSet<UserPasskey> UserPasskeys => Set<UserPasskey>();
     public DbSet<MagicLinkToken> MagicLinkTokens => Set<MagicLinkToken>();
     public DbSet<VpnOnboardingToken> VpnOnboardingTokens => Set<VpnOnboardingToken>();
     // public DbSet<VpnProfile> VpnProfiles => Set<VpnProfile>(); // Commented due to CS0102 duplicate error - duplicate location unknown
@@ -718,6 +722,29 @@ public class GfcDbContext : DbContext
             entity.HasKey(t => t.Id);
             entity.HasIndex(t => t.DeviceToken).IsUnique();
             entity.HasIndex(t => t.UserId);
+            entity.HasOne(t => t.User)
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Device Invites
+        modelBuilder.Entity<DeviceInviteToken>(entity =>
+        {
+            entity.ToTable("DeviceInviteTokens");
+            entity.HasKey(t => t.Id);
+            entity.HasIndex(t => t.Token).IsUnique();
+            entity.HasOne(t => t.User)
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // User Passkeys
+        modelBuilder.Entity<UserPasskey>(entity =>
+        {
+            entity.ToTable("UserPasskeys");
+            entity.HasKey(t => t.Id);
             entity.HasOne(t => t.User)
                 .WithMany()
                 .HasForeignKey(t => t.UserId)

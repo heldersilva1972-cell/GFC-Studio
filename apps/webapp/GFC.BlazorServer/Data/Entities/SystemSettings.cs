@@ -138,4 +138,10 @@ public class SystemSettings
     public bool SmtpEnableSsl { get; set; } = true;
     public string? SmtpFromAddress { get; set; }
     public string? SmtpFromName { get; set; } = "GFC System";
+
+    // Web Push Settings (Phase 4)
+    public bool PushEnabled { get; set; } = false;
+    public string? VapidPublicKey { get; set; }
+    public string? VapidPrivateKey { get; set; }
+    public string? VapidSubject { get; set; }
 }

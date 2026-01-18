@@ -8,8 +8,11 @@
 @using GFC.BlazorServer.Auth
 @inject IUserManagementService UserManagementService
 @inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@inject IDeviceInviteService DeviceInviteService
+@inject ISystemSettingsService SystemSettingsService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject IUrlHelperService UrlHelper
 
 <PageTitle>User Management - GFC</PageTitle>
 
@@ -175,6 +178,9 @@
                                     <div class="action-buttons">
                                         <button class="btn btn-sm btn-icon" title="Edit" @onclick="() => OpenEditUserModal(user)">
                                             <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon" title="Device Setup Link" @onclick="() => OpenDeviceSetupModal(user)">
+                                            <i class="bi bi-shield-lock"></i>
                                         </button>
                                         @if (user.Username.ToLowerInvariant() != "admin" && user.UserId != _currentUserId)
                                         {
@@ -446,6 +452,77 @@
     </div>
 }
 
+@* Device Setup Link Modal *@
+@if (_showDeviceSetupModal && _selectedUser != null)
+{
+    <div class="modal-overlay" @onclick="CloseDeviceSetupModal">
+        <div class="modal-container" @onclick:stopPropagation>
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title">Device Enrollment Link</h2>
+                    <p class="modal-subtitle">Trust a new device for @_selectedUser.Username</p>
+                </div>
+                <button class="btn-close" @onclick="CloseDeviceSetupModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                @if (string.IsNullOrEmpty(_generatedInviteLink))
+                {
+                    <div class="form-group">
+                        <label class="form-label">Optional: Device Label</label>
+                        <input type="text" class="form-control" @bind="_targetDeviceName" placeholder="e.g., John's Laptop" />
+                        <small class="form-text">This will help you identify this device in the future.</small>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        The enrollment link will be valid for <strong>1 hour</strong> and can only be used <strong>once</strong>.
+                    </div>
+                }
+                else
+                {
+                    <div class="invite-link-box">
+                        <label class="form-label fw-bold">Enrollment Link:</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" value="@_generatedInviteLink" readonly id="inviteLinkInput" />
+                            <button class="btn btn-outline-primary" @onclick="CopyInviteLink">
+                                <i class="bi @(_copied ? "bi-check-lg" : "bi-copy")"></i>
+                            </button>
+                        </div>
+                        <p class="text-danger small mt-2">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                            Share this link privately. It grants immediate authorization to see the login page on one device.
+                        </p>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                @if (string.IsNullOrEmpty(_generatedInviteLink))
+                {
+                    <button class="btn btn-outline-secondary" @onclick="CloseDeviceSetupModal">Cancel</button>
+                    <button class="btn btn-primary" @onclick="GenerateDeviceSetupLink">
+                        <i class="bi bi-link-45deg me-1"></i>Generate Link
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary" @onclick="CloseDeviceSetupModal">Done</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .invite-link-box {
+        padding: 1.5rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+    }
+/* ... existing styles if any, or just add these ... */
+</style>
+
 @code {
     private List<UserListItemDto> _users = new();
     private List<ActiveMemberDto> _availableMembers = new();
@@ -461,18 +538,24 @@
     private bool _showPermissionsModal = false;
     private bool _showDefaultPermissionsModal = false;
     private int _currentUserId;
-    
+
+    // Device Setup Modal
+    private bool _showDeviceSetupModal = false;
+    private string _targetDeviceName = "";
+    private string _generatedInviteLink = "";
+    private bool _copied = false;
+
     // User Modal
     private UserListItemDto? _editingUser = null;
     private UserFormModel _userForm = new();
     private string _userModalError = "";
     private bool _savingUser = false;
-    
+
     // Permissions Modal
     private UserListItemDto? _selectedUser = null;
     private HashSet<int> _selectedPermissions = new();
     private bool _savingPermissions = false;
-    
+
     // Default Permissions Modal
     private bool _savingDefaultPermissions = false;
 
@@ -680,6 +763,49 @@
         {
             _savingUser = false;
         }
+    }
+
+    // Device Setup Methods
+    private void OpenDeviceSetupModal(UserListItemDto user)
+    {
+        _selectedUser = user;
+        _targetDeviceName = "";
+        _generatedInviteLink = "";
+        _copied = false;
+        _showDeviceSetupModal = true;
+    }
+
+    private void CloseDeviceSetupModal()
+    {
+        _showDeviceSetupModal = false;
+        _selectedUser = null;
+    }
+
+    private async Task GenerateDeviceSetupLink()
+    {
+        if (_selectedUser == null) return;
+
+        try
+        {
+            var token = await DeviceInviteService.CreateInviteTokenAsync(_selectedUser.UserId, _targetDeviceName, 1);
+            var baseUrl = await UrlHelper.GetBaseUrlAsync();
+            _generatedInviteLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={token}";
+        }
+        catch (Exception ex)
+        {
+            _userModalError = $"Failed to generate link: {ex.Message}";
+        }
+    }
+
+    private async Task CopyInviteLink()
+    {
+        if (string.IsNullOrEmpty(_generatedInviteLink)) return;
+        
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", _generatedInviteLink);
+        _copied = true;
+        await Task.Delay(2000);
+        _copied = false;
+        StateHasChanged();
     }
 
     // Permissions Modal Methods
