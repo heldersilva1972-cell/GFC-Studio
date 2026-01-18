@@ -449,14 +449,14 @@
                                 <h4 class="fw-bold mb-1">Activity Log</h4>
                                 <div class="text-muted small">Recent transactions</div>
                             </div>
-                            <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="LoadData">
+                            <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="() => LoadData()">
                                 <i class="bi bi-arrow-clockwise me-1"></i> Sync
                             </button>
                         </div>
                         
                         <!-- Day Filter -->
                         <select class="form-select form-select-sm border-0 bg-white shadow-sm rounded-pill" 
-                                @bind="_selectedDayFilter" @bind:after="LoadData">
+                                @bind="_selectedDayFilter" @bind:after="() => LoadData()">
                             <option value="">All Days</option>
                             <option value="Sunday">Sundays</option>
                             <option value="Monday">Mondays</option>
@@ -653,7 +653,7 @@
         if (_currentPage < _totalPages)
         {
             _currentPage++;
-            await LoadData();
+            await LoadData(false); // Skip stats for page flips
         }
     }
 
@@ -662,11 +662,11 @@
         if (_currentPage > 1)
         {
             _currentPage--;
-            await LoadData();
+            await LoadData(false); // Skip stats for page flips
         }
     }
 
-    private async Task LoadData()
+    private async Task LoadData(bool recalculateStats = true)
     {
         try
         {
@@ -681,18 +681,23 @@
                 query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
             }
 
-            // 2. Fetch stats and page data more efficiently
+            // 1. Fetch total count (needed for pagination range)
             _totalEntries = await query.CountAsync();
-            var stats = await db.BarSaleEntries
-                .GroupBy(x => 1)
-                .Select(g => new { 
-                    Revenue = g.Sum(x => x.TotalSales), 
-                    Items = g.Sum(x => x.TotalItemsSold) 
-                })
-                .FirstOrDefaultAsync();
 
-            _grandTotalRevenue = stats?.Revenue ?? 0;
-            _grandTotalItemsSold = stats?.Items ?? 0;
+            // 2. Fetch Lifetime Stats only if requested or missing
+            if (recalculateStats || _grandTotalRevenue == 0)
+            {
+                var stats = await db.BarSaleEntries
+                    .GroupBy(x => 1)
+                    .Select(g => new { 
+                        Revenue = g.Sum(x => x.TotalSales), 
+                        Items = g.Sum(x => x.TotalItemsSold) 
+                    })
+                    .FirstOrDefaultAsync();
+
+                _grandTotalRevenue = stats?.Revenue ?? 0;
+                _grandTotalItemsSold = stats?.Items ?? 0;
+            }
 
             // 3. Load Page Data
             _entries = await query
@@ -802,7 +807,7 @@
             }
 
             // Fetch only what's needed for the current chart view
-            var allData = await query.ToListAsync();
+            // (Removed redundant ToListAsync that was fetching the entire table)
             
             List<string> labels = new();
             var datasets = new List<object>();
