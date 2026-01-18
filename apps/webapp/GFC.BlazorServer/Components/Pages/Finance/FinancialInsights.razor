@@ -1,0 +1,665 @@
+@page "/finance/insights"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.BlazorServer.Services
+@using GFC.Core.Models
+@inject IFinancialAnalyticsService FinancialService
+@inject IJSRuntime JS
+@attribute [Authorize]
+
+<PageTitle>Financial Insights | GFC Analytics</PageTitle>
+
+<style>
+    .insights-page {
+        height: calc(100vh - 65px);
+        background: radial-gradient(circle at top right, #f8fafc, #eff6ff);
+        padding: 0.75rem;
+        overflow: hidden;
+    }
+
+    .analytics-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        height: 100%;
+    }
+
+    .main-card {
+        background: white;
+        border-radius: 20px;
+        padding: 1rem;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        border: 1px solid #f1f5f9;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .filter-label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+    }
+
+    .chart-select-premium {
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 0.4rem 0.8rem;
+        font-weight: 600;
+        font-size: 0.85rem;
+        background-color: white;
+        transition: all 0.2s;
+    }
+
+    .income-type-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0.75rem;
+        border-radius: 100px;
+        background: white;
+        border: 2px solid #e2e8f0;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+        user-select: none;
+    }
+
+    .income-type-pill.active {
+        border-color: var(--pill-color);
+        background: var(--pill-bg);
+        color: var(--pill-color);
+    }
+
+    .view-content-wrapper {
+        min-height: 280px;
+        flex: 1;
+        position: relative;
+        overflow-y: auto;
+    }
+
+    .chart-wrapper {
+        height: 100%;
+        width: 100%;
+    }
+
+    .view-toggle-group {
+        background: #f1f5f9;
+        padding: 0.2rem;
+        border-radius: 10px;
+        display: inline-flex;
+        gap: 0.2rem;
+    }
+
+    .view-btn {
+        border: none;
+        background: transparent;
+        padding: 0.35rem 0.75rem;
+        border-radius: 7px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        transition: all 0.2s;
+    }
+
+    .view-btn.active {
+        background: white;
+        color: #3b82f6;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .comparison-year-pill {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 2px solid #e2e8f0;
+        font-size: 0.75rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #94a3b8;
+    }
+
+    .comparison-year-pill.active {
+        background: #3b82f6;
+        border-color: #3b82f6;
+        color: white;
+    }
+
+    .kpi-trend {
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .trend-up { color: #10b981; }
+    .trend-down { color: #f43f5e; }
+
+    .comparison-table {
+        font-size: 0.8rem;
+    }
+    .comparison-table th {
+        background: #f8fafc;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        color: #64748b;
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 0.65rem;
+    }
+    .comparison-table td {
+        vertical-align: middle;
+        padding: 0.5rem 1rem;
+    }
+
+    .x-small { font-size: 0.65rem !important; }
+    .fs-xs { font-size: 0.75rem !important; }
+</style>
+
+<div class="insights-page">
+    <div class="analytics-container">
+        <div class="main-card">
+            <!-- Row 1: The Content (Chart OR Table) -->
+            <div class="view-content-wrapper">
+                @if (_chartType == "table")
+                {
+                    <div class="table-responsive h-100">
+                        <table class="table table-hover table-borderless comparison-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Period</th>
+                                    @foreach (var year in _request.Years.OrderByDescending(y => y))
+                                    {
+                                        <th class="text-end">@year</th>
+                                    }
+                                    <th class="text-end">Variance (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (int i = 0; i < _tableLabels.Count; i++)
+                                {
+                                    var label = _tableLabels[i];
+                                    <tr>
+                                        <td class="fw-bold">@label</td>
+                                        @foreach (var year in _request.Years.OrderByDescending(y => y))
+                                        {
+                                            var val = GetTableValue(year, i);
+                                            <td class="text-end">@val.ToString("C0")</td>
+                                        }
+                                        <td class="text-end">
+                                            @{
+                                                var variance = GetTableVariance(i);
+                                                if (variance != 0 || GetTableValue(_request.Years.OrderByDescending(y => y).FirstOrDefault(), i) > 0)
+                                                {
+                                                    <span class="kpi-trend @(variance >= 0 ? "trend-up" : "trend-down") justify-content-end">
+                                                        <i class="bi @(variance >= 0 ? "bi-caret-up-fill" : "bi-caret-down-fill")"></i>
+                                                        @variance.ToString("N1")%
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted small">-</span>
+                                                }
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot class="border-top-2">
+                                <tr class="bg-light">
+                                    <td class="fw-bold">PERIOD AVERAGE</td>
+                                    @foreach (var year in _request.Years.OrderByDescending(y => y))
+                                    {
+                                        var yearTotal = _summary.RevenueByYear.ContainsKey(year) ? _summary.RevenueByYear[year] : 0;
+                                        var yearAvg = yearTotal / Math.Max(1, _chartLabelsCount);
+                                        <td class="text-end fw-bold text-primary">@yearAvg.ToString("C0")</td>
+                                    }
+                                    <td class="text-end">
+                                        @{
+                                            var years = _request.Years.OrderByDescending(y => y).ToList();
+                                            if (years.Count >= 2)
+                                            {
+                                                var avg1 = (_summary.RevenueByYear.ContainsKey(years[0]) ? _summary.RevenueByYear[years[0]] : 0) / Math.Max(1, _chartLabelsCount);
+                                                var avg2 = (_summary.RevenueByYear.ContainsKey(years[1]) ? _summary.RevenueByYear[years[1]] : 0) / Math.Max(1, _chartLabelsCount);
+                                                var avgVar = avg2 == 0 ? 0 : ((avg1 - avg2) / avg2) * 100;
+                                                <span class="fw-bold @(avgVar >= 0 ? "trend-up" : "trend-down")">
+                                                    @avgVar.ToString("N1")%
+                                                </span>
+                                            }
+                                        }
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="chart-wrapper">
+                        <canvas id="financialInsightsChart"></canvas>
+                    </div>
+                }
+            </div>
+
+            <!-- Row 2: Filters -->
+            <div class="border-top pt-2">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="d-flex align-items-center gap-3">
+                        <h2 class="h6 fw-bold mb-0">Analysis & Performance</h2>
+                        <div class="view-toggle-group">
+                            <button class="view-btn @(_request.Period == "year" ? "active" : "")" @onclick='() => ChangePeriod("year")'>YEARS</button>
+                            <button class="view-btn @(_request.Period == "month" ? "active" : "")" @onclick='() => ChangePeriod("month")'>MONTH</button>
+                            <button class="view-btn @(_request.Period == "week" ? "active" : "")" @onclick='() => ChangePeriod("week")'>WEEK</button>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center">
+                        @if (_request.Period == "month")
+                        {
+                            <select class="chart-select-premium fs-xs" @bind="_request.SelectedMonth" @bind:after="ReloadAndRefresh">
+                                @for (int i = 1; i <= 12; i++)
+                                {
+                                    <option value="@i">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(i)</option>
+                                }
+                            </select>
+                        }
+                        @if (_request.Period == "week")
+                        {
+                            <select class="chart-select-premium fs-xs" @bind="_request.SelectedWeek" @bind:after="ReloadAndRefresh">
+                                @foreach (var week in _weekOptions)
+                                {
+                                    <option value="@week.Number">@week.Label</option>
+                                }
+                            </select>
+                        }
+                        <select class="chart-select-premium fs-xs" @bind="_request.GroupBy" @bind:after="ReloadAndRefresh">
+                            @if (_request.Period == "year") { <option value="month">Monthly</option><option value="week">Weekly</option> }
+                            else if (_request.Period == "month") { <option value="week">Weekly</option><option value="day">Daily</option> }
+                            else { <option value="day">Daily</option> }
+                        </select>
+                        <div class="view-toggle-group">
+                            <button class="view-btn @(_chartType == "bar" ? "active" : "")" @onclick='() => ChangeChartType("bar")'><i class="bi bi-bar-chart-fill"></i></button>
+                            <button class="view-btn @(_chartType == "line" ? "active" : "")" @onclick='() => ChangeChartType("line")'><i class="bi bi-graph-up"></i></button>
+                            <button class="view-btn @(_chartType == "table" ? "active" : "")" @onclick='() => ChangeChartType("table")'><i class="bi bi-table"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-end">
+                    <div>
+                        <span class="filter-label d-block mb-1">Income Streams</span>
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var type in _incomeTypes)
+                            {
+                                <div class="income-type-pill @(_request.IncomeTypes.Contains(type.Name) ? "active" : "")"
+                                     style="--pill-color: @type.Color; --pill-bg: @type.BgColor"
+                                     @onclick="() => ToggleIncomeType(type.Name)">
+                                    @type.Name
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    <div>
+                        <span class="filter-label d-block mb-1 text-end">Compare Years</span>
+                        <div class="d-flex gap-1 justify-content-end">
+                            @foreach (var year in _availableYears)
+                            {
+                                <div class="comparison-year-pill @(_request.Years.Contains(year) ? "active" : "")"
+                                     @onclick="() => ToggleYear(year)">
+                                    @year.ToString().Substring(2)
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 3: Totals (Take only 2 to save more space) -->
+            <div class="border-top pt-2">
+                <div class="row g-2">
+                    @foreach (var yearTotal in _summary.RevenueByYear.OrderByDescending(x => x.Key).Take(3))
+                    {
+                        var avg = (yearTotal.Value / Math.Max(1, _chartLabelsCount));
+                        var previousYear = _summary.RevenueByYear.Keys.Where(y => y < yearTotal.Key).OrderByDescending(y => y).FirstOrDefault();
+                        decimal growth = 0;
+                        if (previousYear != 0 && _summary.RevenueByYear[previousYear] > 0)
+                            growth = ((yearTotal.Value - _summary.RevenueByYear[previousYear]) / _summary.RevenueByYear[previousYear]) * 100;
+
+                        <div class="col-md-4">
+                            <div class="p-2 rounded-3 bg-light border d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="text-muted x-small fw-bold mb-1">@yearTotal.Key TOTAL</div>
+                                    <div class="h6 fw-bold mb-0">@yearTotal.Value.ToString("C0")</div>
+                                </div>
+                                @if (previousYear != 0)
+                                {
+                                    <div class="text-end">
+                                        <div class="kpi-trend @(growth >= 0 ? "trend-up" : "trend-down")">
+                                            <i class="bi @(growth >= 0 ? "bi-graph-up-arrow" : "bi-graph-down-arrow")"></i>
+                                            <span class="fw-bold">@growth.ToString("N1")%</span>
+                                        </div>
+                                        <div class="text-muted x-small">vs @previousYear</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private FinancialAnalyticsRequest _request = new()
+    {
+        IncomeTypes = new List<string> { "Bar Sales" },
+        Years = new List<int> { DateTime.Now.Year },
+        Period = "year",
+        GroupBy = "month",
+        SelectedMonth = DateTime.Now.Month,
+        SelectedWeek = System.Globalization.ISOWeek.GetWeekOfYear(DateTime.Now)
+    };
+
+    private List<WeekOption> _weekOptions = new();
+    private class WeekOption { public int Number; public string Label; }
+
+    private List<IncomeTypeConfig> _incomeTypes = new()
+    {
+        new() { Name = "Bar Sales", Color = "#2ecc71", BgColor = "rgba(46, 204, 113, 0.1)", Icon = "bi-cup-straw" },
+        new() { Name = "Lottery", Color = "#3b82f6", BgColor = "rgba(59, 130, 246, 0.1)", Icon = "bi-ticket-perforated" },
+        new() { Name = "Hall Rentals", Color = "#f59e0b", BgColor = "rgba(245, 158, 11, 0.1)", Icon = "bi-building" },
+        new() { Name = "Membership Dues", Color = "#8b5cf6", BgColor = "rgba(139, 92, 246, 0.1)", Icon = "bi-wallet2" }
+    };
+
+    private class IncomeTypeConfig
+    {
+        public string Name { get; set; }
+        public string Color { get; set; }
+        public string BgColor { get; set; }
+        public string Icon { get; set; }
+    }
+
+    private string _chartType = "bar";
+    private FinancialSummary _summary = new();
+    private List<int> _availableYears = new();
+    private int _chartLabelsCount = 1;
+    private bool _isFirstRender = true;
+
+    // Table Data State
+    private List<string> _tableLabels = new();
+    private Dictionary<int, List<decimal>> _tableData = new(); // Year -> List of values for each label index
+
+    protected override async Task OnInitializedAsync()
+    {
+        _availableYears = await FinancialService.GetAvailableYearsAsync();
+        if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
+        _availableYears = _availableYears.OrderByDescending(y => y).Take(5).ToList();
+        
+        PopulateWeekOptions();
+        await LoadData();
+    }
+
+    private void PopulateWeekOptions()
+    {
+        _weekOptions.Clear();
+        var year = _request.Years.FirstOrDefault();
+        if (year == 0) year = DateTime.Now.Year;
+        for (int w = 1; w <= 52; w++)
+        {
+            var start = FirstDateOfWeekIso8601(year, w);
+            var end = start.AddDays(6);
+            _weekOptions.Add(new WeekOption { Number = w, Label = $"W{w} ({start:MMM dd} - {end:MMM dd})" });
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isFirstRender = false;
+            await RefreshData();
+        }
+    }
+
+    private async Task LoadData()
+    {
+        _summary = await FinancialService.GetSummaryAsync(_request);
+    }
+
+    private async Task ReloadAndRefresh()
+    {
+        await LoadData();
+        await RefreshData();
+    }
+
+    private async Task ToggleIncomeType(string type)
+    {
+        if (_request.IncomeTypes.Contains(type))
+            _request.IncomeTypes.Remove(type);
+        else
+            _request.IncomeTypes.Add(type);
+
+        if (!_request.IncomeTypes.Any()) _request.IncomeTypes.Add(_incomeTypes.First().Name);
+
+        await ReloadAndRefresh();
+    }
+
+    private async Task ToggleYear(int year)
+    {
+        if (_request.Years.Contains(year))
+            _request.Years.Remove(year);
+        else
+            _request.Years.Add(year);
+
+        if (!_request.Years.Any()) _request.Years.Add(DateTime.Now.Year);
+
+        PopulateWeekOptions();
+        await ReloadAndRefresh();
+    }
+
+    private async Task ChangePeriod(string period)
+    {
+        _request.Period = period;
+        if (period == "week") 
+        {
+            _request.GroupBy = "day";
+            _request.SelectedWeek ??= System.Globalization.ISOWeek.GetWeekOfYear(DateTime.Now);
+        }
+        else if (period == "month") 
+        {
+            _request.GroupBy = "week";
+            _request.SelectedMonth ??= DateTime.Now.Month;
+        }
+        else 
+        {
+            _request.GroupBy = "month";
+        }
+        
+        await ReloadAndRefresh();
+    }
+
+    private async Task ChangeChartType(string type)
+    {
+        _chartType = type;
+        if (type != "table")
+        {
+            await RefreshData();
+        }
+    }
+
+    private decimal GetTableValue(int year, int index)
+    {
+        if (_tableData.TryGetValue(year, out var list) && index < list.Count)
+            return list[index];
+        return 0;
+    }
+
+    private decimal GetTableRowAverage(int index)
+    {
+        decimal sum = 0;
+        int count = 0;
+        foreach (var year in _request.Years)
+        {
+            var val = GetTableValue(year, index);
+            if (val > 0)
+            {
+                sum += val;
+                count++;
+            }
+        }
+        return count == 0 ? 0 : sum / count;
+    }
+
+    private decimal GetTableVariance(int index)
+    {
+        var years = _request.Years.OrderByDescending(y => y).ToList();
+        if (years.Count < 2) return 0;
+        
+        var current = GetTableValue(years[0], index);
+        var previous = GetTableValue(years[1], index);
+        
+        if (previous == 0) return current > 0 ? 100 : 0;
+        return ((current - previous) / previous) * 100;
+    }
+
+    private async Task RefreshData()
+    {
+        if (_isFirstRender) return;
+
+        var dataPoints = await FinancialService.GetAggregatedDataAsync(_request);
+        var labels = new List<string>();
+        var datasets = new List<object>();
+        _tableData.Clear();
+
+        if (_request.GroupBy == "month")
+            labels = new List<string> { "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
+        else if (_request.GroupBy == "week")
+        {
+            if (_request.Period == "year") for (int w = 1; w <= 52; w++) labels.Add($"Week {w}");
+            else if (_request.Period == "month") for (int w = 1; w <= 5; w++) labels.Add($"Week {w}");
+            else labels.Add("Selected Week");
+        }
+        else if (_request.GroupBy == "day")
+        {
+            if (_request.Period == "week") labels = new List<string> { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
+            else if (_request.Period == "month") for (int d = 1; d <= 31; d++) labels.Add($"Day {d}");
+            else labels.Add("Rolling 30 Days");
+        }
+        
+        _tableLabels = labels;
+        _chartLabelsCount = labels.Count;
+
+        foreach (var year in _request.Years.OrderByDescending(y => y))
+        {
+            var yearOpacity = GetYearOpacity(year);
+            var yearTotalForTable = new List<decimal>();
+            for (int i = 0; i < labels.Count; i++) yearTotalForTable.Add(0);
+
+            foreach (var typeName in _request.IncomeTypes)
+            {
+                var data = BuildDataForCombination(year, typeName, labels, dataPoints);
+                var configType = _incomeTypes.First(t => t.Name == typeName);
+                datasets.Add(new { 
+                    label = $"{year} - {typeName}", 
+                    data = data, 
+                    color = configType.Color, 
+                    bg = configType.Color + yearOpacity,
+                    stack = year.ToString()
+                });
+
+                // Accumulate for table
+                for (int i = 0; i < data.Count; i++) yearTotalForTable[i] += data[i];
+            }
+            _tableData[year] = yearTotalForTable;
+        }
+
+        if (_chartType != "table")
+        {
+            await JS.InvokeVoidAsync("financialCharts.renderChart", "financialInsightsChart", new { 
+                type = _chartType, 
+                labels = labels, 
+                datasets = datasets, 
+                stacked = true 
+            });
+        }
+        
+        StateHasChanged();
+    }
+
+    private List<decimal> BuildDataForCombination(int year, string? type, List<string> labels, List<FinancialDataPoint> points)
+    {
+        var data = new List<decimal>();
+        var yearPoints = points.Where(p => p.Year == year);
+        if (type != null) yearPoints = yearPoints.Where(p => p.IncomeType == type);
+
+        if (_request.GroupBy == "month")
+        {
+            for (int m = 1; m <= 12; m++)
+                data.Add(yearPoints.Where(p => p.Date.Month == m).Sum(p => p.Amount));
+        }
+        else if (_request.GroupBy == "week")
+        {
+            if (_request.Period == "year")
+                for (int w = 1; w <= 52; w++) data.Add(yearPoints.Where(p => GetIsoWeek(p.Date) == w).Sum(p => p.Amount));
+            else if (_request.Period == "month")
+            {
+                var month = _request.SelectedMonth ?? DateTime.Now.Month;
+                for (int w = 1; w <= 5; w++)
+                {
+                    var startDay = (w - 1) * 7 + 1;
+                    var endDay = Math.Min(w * 7, DateTime.DaysInMonth(year, month));
+                    data.Add(yearPoints.Where(p => p.Date.Month == month && p.Date.Day >= startDay && p.Date.Day <= endDay).Sum(p => p.Amount));
+                }
+            }
+            else data.Add(yearPoints.Sum(p => p.Amount));
+        }
+        else if (_request.GroupBy == "day")
+        {
+            if (_request.Period == "week")
+            {
+                var days = new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday };
+                foreach (var day in days) data.Add(yearPoints.Where(p => p.Date.DayOfWeek == day).Sum(p => p.Amount));
+            }
+            else if (_request.Period == "month")
+            {
+                var month = _request.SelectedMonth ?? DateTime.Now.Month;
+                for (int d = 1; d <= 31; d++)
+                {
+                    if (d > DateTime.DaysInMonth(year, month)) { data.Add(0); continue; }
+                    data.Add(yearPoints.Where(p => p.Date.Month == month && p.Date.Day == d).Sum(p => p.Amount));
+                }
+            }
+            else data.Add(yearPoints.Sum(p => p.Amount));
+        }
+        return data;
+    }
+
+    private string GetYearOpacity(int year)
+    {
+        var diff = DateTime.Now.Year - year;
+        return diff switch { 0 => "FF", 1 => "A0", 2 => "60", _ => "30" };
+    }
+
+    private int GetIsoWeek(DateTime date) => System.Globalization.ISOWeek.GetWeekOfYear(date);
+
+    private static DateTime FirstDateOfWeekIso8601(int year, int weekOfYear)
+    {
+        DateTime jan1 = new DateTime(year, 1, 1);
+        int daysOffset = DayOfWeek.Thursday - jan1.DayOfWeek;
+        DateTime firstThursday = jan1.AddDays(daysOffset);
+        var cal = System.Globalization.CultureInfo.CurrentCulture.Calendar;
+        int firstWeek = cal.GetWeekOfYear(firstThursday, System.Globalization.CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+        var weekNum = weekOfYear;
+        if (firstWeek <= 1) weekNum -= 1;
+        var result = firstThursday.AddDays(weekNum * 7);
+        return result.AddDays(-3);
+    }
+}

@@ -322,6 +322,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<IReviewService, ReviewService>();
         builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
         builder.Services.AddScoped<IProjectFileService, ProjectFileService>();
+        builder.Services.AddScoped<IFinancialAnalyticsService, FinancialAnalyticsService>();
         
         // Controller Client Wiring
         // Register the endpoint resolver that uses AgentApiOptions
