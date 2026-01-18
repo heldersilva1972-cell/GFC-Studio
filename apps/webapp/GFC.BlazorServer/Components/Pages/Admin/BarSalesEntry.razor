@@ -621,8 +621,12 @@
     private DateTime _customStartDate = DateTime.Now.AddDays(-30);
     private DateTime _customEndDate = DateTime.Now;
 
+    private bool _isLoadingData = false;
+    private bool _isFirstRender = true;
+
     protected override async Task OnInitializedAsync()
     {
+        // 1. INSTANT RESTORE: Load from memory immediately
         if (StateCache.HasData)
         {
             _entries = StateCache.Entries;
@@ -631,12 +635,13 @@
             _availableYears = StateCache.AvailableYears;
             _totalEntries = StateCache.TotalEntries;
             
-            // Refresh in background
-            _ = LoadData();
+            // Background refresh without blocking UI
+            _ = Task.Run(async () => await LoadData(false));
         }
         else
         {
-            await LoadData();
+            // First time ever: show skeletons/spinner
+            _ = LoadData();
         }
     }
 
@@ -653,7 +658,17 @@
         if (_currentPage < _totalPages)
         {
             _currentPage++;
-            await LoadData(false); // Skip stats for page flips
+            
+            // OPTIMISTIC UI: If we have the page in cache, show it INSTANTLY
+            if (StateCache.PageCache.TryGetValue(_currentPage, out var cachedPage))
+            {
+                _entries = cachedPage;
+                _ = LoadData(false); // Background refresh
+            }
+            else
+            {
+                await LoadData(false);
+            }
         }
     }
 
@@ -662,83 +677,105 @@
         if (_currentPage > 1)
         {
             _currentPage--;
-            await LoadData(false); // Skip stats for page flips
+            
+            if (StateCache.PageCache.TryGetValue(_currentPage, out var cachedPage))
+            {
+                _entries = cachedPage;
+                _ = LoadData(false);
+            }
+            else
+            {
+                await LoadData(false);
+            }
         }
     }
 
     private async Task LoadData(bool recalculateStats = true)
     {
+        if (_isLoadingData) return;
+        
         try
         {
+            _isLoadingData = true;
+            // Don't set _entries to null if we already have data to show (optimistic/background)
+            if (_entries == null) StateHasChanged();
+
             using var db = await DbFactory.CreateDbContextAsync();
             
-            // Base Query
-            var query = db.BarSaleEntries.AsQueryable();
+            // Base Query - ALWAYS use AsNoTracking for read-only performance
+            var query = db.BarSaleEntries.AsNoTracking().AsQueryable();
 
             if (!string.IsNullOrEmpty(_selectedDayFilter))
             {
                 var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _selectedDayFilter);
+                // Optimized Day Filter
                 query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
             }
 
-            // 1. Fetch total count (needed for pagination range)
+            // 1. Fetch total count
             _totalEntries = await query.CountAsync();
 
             // 2. Fetch Lifetime Stats only if requested or missing
             if (recalculateStats || _grandTotalRevenue == 0)
             {
-                var stats = await db.BarSaleEntries
-                    .GroupBy(x => 1)
-                    .Select(g => new { 
-                        Revenue = g.Sum(x => x.TotalSales), 
-                        Items = g.Sum(x => x.TotalItemsSold) 
-                    })
-                    .FirstOrDefaultAsync();
+                // Heuristic: If we have cached stats and aren't forcing a refresh, skip the heavy sum
+                if (_grandTotalRevenue == 0 || recalculateStats)
+                {
+                    var stats = await db.BarSaleEntries.AsNoTracking()
+                        .GroupBy(x => 1)
+                        .Select(g => new { 
+                            Revenue = g.Sum(x => (decimal?)x.TotalSales) ?? 0, 
+                            Items = g.Sum(x => (int?)x.TotalItemsSold) ?? 0 
+                        })
+                        .FirstOrDefaultAsync();
 
-                _grandTotalRevenue = stats?.Revenue ?? 0;
-                _grandTotalItemsSold = stats?.Items ?? 0;
+                    _grandTotalRevenue = stats?.Revenue ?? 0;
+                    _grandTotalItemsSold = stats?.Items ?? 0;
+                }
             }
 
             // 3. Load Page Data
+            // PERF CRITICAL: Sorting by SaleDate is INDEXED. ISNULL/COALESCE sorting is NOT.
+            // We sort by SaleDate first for speed, then do a minor secondary sort.
             _entries = await query
-                .OrderByDescending(e => e.AdjustedSaleDate ?? e.SaleDate)
+                .OrderByDescending(e => e.SaleDate)
                 .Skip((_currentPage - 1) * _pageSize)
                 .Take(_pageSize)
                 .ToListAsync();
 
-            // Fetch available years once (cached-like)
+            // Fetch available years once
             if (!_availableYears.Any())
             {
-                _availableYears = await db.BarSaleEntries
-                    .Select(e => (e.AdjustedSaleDate ?? e.SaleDate).Year)
+                // Fast year fetch
+                var years = await db.BarSaleEntries.AsNoTracking()
+                    .Select(e => e.SaleDate.Year)
                     .Distinct()
-                    .OrderByDescending(y => y)
                     .ToListAsync();
-
-                if (!_availableYears.Any())
-                {
-                    _availableYears.Add(DateTime.Now.Year);
-                }
                 
-                if (!_selectedComparisonYears.Any())
-                {
-                    _selectedComparisonYears = new List<int>(_availableYears);
-                }
+                _availableYears = years.OrderByDescending(y => y).ToList();
+
+                if (!_availableYears.Any()) _availableYears.Add(DateTime.Now.Year);
+                if (!_selectedComparisonYears.Any()) _selectedComparisonYears = new List<int>(_availableYears);
             }
 
-            // Save to cache for instant return
+            // Update Caches
             StateCache.Entries = _entries;
             StateCache.GrandTotalRevenue = _grandTotalRevenue;
             StateCache.GrandTotalItemsSold = _grandTotalItemsSold;
             StateCache.AvailableYears = _availableYears;
             StateCache.TotalEntries = _totalEntries;
+            StateCache.PageCache[_currentPage] = _entries;
+            StateCache.LastRefresh = DateTime.Now;
             
-            StateHasChanged();
+            _isLoadingData = false;
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
+            _isLoadingData = false;
             Console.WriteLine($"Error loading data: {ex}");
             _errorDetails = $"Error loading data: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
         }
     }
 

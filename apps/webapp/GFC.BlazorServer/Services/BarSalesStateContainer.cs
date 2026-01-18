@@ -11,6 +11,12 @@ namespace GFC.BlazorServer.Services
         public List<int> AvailableYears { get; set; } = new();
         public int TotalEntries { get; set; }
         
+        // Cache for individual pages to make pagination instant
+        public Dictionary<int, List<BarSaleEntry>> PageCache { get; set; } = new();
+        
+        // Timestamp to track when we should do a background refresh
+        public System.DateTime LastRefresh { get; set; }
+        
         public bool HasData => Entries != null;
         
         public void Clear()
@@ -20,6 +26,7 @@ namespace GFC.BlazorServer.Services
             GrandTotalItemsSold = 0;
             AvailableYears.Clear();
             TotalEntries = 0;
+            PageCache.Clear();
         }
     }
 }
