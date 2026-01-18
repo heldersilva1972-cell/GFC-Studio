@@ -6,6 +6,7 @@
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject GFC.BlazorServer.Services.BarSalesStateContainer StateCache
 @attribute [Authorize]
 
 <PageTitle>Bar Sales Entry | GFC Admin</PageTitle>
@@ -622,7 +623,21 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadData();
+        if (StateCache.HasData)
+        {
+            _entries = StateCache.Entries;
+            _grandTotalRevenue = StateCache.GrandTotalRevenue;
+            _grandTotalItemsSold = StateCache.GrandTotalItemsSold;
+            _availableYears = StateCache.AvailableYears;
+            _totalEntries = StateCache.TotalEntries;
+            
+            // Refresh in background
+            _ = LoadData();
+        }
+        else
+        {
+            await LoadData();
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -666,19 +681,25 @@
                 query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
             }
 
-            // Execute Count and Stats in parallel or combined if possible
+            // 2. Fetch stats and page data more efficiently
             _totalEntries = await query.CountAsync();
-            
-            // Load Page Data
+            var stats = await db.BarSaleEntries
+                .GroupBy(x => 1)
+                .Select(g => new { 
+                    Revenue = g.Sum(x => x.TotalSales), 
+                    Items = g.Sum(x => x.TotalItemsSold) 
+                })
+                .FirstOrDefaultAsync();
+
+            _grandTotalRevenue = stats?.Revenue ?? 0;
+            _grandTotalItemsSold = stats?.Items ?? 0;
+
+            // 3. Load Page Data
             _entries = await query
                 .OrderByDescending(e => e.AdjustedSaleDate ?? e.SaleDate)
                 .Skip((_currentPage - 1) * _pageSize)
                 .Take(_pageSize)
                 .ToListAsync();
-
-            // These are still global, but they are fast SQL aggregations
-            _grandTotalRevenue = await db.BarSaleEntries.SumAsync(e => e.TotalSales);
-            _grandTotalItemsSold = await db.BarSaleEntries.SumAsync(e => e.TotalItemsSold);
 
             // Fetch available years once (cached-like)
             if (!_availableYears.Any())
@@ -699,6 +720,15 @@
                     _selectedComparisonYears = new List<int>(_availableYears);
                 }
             }
+
+            // Save to cache for instant return
+            StateCache.Entries = _entries;
+            StateCache.GrandTotalRevenue = _grandTotalRevenue;
+            StateCache.GrandTotalItemsSold = _grandTotalItemsSold;
+            StateCache.AvailableYears = _availableYears;
+            StateCache.TotalEntries = _totalEntries;
+            
+            StateHasChanged();
         }
         catch (Exception ex)
         {
@@ -780,21 +810,30 @@
             // LOGIC A: Full Year Comparison View
             if (_selectedPeriod == "year")
             {
+                // Optimization: Group by Month in SQL for ALL selected years at once
+                var yearData = await query
+                    .GroupBy(e => new { 
+                        Year = (e.AdjustedSaleDate ?? e.SaleDate).Year, 
+                        Month = (e.AdjustedSaleDate ?? e.SaleDate).Month 
+                    })
+                    .Select(g => new { g.Key.Year, g.Key.Month, Total = g.Sum(x => x.TotalSales) })
+                    .ToListAsync();
+
                 // Setup Month Labels
                 for (int i = 1; i <= 12; i++)
                 {
                     labels.Add(new DateTime(2000, i, 1).ToString("MMM"));
                 }
 
-                // Create a dataset for EACH selected year
+                // Create a dataset for EACH selected year from the aggregated data
                 foreach (var year in _selectedComparisonYears.OrderByDescending(y => y))
                 {
                     var yearValues = new List<decimal>();
                     for (int month = 1; month <= 12; month++)
                     {
-                        var total = allData
-                            .Where(e => GetEffectiveDate(e).Year == year && GetEffectiveDate(e).Month == month)
-                            .Sum(e => e.TotalSales);
+                        var total = yearData
+                            .Where(d => d.Year == year && d.Month == month)
+                            .Sum(d => d.Total);
                         yearValues.Add(total);
                     }
                     datasets.Add(new { label = year.ToString(), data = yearValues });
@@ -803,7 +842,15 @@
             // LOGIC B: Standard Time Periods
             else
             {
-                // Define Date Range for filtering in-memory (already narrowed down by DB query)
+                // Optimization: Only fetch the 2 columns we need for standard period views
+                var periodData = await query
+                    .Select(e => new { 
+                        Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
+                        TotalSales = e.TotalSales
+                    })
+                    .ToListAsync();
+
+                // Define Date Range for filtering in-memory
                 DateTime startDate = now, endDate = now;
                 if (_selectedPeriod == "week") { startDate = now.AddDays(-6).Date; endDate = now.Date; }
                 else if (_selectedPeriod == "month") { startDate = now.AddDays(-29).Date; endDate = now.Date; }
@@ -815,8 +862,6 @@
                 }
                 else if (_selectedPeriod == "custom") { startDate = _customStartDate.Date; endDate = _customEndDate.Date; }
 
-                // Generate Labels and Data based on Grouping
-                var periodData = allData.Where(e => GetEffectiveDate(e).Date >= startDate && GetEffectiveDate(e).Date <= endDate).ToList();
                 var periodValues = new List<decimal>();
 
                 if (_groupBy == "day")
@@ -826,7 +871,7 @@
                     {
                         var d = startDate.AddDays(i);
                         labels.Add(d.ToString("MMM d"));
-                        periodValues.Add(periodData.Where(e => GetEffectiveDate(e).Date == d).Sum(e => e.TotalSales));
+                        periodValues.Add(periodData.Where(e => e.Date == d).Sum(e => e.TotalSales));
                     }
                 }
                 else if (_groupBy == "week")
@@ -836,7 +881,7 @@
                          var next = current.AddDays(6);
                          if(next > endDate) next = endDate;
                          labels.Add($"{current:MMM d}-{next:dd}");
-                         periodValues.Add(periodData.Where(e => GetEffectiveDate(e).Date >= current && GetEffectiveDate(e).Date <= next).Sum(e => e.TotalSales));
+                         periodValues.Add(periodData.Where(e => e.Date >= current && e.Date <= next).Sum(e => e.TotalSales));
                          current = next.AddDays(1);
                      }
                 }
@@ -847,7 +892,7 @@
                     while(current <= endMonth)
                     {
                          labels.Add(current.ToString("MMM yyyy"));
-                         periodValues.Add(periodData.Where(e => GetEffectiveDate(e).Year == current.Year && GetEffectiveDate(e).Month == current.Month).Sum(e => e.TotalSales));
+                         periodValues.Add(periodData.Where(e => e.Date.Year == current.Year && e.Date.Month == current.Month).Sum(e => e.TotalSales));
                          current = current.AddMonths(1);
                     }
                 }
@@ -897,11 +942,13 @@
             
             // Reset form but keep month, day, and year selections
             _model = new BarSaleEntry();
-            // _selectedDay persists (User Request)
             _selectedHour = DateTime.Now.Hour;
             _selectedMinute = DateTime.Now.Minute;
-            // Note: _selectedMonth and _selectedEntryYear persist
             
+            // IMPORTANT: Update UI state IMMEDIATELY so "Processing..." disappears
+            StateHasChanged();
+            
+            // Now do the heavier background work to refresh the view
             await LoadData();
             await UpdateChart();
             StateHasChanged();

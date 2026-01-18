@@ -3,6 +3,7 @@
 @using GFC.BlazorServer.Services
 @using GFC.Core.Models
 @inject IFinancialAnalyticsService FinancialService
+@inject GFC.BlazorServer.Services.FinancialInsightsStateContainer StateCache
 @inject IJSRuntime JS
 @attribute [Authorize]
 
@@ -399,12 +400,27 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _availableYears = await FinancialService.GetAvailableYearsAsync();
-        if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
-        _availableYears = _availableYears.OrderByDescending(y => y).Take(5).ToList();
-        
-        PopulateWeekOptions();
-        await LoadData();
+        if (StateCache.HasData)
+        {
+            _availableYears = StateCache.AvailableYears ?? new();
+            _summary = StateCache.Summary ?? new();
+            // DataPoint list will be used in RefreshData
+            
+            PopulateWeekOptions();
+            
+            // Background refresh
+            _ = LoadData();
+        }
+        else
+        {
+            _availableYears = await FinancialService.GetAvailableYearsAsync();
+            if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
+            _availableYears = _availableYears.OrderByDescending(y => y).Take(5).ToList();
+            StateCache.AvailableYears = _availableYears;
+            
+            PopulateWeekOptions();
+            await LoadData();
+        }
     }
 
     private void PopulateWeekOptions()
@@ -432,6 +448,8 @@
     private async Task LoadData()
     {
         _summary = await FinancialService.GetSummaryAsync(_request);
+        StateCache.Summary = _summary;
+        StateHasChanged();
     }
 
     private async Task ReloadAndRefresh()
@@ -534,7 +552,29 @@
     {
         if (_isFirstRender) return;
 
-        var dataPoints = await FinancialService.GetAggregatedDataAsync(_request);
+        List<FinancialDataPoint> dataPoints;
+        
+        if (StateCache.AggregatedData != null && !_isFirstRender) // Simple check, might need better cache invalidation
+        {
+             dataPoints = StateCache.AggregatedData;
+             // Immediate render from cache
+             await RenderDataPoints(dataPoints);
+             
+             // Background update
+             dataPoints = await FinancialService.GetAggregatedDataAsync(_request);
+             StateCache.AggregatedData = dataPoints;
+             await RenderDataPoints(dataPoints);
+        }
+        else
+        {
+            dataPoints = await FinancialService.GetAggregatedDataAsync(_request);
+            StateCache.AggregatedData = dataPoints;
+            await RenderDataPoints(dataPoints);
+        }
+    }
+
+    private async Task RenderDataPoints(List<FinancialDataPoint> dataPoints)
+    {
         var labels = new List<string>();
         var datasets = new List<object>();
         _tableData.Clear();
