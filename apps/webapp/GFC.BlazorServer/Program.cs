@@ -914,6 +914,24 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine(">>> Bylaws Schema Applied Successfully.");
                 }
 
+                // [AUTO-FIX 14] Run Notification System Schema Migration
+                var notificationScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "Manual_Notification_System_Schema.sql");
+                if (File.Exists(notificationScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Notification System Schema Fixes from: {notificationScriptPath}");
+                    var notifSql = File.ReadAllText(notificationScriptPath);
+                    var notifBatches = System.Text.RegularExpressions.Regex.Split(notifSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in notifBatches)
+                    {
+                        if (!string.IsNullOrEmpty(batch.Trim()))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Notification System batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Notification System Schema Applied Successfully.");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
                 // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }

@@ -38,31 +38,17 @@
             <div class="mb-4">
                 <ul class="nav nav-pills nav-fill">
                     <li class="nav-item">
-                        <a class="nav-link @(_loginMode == LoginMode.Password ? "active" : "")" 
-                           href="javascript:void(0)" 
-                           @onclick="() => SetMode(LoginMode.Password)">
-                            Password
-                        </a>
-                    </li>
-                    <li class="nav-item">
                         <a class="nav-link @(_loginMode == LoginMode.PassCode ? "active" : "")" 
                            href="javascript:void(0)" 
                            @onclick="() => SetMode(LoginMode.PassCode)">
-                            Passcode
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link @(_loginMode == LoginMode.MagicLink ? "active" : "")" 
-                           href="javascript:void(0)" 
-                           @onclick="() => SetMode(LoginMode.MagicLink)">
-                            Magic Link
+                            <i class="bi bi-grid-3x3-gap-fill me-1"></i> Passcode
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link @(_loginMode == LoginMode.Passkey ? "active" : "")" 
                            href="javascript:void(0)" 
                            @onclick="() => SetMode(LoginMode.Passkey)">
-                            Passkey
+                            <i class="bi bi-fingerprint me-1"></i> Passkey
                         </a>
                     </li>
                 </ul>
@@ -149,9 +135,7 @@
                     </button>
                     <div class="mt-4 text-center">
                         <small class="text-white-50">
-                            Forgot your credentials? Use 
-                            <a href="javascript:void(0)" class="text-info text-decoration-none fw-bold" @onclick="() => SetMode(LoginMode.MagicLink)">Magic Link</a> 
-                            or contact an administrator for a reset.
+                            Forgot your passcode? Contact an administrator for a reset link.
                         </small>
                     </div>
                 </EditForm>
@@ -167,35 +151,7 @@
                     }, 100);
                 </script>
             }
-            else if (_loginMode == LoginMode.MagicLink)
-            {
-                <EditForm Model="_magicLinkModel" OnValidSubmit="HandleMagicLinkAsync">
-                    <DataAnnotationsValidator />
-                    <div class="mb-3">
-                        <label class="form-label text-start d-block" for="email">Email Address</label>
-                        <InputText id="email" 
-                                   class="form-control" 
-                                   @bind-Value="_magicLinkModel.Email" 
-                                   placeholder="Enter your email" />
-                        <ValidationMessage For="@(() => _magicLinkModel.Email)" />
-                        <div class="form-text">We'll send a secure login link to your inbox.</div>
-                    </div>
-
-                    <button class="btn btn-primary w-100 mt-3"
-                            type="submit"
-                            disabled="@_isSubmitting">
-                         @if (_isSubmitting)
-                        {
-                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            <span>Sending...</span>
-                        }
-                        else
-                        {
-                            <span>Send Magic Link</span>
-                        }
-                    </button>
-                </EditForm>
-            }
+            // Removed Magic Link Section
             else if (_loginMode == LoginMode.Passkey)
             {
                 <div class="text-center py-3">
@@ -334,16 +290,23 @@
     private string? _successMessage;
     private string? _resolvedReturnUrl;
     private bool _loginRestricted = false;
-    private LoginMode _loginMode = LoginMode.Password;
+    private LoginMode _loginMode = LoginMode.PassCode;
+    private bool _isSetupMode = false;
 
     [Parameter]
     [SupplyParameterFromQuery(Name = "returnUrl")]
     public string? ReturnUrl { get; set; }
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "setup")]
+    public string? SetupParam { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         UpdateResolvedReturnUrl();
         await CheckLoginRestriction();
+        
+        _isSetupMode = !string.IsNullOrEmpty(SetupParam);
 
         try
         {
@@ -445,12 +408,6 @@
                 await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
             }
 
-            if (result.PasswordChangeRequired)
-            {
-                Navigation.NavigateTo("/changepassword", forceLoad: false);
-                return;
-            }
-
             Navigation.NavigateTo(GetPostLoginDestination(), forceLoad: false);
         }
         catch (Exception ex)
@@ -464,38 +421,7 @@
         }
     }
 
-    private async Task HandleMagicLinkAsync()
-    {
-        _error = null;
-        _successMessage = null;
-        _isSubmitting = true;
-
-        try
-        {
-            var sent = await MagicLinkService.SendMagicLinkAsync(_magicLinkModel.Email);
-            if (sent)
-            {
-                _successMessage = "A magic link has been sent to your email address. It will expire in 15 minutes.";
-                _magicLinkModel.Email = string.Empty; // Clear form
-            }
-            else
-            {
-                // To avoid enumeration, we might want to say "If the email exists..." 
-                // but if we used 'false' for rate limit too, generic message is best.
-                // However, Service returns false for both Not Found and Rate Limit.
-                _successMessage = "If an account exists for this email, we have sent a login link.";
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Magic link error");
-            _error = "Failed to send magic link. Please try again.";
-        }
-        finally
-        {
-            _isSubmitting = false;
-        }
-    }
+    // Removed HandleMagicLinkAsync
 
     private sealed class LoginModel
     {
@@ -513,7 +439,7 @@
         public string Email { get; set; } = "";
     }
 
-    private enum LoginMode { Password, PassCode, MagicLink, Passkey }
+    private enum LoginMode { PassCode, Passkey, Password }
     private string _passkeyUsername = "";
 
     private async Task HandlePasskeyLoginAsync()
@@ -583,7 +509,15 @@
     };
 
     private void UpdateResolvedReturnUrl() => _resolvedReturnUrl = NormalizeReturnUrl(ReturnUrl);
-    private string GetPostLoginDestination() => _resolvedReturnUrl ?? "/";
+    
+    private string GetPostLoginDestination() 
+    {
+        if (_isSetupMode) 
+        {
+             return "/setup/wizard"; // This will be our new enrollment wizard
+        }
+        return _resolvedReturnUrl ?? "/";
+    }
     
     private static string? NormalizeReturnUrl(string? raw)
     {

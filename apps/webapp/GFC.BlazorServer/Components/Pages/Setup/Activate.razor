@@ -1,11 +1,13 @@
 @page "/setup/activate"
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Services.Vpn
+@using GFC.Core.Interfaces
 @inject IDeviceTrustService DeviceTrustService
 @inject IVpnConfigurationService VpnService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IUserManagementService UserManagementService
 @inject ILogger<Activate> Logger
 
 <div class="activation-container">
@@ -104,14 +106,22 @@
             await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", deviceTrustToken, 365);
             await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", deviceTrustToken);
 
-            // 4. Proceed to Redirect
-            // We rely on the cookie/localStorage set above to authenticate the user on the next page load.
-            // Skipping explicit in-component login prevents potential DB locking/race conditions during the rapid redirect.
+            // 4. Determine next step based on user status
+            var user = UserManagementService.GetUser(userId.Value);
+            bool hasPassword = !string.IsNullOrEmpty(user?.PasswordHash);
 
             var bust = DateTime.UtcNow.Ticks;
             
-            // POLICY: Always force setup/verification on new device activation
-            _nextUrl = $"/changepassword?setup=true&t={bust}";
+            if (!hasPassword || user?.PasswordChangeRequired == true)
+            {
+                 // New user or forced reset
+                _nextUrl = $"/changepassword?setup=true&t={bust}";
+            }
+            else
+            {
+                // Existing user, just trusted a new device
+                _nextUrl = $"/login?setup=true&t={bust}";
+            }
 
             _success = true;
             _activating = false;

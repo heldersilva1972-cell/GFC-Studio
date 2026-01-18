@@ -15,6 +15,7 @@ public interface IPasskeyService
     Task<bool> ValidateLoginAsync(string credentialId, string username);
     Task<List<UserPasskey>> GetUserPasskeysAsync(int userId);
     Task<bool> RevokePasskeyAsync(int id);
+    Task<bool> RevokeAllUserPasskeysAsync(int userId);
 }
 
 public class PasskeyService : IPasskeyService
@@ -213,6 +214,27 @@ public class PasskeyService : IPasskeyService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error revoking passkey");
+            return false;
+        }
+    }
+
+    public async Task<bool> RevokeAllUserPasskeysAsync(int userId)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var keys = await context.UserPasskeys.Where(p => p.UserId == userId).ToListAsync();
+            if (keys.Any())
+            {
+                context.UserPasskeys.RemoveRange(keys);
+                await context.SaveChangesAsync();
+                _logger.LogInformation("All {Count} passkeys revoked for user {UserId}", keys.Count, userId);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error revoking all passkeys for user {UserId}", userId);
             return false;
         }
     }

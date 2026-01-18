@@ -1,0 +1,387 @@
+@page "/setup/wizard"
+@using GFC.BlazorServer.Services
+@using GFC.Core.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IPasskeyService PasskeyService
+@inject INotificationService NotificationService
+@inject IBlazorSystemSettingsService SystemSettingsService
+@inject ILogger<DeviceWizard> Logger
+
+<PageTitle>Complete Device Setup - GFC</PageTitle>
+
+<div class="wizard-container">
+    <div class="wizard-card">
+        <div class="wizard-header">
+            <div class="step-indicator">
+                <div class="step @(CurrentStep >= 1 ? "active" : "")">1</div>
+                <div class="step-line @(CurrentStep >= 2 ? "active" : "")"></div>
+                <div class="step @(CurrentStep >= 2 ? "active" : "")">2</div>
+                <div class="step-line @(CurrentStep >= 3 ? "active" : "")"></div>
+                <div class="step @(CurrentStep >= 3 ? "active" : "")">3</div>
+            </div>
+            <h1 class="wizard-title mt-4">@CurrentStepTitle</h1>
+            <p class="wizard-subtitle">@CurrentStepSubtitle</p>
+        </div>
+
+        <div class="wizard-body">
+            @if (CurrentStep == 1)
+            {
+                <div class="step-content text-center">
+                    <div class="setup-icon-wrapper pulse">
+                        <i class="bi bi-fingerprint"></i>
+                    </div>
+                    <h3 class="fw-bold mb-3">Biometric Access</h3>
+                    <p class="text-muted mb-4">
+                        Enable FaceID, TouchID, or your device's secure lock. 
+                        This binds this specific device to your account for the highest security.
+                    </p>
+                    
+                    @if (!string.IsNullOrEmpty(_passkeyError))
+                    {
+                        <div class="alert alert-danger small py-2 mb-4">@_passkeyError</div>
+                    }
+
+                    <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow" 
+                            @onclick="RegisterPasskey" 
+                            disabled="@_isProcessing">
+                        @if (_isProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        <i class="bi bi-shield-check me-2"></i>Enable Secure Access
+                    </button>
+                </div>
+            }
+            else if (CurrentStep == 2)
+            {
+                <div class="step-content text-center">
+                    <div class="setup-icon-wrapper">
+                        <i class="bi bi-phone-vibrate"></i>
+                    </div>
+                    <h3 class="fw-bold mb-3">Install App</h3>
+                    <p class="text-muted mb-4">
+                        Add GFC to your home screen for an "App-like" experience. 
+                        It works faster and keeps you securely connected.
+                    </p>
+
+                    @if (_canInstall)
+                    {
+                        <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3" @onclick="TriggerPwaInstall">
+                            <i class="bi bi-plus-circle-fill me-2"></i>Install App Now
+                        </button>
+                    }
+                    else if (!string.IsNullOrEmpty(_platformInstructions))
+                    {
+                        <div class="p-3 bg-light rounded-4 text-start border mb-3">
+                            <h6 class="fw-bold small mb-2"><i class="bi bi-info-circle me-1"></i> iPhone/Safari Instructions:</h6>
+                            <div class="small text-muted">@((MarkupString)_platformInstructions)</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info small py-2">
+                            Our system detects this device already has the app or doesn't support direct installation.
+                        </div>
+                    }
+
+                    <button class="btn btn-outline-primary w-100 rounded-pill py-2" @onclick="NextStep">Continue</button>
+                </div>
+            }
+            else if (CurrentStep == 3)
+            {
+                <div class="step-content text-center">
+                    <div class="setup-icon-wrapper @(_isSubscribed ? "success" : "bell")">
+                        <i class="bi @(_isSubscribed ? "bi-check-all" : "bi-bell-fill")"></i>
+                    </div>
+                    <h3 class="fw-bold mb-3">Push Notifications</h3>
+                    <p class="text-muted mb-4">
+                        Stay informed about system access, security alerts, and important updates.
+                    </p>
+
+                    @if (_isSubscribed)
+                    {
+                        <div class="alert alert-success rounded-pill py-3 mb-4">
+                            <i class="bi bi-check-circle-fill me-2"></i>Notifications Enabled
+                        </div>
+                        <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow" @onclick="FinishWizard">
+                            <i class="bi bi-house-door-fill me-2"></i>Go to Dashboard
+                        </button>
+                    }
+                    else
+                    {
+                    <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3" @onclick="EnableNotifications" disabled="@_isProcessing">
+                            @if (_isProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                            <i class="bi bi-bell-fill me-2"></i>Enable Notifications
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .wizard-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: radial-gradient(circle at top right, #4f46e5, #000);
+        padding: 1.5rem;
+    }
+
+    .wizard-card {
+        background: rgba(255, 255, 255, 0.98);
+        width: 100%;
+        max-width: 480px;
+        padding: 3rem;
+        border-radius: 2rem;
+        box-shadow: 0 40px 100px -20px rgba(0,0,0,0.5);
+    }
+
+    .step-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .step {
+        width: 35px;
+        height: 35px;
+        background: #e2e8f0;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        color: #64748b;
+        transition: all 0.3s ease;
+    }
+
+    .step.active {
+        background: #4f46e5;
+        color: white;
+        box-shadow: 0 0 15px rgba(79, 70, 229, 0.4);
+    }
+
+    .step-line {
+        height: 3px;
+        width: 40px;
+        background: #e2e8f0;
+        border-radius: 2px;
+    }
+
+    .step-line.active {
+        background: #4f46e5;
+    }
+
+    .wizard-title {
+        color: #1e293b;
+        font-weight: 800;
+        font-size: 1.75rem;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .wizard-subtitle {
+        color: #64748b;
+        text-align: center;
+        font-size: 1rem;
+    }
+
+    .setup-icon-wrapper {
+        width: 100px;
+        height: 100px;
+        background: #f1f5f9;
+        border-radius: 2.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 2rem auto;
+        font-size: 3rem;
+        color: #4f46e5;
+    }
+
+    .setup-icon-wrapper.success {
+        background: #dcfce7;
+        color: #16a34a;
+    }
+
+    .pulse {
+        animation: pulse-animation 2s infinite;
+    }
+
+    @@keyframes pulse-animation {
+        0% { box-shadow: 0 0 0 0px rgba(79, 70, 229, 0.4); }
+        70% { box-shadow: 0 0 0 20px rgba(79, 70, 229, 0); }
+        100% { box-shadow: 0 0 0 0px rgba(79, 70, 229, 0); }
+    }
+
+    .btn-link:hover {
+        color: #4f46e5 !important;
+    }
+</style>
+
+@code {
+    private int CurrentStep = 1;
+    private bool _isProcessing = false;
+    private string? _passkeyError;
+    private bool _canInstall = false;
+    private string? _platformInstructions;
+    private bool _isSubscribed = false;
+
+    private string CurrentStepTitle => CurrentStep switch {
+        1 => "Security Binding",
+        2 => "App Access",
+        3 => "Notifications",
+        _ => "Setup Complete"
+    };
+
+    private string CurrentStepSubtitle => CurrentStep switch {
+        1 => "Link this device to your biometrics",
+        2 => "Install GFC for faster access",
+        3 => "Stay updated with real-time alerts",
+        _ => ""
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckPwaInstallability();
+        }
+    }
+
+    private void NextStep() 
+    {
+        CurrentStep++;
+        StateHasChanged();
+    }
+
+    private async Task RegisterPasskey()
+    {
+        _isProcessing = true;
+        _passkeyError = null;
+        StateHasChanged();
+
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            if (user == null) return;
+
+            // 1. Request options from server
+            var options = await PasskeyService.RequestRegistrationOptionsAsync(user.UserId, user.Username);
+            
+            // 2. Trigger browser WebAuthn API
+            var responseJson = await JS.InvokeAsync<string>("GFC_Passkeys.register", options);
+            
+            // 3. Complete registration on server
+            using var doc = System.Text.Json.JsonDocument.Parse(responseJson);
+            var root = doc.RootElement;
+            var credentialId = root.GetProperty("id").GetString()!;
+            var publicKey = root.GetProperty("response").GetProperty("attestationObject").GetString()!;
+            
+            var success = await PasskeyService.CompleteRegistrationAsync(user.UserId, credentialId, publicKey, $"Device: {user.Username} Setup");
+
+            if (success)
+            {
+                NextStep();
+            }
+            else
+            {
+                _passkeyError = "Failed to register security key. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Passkey setup error");
+            _passkeyError = "Security binding failed. Ensure your device supports biometric login and try again.";
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CheckPwaInstallability()
+    {
+        try 
+        {
+            var result = await JS.InvokeAsync<PwaCheckResult>("pwaInstaller.checkInstallability");
+            if (result != null)
+            {
+                _canInstall = result.CanInstall;
+                _platformInstructions = result.Instructions;
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private async Task TriggerPwaInstall()
+    {
+        try { await JS.InvokeAsync<bool>("pwaInstaller.install"); } catch { }
+        NextStep();
+    }
+
+    private async Task EnableNotifications()
+    {
+        _isProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            if (user == null) return;
+
+            var permission = await JS.InvokeAsync<string>("GFC_Notifications.requestPermission");
+            if (permission == "granted")
+            {
+                var settings = await SystemSettingsService.GetAsync();
+                if (!string.IsNullOrEmpty(settings.VapidPublicKey))
+                {
+                    var subJson = await JS.InvokeAsync<string>("GFC_Notifications.subscribe", settings.VapidPublicKey);
+                    using var doc = System.Text.Json.JsonDocument.Parse(subJson);
+                    var payload = doc.RootElement;
+                    
+                    await NotificationService.SubscribeToPushAsync(
+                        user.UserId, 
+                        payload.GetProperty("endpoint").GetString()!,
+                        payload.GetProperty("keys").GetProperty("p256dh").GetString()!,
+                        payload.GetProperty("keys").GetProperty("auth").GetString()!,
+                        "GFC Device Wizard"
+                    );
+                    
+                    _isSubscribed = true;
+                }
+            }
+            else
+            {
+                NextStep(); // If denied, just go next or finish
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Notification setup error");
+            NextStep();
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void FinishWizard()
+    {
+        Navigation.NavigateTo("/", true);
+    }
+
+    public class PwaCheckResult {
+        public bool CanInstall { get; set; }
+        public string? Instructions { get; set; }
+    }
+}
