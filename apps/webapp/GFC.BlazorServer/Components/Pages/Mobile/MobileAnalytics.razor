@@ -1,0 +1,405 @@
+@page "/mobile/analytics"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Models
+@inject IFinancialAnalyticsService FinancialService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@attribute [Authorize]
+
+<PageTitle>Analytics | GFC Staff</PageTitle>
+
+<div class="mobile-portal">
+    <!-- HEADER -->
+    <header class="portal-header shadow-sm">
+        <div class="container py-3">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-icon btn-light" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <h5 class="mb-0 fw-bold header-title">Analytics & Performance</h5>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="container py-4 flex-grow-1">
+        @if (Loading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-3 text-muted">Loading analytics...</p>
+            </div>
+        }
+        else
+        {
+            <!-- Year Selector -->
+            <div class="card shadow-sm mb-3">
+                <div class="card-body p-3">
+                    <label class="form-label small text-muted fw-bold mb-2">COMPARE YEARS</label>
+                    <div class="d-flex gap-2 flex-wrap">
+                        @foreach (var year in _availableYears)
+                        {
+                            <button class="year-pill @(_selectedYears.Contains(year) ? "active" : "")"
+                                    @onclick="() => ToggleYear(year)">
+                                @year
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Display -->
+            <div class="card shadow-sm mb-3">
+                <div class="card-body p-3">
+                    <div class="chart-container">
+                        <canvas id="mobileAnalyticsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="row g-2 mb-3">
+                @foreach (var year in _selectedYears.OrderByDescending(y => y))
+                {
+                    var total = GetYearTotal(year);
+                    var avg = total / 12;
+                    var previousYear = _selectedYears.OrderByDescending(y => y).Skip(1).FirstOrDefault();
+                    var previousTotal = previousYear > 0 ? GetYearTotal(previousYear) : 0;
+                    var growth = previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : 0;
+
+                    <div class="col-6">
+                        <div class="stat-card @(year == _selectedYears.Max() ? "bg-primary bg-opacity-10" : "bg-light")">
+                            <div class="stat-year">@year</div>
+                            <div class="stat-value">@total.ToString("C0")</div>
+                            <div class="stat-label">Total Revenue</div>
+                            @if (previousYear > 0)
+                            {
+                                <div class="stat-growth @(growth >= 0 ? "text-success" : "text-danger")">
+                                    <i class="bi bi-@(growth >= 0 ? "arrow-up" : "arrow-down")-short"></i>
+                                    @growth.ToString("N1")%
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Monthly Averages -->
+            <div class="card shadow-sm">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold small mb-3">MONTHLY AVERAGE</h6>
+                    @foreach (var year in _selectedYears.OrderByDescending(y => y))
+                    {
+                        var total = GetYearTotal(year);
+                        var avg = total / 12;
+                        
+                        <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded @(year == _selectedYears.Max() ? "bg-primary bg-opacity-10" : "")">
+                            <span class="badge bg-primary">@year</span>
+                            <span class="fw-bold">@avg.ToString("C0")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </main>
+
+    <!-- BOTTOM BAR -->
+    <nav class="portal-footer">
+        <div class="container px-4 py-2 d-flex justify-content-between">
+            <button class="footer-item" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                <i class="bi bi-grid-fill"></i>
+                <span>Hub</span>
+            </button>
+            <button class="footer-item" @onclick='() => Navigation.NavigateTo("/mobile/shift-report")'>
+                <i class="bi bi-calendar-check"></i>
+                <span>Reports</span>
+            </button>
+            <button class="footer-item active">
+                <i class="bi bi-graph-up-arrow"></i>
+                <span>Analytics</span>
+            </button>
+            <button class="footer-item" disabled="true">
+                <i class="bi bi-person-bounding-box"></i>
+                <span>Profile</span>
+            </button>
+        </div>
+    </nav>
+</div>
+
+<style>
+    .mobile-portal {
+        background-color: #f8f9fa;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        padding-bottom: 80px;
+    }
+
+    .portal-header {
+        background: white;
+        border-bottom: 1px solid #e9ecef;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+
+    .header-title {
+        color: #1e293b;
+        font-size: 1.1rem;
+    }
+
+    .btn-icon {
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+
+    .year-pill {
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        border: 2px solid #e9ecef;
+        background: white;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #64748b;
+        transition: all 0.2s;
+    }
+
+    .year-pill.active {
+        background: #3b82f6;
+        border-color: #3b82f6;
+        color: white;
+    }
+
+    .chart-container {
+        position: relative;
+        height: 300px;
+        width: 100%;
+    }
+
+    .stat-card {
+        padding: 1rem;
+        border-radius: 12px;
+        border: 1px solid #e9ecef;
+        text-align: center;
+    }
+
+    .stat-year {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-growth {
+        font-size: 0.85rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+    }
+
+    .portal-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white;
+        border-top: 1px solid #e9ecef;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+        z-index: 1000;
+    }
+
+    .footer-item {
+        background: none;
+        border: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.5rem;
+        color: #94a3b8;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .footer-item.active {
+        color: #0d6efd;
+    }
+
+    .footer-item:disabled {
+        opacity: 0.3;
+    }
+</style>
+
+@code {
+    private bool Loading = true;
+    private List<int> _availableYears = new();
+    private List<int> _selectedYears = new();
+    private Dictionary<int, Dictionary<int, decimal>> _monthlyData = new(); // Year -> Month -> Amount
+    private bool _chartRendered = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Loading && !_chartRendered && _monthlyData.Any())
+        {
+            await RenderChart();
+            _chartRendered = true;
+        }
+    }
+
+    private async Task LoadData()
+    {
+        Loading = true;
+        
+        // Get available years
+        _availableYears = await FinancialService.GetAvailableYearsAsync();
+        if (!_availableYears.Contains(DateTime.Now.Year))
+            _availableYears.Insert(0, DateTime.Now.Year);
+        
+        _availableYears = _availableYears.OrderByDescending(y => y).Take(5).ToList();
+        
+        // Default to current year and previous year
+        _selectedYears = new List<int> { DateTime.Now.Year };
+        if (_availableYears.Count > 1)
+            _selectedYears.Add(_availableYears[1]);
+
+        // Load monthly data for selected years
+        await RefreshMonthlyData();
+        
+        Loading = false;
+    }
+
+    private async Task RefreshMonthlyData()
+    {
+        _monthlyData.Clear();
+
+        foreach (var year in _selectedYears)
+        {
+            var request = new FinancialAnalyticsRequest
+            {
+                IncomeTypes = new List<string> { "Bar Sales", "Lottery", "Hall Rentals", "Membership Dues" },
+                Years = new List<int> { year },
+                Period = "year",
+                GroupBy = "month"
+            };
+
+            var dataPoints = await FinancialService.GetAggregatedDataAsync(request);
+            var monthlyTotals = new Dictionary<int, decimal>();
+
+            for (int month = 1; month <= 12; month++)
+            {
+                var total = dataPoints
+                    .Where(p => p.Year == year && p.Date.Month == month)
+                    .Sum(p => p.Amount);
+                monthlyTotals[month] = total;
+            }
+
+            _monthlyData[year] = monthlyTotals;
+        }
+
+        _chartRendered = false; // Reset flag to trigger re-render
+    }
+
+    private async Task ToggleYear(int year)
+    {
+        if (_selectedYears.Contains(year))
+        {
+            if (_selectedYears.Count > 1) // Keep at least one year selected
+                _selectedYears.Remove(year);
+        }
+        else
+        {
+            _selectedYears.Add(year);
+        }
+
+        _selectedYears = _selectedYears.OrderByDescending(y => y).ToList();
+        await RefreshMonthlyData();
+        await RenderChart();
+    }
+
+    private async Task RenderChart()
+    {
+        var labels = new List<string> { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+        var datasets = new List<object>();
+
+        var colors = new[] { "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444" };
+        int colorIndex = 0;
+
+        foreach (var year in _selectedYears.OrderByDescending(y => y))
+        {
+            var data = new List<decimal>();
+            for (int month = 1; month <= 12; month++)
+            {
+                data.Add(GetMonthlyRevenue(year, month));
+            }
+
+            var color = colors[colorIndex % colors.Length];
+            datasets.Add(new
+            {
+                label = year.ToString(),
+                data = data,
+                backgroundColor = color,
+                borderColor = color,
+                borderWidth = 2,
+                borderRadius = 6
+            });
+
+            colorIndex++;
+        }
+
+        await JS.InvokeVoidAsync("financialCharts.renderChart", "mobileAnalyticsChart", new
+        {
+            type = "bar",
+            labels = labels,
+            datasets = datasets,
+            stacked = false
+        });
+    }
+
+    private decimal GetMonthlyRevenue(int year, int month)
+    {
+        if (_monthlyData.TryGetValue(year, out var months))
+        {
+            if (months.TryGetValue(month, out var amount))
+                return amount;
+        }
+        return 0;
+    }
+
+    private decimal GetYearTotal(int year)
+    {
+        if (_monthlyData.TryGetValue(year, out var months))
+        {
+            return months.Values.Sum();
+        }
+        return 0;
+    }
+}
