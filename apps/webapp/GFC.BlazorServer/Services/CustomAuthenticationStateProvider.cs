@@ -29,13 +29,16 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         _userSessionService = userSessionService ?? throw new ArgumentNullException(nameof(userSessionService));
     }
 
+    private bool _autoLoginAttempted = false;
+
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
         RefreshFromAuthenticationService();
 
         // [MODIFIED] ASYNC AUTO-LOGIN LOGIC logic moved here to avoid blocking and deadlocks
-        if (_currentUser == null)
+        if (_currentUser == null && !_autoLoginAttempted)
         {
+            _autoLoginAttempted = true; // Mark as attempted regardless of outcome in this circuit
             try 
             {
                 var context = _httpContextAccessor.HttpContext;

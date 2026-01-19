@@ -70,7 +70,6 @@
                 {
                     <i class="bi bi-moon-stars-fill"></i>
                 }
-                }
             </button>
             @if (_canInstallPwa && !_isPwaInstalled)
             {
@@ -329,8 +328,12 @@
         LogCurrentPage();
         EnforcePasswordSetup();
         
-        // Check session validity on every navigation for immediate revocation detection
-        _ = InvokeAsync(async () => await ValidateSession());
+        // Check session validity only if on a protected page
+        var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
+        if (!currentUri.Contains("/login") && !currentUri.Contains("/setup"))
+        {
+            _ = InvokeAsync(async () => await ValidateSession());
+        }
     }
 
     private void LogCurrentPage()
@@ -450,8 +453,10 @@
             // Logout ends the session but DOES NOT revoke the hardware trust 
             // We clear local storage so auto-login stops, but keep the cookie 
             // so the "Access Shield" doesn't block the login page.
-            await AuthStateProvider.LogoutAsync(); // No token = no revocation
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            await AuthStateProvider.LogoutAsync(token); // Revoke token if it exists
             await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+            await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
 
             await Task.Delay(100);
             await UpdateUserInfo();

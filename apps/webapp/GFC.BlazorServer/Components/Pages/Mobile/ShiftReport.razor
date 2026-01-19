@@ -1,0 +1,402 @@
+@page "/mobile/shift-report"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.BlazorServer.Auth
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IBartenderShiftService ShiftService
+@inject ILotteryShiftRepository LotteryRepo
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject IJSRuntime JSRuntime
+@attribute [Authorize]
+
+<PageTitle>Shift Report | GFC Staff</PageTitle>
+
+<div class="mobile-portal">
+    <!-- HEADER -->
+    <header class="portal-header shadow-sm">
+        <div class="container py-3">
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-icon btn-light" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <h5 class="mb-0 fw-bold header-title">Shift Report</h5>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="container py-4 flex-grow-1">
+        @if (Submitted)
+        {
+            <div class="success-state animate-fade-in text-center py-5">
+                <div class="success-icon mb-4">
+                    <i class="bi bi-check-circle-fill display-1 text-success"></i>
+                </div>
+                <h3 class="fw-bold">Report Submitted!</h3>
+                <p class="text-muted">Your sales figures have been recorded to the central system.</p>
+                <div class="mt-4 d-grid gap-2">
+                    <button class="btn btn-primary btn-lg rounded-pill shadow" @onclick='() => Submitted = false'>
+                        Submit Another
+                    </button>
+                    <button class="btn btn-outline-secondary btn-lg rounded-pill" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                        Return to Hub
+                    </button>
+                </div>
+            </div>
+        }
+        else if (Loading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-3 text-muted">Preparing your report...</p>
+            </div>
+        }
+        else
+        {
+            <div class="report-form animate-slide-up">
+                <div class="alert alert-info rounded-4 border-0 shadow-sm d-flex align-items-center gap-3 mb-4">
+                    <i class="bi bi-info-circle-fill fs-4"></i>
+                    <div>
+                        <small class="d-block text-uppercase fw-bold opacity-75">Active Shift</small>
+                        <span class="fw-bold">@(ActiveShift?.ClockInTime?.ToString("hh:mm tt") ?? "No Active Shift")</span>
+                    </div>
+                </div>
+
+                <div class="form-section mb-4">
+                    <label class="form-label fw-bold small text-uppercase text-muted">Step 1: Shift Selection</label>
+                    <div class="shift-selector d-flex gap-2">
+                        <button type="button" class='shift-btn @(ShiftType == "Day" ? "active" : "")' @onclick='() => ShiftType = "Day"'>
+                            <i class="bi bi-sun-fill me-2"></i> Day Shift
+                        </button>
+                        <button type="button" class='shift-btn @(ShiftType == "Night" ? "active" : "")' @onclick='() => ShiftType = "Night"'>
+                            <i class="bi bi-moon-stars-fill me-2"></i> Night Shift
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-section mb-4">
+                    <label class="form-label fw-bold small text-uppercase text-muted">Step 2: Sales Figures</label>
+                    
+                    <div class="input-card mb-3">
+                        <div class="input-header">
+                            <i class="bi bi-cash-stack text-success"></i>
+                            <span>Bar Sales</span>
+                        </div>
+                        <div class="input-body">
+                            <span class="currency-symbol">$</span>
+                            <input type="number" step="0.01" class="sales-input" @bind-value="BarSales" placeholder="0.00" />
+                        </div>
+                    </div>
+
+                    <div class="input-card mb-3">
+                        <div class="input-header">
+                            <i class="bi bi-ticket-perforated text-warning"></i>
+                            <span>Lottery Sales (Optional)</span>
+                        </div>
+                        <div class="input-body">
+                            <span class="currency-symbol">$</span>
+                            <input type="number" step="0.01" class="sales-input" @bind-value="LottoSales" placeholder="0.00" />
+                        </div>
+                    </div>
+                    
+                    <div class="total-display mt-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted">Total Deposit</span>
+                            <span class="fw-bold fs-4 text-primary">$@((BarSales + LottoSales).ToString("N2"))</span>
+                        </div>
+                        <div class="progress" style="height: 6px;">
+                            <div class="progress-bar bg-primary" style="width: 100%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section mb-5">
+                    <label class="form-label fw-bold small text-uppercase text-muted">Step 3: Notes & Completion</label>
+                    <textarea class="form-control rounded-4 border-0 shadow-sm p-3 mb-4" rows="3" 
+                              placeholder="Any notes about the shift, discrepancies, or maintenance needs..." @bind="Notes"></textarea>
+                    
+                    <div class="d-grid">
+                        <button class="btn btn-primary btn-lg rounded-pill shadow-lg py-3 fw-bold" 
+                                disabled="@IsSubmitting" @onclick="HandleSubmit">
+                            @if (IsSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Submitting...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-cloud-upload-fill me-2"></i>
+                                <span>Submit Shift Report</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </main>
+</div>
+
+<style>
+    .mobile-portal {
+        background-color: #f0f2f5;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        color: #1a1d20;
+    }
+
+    .portal-header {
+        background: white;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+
+    .btn-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+    }
+
+    .shift-selector {
+        padding: 4px;
+        background: white;
+        border-radius: 14px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+    }
+
+    .shift-btn {
+        flex: 1;
+        border: none;
+        padding: 12px;
+        border-radius: 10px;
+        background: transparent;
+        color: #6c757d;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }
+
+    .shift-btn.active {
+        background: #0d6efd;
+        color: white;
+        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.2);
+    }
+
+    .input-card {
+        background: white;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        border: 1px solid rgba(0,0,0,0.03);
+    }
+
+    .input-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 12px;
+        color: #495057;
+    }
+
+    .input-body {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .currency-symbol {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #ced4da;
+    }
+
+    .sales-input {
+        border: none;
+        width: 100%;
+        font-size: 2rem;
+        font-weight: 700;
+        color: #212529;
+        outline: none;
+        background: transparent;
+    }
+
+    .sales-input::placeholder {
+        color: #e9ecef;
+    }
+
+    .total-display {
+        background: white;
+        padding: 20px;
+        border-radius: 16px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+
+    .success-state {
+        animation: fadeIn 0.5s ease-out;
+    }
+
+    .success-icon i {
+        filter: drop-shadow(0 4px 8px rgba(25, 135, 84, 0.2));
+    }
+
+    .animate-slide-up {
+        animation: slideUp 0.4s ease-out both;
+    }
+
+    @@keyframes slideUp {
+        from { transform: translateY(30px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    /* Remove arrows from number input */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+</style>
+
+@code {
+    private decimal BarSales { get; set; }
+    private decimal LottoSales { get; set; }
+    private string ShiftType { get; set; } = "Day";
+    private string? Notes { get; set; }
+    
+    private bool Loading { get; set; } = true;
+    private bool IsSubmitting { get; set; } = false;
+    private bool Submitted { get; set; } = false;
+    
+    private AppUser? CurrentUser { get; set; }
+    private StaffShift? ActiveShift { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        CurrentUser = AuthStateProvider.GetCurrentUser();
+        if (CurrentUser == null)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        try
+        {
+            ActiveShift = await ShiftService.GetCurrentShiftAsync(CurrentUser.Username);
+            if (ActiveShift != null)
+            {
+                ShiftType = ActiveShift.ShiftType == 1 ? "Day" : "Night";
+            }
+            else
+            {
+                ShiftType = DateTime.Now.Hour < 17 ? "Day" : "Night";
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading current shift: {ex.Message}");
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (BarSales <= 0 && LottoSales <= 0)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please enter sales amount for Bar or Lottery.");
+            return;
+        }
+
+        IsSubmitting = true;
+        try
+        {
+            await Task.Delay(500); // UI Polish
+
+            // 1. Submit to ShiftReports (Legacy/Summary)
+            if (ActiveShift != null)
+            {
+                var report = new GFC.Core.Models.ShiftReport
+                {
+                    ShiftId = ActiveShift.Id,
+                    BartenderId = ActiveShift.StaffMemberId,
+                    BarSales = BarSales,
+                    LottoSales = LottoSales,
+                    TotalDeposit = BarSales + LottoSales,
+                    SubmittedAt = DateTime.UtcNow
+                };
+                await ShiftService.SubmitReportAsync(report);
+            }
+
+            // 2. Submit to BarSaleEntries (Main analytical table)
+            if (BarSales > 0)
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var barEntry = new BarSaleEntry
+                {
+                    SaleDate = DateTime.Now,
+                    TotalSales = BarSales,
+                    TotalItemsSold = 0, // Not collected here
+                    Shift = ShiftType,
+                    Notes = Notes,
+                    CreatedAt = DateTime.UtcNow
+                };
+                db.BarSaleEntries.Add(barEntry);
+                await db.SaveChangesAsync();
+            }
+
+            // 3. Submit to LotteryShifts (Lottery specific table)
+            if (LottoSales > 0)
+            {
+                var lottoShift = new LotteryShift
+                {
+                    ShiftDate = DateTime.Today,
+                    EmployeeName = CurrentUser?.Username ?? "Unknown",
+                    ShiftType = ShiftType,
+                    TotalSales = LottoSales,
+                    Notes = Notes,
+                    CreatedBy = CurrentUser?.Username,
+                    CreatedDate = DateTime.UtcNow,
+                    Status = "Submitted"
+                };
+                LotteryRepo.Create(lottoShift);
+            }
+
+            Submitted = true;
+            
+            // Reset fields
+            BarSales = 0;
+            LottoSales = 0;
+            Notes = null;
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Failed to record sales: " + ex.Message);
+        }
+        finally
+        {
+            IsSubmitting = false;
+        }
+    }
+}
