@@ -14,6 +14,7 @@ namespace GFC.BlazorServer.Middleware
             "/login",
             "/changepassword",
             "/setup", 
+            "/setup/wizard",
             "/api", 
             "/error", 
             "/_framework", 
