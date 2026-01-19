@@ -44,7 +44,7 @@ window.GFC_Passkeys = {
                 publicKey: options
             });
 
-            return {
+            const result = {
                 id: credential.id,
                 rawId: this.coerceToBase64Url(credential.rawId),
                 type: credential.type,
@@ -53,6 +53,8 @@ window.GFC_Passkeys = {
                     clientDataJSON: this.coerceToBase64Url(credential.response.clientDataJSON)
                 }
             };
+
+            return JSON.stringify(result);
         } catch (e) {
             console.error("Passkey Registration Error:", e);
             throw e;
@@ -73,7 +75,7 @@ window.GFC_Passkeys = {
                 publicKey: options
             });
 
-            return {
+            const result = {
                 id: assertion.id,
                 rawId: this.coerceToBase64Url(assertion.rawId),
                 type: assertion.type,
@@ -84,6 +86,8 @@ window.GFC_Passkeys = {
                     userHandle: assertion.response.userHandle ? this.coerceToBase64Url(assertion.response.userHandle) : null
                 }
             };
+
+            return JSON.stringify(result);
         } catch (e) {
             console.error("Passkey Login Error:", e);
             throw e;
