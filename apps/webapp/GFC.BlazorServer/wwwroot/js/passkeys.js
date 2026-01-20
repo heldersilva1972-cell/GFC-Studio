@@ -40,9 +40,13 @@ window.GFC_Passkeys = {
         }
 
         try {
+            console.log('[GFC_Passkeys] Starting registration with options:', options);
+
             const credential = await navigator.credentials.create({
                 publicKey: options
             });
+
+            console.log('[GFC_Passkeys] Credential created successfully:', credential);
 
             const result = {
                 id: credential.id,
@@ -54,10 +58,18 @@ window.GFC_Passkeys = {
                 }
             };
 
+            console.log('[GFC_Passkeys] Registration result prepared:', result);
             return JSON.stringify(result);
         } catch (e) {
-            console.error("Passkey Registration Error:", e);
-            throw e;
+            console.error("[GFC_Passkeys] Registration Error Details:", {
+                name: e.name,
+                message: e.message,
+                code: e.code,
+                stack: e.stack
+            });
+
+            // Re-throw with more context
+            throw new Error(`Passkey registration failed: ${e.name} - ${e.message}`);
         }
     },
 

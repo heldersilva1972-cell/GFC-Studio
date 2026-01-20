@@ -18,20 +18,24 @@ public interface IPasskeyService
     Task<bool> RevokeAllUserPasskeysAsync(int userId);
 }
 
+
 public class PasskeyService : IPasskeyService
 {
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<PasskeyService> _logger;
     private readonly IConfiguration _configuration;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public PasskeyService(
         IDbContextFactory<GfcDbContext> contextFactory,
         ILogger<PasskeyService> logger,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHttpContextAccessor httpContextAccessor)
     {
         _contextFactory = contextFactory;
         _logger = logger;
         _configuration = configuration;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<object> RequestRegistrationOptionsAsync(int userId, string username)
@@ -47,7 +51,24 @@ public class PasskeyService : IPasskeyService
             .ToListAsync();
 
         var rpName = _configuration["Fido2:ServerName"] ?? "GFC System";
-        var rpId = _configuration["Fido2:ServerDomain"] ?? "localhost";
+        
+        // CRITICAL FIX: Get the actual hostname from the current request
+        // WebAuthn requires rpId to match the domain the user is accessing from
+        string rpId;
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext != null)
+        {
+            var host = httpContext.Request.Host.Host;
+            // Remove port if present and use just the hostname
+            rpId = host;
+            _logger.LogInformation("Using rpId from request: {RpId}", rpId);
+        }
+        else
+        {
+            // Fallback to config if no HTTP context (shouldn't happen in normal flow)
+            rpId = _configuration["Fido2:ServerDomain"] ?? "localhost";
+            _logger.LogWarning("No HTTP context available, using fallback rpId: {RpId}", rpId);
+        }
 
         return new
         {
@@ -80,12 +101,17 @@ public class PasskeyService : IPasskeyService
     {
         try
         {
+            _logger.LogInformation("Starting passkey registration for userId={UserId}, credentialId={CredentialId}", userId, credentialId);
+            
             await using var context = await _contextFactory.CreateDbContextAsync();
             
             // Check if credential already exists
-            if (await context.UserPasskeys.AnyAsync(p => p.CredentialId == credentialId))
+            var existingPasskey = await context.UserPasskeys
+                .FirstOrDefaultAsync(p => p.CredentialId == credentialId);
+                
+            if (existingPasskey != null)
             {
-                _logger.LogWarning("Credential {CredentialId} already exists", credentialId);
+                _logger.LogWarning("Credential {CredentialId} already exists for user {ExistingUserId}", credentialId, existingPasskey.UserId);
                 return false;
             }
 
@@ -99,18 +125,23 @@ public class PasskeyService : IPasskeyService
                 SignatureCounter = 0,
                 AttestationFormat = "none",
                 CreatedAtUtc = DateTime.UtcNow,
-                AAGUID = Guid.Empty
+                AAGUID = null  // Set to null instead of Guid.Empty for nullable column
             };
 
             context.UserPasskeys.Add(passkey);
-            await context.SaveChangesAsync();
+            var rowsAffected = await context.SaveChangesAsync();
             
-            _logger.LogInformation("Passkey registered for user {UserId}", userId);
-            return true;
+            _logger.LogInformation("Passkey registered successfully for user {UserId}. Rows affected: {RowsAffected}", userId, rowsAffected);
+            return rowsAffected > 0;
+        }
+        catch (DbUpdateException dbEx)
+        {
+            _logger.LogError(dbEx, "Database error completing passkey registration for user {UserId}", userId);
+            return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error completing passkey registration");
+            _logger.LogError(ex, "Error completing passkey registration for user {UserId}", userId);
             return false;
         }
     }

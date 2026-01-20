@@ -280,13 +280,25 @@
         try
         {
             var user = AuthStateProvider.GetCurrentUser();
-            if (user == null) return;
+            if (user == null) 
+            {
+                _passkeyError = "User session not found. Please log in again.";
+                return;
+            }
 
             // 1. Request options from server
             var options = await PasskeyService.RequestRegistrationOptionsAsync(user.UserId, user.Username);
+            Logger.LogInformation("Passkey registration options generated for user {UserId}", user.UserId);
             
             // 2. Trigger browser WebAuthn API
             var responseJson = await JS.InvokeAsync<string>("GFC_Passkeys.register", options);
+            Logger.LogInformation("Browser WebAuthn response received: {Length} chars", responseJson?.Length ?? 0);
+            
+            if (string.IsNullOrEmpty(responseJson))
+            {
+                _passkeyError = "No response from biometric scanner. Please try again.";
+                return;
+            }
             
             // 3. Complete registration on server
             using var doc = System.Text.Json.JsonDocument.Parse(responseJson);
@@ -294,21 +306,34 @@
             var credentialId = root.GetProperty("id").GetString()!;
             var publicKey = root.GetProperty("response").GetProperty("attestationObject").GetString()!;
             
+            Logger.LogInformation("Completing passkey registration with credentialId: {CredentialId}", credentialId);
             var success = await PasskeyService.CompleteRegistrationAsync(user.UserId, credentialId, publicKey, $"Device: {user.Username} Setup");
 
             if (success)
             {
+                Logger.LogInformation("Passkey registration successful for user {UserId}", user.UserId);
                 NextStep();
             }
             else
             {
-                _passkeyError = "Failed to register security key. Please try again.";
+                _passkeyError = "Failed to save security key to database. Please contact support.";
+                Logger.LogWarning("Passkey registration returned false for user {UserId}", user.UserId);
             }
+        }
+        catch (System.Text.Json.JsonException jsonEx)
+        {
+            Logger.LogError(jsonEx, "JSON parsing error during passkey setup");
+            _passkeyError = "Invalid response from biometric scanner. Please try again.";
+        }
+        catch (JSException jsEx)
+        {
+            Logger.LogError(jsEx, "JavaScript error during passkey setup");
+            _passkeyError = $"Browser error: {jsEx.Message}. Your device may not support this feature.";
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Passkey setup error");
-            _passkeyError = "Security binding failed. Ensure your device supports biometric login and try again.";
+            _passkeyError = $"Security binding failed: {ex.Message}";
         }
         finally
         {
