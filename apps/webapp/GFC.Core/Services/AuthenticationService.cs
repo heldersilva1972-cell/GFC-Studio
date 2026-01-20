@@ -372,6 +372,23 @@ public class AuthenticationService : IAuthenticationService
         return _currentUser;
     }
 
+    public async Task<AppUser?> RefreshCurrentUserAsync()
+    {
+        if (_currentUser == null) return null;
+        
+        var refreshedUser = _userRepository.GetById(_currentUser.UserId);
+        if (refreshedUser != null && refreshedUser.IsActive)
+        {
+            _currentUser = refreshedUser;
+        }
+        else
+        {
+            _currentUser = null;
+        }
+
+        return _currentUser;
+    }
+
     public MfaSetupInfo GenerateMfaSetup(AppUser user)
     {
         var tfa = new TwoFactorAuthenticator();

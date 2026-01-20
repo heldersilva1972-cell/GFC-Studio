@@ -20,6 +20,7 @@ public interface IDeviceTrustService
     Task<int?> GetUserIdByTokenAsync(string token);
     Task<List<TrustedDevice>> GetDevicesForUserAsync(int userId);
     Task<List<DeviceSessionDto>> GetAllActiveDevicesAsync();
+    Task RevokeAllGlobalSessionsAsync();
 }
 
 public class DeviceSessionDto
@@ -318,6 +319,31 @@ public class DeviceTrustService : IDeviceTrustService
         {
             _logger.LogError(ex, "Error getting all active devices");
             return new List<DeviceSessionDto>();
+        }
+    }
+
+    public async Task RevokeAllGlobalSessionsAsync()
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var devices = await context.TrustedDevices
+                .Where(t => !t.IsRevoked)
+                .ToListAsync();
+            
+            if (devices.Any())
+            {
+                foreach (var device in devices)
+                {
+                    device.IsRevoked = true;
+                }
+                await context.SaveChangesAsync();
+                _logger.LogInformation("GLOBAL REVOKE: Revoked {Count} active device tokens system-wide.", devices.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error revoking all global device tokens");
         }
     }
 }

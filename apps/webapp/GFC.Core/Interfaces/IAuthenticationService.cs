@@ -14,6 +14,7 @@ public interface IAuthenticationService
     MfaSetupInfo GenerateMfaSetup(AppUser user);
     Task LogoutAsync(string? deviceToken = null);
     AppUser? GetCurrentUser();
+    Task<AppUser?> RefreshCurrentUserAsync();
 }
 
 public enum LoginResultCode

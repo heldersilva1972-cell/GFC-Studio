@@ -14,7 +14,10 @@
             <h1><i class="bi bi-globe2 me-2"></i>Active Web Sessions</h1>
             <p class="text-muted">View all devices currently authorized to log in to the web application.</p>
         </div>
-        <div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-danger" @onclick="RevokeAllSessions">
+                <i class="bi bi-shield-slash me-1"></i> Revoke All Sessions
+            </button>
             <button class="btn btn-outline-secondary" @onclick="LoadData">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
@@ -100,11 +103,18 @@
                                 <td class="text-end">
                                     @if (!session.IsRevoked)
                                     {
-                                        <button class="btn btn-sm btn-outline-danger" 
-                                                @onclick="() => RevokeSession(session)"
-                                                title="Revoke Access">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
+                                        <div class="btn-group">
+                                            <button class="btn btn-sm btn-outline-warning" 
+                                                    @onclick="() => RevokeUserSessions(session.UserId, session.Username)"
+                                                    title="Revoke ALL sessions for this user">
+                                                <i class="bi bi-person-x"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" 
+                                                    @onclick="() => RevokeSession(session)"
+                                                    title="Revoke ONLY this device">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
                                     }
                                 </td>
                             </tr>
@@ -130,16 +140,6 @@
         _isLoading = true;
         try
         {
-            // We need a method to get ALL active tokens from the service
-            // Since IDeviceTrustService doesn't have a GetAll method exposed yet, we might need to add one.
-            // For now, let's assume we add it or query directly if we were in the service.
-            // Wait, we need to modify the service to support this Admin view.
-            
-            // Actually, for this specific request, I'll update the service interface first.
-            // But to avoid blocking, I'll temporarily use the existing GetDevicesForUserAsync looping through all users? No, that's inefficient.
-            // I will ADD GetAllActiveDevicesAsync to IDeviceTrustService.
-            
-            // Placeholder:
             _sessions = await DeviceTrustService.GetAllActiveDevicesAsync();
         }
         catch (Exception ex)
@@ -156,11 +156,40 @@
     private async Task RevokeSession(DeviceSessionDto session)
     {
         bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
-            $"Are you sure you want to revoke access for {session.Username}? They will be logged out on their next request.");
+            $"Revoke access for this {ParseUserAgent(session.UserAgent)} device? The user ({session.Username}) will be logged out on this specific device.");
             
         if (confirmed)
         {
             await DeviceTrustService.RevokeDeviceTokenAsync(session.DeviceToken);
+            await LoadData();
+        }
+    }
+
+    private async Task RevokeUserSessions(int userId, string username)
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Revoke ALL active web sessions for {username}? They will be forced to log in again on ALL their devices.");
+            
+        if (confirmed)
+        {
+            await DeviceTrustService.RevokeAllUserDevicesAsync(userId);
+            await LoadData();
+        }
+    }
+
+    private async Task RevokeAllSessions()
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            "DANGER: Revoke ALL active web sessions for EVERY user in the system? Everyone (including you) will be forced to log in again.");
+            
+        if (confirmed)
+        {
+            await DeviceTrustService.CleanupExpiredTokensAsync(); // Cleanup first
+            
+            // We need a global revoke method in the service
+            // For now, we can loop through all sessions and revoke them, but a single SQL query is better.
+            // Let's add RevokeAllGlobalSessionsAsync to the service.
+            await DeviceTrustService.RevokeAllGlobalSessionsAsync();
             await LoadData();
         }
     }

@@ -165,6 +165,13 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
     }
 
+    public async Task RefreshUserAsync()
+    {
+        await _authenticationService.RefreshCurrentUserAsync();
+        RefreshFromAuthenticationService();
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+    }
+
     public AppUser? GetCurrentUser()
     {
         RefreshFromAuthenticationService();
@@ -185,9 +192,10 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
 
         if (serviceUser != null && serviceUser.IsActive)
         {
-            // Update if user changed, or if key flags like PasswordChangeRequired have been updated
+            // Update if user changed, or if key flags like IsAdmin or PasswordChangeRequired have been updated
             bool stateChanged = _currentUser == null || 
                                _currentUser.UserId != serviceUser.UserId || 
+                               _currentUser.IsAdmin != serviceUser.IsAdmin ||
                                _currentUser.PasswordChangeRequired != serviceUser.PasswordChangeRequired ||
                                _currentPrincipal.Identity?.IsAuthenticated != true;
 
