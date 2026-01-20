@@ -21,17 +21,19 @@ window.financialCharts = {
             const bgColor = dataset.bg || colorPalette[index % colorPalette.length].bg;
 
             return {
+                type: config.type, // Explicitly set dataset type
                 label: dataset.label,
                 data: dataset.data,
                 backgroundColor: bgColor,
                 borderColor: colors,
-                borderWidth: 2,
+                borderWidth: 1,
                 borderRadius: config.type === 'bar' ? 4 : 0,
                 tension: 0.4,
-                fill: config.type === 'line',
-                pointRadius: 4,
+                fill: false,
+                pointRadius: config.type === 'line' ? 4 : 0,
                 pointHoverRadius: 6,
-                stack: dataset.stack || null
+                barPercentage: 0.9,
+                categoryPercentage: 0.8
             };
         });
 
@@ -44,14 +46,25 @@ window.financialCharts = {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
                 plugins: {
                     legend: {
                         position: 'top',
-                        labels: { usePointStyle: true, pointStyle: 'circle', font: { weight: 'bold' } }
+                        labels: {
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            font: { weight: 'bold', size: 11 },
+                            padding: 20
+                        }
                     },
                     tooltip: {
                         padding: 12,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleFont: { size: 14, weight: 'bold' },
+                        bodyFont: { size: 13 },
                         callbacks: {
                             label: function (context) {
                                 let label = context.dataset.label || '';
@@ -64,13 +77,19 @@ window.financialCharts = {
                 },
                 scales: {
                     x: {
-                        stacked: config.stacked || false,
-                        grid: { display: false }
+                        stacked: false,
+                        offset: true,
+                        grid: { display: false },
+                        ticks: { font: { size: 10 } }
                     },
                     y: {
-                        stacked: config.stacked || false,
+                        stacked: false,
                         beginAtZero: true,
-                        ticks: { callback: value => '$' + value.toLocaleString() }
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                        ticks: {
+                            callback: value => '$' + value.toLocaleString(),
+                            font: { size: 10 }
+                        }
                     }
                 }
             }

@@ -1,0 +1,430 @@
+@page "/mobile/manage-schedule"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.BlazorServer.Auth
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Interfaces
+@inject NavigationManager Navigation
+@inject IShiftService ShiftService
+@inject IMemberRepository MemberRepository
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@attribute [Authorize(Roles = "Admin")]
+
+<PageTitle>Manage Schedule | GFC</PageTitle>
+
+<div class="mobile-app-container">
+    <!-- HEADER -->
+    <header class="app-header">
+        <div class="container py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-3">
+                    <button class="btn btn-light rounded-3" style="width: 40px; height: 40px; padding: 0;" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <h6 class="mb-0 fw-bold header-title">Schedule Manager</h6>
+                </div>
+                <div class="d-flex bg-light rounded-pill p-1 shadow-sm" style="border: 1px solid #eee;">
+                    <button class="btn btn-sm @(_activeTab == "assignments" ? "bg-white shadow-sm" : "text-muted")" 
+                            style="border-radius: 50px; padding: 4px 12px; font-size: 0.75rem; border: none;"
+                            @onclick='() => _activeTab = "assignments"'>Shifts</button>
+                    <button class="btn btn-sm @(_activeTab == "roster" ? "bg-white shadow-sm" : "text-muted")" 
+                            style="border-radius: 50px; padding: 4px 12px; font-size: 0.75rem; border: none;"
+                            @onclick='() => _activeTab = "roster"'>Roster</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="container py-4 flex-grow-1" style="overflow-y: auto; padding-bottom: 80px;">
+        @if (_isLoading)
+        {
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            @if (_activeTab == "assignments")
+            {
+                <div class="animate-entrance">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="fw-bold mb-0">Weekly Assignments</h6>
+                        <div class="d-flex gap-2">
+                             <button class="btn btn-xs btn-light" @onclick="PrevWeek"><i class="bi bi-chevron-left"></i></button>
+                             <span class="small fw-bold">@_currentDate.ToString("MMM dd")</span>
+                             <button class="btn btn-xs btn-light" @onclick="NextWeek"><i class="bi bi-chevron-right"></i></button>
+                        </div>
+                    </div>
+
+                    @foreach (var day in _weekDays)
+                    {
+                        var dayShifts = _shifts.Where(s => s.Date.Date == day.Date).ToList();
+                        var dayShift = dayShifts.FirstOrDefault(s => s.ShiftType == 1);
+                        var nightShift = dayShifts.FirstOrDefault(s => s.ShiftType == 2);
+
+                        <div class="manager-day-card mb-4 bg-white rounded-4 border p-3 shadow-sm">
+                            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                                <span class="fw-black text-primary">@day.ToString("dddd, MMM dd")</span>
+                                @if(day.Date == DateTime.Today) { <span class="badge bg-primary rounded-pill" style="font-size: 0.6rem;">TODAY</span> }
+                            </div>
+
+                            <!-- Day Shift Selector -->
+                            <div class="mb-3">
+                                <label class="small fw-bold text-muted text-uppercase mb-1 d-block" style="font-size: 0.65rem;">
+                                    <i class="bi bi-sun-fill text-warning me-1"></i> Day Shift (10am-5pm)
+                                </label>
+                                <select class="form-select form-select-sm rounded-3 border-0 bg-light" 
+                                        value="@(dayShift?.StaffMemberId ?? 0)" 
+                                        @onchange="(e) => AssignShift(day, 1, e)">
+                                    <option value="0">-- Unassigned --</option>
+                                    @foreach (var staff in _activeStaff)
+                                    {
+                                        <option value="@staff.Id">@staff.Name</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <!-- Night Shift Selector -->
+                            <div>
+                                <label class="small fw-bold text-muted text-uppercase mb-1 d-block" style="font-size: 0.65rem;">
+                                    <i class="bi bi-moon-stars-fill text-info me-1"></i> Night Shift (5pm-2am)
+                                </label>
+                                <select class="form-select form-select-sm rounded-3 border-0 bg-light" 
+                                        value="@(nightShift?.StaffMemberId ?? 0)" 
+                                        @onchange="(e) => AssignShift(day, 2, e)">
+                                    <option value="0">-- Unassigned --</option>
+                                    @foreach (var staff in _activeStaff)
+                                    {
+                                        <option value="@staff.Id">@staff.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else if (_activeTab == "roster")
+            {
+                <div class="animate-entrance">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h6 class="fw-bold mb-0">Active Bartenders</h6>
+                        <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="OpenAddStaff">
+                            <i class="bi bi-plus-lg me-1"></i> Add
+                        </button>
+                    </div>
+
+                    @if (!_activeStaff.Any())
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-people display-4 opacity-25"></i>
+                            <p class="mt-2">No staff added to roster.</p>
+                        </div>
+                    }
+
+                    @foreach (var staff in _activeStaff)
+                    {
+                        <div class="app-card mb-2" style="padding: 12px 16px;">
+                            <div class="d-flex align-items-center gap-3 w-100">
+                                <div class="staff-avatar">@staff.Name[0]</div>
+                                <div style="flex-grow: 1;">
+                                    <h6 class="mb-0 fw-bold">@staff.Name</h6>
+                                    <span class="text-muted small">@ (staff.IsMember ? "GFC Member" : "External Staff")</span>
+                                </div>
+                                <button class="btn btn-light btn-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" @onclick="() => DeactivateStaff(staff)">
+                                    <i class="bi bi-person-x text-danger"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </main>
+
+    <!-- ADD STAFF MODAL -->
+    @if (_showAddStaff)
+    {
+        <div class="modal-backdrop-custom animate-fade-in" @onclick="CloseModals"></div>
+        <div class="bottom-sheet animate-slide-up">
+            <div class="sheet-handle"></div>
+            <div class="p-4">
+                <h5 class="fw-bold mb-3">Add New Bartender</h5>
+                
+                <div class="mb-4">
+                    <label class="modern-label mb-2">Source Type</label>
+                    <div class="d-flex gap-2 p-1 bg-light rounded-4">
+                        <button class='src-opt @(!_isMemberMode ? "active" : "")' @onclick='() => _isMemberMode = false'>External</button>
+                        <button class='src-opt @(_isMemberMode ? "active" : "")' @onclick='() => _isMemberMode = true'>GFC Member</button>
+                    </div>
+                </div>
+
+                @if (_isMemberMode)
+                {
+                    <div class="mb-4">
+                        <label class="modern-label mb-2">Select Member</label>
+                        <select class="form-select modern-select" @bind="_selectedMemberId">
+                            <option value="0">-- Select a member --</option>
+                            @foreach (var member in _allMembers)
+                            {
+                                <option value="@member.MemberID">@member.FirstName @member.LastName</option>
+                            }
+                        </select>
+                    </div>
+                }
+                else
+                {
+                    <div class="mb-4">
+                        <label class="modern-label mb-2">Display Name</label>
+                        <input type="text" class="form-control modern-input" placeholder="e.g. John Smith" @bind="_newStaffName" />
+                    </div>
+                }
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-app-primary py-3" @onclick="SaveStaff" disabled="@_isSaving">
+                        @if(_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        Add to Roster
+                    </button>
+                    <button class="btn btn-light py-3 border-0 rounded-4" @onclick="CloseModals">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- BOTTOM BAR (Same as Schedule for consistency) -->
+    <nav class="app-nav-bar">
+        <div class="container nav-tabs-container">
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                <i class="bi bi-grid"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Hub</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/schedule")'>
+                <i class="bi bi-calendar-event"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Schedule</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/shift-report")'>
+                <i class="bi bi-calendar-check"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Reports</span>
+            </button>
+            <button class="nav-tab-item active" style="border: none; background: none;">
+                <i class="bi bi-gear-fill"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Admin</span>
+            </button>
+        </div>
+    </nav>
+</div>
+
+<style>
+    .staff-avatar {
+        width: 40px;
+        height: 40px;
+        background: var(--app-primary-gradient);
+        color: white;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 1.1rem;
+    }
+
+    .modal-backdrop-custom {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+
+    .bottom-sheet {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: white;
+        border-radius: 24px 24px 0 0;
+        z-index: 1050;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+    }
+
+    .sheet-handle {
+        width: 40px;
+        height: 4px;
+        background: #ddd;
+        border-radius: 2px;
+        margin: 12px auto;
+    }
+
+    .src-opt {
+        flex: 1; border: none; padding: 10px; border-radius: 12px;
+        background: transparent; color: #888; font-weight: 600; font-size: 0.8rem;
+        transition: all 0.2s;
+    }
+    .src-opt.active { background: white; color: var(--app-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+
+    .modern-select { height: 55px; border-radius: 14px; border: 1px solid #eee; background: #f8f9fa; font-weight: 600; }
+</style>
+
+@code {
+    private bool _isLoading = true;
+    private string _activeTab = "assignments";
+    private DateTime _currentDate = DateTime.Today;
+    private List<DateTime> _weekDays = new();
+    private List<StaffShift> _shifts = new();
+    private List<StaffMember> _activeStaff = new();
+    private List<Member> _allMembers = new();
+
+    private bool _showAddStaff = false;
+    private bool _isMemberMode = false;
+    private bool _isSaving = false;
+    private string _newStaffName = "";
+    private string _selectedMemberId = "0";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentDate = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        _weekDays.Clear();
+        for (int i = 0; i < 7; i++) _weekDays.Add(_currentDate.AddDays(i));
+
+        try
+        {
+            var shifts = await ShiftService.GetShiftsForRangeAsync(_weekDays.First(), _weekDays.Last());
+            _shifts = shifts.ToList();
+            
+            var staff = await ShiftService.GetActiveStaffMembersAsync();
+            _activeStaff = staff.ToList();
+
+            var members = await MemberRepository.GetAllAsync();
+            _allMembers = members.Where(m => m.Status == "Active").OrderBy(m => m.LastName).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading data: {ex.Message}");
+        }
+
+        _isLoading = false;
+    }
+
+    private async Task AssignShift(DateTime date, int type, ChangeEventArgs e)
+    {
+        int staffId = int.Parse(e.Value?.ToString() ?? "0");
+        var existing = _shifts.FirstOrDefault(s => s.Date.Date == date.Date && s.ShiftType == type);
+
+        try
+        {
+            if (staffId == 0)
+            {
+                if (existing != null)
+                {
+                    await ShiftService.DeleteStaffShiftAsync(existing.Id);
+                }
+            }
+            else
+            {
+                var staff = _activeStaff.First(s => s.Id == staffId);
+                if (existing != null)
+                {
+                    existing.StaffMemberId = staffId;
+                    existing.StaffName = staff.Name;
+                    await ShiftService.UpdateStaffShiftAsync(existing);
+                }
+                else
+                {
+                    var shift = new StaffShift
+                    {
+                        Date = date,
+                        ShiftType = type,
+                        StaffMemberId = staffId,
+                        StaffName = staff.Name,
+                        Status = 1
+                    };
+                    await ShiftService.CreateStaffShiftAsync(shift);
+                }
+            }
+            
+            // Refresh local list
+            var shifts = await ShiftService.GetShiftsForRangeAsync(_weekDays.First(), _weekDays.Last());
+            _shifts = shifts.ToList();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Failed to save shift: {ex.Message}");
+        }
+    }
+
+    private async Task DeactivateStaff(StaffMember staff)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Mark {staff.Name} as inactive?")) return;
+
+        try
+        {
+            staff.IsActive = false;
+            await ShiftService.UpdateStaffMemberAsync(staff);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+    }
+
+    private void OpenAddStaff() { _showAddStaff = true; _newStaffName = ""; _selectedMemberId = "0"; }
+    private void CloseModals() { _showAddStaff = false; }
+
+    private async Task SaveStaff()
+    {
+        _isSaving = true;
+        try
+        {
+            if (_isMemberMode)
+            {
+                if (_selectedMemberId == "0") return;
+                var member = _allMembers.First(m => m.MemberID == int.Parse(_selectedMemberId));
+                var newStaff = new StaffMember
+                {
+                    Name = $"{member.FirstName} {member.LastName}",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    IsMember = true,
+                    RefMemberId = member.MemberID
+                };
+                await ShiftService.CreateStaffMemberAsync(newStaff);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(_newStaffName)) return;
+                var newStaff = new StaffMember
+                {
+                    Name = _newStaffName,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    IsMember = false
+                };
+                await ShiftService.CreateStaffMemberAsync(newStaff);
+            }
+
+            _showAddStaff = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task PrevWeek() { _currentDate = _currentDate.AddDays(-7); await LoadData(); }
+    private async Task NextWeek() { _currentDate = _currentDate.AddDays(7); await LoadData(); }
+}
