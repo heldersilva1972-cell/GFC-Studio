@@ -21,6 +21,7 @@ public interface IDeviceTrustService
     Task<List<TrustedDevice>> GetDevicesForUserAsync(int userId);
     Task<List<DeviceSessionDto>> GetAllActiveDevicesAsync();
     Task RevokeAllGlobalSessionsAsync();
+    Task ResetMobileSetupAsync(int userId);
 }
 
 public class DeviceSessionDto
@@ -344,6 +345,38 @@ public class DeviceTrustService : IDeviceTrustService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error revoking all global device tokens");
+        }
+    }
+
+    public async Task ResetMobileSetupAsync(int userId)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            // 1. Delete Trusted Devices (Fresh start as per user request)
+            var devices = await context.TrustedDevices.Where(d => d.UserId == userId).ToListAsync();
+            if (devices.Any()) context.TrustedDevices.RemoveRange(devices);
+
+            // 2. Delete Push Subscriptions
+            var pushSubs = await context.PushSubscriptions.Where(s => s.UserId == userId).ToListAsync();
+            if (pushSubs.Any()) context.PushSubscriptions.RemoveRange(pushSubs);
+
+            // 3. Delete Passkeys
+            var passkeys = await context.UserPasskeys.Where(p => p.UserId == userId).ToListAsync();
+            if (passkeys.Any()) context.UserPasskeys.RemoveRange(passkeys);
+
+            // 4. Delete Device Invite Tokens
+            var invites = await context.DeviceInviteTokens.Where(i => i.UserId == userId).ToListAsync();
+            if (invites.Any()) context.DeviceInviteTokens.RemoveRange(invites);
+
+            await context.SaveChangesAsync();
+            _logger.LogInformation("MOBILE RESET: Performed full mobile setup reset for user {UserId}.", userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error performing full mobile reset for user {UserId}", userId);
+            throw;
         }
     }
 }

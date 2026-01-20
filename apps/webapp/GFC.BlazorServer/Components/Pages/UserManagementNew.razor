@@ -503,6 +503,15 @@
                         </div>
                     </div>
 
+                    <div class="mb-4 pt-3 border-top">
+                        <label class="form-label fw-bold text-danger">Clean Slate Action</label>
+                        <p class="small text-muted mb-3">Use this if the user is having "infinite loop" issues or needs to re-experience the "first-time" setup (PWA/Notifications).</p>
+                        <button class="btn btn-outline-danger btn-sm" @onclick="ResetMobileSetup" disabled="@_resettingMobile">
+                            @if (_resettingMobile) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                            <i class="bi bi-trash3-fill me-2"></i>Reset Mobile Setup
+                        </button>
+                    </div>
+
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle me-2"></i>
                         The link will be valid for <strong>1 hour</strong> and can be used on <strong>one device</strong>.
@@ -650,6 +659,7 @@
     private bool _revokePreviousPasskeys = false;
     private string _generatedInviteLink = "";
     private bool _generatingLink = false;
+    private bool _resettingMobile = false;
     private bool _copied = false;
 
     // User Modal
@@ -975,6 +985,33 @@
         finally
         {
             _generatingLink = false;
+        }
+    }
+
+    private async Task ResetMobileSetup()
+    {
+        if (_selectedUser == null) return;
+        
+        var confirmed = await JS.InvokeAsync<bool>("confirm", 
+            $"CRITICAL: This will permanently delete all trusted devices, push subscriptions, and passkeys for '{_selectedUser.Username}'. " +
+            "The user will be treated as completely new on their next mobile access. Proceed?");
+
+        if (!confirmed) return;
+
+        _resettingMobile = true;
+        try
+        {
+            await DeviceTrustService.ResetMobileSetupAsync(_selectedUser.UserId);
+            await JS.InvokeVoidAsync("alert", "Mobile environment has been completely reset for this user.");
+            CloseDeviceSetupModal();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error resetting mobile setup: {ex.Message}");
+        }
+        finally
+        {
+            _resettingMobile = false;
         }
     }
 
