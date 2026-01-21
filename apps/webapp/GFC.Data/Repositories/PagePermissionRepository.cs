@@ -470,7 +470,7 @@ public class PagePermissionRepository : IPagePermissionRepository
 
     private static UserPagePermission MapReaderToUserPagePermission(SqlDataReader reader)
     {
-        return new UserPagePermission
+        var permission = new UserPagePermission
         {
             PermissionId = reader["PermissionId"] != DBNull.Value ? (int)reader["PermissionId"] : 0,
             UserId = reader["UserId"] != DBNull.Value ? (int)reader["UserId"] : 0,
@@ -479,5 +479,29 @@ public class PagePermissionRepository : IPagePermissionRepository
             GrantedDate = reader["GrantedDate"] != DBNull.Value ? (DateTime)reader["GrantedDate"] : DateTime.MinValue,
             GrantedBy = reader["GrantedBy"] as string
         };
+
+        // If we have page columns, map the Page object too
+        if (HasColumn(reader, "PageRoute"))
+        {
+            permission.Page = new AppPage
+            {
+                PageId = permission.PageId,
+                PageName = reader["PageName"]?.ToString() ?? string.Empty,
+                PageRoute = reader["PageRoute"]?.ToString() ?? string.Empty,
+                Category = reader["Category"] as string
+            };
+        }
+
+        return permission;
+    }
+
+    private static bool HasColumn(SqlDataReader reader, string columnName)
+    {
+        for (int i = 0; i < reader.FieldCount; i++)
+        {
+            if (reader.GetName(i).Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 }
