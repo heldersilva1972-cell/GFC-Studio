@@ -1,0 +1,425 @@
+@page "/mobile/liquor/checkout"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@implements IAsyncDisposable
+
+<PageTitle>Liquor Checkout - GFC</PageTitle>
+
+<div class="liquor-checkout-container fade-in">
+    <div class="checkout-header">
+        <button class="btn-back" @onclick='() => Navigation.NavigateTo("/mobilehub")'>
+            <i class="bi bi-chevron-left"></i>
+        </button>
+        <h1>Bottle Checkout</h1>
+        <div class="header-spacer"></div>
+    </div>
+
+    @if (_selectedItem == null)
+    {
+        <div class="scanner-section">
+            <div class="scanner-viewport">
+                <div id="reader"></div>
+                @if (!_isScannerActive)
+                {
+                    <div class="scanner-placeholder">
+                        <i class="bi bi-camera"></i>
+                        <p>Camera is off</p>
+                        <button class="btn btn-primary rounded-pill px-4" @onclick="StartScanner">
+                            Start Scanner
+                        </button>
+                    </div>
+                }
+                <div class="scanner-overlay">
+                    <div class="scan-frame"></div>
+                </div>
+            </div>
+            
+            <div class="manual-input mt-4">
+                <p class="text-muted small text-center mb-2">Can't scan? Enter UPC manually</p>
+                <div class="input-group">
+                    <input type="text" class="form-control" @bind="_manualUpc" placeholder="Enter UPC Code" />
+                    <button class="btn btn-secondary" @onclick="LookupUpc">Find</button>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="alert alert-danger mt-3 mx-3 rounded-3 py-2">
+                    <i class="bi bi-exclamation-circle me-2"></i>@_error
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="item-confirmation-section fade-in">
+            <div class="item-display-card">
+                @if (!string.IsNullOrEmpty(_selectedItem.ImageUrl))
+                {
+                    <img src="@_selectedItem.ImageUrl" class="item-image" alt="@_selectedItem.Name" />
+                }
+                else
+                {
+                    <div class="item-image-placeholder">
+                        <i class="bi bi-bottle"></i>
+                    </div>
+                }
+                
+                <div class="item-details">
+                    <h2 class="item-name">@_selectedItem.Name</h2>
+                    <p class="item-meta">@_selectedItem.BottleSize • @_selectedItem.Category</p>
+                    <div class="stock-badge @(GetStockClass(_selectedItem.CurrentStock))">
+                        Stock: @_selectedItem.CurrentStock bottles
+                    </div>
+                </div>
+            </div>
+
+            <div class="checkout-actions">
+                <h3 class="action-prompt">Remove 1 Bottle from Inventory?</h3>
+                <div class="d-grid gap-3">
+                    <button class="btn btn-success btn-lg rounded-pill py-3 fw-bold shadow" @onclick="ConfirmCheckout" disabled="@_isProcessing">
+                        @if (_isProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        <i class="bi bi-check-lg me-2"></i>Confirm Checkout
+                    </button>
+                    <button class="btn btn-outline-secondary btn-lg rounded-pill" @onclick="CancelSelection">
+                        Cancel & Rescan
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (_showSuccess)
+{
+    <div class="success-overlay fade-in">
+        <div class="success-card scale-in">
+            <div class="success-icon">
+                <i class="bi bi-check-circle"></i>
+            </div>
+            <h2>Checkout Complete</h2>
+            <p>Inventory has been updated.</p>
+            <button class="btn btn-primary rounded-pill px-5 py-2 mt-3" @onclick="ResetCheckout">
+                Next Bottle
+            </button>
+        </div>
+    </div>
+}
+
+<style>
+    .liquor-checkout-container {
+        min-height: 100vh;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .checkout-header {
+        background: white;
+        padding: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .checkout-header h1 {
+        font-size: 1.1rem;
+        font-weight: 700;
+        margin: 0;
+        color: #1e293b;
+    }
+
+    .btn-back {
+        background: #f1f5f9;
+        border: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+    }
+
+    .header-spacer { width: 36px; }
+
+    .scanner-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 1.5rem;
+    }
+
+    .scanner-viewport {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1;
+        background: #000;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    }
+
+    #reader {
+        width: 100% !important;
+        height: 100% !important;
+        border: none !important;
+    }
+
+    #reader video {
+        object-fit: cover !important;
+    }
+
+    .scanner-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        z-index: 2;
+    }
+
+    .scanner-placeholder i { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
+
+    .scanner-overlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .scan-frame {
+        width: 70%;
+        height: 70%;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 12px;
+        position: relative;
+    }
+
+    .scan-frame::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: #ef4444;
+        box-shadow: 0 0 10px #ef4444;
+        animation: scan-line 2s infinite ease-in-out;
+    }
+
+    @@keyframes scan-line {
+        0% { top: 10%; }
+        50% { top: 90%; }
+        100% { top: 10%; }
+    }
+
+    .item-confirmation-section {
+        flex: 1;
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .item-display-card {
+        background: white;
+        border-radius: 20px;
+        padding: 1.5rem;
+        text-align: center;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        margin-bottom: 2rem;
+    }
+
+    .item-image, .item-image-placeholder {
+        width: 150px;
+        height: 150px;
+        object-fit: contain;
+        margin: 0 auto 1.5rem;
+        border-radius: 12px;
+    }
+
+    .item-image-placeholder {
+        background: #f1f5f9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 4rem;
+        color: #cbd5e1;
+    }
+
+    .item-name {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0.25rem;
+    }
+
+    .item-meta { color: #64748b; margin-bottom: 1rem; }
+
+    .stock-badge {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 50px;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+
+    .stock-badge.low { background: #fee2e2; color: #991b1b; }
+    .stock-badge.normal { background: #dcfce7; color: #166534; }
+
+    .action-prompt {
+        font-size: 1.1rem;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 1.5rem;
+        color: #475569;
+    }
+
+    .success-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.8);
+        backdrop-filter: blur(5px);
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+    }
+
+    .success-card {
+        background: white;
+        width: 100%;
+        max-width: 320px;
+        padding: 2.5rem;
+        border-radius: 30px;
+        text-align: center;
+    }
+
+    .success-icon {
+        font-size: 4rem;
+        color: #22c55e;
+        margin-bottom: 1rem;
+    }
+
+    .success-card h2 { font-weight: 800; margin-bottom: 0.5rem; }
+    .success-card p { color: #64748b; margin-bottom: 1.5rem; }
+</style>
+
+@code {
+    private bool _isScannerActive = false;
+    private bool _isProcessing = false;
+    private bool _showSuccess = false;
+    private string? _manualUpc;
+    private string? _error;
+    private LiquorItem? _selectedItem;
+
+    private async Task StartScanner()
+    {
+        _error = null;
+        _isScannerActive = true;
+        StateHasChanged();
+        
+        // We'll call JS to initialize html5-qrcode
+        await JSRuntime.InvokeVoidAsync("LiquorScanner.start", DotNetObjectReference.Create(this));
+    }
+
+    [JSInvokable]
+    public async Task OnScanSuccess(string decodedText)
+    {
+        _manualUpc = decodedText;
+        await LookupUpc();
+    }
+
+    private async Task LookupUpc()
+    {
+        if (string.IsNullOrEmpty(_manualUpc)) return;
+
+        _error = null;
+        var item = await LiquorService.GetItemByUpcAsync(_manualUpc);
+        if (item != null)
+        {
+            _selectedItem = item;
+            await StopScanner();
+        }
+        else
+        {
+            _error = "UPC not found in inventory.";
+        }
+        StateHasChanged();
+    }
+
+    private async Task ConfirmCheckout()
+    {
+        if (_selectedItem == null) return;
+
+        _isProcessing = true;
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            await LiquorService.CheckoutBottleAsync(_selectedItem.Id, user?.UserId ?? 0);
+            _showSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private void CancelSelection()
+    {
+        _selectedItem = null;
+        _manualUpc = null;
+        _error = null;
+        StateHasChanged();
+    }
+
+    private async Task ResetCheckout()
+    {
+        _selectedItem = null;
+        _manualUpc = null;
+        _showSuccess = false;
+        await StartScanner();
+    }
+
+    private async Task StopScanner()
+    {
+        _isScannerActive = false;
+        await JSRuntime.InvokeVoidAsync("LiquorScanner.stop");
+    }
+
+    private string GetStockClass(int stock) => stock <= 2 ? "low" : "normal";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Inject script if not already present
+            // In a real app, this should be in _Host.cshtml or App.razor
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopScanner();
+    }
+}

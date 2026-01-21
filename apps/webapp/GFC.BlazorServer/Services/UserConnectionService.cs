@@ -20,6 +20,7 @@ namespace GFC.BlazorServer.Services
 
         public string? IpAddress { get; set; }
         public LocationType LocationType { get; set; } = LocationType.Unknown;
+        public bool IsMobile { get; set; }
 
         /// <summary>
         /// Sets the connection information. Called by middleware.
@@ -69,6 +70,16 @@ namespace GFC.BlazorServer.Services
                     ipStr = httpContext.Connection.RemoteIpAddress?.ToString();
                 }
 
+                // Detect Mobile Device via User Agent
+                if (httpContext.Request.Headers.TryGetValue("User-Agent", out var ua))
+                {
+                    var userAgent = ua.ToString().ToLower();
+                    IsMobile = userAgent.Contains("android") || 
+                               userAgent.Contains("iphone") || 
+                               userAgent.Contains("ipad") || 
+                               userAgent.Contains("ipod") || 
+                               userAgent.Contains("mobile");
+                }
                 if (string.IsNullOrEmpty(ipStr) || !IPAddress.TryParse(ipStr, out var remoteIp))
                 {
                     IpAddress = ipStr ?? "Not Detected";

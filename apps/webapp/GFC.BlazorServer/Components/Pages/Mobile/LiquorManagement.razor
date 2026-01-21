@@ -1,0 +1,643 @@
+@page "/mobile/liquor/manage"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject GFC.Core.Interfaces.IMediaAssetService MediaService
+
+<PageTitle>Liquor Inventory Manager - GFC</PageTitle>
+
+<div class="liquor-manage-container fade-in">
+    <div class="manage-header">
+        <button class="btn-back" @onclick='() => Navigation.NavigateTo("/mobilehub")'>
+            <i class="bi bi-chevron-left"></i>
+        </button>
+        <h1>Inventory Manager</h1>
+        <button class="btn-add" @onclick="OpenAddModal">
+            <i class="bi bi-plus-lg"></i>
+        </button>
+    </div>
+
+    <div class="header-tabs">
+        <button class="tab-btn @(_activeTab == "inventory" ? "active" : "")" @onclick='() => _activeTab = "inventory"'>
+            <i class="bi bi-boxes"></i> Stock
+        </button>
+        <button class="tab-btn @(_activeTab == "notifications" ? "active" : "")" @onclick='() => _activeTab = "notifications"'>
+            <i class="bi bi-bell"></i> Alerts
+        </button>
+        <button class="tab-btn @(_activeTab == "history" ? "active" : "")" @onclick='() => _activeTab = "history"'>
+            <i class="bi bi-clock-history"></i> History
+        </button>
+    </div>
+
+    <div class="tab-content">
+        @if (_activeTab == "inventory")
+        {
+            <div class="inventory-tab fade-in">
+                <div class="search-bar px-3 py-2">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control border-start-0" placeholder="Search brands..." @bind="_searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+
+                <div class="inventory-list">
+                    @foreach (var item in FilteredItems)
+                    {
+                        <div class="inventory-card" @onclick="() => OpenEditModal(item)">
+                            <div class="card-thumb">
+                                @if (!string.IsNullOrEmpty(item.ImageUrl))
+                                {
+                                    <img src="@item.ImageUrl" />
+                                }
+                                else
+                                {
+                                    <i class="bi bi-bottle"></i>
+                                }
+                            </div>
+                            <div class="card-info">
+                                <h3 class="card-name">@item.Name</h3>
+                                <p class="card-meta">@item.BottleSize • @item.Category</p>
+                                <div class="card-indicators">
+                                    <span class="badge @(GetStockClass(item.CurrentStock, item.MinStockLimit))">
+                                        @item.CurrentStock in stock
+                                    </span>
+                                    <span class="limit-label">Limit: @item.MinStockLimit</span>
+                                </div>
+                            </div>
+                            <div class="card-arrow">
+                                <i class="bi bi-chevron-right"></i>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else if (_activeTab == "notifications")
+        {
+            <div class="notifications-tab fade-in px-3 py-4">
+                <div class="settings-card">
+                    <h3 class="settings-title">My Notification Rules</h3>
+                    <p class="settings-subtitle">Configure how you want to receive alerts for low stock.</p>
+
+                    <div class="settings-list mt-4">
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                <strong>Low Stock Alerts</strong>
+                                <span>Notify when stock hits the limit</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="_myRules.NotifyOnLowStock" />
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                <strong>Empty Alerts</strong>
+                                <span>Immediate alert when stock hits 0</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="_myRules.NotifyOnEmpty" />
+                            </div>
+                        </div>
+
+                        <div class="divider">Channels</div>
+
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                <strong>Push Notifications</strong>
+                                <span>Native mobile lock-screen alerts</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="_myRules.ReceivePush" />
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                <strong>SMS Text Messages</strong>
+                                <span>Standard rates may apply</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="_myRules.ReceiveSms" />
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                <strong>Email Reports</strong>
+                                <span>Daily summary of stock levels</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" @bind="_myRules.ReceiveEmail" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary w-100 rounded-pill py-3 mt-4" @onclick="SaveRules">
+                        Save Preferences
+                    </button>
+                </div>
+            </div>
+        }
+        else if (_activeTab == "history")
+        {
+            <div class="history-tab fade-in">
+                <div class="transaction-list">
+                    @foreach (var tx in _recentTransactions)
+                    {
+                        <div class="history-item">
+                            <div class="history-icon @(tx.TransactionType.ToLower())">
+                                <i class="bi @(GetTxIcon(tx.TransactionType))"></i>
+                            </div>
+                            <div class="history-info">
+                                <div class="history-top">
+                                    <strong>@(tx.Item?.Name ?? "Deleted Item")</strong>
+                                    <span class="change @(tx.ChangeAmount > 0 ? "plus" : "minus")">
+                                        @(tx.ChangeAmount > 0 ? "+" : "")@tx.ChangeAmount
+                                    </span>
+                                </div>
+                                <div class="history-bottom">
+                                    <span>User: @tx.UserId</span> • <span>@tx.Timestamp.ToString("MMM dd, HH:mm")</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (_showEditModal)
+{
+    <div class="modal-overlay">
+        <div class="modal-content-modern slide-in-bottom">
+            <div class="modal-header">
+                <h2>@(_editingItem.Id == 0 ? "Add New Liquor" : "Edit Bottle")</h2>
+                <button class="btn-close-modal" @onclick="CloseModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Brand Name</label>
+                    <input type="text" class="form-control" @bind="_editingItem.Name" placeholder="e.g. Jack Daniels" />
+                </div>
+                
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Size</label>
+                        <select class="form-select" @bind="_editingItem.BottleSize">
+                            <option value="750ml">750ml</option>
+                            <option value="1L">1L</option>
+                            <option value="1.75L">1.75L</option>
+                            <option value="50ml">50ml (Nip)</option>
+                        </select>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" @bind="_editingItem.Category">
+                            <option value="Whiskey">Whiskey</option>
+                            <option value="Vodka">Vodka</option>
+                            <option value="Tequila">Tequila</option>
+                            <option value="Gin">Gin</option>
+                            <option value="Rum">Rum</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">UPC Code (Scan to fill)</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" @bind="_editingItem.UpcCode" />
+                        <button class="btn btn-outline-primary" @onclick="() => {}">
+                            <i class="bi bi-upc-scan"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Current Stock</label>
+                        <div class="counter-input">
+                            <button @onclick="() => _editingItem.CurrentStock--"><i class="bi bi-dash"></i></button>
+                            <input type="number" @bind="_editingItem.CurrentStock" />
+                            <button @onclick="() => _editingItem.CurrentStock++"><i class="bi bi-plus"></i></button>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Min Alert Limit</label>
+                        <div class="counter-input">
+                            <button @onclick="() => _editingItem.MinStockLimit--"><i class="bi bi-dash"></i></button>
+                            <input type="number" @bind="_editingItem.MinStockLimit" />
+                            <button @onclick="() => _editingItem.MinStockLimit++"><i class="bi bi-plus"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Bottle Reference Image</label>
+                    <div class="image-uploader">
+                        @if (!string.IsNullOrEmpty(_editingItem.ImageUrl))
+                        {
+                            <img src="@_editingItem.ImageUrl" class="preview" />
+                            <button class="btn-remove-img" @onclick="() => _editingItem.ImageUrl = null">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        }
+                        else
+                        {
+                            <label class="upload-placeholder">
+                                <i class="bi bi-camera"></i>
+                                <span>Snapshot</span>
+                                <InputFile OnChange="HandleFileSelected" />
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                @if (_editingItem.Id != 0)
+                {
+                    <button class="btn btn-outline-danger me-auto" @onclick="DeleteCurrent">Delete</button>
+                }
+                <button class="btn btn-primary px-5 rounded-pill py-2" @onclick="SaveItem">
+                    @(_editingItem.Id == 0 ? "Create Item" : "Save Changes")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .liquor-manage-container {
+        min-height: 100vh;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .manage-header {
+        background: white;
+        padding: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    }
+
+    .manage-header h1 { font-size: 1.1rem; font-weight: 800; margin: 0; }
+
+    .btn-back, .btn-add {
+        background: #f1f5f9;
+        border: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #1e293b;
+    }
+
+    .btn-add { background: #4f46e5; color: white; }
+
+    .header-tabs {
+        display: flex;
+        padding: 0.5rem;
+        background: white;
+        gap: 0.5rem;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .tab-btn {
+        flex: 1;
+        border: none;
+        background: transparent;
+        padding: 0.5rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #64748b;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        transition: all 0.2s;
+    }
+
+    .tab-btn i { font-size: 1.1rem; }
+    .tab-btn.active { background: #ede9fe; color: #7c3aed; }
+
+    .inventory-list { padding: 0.5rem; }
+
+    .inventory-card {
+        background: white;
+        border-radius: 16px;
+        margin-bottom: 0.75rem;
+        padding: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    }
+
+    .card-thumb {
+        width: 50px;
+        height: 50px;
+        background: #f8fafc;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: #cbd5e1;
+        overflow: hidden;
+    }
+
+    .card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+    .card-info { flex: 1; }
+    .card-name { font-size: 0.95rem; font-weight: 700; margin: 0; }
+    .card-meta { font-size: 0.75rem; color: #64748b; margin-bottom: 0.5rem; }
+
+    .card-indicators { display: flex; align-items: center; gap: 0.5rem; }
+    .limit-label { font-size: 0.7rem; color: #94a3b8; }
+
+    .badge.low { background: #fee2e2; color: #991b1b; }
+    .badge.critical { background: #dc2626; color: white; }
+    .badge.normal { background: #f1f5f9; color: #475569; }
+
+    .card-arrow { color: #cbd5e1; }
+
+    /* Settings UI */
+    .settings-card {
+        background: white;
+        border-radius: 20px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    }
+
+    .settings-title { font-size: 1.1rem; font-weight: 800; }
+    .settings-subtitle { font-size: 0.85rem; color: #64748b; }
+
+    .setting-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 0;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .setting-label strong { display: block; font-size: 0.9rem; }
+    .setting-label span { font-size: 0.75rem; color: #94a3b8; }
+
+    .divider {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #94a3b8;
+        padding: 1rem 0 0.5rem;
+        font-weight: 800;
+    }
+
+    /* History UI */
+    .history-item {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        background: white;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .history-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+    }
+
+    .history-icon.checkout { background: #fee2e2; color: #ef4444; }
+    .history-icon.restock { background: #dcfce7; color: #22c55e; }
+    .history-icon.adjustment { background: #eff6ff; color: #3b82f6; }
+
+    .history-info { flex: 1; }
+    .history-top { display: flex; justify-content: space-between; align-items: center; }
+    .history-bottom { font-size: 0.75rem; color: #94a3b8; }
+    .change { font-weight: 800; font-family: monospace; }
+    .change.plus { color: #22c55e; }
+    .change.minus { color: #ef4444; }
+
+    /* Modal Styling */
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: flex-end;
+        z-index: 1000;
+    }
+
+    .modal-content-modern {
+        background: white;
+        width: 100%;
+        border-radius: 30px 30px 0 0;
+        padding: 2rem;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    .modal-header h2 { font-size: 1.25rem; font-weight: 800; margin: 0; }
+    .btn-close-modal { background: #f1f5f9; border: none; width: 32px; height: 32px; border-radius: 50%; }
+
+    .counter-input {
+        display: flex;
+        align-items: center;
+        background: #f1f5f9;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    .counter-input button { border: none; background: transparent; padding: 0.5rem 1rem; color: #4f46e5; }
+    .counter-input input { border: none; background: transparent; width: 40px; text-align: center; font-weight: 700; }
+
+    /* Image Uploader */
+    .image-uploader {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16/9;
+        background: #f8fafc;
+        border: 2px dashed #e2e8f0;
+        border-radius: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .image-uploader .preview { width: 100%; height: 100%; object-fit: cover; }
+    
+    .upload-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        cursor: pointer;
+    }
+    
+    .upload-placeholder i { font-size: 2rem; color: #cbd5e1; }
+    .upload-placeholder span { font-size: 0.8rem; color: #94a3b8; font-weight: 600; }
+    .upload-placeholder input { display: none; }
+
+    .btn-remove-img {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(239, 68, 68, 0.9);
+        color: white;
+        border: none;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+    }
+</style>
+
+@code {
+    private string _activeTab = "inventory";
+    private string _searchTerm = "";
+    private List<LiquorItem> _items = new();
+    private List<LiquorTransaction> _recentTransactions = new();
+    private LiquorNotificationRule _myRules = new();
+    
+    private bool _showEditModal = false;
+    private LiquorItem _editingItem = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _items = (await LiquorService.GetAllItemsAsync()).ToList();
+        _recentTransactions = (await LiquorService.GetRecentTransactionsAsync()).ToList();
+        
+        var user = AuthStateProvider.GetCurrentUser();
+        if (user != null)
+        {
+            _myRules = (await LiquorService.GetNotificationRuleAsync(user.UserId)) ?? new LiquorNotificationRule { UserId = user.UserId };
+        }
+    }
+
+    private IEnumerable<LiquorItem> FilteredItems => string.IsNullOrWhiteSpace(_searchTerm) 
+        ? _items 
+        : _items.Where(i => i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) || i.Category.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+
+    private void OpenAddModal()
+    {
+        _editingItem = new LiquorItem { BottleSize = "750ml", Category = "Whiskey", CurrentStock = 1, MinStockLimit = 2 };
+        _showEditModal = true;
+    }
+
+    private void OpenEditModal(LiquorItem item)
+    {
+        // Clone for safe editing
+        _editingItem = new LiquorItem {
+            Id = item.Id,
+            Name = item.Name,
+            Description = item.Description,
+            UpcCode = item.UpcCode,
+            BottleSize = item.BottleSize,
+            Category = item.Category,
+            ImageUrl = item.ImageUrl,
+            CurrentStock = item.CurrentStock,
+            MinStockLimit = item.MinStockLimit,
+            IsActive = item.IsActive
+        };
+        _showEditModal = true;
+    }
+
+    private async Task SaveItem()
+    {
+        if (_editingItem.Id == 0)
+        {
+            await LiquorService.CreateItemAsync(_editingItem);
+        }
+        else
+        {
+            await LiquorService.UpdateItemAsync(_editingItem);
+        }
+        
+        _showEditModal = false;
+        await LoadData();
+    }
+
+    private async Task DeleteCurrent()
+    {
+        if (_editingItem.Id != 0)
+        {
+            await LiquorService.DeleteItemAsync(_editingItem.Id);
+            _showEditModal = false;
+            await LoadData();
+        }
+    }
+
+    private async Task SaveRules()
+    {
+        await LiquorService.UpsertNotificationRuleAsync(_myRules);
+        // Show toast
+    }
+
+    private void CloseModal() => _showEditModal = false;
+
+    private string GetStockClass(int stock, int limit)
+    {
+        if (stock == 0) return "critical";
+        if (stock <= limit) return "low";
+        return "normal";
+    }
+
+    private string GetTxIcon(string type) => type switch {
+        "Checkout" => "bi-dash-circle",
+        "Restock" => "bi-plus-circle",
+        _ => "bi-gear"
+    };
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            // Use existing MediaService to upload
+            using var stream = file.OpenReadStream(1024 * 1024 * 5); // 5MB max
+            var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            
+            var asset = await MediaService.CreateMediaAssetAsync(memoryStream, file.Name, "LiquorReference", "System");
+            _editingItem.ImageUrl = asset.FilePath;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // Error handling
+            Console.WriteLine(ex.Message);
+        }
+    }
+}

@@ -121,8 +121,10 @@ public class Program
         builder.Services.AddAuthenticationCore();
         builder.Services.AddAuthorizationCore(options =>
         {
+            // [MOD] Relaxed to allow delegated access to admin pages. 
+            // The actual check is now performed in MainLayout via IUserManagementService.
             options.AddPolicy(AppPolicies.RequireAdmin, policy =>
-                policy.RequireRole(AppRoles.Admin));
+                policy.RequireAuthenticatedUser());
             options.AddPolicy(AppPolicies.CanForceUnlock, policy =>
                 policy.RequireRole(AppRoles.Admin, AppRoles.StudioUnlock));
         });
@@ -325,6 +327,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         builder.Services.AddScoped<INotificationRoutingService, NotificationRoutingService>();
         builder.Services.AddScoped<IProjectFileService, ProjectFileService>();
         builder.Services.AddScoped<IFinancialAnalyticsService, FinancialAnalyticsService>();
+        builder.Services.AddScoped<ILiquorService, LiquorService>();
         
         // Controller Client Wiring
         // Register the endpoint resolver that uses AgentApiOptions

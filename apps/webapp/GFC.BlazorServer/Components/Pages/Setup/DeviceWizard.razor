@@ -9,35 +9,82 @@
 @inject IPasskeyService PasskeyService
 @inject INotificationService NotificationService
 @inject IBlazorSystemSettingsService SystemSettingsService
+@inject IUserManagementService UserService
 @inject ILogger<DeviceWizard> Logger
 
 <PageTitle>Complete Device Setup - GFC</PageTitle>
 
 <div class="wizard-container">
-    <div class="wizard-card">
-        <div class="wizard-header">
-            <div class="step-indicator">
-                <div class="step @(CurrentStep >= 1 ? "active" : "")">1</div>
-                <div class="step-line @(CurrentStep >= 2 ? "active" : "")"></div>
-                <div class="step @(CurrentStep >= 2 ? "active" : "")">2</div>
-                <div class="step-line @(CurrentStep >= 3 ? "active" : "")"></div>
-                <div class="step @(CurrentStep >= 3 ? "active" : "")">3</div>
+    <div class="wizard-card" style="max-width: @(CurrentStep == 5 ? "600px" : "480px")">
+        @if (CurrentStep < 5)
+        {
+            <div class="wizard-header">
+                <div class="step-indicator">
+                    <div class="step @(CurrentStep >= 1 ? "active" : "")">1</div>
+                    <div class="step-line @(CurrentStep >= 2 ? "active" : "")"></div>
+                    <div class="step @(CurrentStep >= 2 ? "active" : "")">2</div>
+                    <div class="step-line @(CurrentStep >= 3 ? "active" : "")"></div>
+                    <div class="step @(CurrentStep >= 3 ? "active" : "")">3</div>
+                    <div class="step-line @(CurrentStep >= 4 ? "active" : "")"></div>
+                    <div class="step @(CurrentStep >= 4 ? "active" : "")">4</div>
+                </div>
+                <h1 class="wizard-title mt-4">@CurrentStepTitle</h1>
+                <p class="wizard-subtitle">@CurrentStepSubtitle</p>
             </div>
-            <h1 class="wizard-title mt-4">@CurrentStepTitle</h1>
-            <p class="wizard-subtitle">@CurrentStepSubtitle</p>
-        </div>
+        }
 
         <div class="wizard-body">
             @if (CurrentStep == 1)
             {
                 <div class="step-content text-center">
-                    <div class="setup-icon-wrapper pulse">
+                    <div class="setup-icon-wrapper pulse passcode">
+                        <i class="bi bi-grid-3x3-gap-fill"></i>
+                    </div>
+                    <h3 class="fw-bold mb-3">Login Passcode</h3>
+                    <p class="text-muted mb-4">
+                        Set a 6-digit passcode for quick mobile login. 
+                        This acts as your primary authentication on this device.
+                    </p>
+                    
+                    <div class="passcode-input-container mb-4">
+                        <input type="tel" 
+                               class="form-control text-center fs-1 fw-bold rounded-4 py-3" 
+                               maxlength="6" 
+                               placeholder="000000"
+                               @bind="_passcode"
+                               inputmode="numeric" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_passcodeError))
+                    {
+                        <div class="alert alert-danger rounded-4 py-2 mb-3">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>@_passcodeError
+                        </div>
+                    }
+
+                    <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3" 
+                            @onclick="SavePasscode" 
+                            disabled="@_isProcessing">
+                        @if (_isProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        <i class="bi bi-shield-lock-fill me-2"></i>Save & Continue
+                    </button>
+                    
+                    <div class="small text-muted text-center">
+                        <i class="bi bi-info-circle me-1"></i>
+                        You can change this anytime from your security settings
+                    </div>
+                </div>
+            }
+            else if (CurrentStep == 2)
+            {
+                <div class="step-content text-center">
+                    <div class="setup-icon-wrapper pulse biometrics">
                         <i class="bi bi-fingerprint"></i>
                     </div>
                     <h3 class="fw-bold mb-3">Biometric Access</h3>
                     <p class="text-muted mb-4">
                         Enable FaceID, TouchID, or your device's secure lock. 
-                        This binds this specific device to your account for the highest security.
+                        This binds this specific device to your account for even faster access.
                     </p>
                     
                     @if (!string.IsNullOrEmpty(_passkeyError))
@@ -54,23 +101,23 @@
                         <i class="bi bi-shield-check me-2"></i>Enable Secure Access
                     </button>
                     
-                    <button class="btn btn-outline-secondary w-100 rounded-pill py-2" @onclick="SkipBiometrics">
+                    <button class="btn btn-outline-secondary w-100 rounded-pill py-2" @onclick="NextStep">
                         <i class="bi bi-skip-forward me-2"></i>Skip for Now
                     </button>
                     
                     <div class="small text-muted text-center mt-3">
                         <i class="bi bi-info-circle me-1"></i>
-                        You can enable biometric login later from your security settings
+                        Recommended for the best experience
                     </div>
                 </div>
             }
-            else if (CurrentStep == 2)
+            else if (CurrentStep == 3)
             {
                 <div class="step-content text-center">
-                    <div class="setup-icon-wrapper">
+                    <div class="setup-icon-wrapper pwa">
                         <i class="bi bi-phone-vibrate"></i>
                     </div>
-                    <h3 class="fw-bold mb-3">Install App</h3>
+                    <h3 class="fw-bold mb-3">Install GFC App</h3>
                     <p class="text-muted mb-4">
                         Add GFC to your home screen for an "App-like" experience. 
                         It works faster and keeps you securely connected.
@@ -99,7 +146,7 @@
                     <button class="btn btn-outline-primary w-100 rounded-pill py-2" @onclick="NextStep">Continue</button>
                 </div>
             }
-            else if (CurrentStep == 3)
+            else if (CurrentStep == 4)
             {
                 <div class="step-content text-center">
                     <div class="setup-icon-wrapper @(_isSubscribed ? "success" : "bell")">
@@ -115,17 +162,61 @@
                         <div class="alert alert-success rounded-pill py-3 mb-4">
                             <i class="bi bi-check-circle-fill me-2"></i>Notifications Enabled
                         </div>
-                        <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow" @onclick="FinishWizard">
-                            <i class="bi bi-house-door-fill me-2"></i>Go to Dashboard
+                        <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow" @onclick="NextStep">
+                            <i class="bi bi-arrow-right-circle-fill me-2"></i>Almost Done
                         </button>
                     }
                     else
                     {
-                    <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3" @onclick="EnableNotifications" disabled="@_isProcessing">
+                        <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3" @onclick="EnableNotifications" disabled="@_isProcessing">
                             @if (_isProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
                             <i class="bi bi-bell-fill me-2"></i>Enable Notifications
                         </button>
+                        
+                        <button class="btn btn-outline-secondary w-100 rounded-pill py-2" @onclick="NextStep">
+                            <i class="bi bi-skip-forward me-2"></i>Skip for Now
+                        </button>
                     }
+                </div>
+            }
+            else if (CurrentStep == 5)
+            {
+                <div class="step-content text-center py-4">
+                    <div class="success-checkmark mb-4">
+                        <div class="check-icon">
+                            <span class="icon-line line-tip"></span>
+                            <span class="icon-line line-long"></span>
+                            <div class="icon-circle"></div>
+                            <div class="icon-fix"></div>
+                        </div>
+                    </div>
+                    
+                    <h2 class="fw-extrabold mb-3">Setup Complete!</h2>
+                    <p class="text-muted mb-5 px-3">
+                        Your device is now securely linked and configured. 
+                        Welcome to the GFC Membership System.
+                    </p>
+
+                    <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow-lg" @onclick="FinishWizard">
+                        <i class="bi bi-house-door-fill me-2"></i>Go to Dashboard
+                    </button>
+                    
+                    <div class="mt-4 pt-4 border-top">
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <div class="p-2 rounded-3 bg-light">
+                                    <div class="small fw-bold">Passcode</div>
+                                    <div class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Active</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="p-2 rounded-3 bg-light">
+                                    <div class="small fw-bold">App App</div>
+                                    <div class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Ready</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             }
         </div>
@@ -146,21 +237,22 @@
         background: rgba(255, 255, 255, 0.98);
         width: 100%;
         max-width: 480px;
-        padding: 3rem;
+        padding: 2.5rem;
         border-radius: 2rem;
         box-shadow: 0 40px 100px -20px rgba(0,0,0,0.5);
+        transition: max-width 0.4s ease;
     }
 
     .step-indicator {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 0.5rem;
+        gap: 0.35rem;
     }
 
     .step {
-        width: 35px;
-        height: 35px;
+        width: 32px;
+        height: 32px;
         background: #e2e8f0;
         border-radius: 50%;
         display: flex;
@@ -169,6 +261,7 @@
         font-weight: 700;
         color: #64748b;
         transition: all 0.3s ease;
+        font-size: 0.9rem;
     }
 
     .step.active {
@@ -179,7 +272,7 @@
 
     .step-line {
         height: 3px;
-        width: 40px;
+        width: 30px;
         background: #e2e8f0;
         border-radius: 2px;
     }
@@ -191,7 +284,7 @@
     .wizard-title {
         color: #1e293b;
         font-weight: 800;
-        font-size: 1.75rem;
+        font-size: 1.6rem;
         text-align: center;
         margin-bottom: 0.5rem;
     }
@@ -199,21 +292,26 @@
     .wizard-subtitle {
         color: #64748b;
         text-align: center;
-        font-size: 1rem;
+        font-size: 0.95rem;
     }
 
     .setup-icon-wrapper {
-        width: 100px;
-        height: 100px;
+        width: 90px;
+        height: 90px;
         background: #f1f5f9;
-        border-radius: 2.5rem;
+        border-radius: 2.25rem;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin: 2rem auto;
-        font-size: 3rem;
+        margin: 1.5rem auto;
+        font-size: 2.75rem;
         color: #4f46e5;
     }
+
+    .setup-icon-wrapper.passcode { color: #8b5cf6; background: #ede9fe; }
+    .setup-icon-wrapper.biometrics { color: #3b82f6; background: #eff6ff; }
+    .setup-icon-wrapper.pwa { color: #ec4899; background: #fdf2f8; }
+    .setup-icon-wrapper.bell { color: #f59e0b; background: #fffbeb; }
 
     .setup-icon-wrapper.success {
         background: #dcfce7;
@@ -230,8 +328,106 @@
         100% { box-shadow: 0 0 0 0px rgba(79, 70, 229, 0); }
     }
 
-    .btn-link:hover {
-        color: #4f46e5 !important;
+    /* Success Checkmark Animation */
+    .success-checkmark {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto;
+    }
+    
+    .check-icon {
+        width: 80px;
+        height: 80px;
+        position: relative;
+        border-radius: 50%;
+        box-sizing: content-box;
+        border: 4px solid #4CAF50;
+    }
+    
+    .check-icon::before {
+        top: 3px;
+        left: -2px;
+        width: 30px;
+        transform-origin: 100% 50%;
+        border-radius: 100px 0 0 100px;
+    }
+    
+    .check-icon::after {
+        top: 0;
+        left: 30px;
+        width: 60px;
+        transform-origin: 0 50%;
+        border-radius: 0 100px 100px 0;
+        animation: rotate-circle 4.25s ease-in;
+    }
+    
+    .icon-line {
+        height: 5px;
+        background-color: #4CAF50;
+        display: block;
+        border-radius: 2px;
+        position: absolute;
+        z-index: 10;
+    }
+    
+    .line-tip {
+        top: 46px;
+        left: 14px;
+        width: 25px;
+        transform: rotate(45deg);
+        animation: icon-line-tip 0.75s;
+    }
+    
+    .line-long {
+        top: 38px;
+        right: 8px;
+        width: 47px;
+        transform: rotate(-45deg);
+        animation: icon-line-long 0.75s;
+    }
+    
+    .icon-circle {
+        top: -4px;
+        left: -4px;
+        z-index: 10;
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        border: 4px solid rgba(76, 175, 80, .5);
+        box-sizing: content-box;
+        position: absolute;
+    }
+    
+    .icon-fix {
+        top: 8px;
+        width: 5px;
+        left: 26px;
+        z-index: 1;
+        height: 85px;
+        position: absolute;
+        transform: rotate(-45deg);
+    }
+    
+    @@keyframes rotate-circle {
+        0% { transform: rotate(-45deg); }
+        5% { transform: rotate(-45deg); }
+        12% { transform: rotate(-405deg); }
+        100% { transform: rotate(-405deg); }
+    }
+    
+    @@keyframes icon-line-tip {
+        0% { width: 0; left: 1px; top: 19px; }
+        54% { width: 0; left: 1px; top: 19px; }
+        70% { width: 50px; left: -8px; top: 37px; }
+        84% { width: 17px; left: 21px; top: 48px; }
+        100% { width: 25px; left: 14px; top: 46px; }
+    }
+    
+    @@keyframes icon-line-long {
+        0% { width: 0; right: 46px; top: 54px; }
+        65% { width: 0; right: 46px; top: 54px; }
+        84% { width: 55px; right: 0px; top: 35px; }
+        100% { width: 47px; right: 8px; top: 38px; }
     }
 </style>
 
@@ -239,21 +435,25 @@
     private int CurrentStep = 1;
     private bool _isProcessing = false;
     private string? _passkeyError;
+    private string? _passcode;
+    private string? _passcodeError;
     private bool _canInstall = false;
     private string? _platformInstructions;
     private bool _isSubscribed = false;
 
     private string CurrentStepTitle => CurrentStep switch {
-        1 => "Security Binding",
-        2 => "App Access",
-        3 => "Notifications",
+        1 => "Access Passcode",
+        2 => "Security Binding",
+        3 => "App Shortcut",
+        4 => "Alert Details",
         _ => "Setup Complete"
     };
 
     private string CurrentStepSubtitle => CurrentStep switch {
-        1 => "Link this device to your biometrics",
-        2 => "Install GFC for faster access",
-        3 => "Stay updated with real-time alerts",
+        1 => "Set your 6-digit login PIN",
+        2 => "Link device biometrics for speed",
+        3 => "Install GFC to your home screen",
+        4 => "Stay updated with real-time push",
         _ => ""
     };
 
@@ -269,6 +469,44 @@
     {
         CurrentStep++;
         StateHasChanged();
+    }
+
+    private async Task SavePasscode()
+    {
+        _passcodeError = null;
+        if (string.IsNullOrWhiteSpace(_passcode) || _passcode.Length != 6 || !_passcode.All(char.IsDigit))
+        {
+            _passcodeError = "Passcode must be exactly 6 digits.";
+            return;
+        }
+
+        _isProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            if (user != null)
+            {
+                UserService.ChangePassCode(user.UserId, _passcode, true, user.UserId);
+                Logger.LogInformation("Passcode updated for user {UserId} via wizard", user.UserId);
+                NextStep();
+            }
+            else
+            {
+                _passcodeError = "Session lost. Please log in again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving passcode");
+            _passcodeError = ex.Message;
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
     }
 
     private async Task RegisterPasskey()
@@ -397,7 +635,7 @@
                     
                     _isSubscribed = true;
                     _isProcessing = false;
-                    StateHasChanged(); // Force UI update to show "Go to Dashboard" button
+                    StateHasChanged(); 
                 }
                 else
                 {
@@ -421,13 +659,6 @@
             _isProcessing = false;
             StateHasChanged();
         }
-    }
-
-
-    private void SkipBiometrics()
-    {
-        _passkeyError = null;
-        NextStep();
     }
 
     private void FinishWizard()

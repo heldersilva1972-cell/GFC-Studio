@@ -17,9 +17,19 @@
 @inject IJSRuntime JSRuntime
 @inject IAuditLogger AuditLogger
 @inject IDeviceTrustService DeviceTrustService
+@inject IUserManagementService UserService
 @implements IDisposable
 
-<div class="app-shell">
+@if (UserConnectionService.IsMobile && Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower().Contains("/mobile"))
+{
+    <div class="mobile-only-layout">
+        <Toast />
+        @Body
+    </div>
+}
+else
+{
+    <div class="app-shell">
     @if (_safeModeEnabled)
     {
         <div style="background-color: #ff4444; color: white; text-align: center; padding: 0.5rem; font-weight: bold; position: sticky; top: 0; z-index: 2000;">
@@ -140,8 +150,9 @@
                 @Body
             </div>
         </main>
-    </div>
-</div>
+    </div> <!-- app-main -->
+</div> <!-- app-shell -->
+}
 
 <SessionMonitor />
 
@@ -222,6 +233,12 @@
             await ThemeService.InitializeAsync();
             ThemeService.OnThemeChanged += StateHasChanged;
 
+            // [NEW] Enforce mobile portal for mobile devices
+            RedirectMobileUsersIfNeeded();
+
+            // [NEW] Enforce dynamic page permissions
+            EnforcePageAccess();
+
             Navigation.LocationChanged += HandleLocationChanged;
             // Log initial page view
             LogCurrentPage();
@@ -231,6 +248,64 @@
             _currentUsername = "Unknown";
             _isAdmin = false;
         }
+    }
+
+    private void EnforcePageAccess()
+    {
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            if (currentUser == null) return;
+            if (currentUser.IsAdmin) return;
+
+            var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
+            
+            // Bypass public/common paths
+            var publicPaths = new[] { "/login", "/setup", "/changepassword", "/error", "/safe-mode-lockout", "/vpn-required", "/mobile", "/verify-mfa" };
+            if (publicPaths.Any(p => currentUri.StartsWith(p.ToLower())) || currentUri == "/") 
+            {
+                return;
+            }
+
+            // Check if user has permission for this page
+            // We use the service which checks the database and repository
+            if (!UserService.UserHasPageAccess(currentUser.UserId, currentUri))
+            {
+                Logger.LogWarning("ACCESS BLOCKED: User {UserId} ({Username}) attempted to access unauthorized page: {Path}", 
+                    currentUser.UserId, currentUser.Username, currentUri);
+                
+                // If on mobile, they should stay in mobile hub
+                if (UserConnectionService.IsMobile)
+                {
+                    Navigation.NavigateTo("/mobile", forceLoad: false);
+                }
+                else
+                {
+                    // For web, send to dashboard or show unauthorized
+                    Navigation.NavigateTo("/", forceLoad: false);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Error checking page access permissions.");
+        }
+    }
+
+    private void RedirectMobileUsersIfNeeded()
+    {
+        if (!UserConnectionService.IsMobile) return;
+
+        var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
+        
+        // Allowed paths for mobile that are NOT technically /mobile/*
+        var allowedPaths = new[] { "/login", "/setup", "/changepassword", "/safe-mode-lockout", "/vpn-required", "/verify-mfa" };
+        
+        if (allowedPaths.Any(p => currentUri.StartsWith(p.ToLower()))) return;
+        if (currentUri.StartsWith("/mobile")) return;
+
+        // If on mobile and not on an allowed path or mobile path, force redirect to mobile hub
+        Navigation.NavigateTo("/mobile", forceLoad: false);
     }
 
     private async Task CheckPwaStatus()
@@ -327,6 +402,8 @@
         CloseSidebar();
         LogCurrentPage();
         EnforcePasswordSetup();
+        RedirectMobileUsersIfNeeded();
+        EnforcePageAccess();
         
         // Check session validity only if on a protected page
         var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();

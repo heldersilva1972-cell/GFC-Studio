@@ -122,6 +122,11 @@ public class GfcDbContext : DbContext
     public DbSet<NetworkMigration> NetworkMigrations => Set<NetworkMigration>();
     public DbSet<BylawDocument> BylawDocuments => Set<BylawDocument>();
     public DbSet<BylawRevision> BylawRevisions => Set<BylawRevision>();
+    
+    // Liquor Inventory System
+    public DbSet<LiquorItem> LiquorItems => Set<LiquorItem>();
+    public DbSet<LiquorTransaction> LiquorTransactions => Set<LiquorTransaction>();
+    public DbSet<LiquorNotificationRule> LiquorNotificationRules => Set<LiquorNotificationRule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -749,6 +754,31 @@ public class GfcDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(t => t.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Liquor Inventory Configuration
+        modelBuilder.Entity<LiquorItem>(entity =>
+        {
+            entity.ToTable("LiquorItems");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UpcCode).IsUnique().HasFilter("[UpcCode] IS NOT NULL");
+        });
+
+        modelBuilder.Entity<LiquorTransaction>(entity =>
+        {
+            entity.ToTable("LiquorTransactions");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Item)
+                .WithMany()
+                .HasForeignKey(e => e.ItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LiquorNotificationRule>(entity =>
+        {
+            entity.ToTable("LiquorNotificationRules");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UserId);
         });
     }
 

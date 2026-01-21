@@ -46,6 +46,17 @@ namespace GFC.BlazorServer.Middleware
         {
             connectionService.DetectConnectionIfNeeded();
             
+            // [NEW] Also detect mobile in middleware stage
+            if (context.Request.Headers.TryGetValue("User-Agent", out var ua))
+            {
+                var userAgent = ua.ToString().ToLower();
+                connectionService.IsMobile = userAgent.Contains("android") || 
+                                           userAgent.Contains("iphone") || 
+                                           userAgent.Contains("ipad") || 
+                                           userAgent.Contains("ipod") || 
+                                           userAgent.Contains("mobile");
+            }
+            
             var path = context.Request.Path.Value?.ToLower() ?? "";
 
             // 1. Allow Public Paths (Login, Setup, Assets)
