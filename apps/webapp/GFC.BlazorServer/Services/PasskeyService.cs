@@ -52,22 +52,27 @@ public class PasskeyService : IPasskeyService
 
         var rpName = _configuration["Fido2:ServerName"] ?? "GFC System";
         
-        // CRITICAL FIX: Get the actual hostname from the current request
-        // WebAuthn requires rpId to match the domain the user is accessing from
-        string rpId;
-        var httpContext = _httpContextAccessor.HttpContext;
-        if (httpContext != null)
+        // [FIX] Robust RP ID Detection
+        // Prioritize the configured domain if available, as it's the most stable for WebAuthn
+        string rpId = _configuration["Fido2:ServerDomain"];
+        
+        if (string.IsNullOrEmpty(rpId))
         {
-            var host = httpContext.Request.Host.Host;
-            // Remove port if present and use just the hostname
-            rpId = host;
-            _logger.LogInformation("Using rpId from request: {RpId}", rpId);
+            var httpContext = _httpContextAccessor.HttpContext;
+            if (httpContext != null)
+            {
+                rpId = httpContext.Request.Host.Host;
+                _logger.LogInformation("Using rpId from request: {RpId}", rpId);
+            }
+            else
+            {
+                rpId = "localhost";
+                _logger.LogWarning("No HTTP context and no Fido2:ServerDomain config. Using fallback: {RpId}", rpId);
+            }
         }
         else
         {
-            // Fallback to config if no HTTP context (shouldn't happen in normal flow)
-            rpId = _configuration["Fido2:ServerDomain"] ?? "localhost";
-            _logger.LogWarning("No HTTP context available, using fallback rpId: {RpId}", rpId);
+            _logger.LogInformation("Using rpId from config: {RpId}", rpId);
         }
 
         return new

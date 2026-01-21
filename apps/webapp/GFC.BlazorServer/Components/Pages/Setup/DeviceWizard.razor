@@ -433,6 +433,7 @@
 
 @code {
     private int CurrentStep = 1;
+
     private bool _isProcessing = false;
     private string? _passkeyError;
     private string? _passcode;
@@ -456,6 +457,16 @@
         4 => "Stay updated with real-time push",
         _ => ""
     };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthStateProvider.GetCurrentUser();
+        if (user != null && !user.PasswordChangeRequired)
+        {
+            // If passcode is already set/not required, start at Step 2 (Security Binding)
+            CurrentStep = 2;
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -489,6 +500,10 @@
             if (user != null)
             {
                 UserService.ChangePassCode(user.UserId, _passcode, true, user.UserId);
+                
+                // [FIX] Crucial: Refresh the local authentication state so IsAuthenticated/PasswordChangeRequired are correct
+                await AuthStateProvider.RefreshUserAsync();
+                
                 Logger.LogInformation("Passcode updated for user {UserId} via wizard", user.UserId);
                 NextStep();
             }
