@@ -52,6 +52,7 @@ BEGIN
         [Endpoint] NVARCHAR(MAX) NOT NULL,
         [P256dh] NVARCHAR(MAX) NOT NULL,
         [Auth] NVARCHAR(MAX) NOT NULL,
+        [DeviceName] NVARCHAR(255) NULL,
         [CreatedAtUtc] DATETIME2 NOT NULL DEFAULT GETUTCDATE()
     );
     CREATE INDEX IX_PushSubscriptions_UserId ON [PushSubscriptions](UserId);
