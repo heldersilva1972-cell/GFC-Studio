@@ -5,7 +5,6 @@ var html5QrCode;
 
 window.LiquorScanner = {
     start: async function (dotNetHelper) {
-        // 1. Ensure the library is loaded
         if (typeof Html5Qrcode === "undefined") {
             await this.loadScript("https://unpkg.com/html5-qrcode");
         }
@@ -16,6 +15,16 @@ window.LiquorScanner = {
             aspectRatio: 1.0
         };
 
+        const element = document.getElementById("reader");
+        if (!element) {
+            console.error("Scanner element #reader not found");
+            return;
+        }
+
+        if (html5QrCode) {
+            try { await this.stop(); } catch (e) { }
+        }
+
         html5QrCode = new Html5Qrcode("reader");
 
         try {
@@ -23,11 +32,7 @@ window.LiquorScanner = {
                 { facingMode: "environment" },
                 config,
                 (decodedText) => {
-                    // Success callback
                     dotNetHelper.invokeMethodAsync('OnScanSuccess', decodedText);
-                },
-                (errorMessage) => {
-                    // console.log(errorMessage); // silent errors for noise reduction
                 }
             );
         } catch (err) {
@@ -36,9 +41,12 @@ window.LiquorScanner = {
     },
 
     stop: async function () {
-        if (html5QrCode && html5QrCode.isScanning) {
-            try { await html5QrCode.stop(); } catch (e) { }
-            html5QrCode.clear();
+        if (html5QrCode) {
+            if (html5QrCode.isScanning) {
+                try { await html5QrCode.stop(); } catch (e) { }
+            }
+            try { html5QrCode.clear(); } catch (e) { }
+            html5QrCode = null;
         }
     },
 
