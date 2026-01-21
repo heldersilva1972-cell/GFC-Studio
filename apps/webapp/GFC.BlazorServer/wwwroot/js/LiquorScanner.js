@@ -10,8 +10,8 @@ window.LiquorScanner = {
             await this.loadScript("https://unpkg.com/html5-qrcode");
         }
 
-        const config = { 
-            fps: 10, 
+        const config = {
+            fps: 10,
             qrbox: { width: 250, height: 250 },
             aspectRatio: 1.0
         };
@@ -20,7 +20,7 @@ window.LiquorScanner = {
 
         try {
             await html5QrCode.start(
-                { facingMode: "environment" }, 
+                { facingMode: "environment" },
                 config,
                 (decodedText) => {
                     // Success callback
@@ -37,8 +37,44 @@ window.LiquorScanner = {
 
     stop: async function () {
         if (html5QrCode && html5QrCode.isScanning) {
-            await html5QrCode.stop();
+            try { await html5QrCode.stop(); } catch (e) { }
             html5QrCode.clear();
+        }
+    },
+
+    startModal: async function (dotNetHelper) {
+        if (typeof Html5Qrcode === "undefined") {
+            await this.loadScript("https://unpkg.com/html5-qrcode");
+        }
+
+        const config = {
+            fps: 10,
+            qrbox: { width: 250, height: 150 },
+            aspectRatio: 1.0
+        };
+
+        if (window.modalScanner) {
+            try { await window.modalScanner.stop(); } catch (e) { }
+        }
+
+        window.modalScanner = new Html5Qrcode("modal-reader");
+
+        try {
+            await window.modalScanner.start(
+                { facingMode: "environment" },
+                config,
+                (decodedText) => {
+                    dotNetHelper.invokeMethodAsync('OnModalScanSuccess', decodedText);
+                }
+            );
+        } catch (err) {
+            console.error("Modal scanner error", err);
+        }
+    },
+
+    stopModal: async function () {
+        if (window.modalScanner && window.modalScanner.isScanning) {
+            try { await window.modalScanner.stop(); } catch (e) { }
         }
     },
 
