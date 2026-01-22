@@ -2,6 +2,9 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using Microsoft.AspNetCore.Authorization
+@using SixLabors.ImageSharp
+@using SixLabors.ImageSharp.Processing
+@using SixLabors.ImageSharp.Formats.Jpeg
 @attribute [Authorize]
 @inject ILiquorService LiquorService
 @inject IJSRuntime JSRuntime
@@ -717,23 +720,56 @@
 
         try
         {
-            // [FIX] Read file into base64 for immediate UI preview before server-side save
-            var buffer = new byte[file.Size];
-            await file.OpenReadStream(1024 * 1024 * 5).ReadAsync(buffer);
-            var base64 = Convert.ToBase64String(buffer);
-            _editingItem.ImageUrl = $"data:{file.ContentType};base64,{base64}";
-            StateHasChanged();
+            // [FIX] Compress image to prevent freezing on mobile devices
+            // Max size: 800x800, Quality: 75% - balances quality and performance
+            const int maxWidth = 800;
+            const int maxHeight = 800;
+            const long maxFileSize = 1024 * 1024 * 2; // 2MB limit
 
-            // Background upload to permanent storage
-            var memoryStream = new MemoryStream(buffer);
-            var asset = await MediaService.CreateMediaAssetAsync(memoryStream, file.Name, "LiquorReference", "System");
+            using var imageStream = file.OpenReadStream(maxFileSize);
+            using var image = await SixLabors.ImageSharp.Image.LoadAsync(imageStream);
+
+            // Calculate resize dimensions while maintaining aspect ratio
+            var ratioX = (double)maxWidth / image.Width;
+            var ratioY = (double)maxHeight / image.Height;
+            var ratio = Math.Min(ratioX, ratioY);
+
+            var newWidth = (int)(image.Width * ratio);
+            var newHeight = (int)(image.Height * ratio);
+
+            // Resize if needed
+            if (ratio < 1.0)
+            {
+                image.Mutate(x => x.Resize(newWidth, newHeight));
+            }
+
+            // Convert to JPEG with compression for smaller file size
+            using var compressedStream = new MemoryStream();
+            var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 75 };
+            await image.SaveAsync(compressedStream, encoder);
+            compressedStream.Position = 0;
+
+            // Show immediate preview - CRITICAL: Must update UI synchronously
+            var previewBytes = compressedStream.ToArray();
+            var base64 = Convert.ToBase64String(previewBytes);
+            _editingItem.ImageUrl = $"data:image/jpeg;base64,{base64}";
+            
+            // Force UI refresh on the UI thread
+            await InvokeAsync(StateHasChanged);
+
+            // Upload to permanent storage in background
+            compressedStream.Position = 0;
+            var asset = await MediaService.CreateMediaAssetAsync(compressedStream, $"{Guid.NewGuid()}.jpg", "LiquorReference", "System");
             _editingItem.ImageUrl = asset.FilePath;
-            StateHasChanged();
+            
+            // Final UI refresh
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
-            // Error handling
-            Console.WriteLine(ex.Message);
+            // Show error to user
+            await JSRuntime.InvokeVoidAsync("alert", $"Failed to process image: {ex.Message}");
+            Console.WriteLine($"Image upload error: {ex}");
         }
     }
 }
