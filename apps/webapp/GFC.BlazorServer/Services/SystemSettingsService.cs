@@ -270,6 +270,12 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
 
         existingSettings.PreferredMagicLinkMethod = settings.PreferredMagicLinkMethod;
 
+        // Web Push Settings (Phase 4)
+        existingSettings.PushEnabled = settings.PushEnabled;
+        existingSettings.VapidPublicKey = settings.VapidPublicKey;
+        existingSettings.VapidPrivateKey = settings.VapidPrivateKey;
+        existingSettings.VapidSubject = settings.VapidSubject;
+
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
         await dbContext.SaveChangesAsync();

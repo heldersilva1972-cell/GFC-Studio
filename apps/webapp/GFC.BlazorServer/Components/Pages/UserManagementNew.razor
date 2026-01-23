@@ -105,7 +105,8 @@
                             <th>Role</th>
                             <th>Status</th>
                             <th>Last Login</th>
-                            <th>Permissions</th>
+                            <th>Access</th>
+                            <th>Notifications</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
@@ -177,9 +178,14 @@
                                     </button>
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm btn-link text-info" @onclick="() => OpenNotificationModal(user)">
-                                        <i class="bi bi-bell me-1"></i>Alerts
-                                    </button>
+                                    <div class="d-flex flex-column gap-1">
+                                        <button class="btn btn-sm btn-link text-info p-0 text-start" @onclick="() => OpenNotificationModal(user)">
+                                            <i class="bi bi-bell me-1"></i>Alerts
+                                        </button>
+                                        <button class="btn btn-sm btn-link text-primary p-0 text-start" @onclick="() => OpenSendNotificationModal(user)">
+                                            <i class="bi bi-send me-1"></i>Send Message
+                                        </button>
+                                    </div>
                                 </td>
                                 <td class="text-end">
                                     <div class="action-buttons">
@@ -637,6 +643,104 @@
     </div>
 }
 
+@* Send Custom Notification Modal *@
+@if (_showSendNotificationModal && _selectedUser != null)
+{
+    <div class="modal-overlay" @onclick="CloseSendNotificationModal">
+        <div class="modal-container" @onclick:stopPropagation>
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title">Send Custom Notification</h2>
+                    <p class="modal-subtitle">Direct message to @_selectedUser.Username (@_pushSubscriptionCount registered devices)</p>
+                </div>
+                <button class="btn-close" @onclick="CloseSendNotificationModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(_sendNotificationError))
+                {
+                    <div class="alert alert-danger mb-3">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>@_sendNotificationError
+                    </div>
+                }
+
+                @if (_sendNotificationSuccess)
+                {
+                    <div class="alert alert-success mb-3">
+                        <i class="bi bi-check-circle-fill me-2"></i>Notification sent successfully.
+                    </div>
+                }
+
+                <div class="form-group mb-3">
+                    <label class="form-label fw-bold">Subject</label>
+                    <input type="text" class="form-control" @bind="_customNotification.Title" placeholder="Enter notification title..." />
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label fw-bold">Message Content</label>
+                    <textarea class="form-control" @bind="_customNotification.Message" rows="5" placeholder="Type your message here..."></textarea>
+                </div>
+
+                <div class="notification-channels mt-4 p-3 bg-light rounded border">
+                    <label class="form-label fw-bold d-block mb-3">Delivery Channels</label>
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" @bind="_customNotification.SendPush" id="sendPushCheck" />
+                        <label class="form-check-label" for="sendPushCheck">
+                            <i class="bi bi-phone-vibrate me-2"></i>Push Notification
+                        </label>
+                        <div class="small text-muted ms-4">
+                            @if (_pushSubscriptionCount > 0)
+                            {
+                                <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Available on @_pushSubscriptionCount registered device(s).</span>
+                            }
+                            else
+                            {
+                                <span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>No registered devices. The user must enabled notifications in 'My Security'.</span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" @bind="_customNotification.SendEmail" id="sendEmailCheck" />
+                        <label class="form-check-label" for="sendEmailCheck">
+                            <i class="bi bi-envelope-at me-2"></i>Email Message
+                        </label>
+                        <div class="small text-muted ms-4">
+                            Sends to: <strong>@(_selectedUser.Email ?? "No email on file")</strong>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_customNotification.SendEmail && string.IsNullOrEmpty(_selectedUser.Email))
+                {
+                    <div class="alert alert-warning mt-3 py-2 small">
+                        <i class="bi bi-exclamation-circle me-1"></i> Warning: User has no email address configured in their account settings. Email delivery will be skipped.
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                @if (_sendNotificationSuccess)
+                {
+                    <button class="btn btn-secondary w-100 py-2" @onclick="CloseSendNotificationModal">Close Portal</button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-secondary" @onclick="CloseSendNotificationModal">Cancel</button>
+                    <button class="btn btn-primary px-4" @onclick="SendCustomNotification" disabled="@_sendingCustomNotification">
+                        @if (_sendingCustomNotification)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        <i class="bi bi-send-fill me-2"></i>Send Now
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<UserListItemDto> _users = new();
     private List<ActiveMemberDto> _availableMembers = new();
@@ -677,6 +781,14 @@
     private bool _showNotificationModal = false;
     private UserNotificationPreferences _userPrefs = new();
     private bool _savingPrefs = false;
+
+    // Custom Notification Modal
+    private bool _showSendNotificationModal = false;
+    private CustomNotificationModel _customNotification = new();
+    private bool _sendingCustomNotification = false;
+    private string _sendNotificationError = "";
+    private bool _sendNotificationSuccess = false;
+    private int _pushSubscriptionCount = 0;
 
     // Default Permissions Modal
     private bool _savingDefaultPermissions = false;
@@ -762,6 +874,86 @@
         finally
         {
             _savingPrefs = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenSendNotificationModal(UserListItemDto user)
+    {
+        _selectedUser = user;
+        _customNotification = new CustomNotificationModel
+        {
+            Title = "GFC Management Update",
+            Message = "",
+            SendPush = true,
+            SendEmail = !string.IsNullOrEmpty(user.Email)
+        };
+        _sendNotificationError = "";
+        _sendNotificationSuccess = false;
+        
+        // Load subscription count
+        try 
+        {
+            _pushSubscriptionCount = await NotificationService.GetPushSubscriptionCountAsync(user.UserId);
+        }
+        catch { _pushSubscriptionCount = 0; }
+
+        _showSendNotificationModal = true;
+    }
+
+    private void CloseSendNotificationModal()
+    {
+        _showSendNotificationModal = false;
+        _selectedUser = null;
+    }
+
+    private async Task SendCustomNotification()
+    {
+        if (_selectedUser == null) return;
+        
+        if (string.IsNullOrWhiteSpace(_customNotification.Title) || string.IsNullOrWhiteSpace(_customNotification.Message))
+        {
+            _sendNotificationError = "Subject and Message are required.";
+            return;
+        }
+
+        _sendNotificationError = "";
+        _sendingCustomNotification = true;
+        
+        try
+        {
+            // 1. Send Push if selected
+            if (_customNotification.SendPush)
+            {
+                await NotificationService.SendPushNotificationAsync(
+                    _selectedUser.UserId, 
+                    _customNotification.Title, 
+                    _customNotification.Message
+                );
+            }
+
+            // 2. Send Email if selected and available
+            if (_customNotification.SendEmail && !string.IsNullOrEmpty(_selectedUser.Email))
+            {
+                await NotificationService.SendEmailAsync(
+                    _selectedUser.Email,
+                    _customNotification.Title,
+                    _customNotification.Message
+                );
+            }
+
+            _sendNotificationSuccess = true;
+            StateHasChanged();
+            
+            // Auto close after success? Maybe let them click close.
+        }
+        catch (Exception ex)
+        {
+            _sendNotificationError = $"Failed to deliver notification: {ex.Message}";
+        }
+        finally
+        {
+            _sendingCustomNotification = false;
             StateHasChanged();
         }
     }
@@ -1187,5 +1379,13 @@
         public bool IsAdmin { get; set; }
         public bool IsActive { get; set; } = true;
         public string Notes { get; set; } = "";
+    }
+
+    private class CustomNotificationModel
+    {
+        public string Title { get; set; } = "";
+        public string Message { get; set; } = "";
+        public bool SendPush { get; set; } = true;
+        public bool SendEmail { get; set; } = false;
     }
 }

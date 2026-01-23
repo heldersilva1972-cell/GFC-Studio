@@ -1,21 +1,26 @@
 // [NEW]
 using GFC.BlazorServer.Data;
 using GFC.BlazorServer.Data.Entities;
+using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using WebPush;
+using System.Text.Json;
 
 namespace GFC.BlazorServer.Services
 {
     public class NotificationService : INotificationService
     {
         private readonly GfcDbContext _context;
+        private readonly GFC.Core.Interfaces.IEmailService _emailService;
         private bool _masterKillSwitchEnabled = false;
 
-        public NotificationService(GfcDbContext context)
+        public NotificationService(GfcDbContext context, GFC.Core.Interfaces.IEmailService emailService)
         {
             _context = context;
+            _emailService = emailService;
         }
 
         public async Task DispatchNotificationAsync(SystemNotification notification)
@@ -103,6 +108,9 @@ namespace GFC.BlazorServer.Services
 
             _context.SystemNotifications.Add(notification);
             await _context.SaveChangesAsync();
+
+            // Perform actual email delivery
+            await SendEmailAsync(request.RequesterEmail, notification.Subject, notification.Message);
         }
 
         public async Task SendRentalDenialEmailAsync(HallRentalRequest request, string reason)
@@ -127,6 +135,9 @@ namespace GFC.BlazorServer.Services
 
             _context.SystemNotifications.Add(notification);
             await _context.SaveChangesAsync();
+
+            // Perform actual email delivery
+            await SendEmailAsync(request.RequesterEmail, notification.Subject, notification.Message);
         }
 
         public async Task SendEmailAsync(string email, string subject, string body)
@@ -139,12 +150,25 @@ namespace GFC.BlazorServer.Services
                 Subject = subject,
                 Message = body,
                 Channel = "Email",
-                Status = "Sent",
+                Status = "Pending",
                 SentAt = DateTime.UtcNow
             };
 
             _context.SystemNotifications.Add(notification);
             await _context.SaveChangesAsync();
+
+            try
+            {
+                await _emailService.SendEmailAsync(email, subject, body);
+                notification.Status = "Sent";
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception)
+            {
+                notification.Status = "Failed";
+                await _context.SaveChangesAsync();
+                throw;
+            }
         }
 
         public async Task<List<SystemNotification>> GetActiveNotificationsAsync()
@@ -154,6 +178,12 @@ namespace GFC.BlazorServer.Services
                                  .ToListAsync();
         }
 
+        public async Task<int> GetPushSubscriptionCountAsync(int userId)
+        {
+            return await _context.PushSubscriptions
+                .CountAsync(s => s.UserId == userId);
+        }
+
         public async Task SubscribeToPushAsync(int userId, string endpoint, string p256dh, string auth, string? deviceName)
         {
             var existing = await _context.PushSubscriptions
@@ -161,7 +191,7 @@ namespace GFC.BlazorServer.Services
 
             if (existing == null)
             {
-                _context.PushSubscriptions.Add(new PushSubscription
+                _context.PushSubscriptions.Add(new GFC.BlazorServer.Data.Entities.PushSubscription
                 {
                     UserId = userId,
                     Endpoint = endpoint,
@@ -188,26 +218,61 @@ namespace GFC.BlazorServer.Services
 
         public async Task SendPushNotificationAsync(int userId, string title, string body, string? url = null)
         {
-            if (_masterKillSwitchEnabled) return;
+            if (_masterKillSwitchEnabled) throw new InvalidOperationException("Notifications are currently disabled by the Master Kill Switch.");
+
+            var settings = await _context.SystemSettings.FirstOrDefaultAsync();
+            if (settings == null) throw new InvalidOperationException("System settings not found.");
+            if (!settings.PushEnabled) throw new InvalidOperationException("Web Push notifications are disabled in System Settings.");
+            if (string.IsNullOrEmpty(settings.VapidPublicKey) || string.IsNullOrEmpty(settings.VapidPrivateKey))
+                throw new InvalidOperationException("VAPID keys are missing. Please configure them in Communications Setup.");
 
             var subscriptions = await _context.PushSubscriptions
                 .Where(s => s.UserId == userId)
                 .ToListAsync();
 
+            if (!subscriptions.Any()) throw new InvalidOperationException("User has no registered push devices. They must enable notifications in 'My Security'.");
+
+            var vapidDetails = new VapidDetails(settings.VapidSubject ?? "mailto:admin@gfc.com", settings.VapidPublicKey, settings.VapidPrivateKey);
+            var webPushClient = new WebPushClient();
+
+            var payload = JsonSerializer.Serialize(new
+            {
+                title = title,
+                body = body,
+                url = url ?? "/"
+            });
+
             foreach (var sub in subscriptions)
             {
-                // In a real production app, we would use WebPush library here
-                // For now, we log the intent and store it in system notifications
-                var notification = new SystemNotification
+                try
                 {
-                    RecipientEmail = $"User:{userId}",
-                    Subject = title,
-                    Message = $"{body} (URL: {url ?? "/"})",
-                    Channel = "Push",
-                    Status = "Sent",
-                    SentAt = DateTime.UtcNow
-                };
-                _context.SystemNotifications.Add(notification);
+                    var pushSubscription = new WebPush.PushSubscription(sub.Endpoint, sub.P256dh, sub.Auth);
+                    await webPushClient.SendNotificationAsync(pushSubscription, payload, vapidDetails);
+
+                    var notification = new SystemNotification
+                    {
+                        RecipientEmail = $"User:{userId}",
+                        Subject = title,
+                        Message = body,
+                        Channel = "Push",
+                        Status = "Sent",
+                        SentAt = DateTime.UtcNow
+                    };
+                    _context.SystemNotifications.Add(notification);
+                }
+                catch (Exception ex)
+                {
+                    var notification = new SystemNotification
+                    {
+                        RecipientEmail = $"User:{userId}",
+                        Subject = title,
+                        Message = $"{body} (FAILED: {ex.Message})",
+                        Channel = "Push",
+                        Status = "Failed",
+                        SentAt = DateTime.UtcNow
+                    };
+                    _context.SystemNotifications.Add(notification);
+                }
             }
             
             await _context.SaveChangesAsync();

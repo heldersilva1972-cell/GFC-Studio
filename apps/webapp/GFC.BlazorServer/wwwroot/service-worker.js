@@ -2,7 +2,7 @@
 // Minimal implementation required for PWA installability
 // Does NOT cache aggressively to avoid breaking Blazor Server SignalR
 
-const CACHE_NAME = 'gfc-pwa-v5';
+const CACHE_NAME = 'gfc-pwa-v6';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',

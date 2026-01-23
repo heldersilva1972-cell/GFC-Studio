@@ -5,6 +5,7 @@
 @using Microsoft.AspNetCore.Authorization
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject ILogger<CommunicationsSetup> Logger
+@inject IJSRuntime JSRuntime
 @attribute [Authorize]
 
 <PageTitle>Communications Setup - GFC</PageTitle>
@@ -177,23 +178,38 @@
                     <div class="card-body">
                         <div class="@(!_settings.PushEnabled ? "opacity-50 pointer-events-none" : "")">
                             <div class="mb-3">
-                                <label class="form-label small fw-bold">VAPID Public Key</label>
-                                <textarea class="form-control form-control-sm" rows="2" @bind="_settings.VapidPublicKey" disabled="@(!_settings.PushEnabled)"></textarea>
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label small fw-bold mb-0">VAPID Public Key</label>
+                                    <button class="btn btn-link py-0 x-small text-decoration-none" @onclick='() => CopyToClipboard(_settings.VapidPublicKey, "Public Key")'>
+                                        <i class="bi bi-clipboard me-1"></i> Copy
+                                    </button>
+                                </div>
+                                <textarea class="form-control form-control-sm" rows="3" @bind="_settings.VapidPublicKey" disabled="@(!_settings.PushEnabled)" placeholder="Generate keys below..."></textarea>
                             </div>
 
                             <div class="mb-3">
                                 <label class="form-label small fw-bold">VAPID Private Key</label>
-                                <div class="input-group">
-                                    <input type="@(_showPushSecret ? "text" : "password")" class="form-control form-control-sm" @bind="_settings.VapidPrivateKey" disabled="@(!_settings.PushEnabled)" />
-                                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => _showPushSecret = !_showPushSecret" disabled="@(!_settings.PushEnabled)">
+                                <div class="input-group input-group-sm">
+                                    <input type="@(_showPushSecret ? "text" : "password")" class="form-control" @bind="_settings.VapidPrivateKey" disabled="@(!_settings.PushEnabled)" placeholder="Private Key" />
+                                    <button class="btn btn-outline-secondary" type="button" @onclick="() => _showPushSecret = !_showPushSecret" disabled="@(!_settings.PushEnabled)">
                                         <i class="bi @(_showPushSecret ? "bi-eye-slash" : "bi-eye")"></i>
                                     </button>
                                 </div>
                             </div>
 
-                            <div class="mb-0">
+                            <div class="mb-3">
                                 <label class="form-label small fw-bold">VAPID Subject (mailto:)</label>
                                 <input type="text" class="form-control form-control-sm" @bind="_settings.VapidSubject" placeholder="mailto:admin@yourclub.com" disabled="@(!_settings.PushEnabled)" />
+                            </div>
+
+                            <div class="d-grid mt-4">
+                                <button class="btn btn-outline-primary btn-sm rounded-pill" @onclick="GenerateVapidKeys" disabled="@(!_settings.PushEnabled)">
+                                    <i class="bi bi-key-fill me-1"></i> Generate New VAPID Keys
+                                </button>
+                                <p class="x-small text-muted mt-2 text-center">
+                                    <i class="bi bi-exclamation-triangle me-1"></i> 
+                                    Changing keys will invalidate all existing user subscriptions.
+                                </p>
                             </div>
                         </div>
 
@@ -294,5 +310,31 @@
         {
             _isSaving = false;
         }
+    }
+
+    private async Task GenerateVapidKeys()
+    {
+        try 
+        {
+            var keys = WebPush.VapidHelper.GenerateVapidKeys();
+            _settings.VapidPublicKey = keys.PublicKey;
+            _settings.VapidPrivateKey = keys.PrivateKey;
+            _successMessage = "New VAPID keys generated. Don't forget to SAVE changes!";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "Failed to generate keys: " + ex.Message;
+        }
+    }
+
+    private async Task CopyToClipboard(string text, string label)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        _successMessage = $"{label} copied to clipboard!";
+        StateHasChanged();
+        await Task.Delay(2000);
+        _successMessage = null;
+        StateHasChanged();
     }
 }

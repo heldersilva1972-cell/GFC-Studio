@@ -28,6 +28,7 @@ namespace GFC.BlazorServer.Services
         Task SendRentalDenialEmailAsync(HallRentalRequest request, string reason);
 
         // General email sending
+        Task<int> GetPushSubscriptionCountAsync(int userId);
         Task SendEmailAsync(string email, string subject, string body);
         Task<List<SystemNotification>> GetActiveNotificationsAsync();
     }

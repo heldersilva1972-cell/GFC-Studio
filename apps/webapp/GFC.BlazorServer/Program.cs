@@ -561,6 +561,27 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> WARNING: Schema repair script not found at {scriptPath}");
                 }
 
+                // [AUTO-FIX 2] Run Security & Push Notification Schema Fixes
+                var pushSecurityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "apps", "webapp", "fix_security_schema.sql");
+                if (File.Exists(pushSecurityScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Security & Push Schema Fixes from: {pushSecurityScriptPath}");
+                    var sqlFile = File.ReadAllText(pushSecurityScriptPath);
+                    var commandBatches = System.Text.RegularExpressions.Regex.Split(sqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    foreach (var batch in commandBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                dbContext.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing security batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> Security & Push Schema Fixes Applied Successfully.");
+                }
+
                 // [CRITICAL FIX 2] Force-Fix NULLs for new SystemSettings columns (AccessMode, etc.)
                 // This ensures "Data is Null" errors don't prevent app startup/operations
                 try 

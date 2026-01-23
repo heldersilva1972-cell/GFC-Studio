@@ -163,6 +163,58 @@ IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Sy
 
 IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TrustedDeviceDurationDays')
     ALTER TABLE [dbo].[SystemSettings] ADD [TrustedDeviceDurationDays] INT NULL;
+
+-- 2. Communication & Push Notification Columns
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'EmailEnabled')
+    ALTER TABLE [dbo].[SystemSettings] ADD [EmailEnabled] BIT NOT NULL DEFAULT 0;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmsEnabled')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmsEnabled] BIT NOT NULL DEFAULT 0;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PushEnabled')
+    ALTER TABLE [dbo].[SystemSettings] ADD [PushEnabled] BIT NOT NULL DEFAULT 0;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'VapidPublicKey')
+    ALTER TABLE [dbo].[SystemSettings] ADD [VapidPublicKey] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'VapidPrivateKey')
+    ALTER TABLE [dbo].[SystemSettings] ADD [VapidPrivateKey] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'VapidSubject')
+    ALTER TABLE [dbo].[SystemSettings] ADD [VapidSubject] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'PreferredMagicLinkMethod')
+    ALTER TABLE [dbo].[SystemSettings] ADD [PreferredMagicLinkMethod] NVARCHAR(50) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TwilioAccountSid')
+    ALTER TABLE [dbo].[SystemSettings] ADD [TwilioAccountSid] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TwilioAuthToken')
+    ALTER TABLE [dbo].[SystemSettings] ADD [TwilioAuthToken] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'TwilioFromNumber')
+    ALTER TABLE [dbo].[SystemSettings] ADD [TwilioFromNumber] NVARCHAR(50) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpHost')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpHost] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpPort')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpPort] INT NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUser')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpUser] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpPass')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpPass] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpFromAddress')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpFromAddress] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpFromDisplayName')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpFromDisplayName] NVARCHAR(MAX) NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'SmtpUseSsl')
+    ALTER TABLE [dbo].[SystemSettings] ADD [SmtpUseSsl] BIT NOT NULL DEFAULT 1;
 GO
 
 -- Step D: Populate existing NULLs with defaults
@@ -202,7 +254,15 @@ UPDATE [dbo].[SystemSettings] SET
     [MagicLinkEnabled] = ISNULL([MagicLinkEnabled], 1),
     [SafeModeEnabled] = ISNULL([SafeModeEnabled], 0),
     [SystemTimeZoneId] = ISNULL([SystemTimeZoneId], 'Eastern Standard Time'),
-    [TrustedDeviceDurationDays] = ISNULL([TrustedDeviceDurationDays], 30)
+    [TrustedDeviceDurationDays] = ISNULL([TrustedDeviceDurationDays], 30),
+    
+    -- Communication Defaults
+    [EmailEnabled] = ISNULL([EmailEnabled], 0),
+    [SmsEnabled] = ISNULL([SmsEnabled], 0),
+    [PushEnabled] = ISNULL([PushEnabled], 0),
+    [PreferredMagicLinkMethod] = ISNULL([PreferredMagicLinkMethod], 'Email'),
+    [SmtpPort] = ISNULL([SmtpPort], 587),
+    [SmtpUseSsl] = ISNULL([SmtpUseSsl], 1)
 WHERE Id = 1;
 GO
 
