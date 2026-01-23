@@ -167,6 +167,15 @@
                         <i class="bi bi-chevron-right text-muted opacity-50"></i>
                     </div>
                 }
+
+                @if (!HasAnyMobileTools && !IsLoading)
+                {
+                    <div class="empty-state text-center py-5 w-100">
+                        <i class="bi bi-shield-lock display-1 text-muted opacity-25"></i>
+                        <p class="mt-3 fw-bold text-muted">No permissions found.</p>
+                        <p class="small text-muted px-4">You are logged in as <strong>@Username</strong> but do not have access to any mobile tools yet.</p>
+                    </div>
+                }
             </div>
 
             @* [CLEANUP] Removed redundant 'No Active Tools' block for a cleaner, unified UI *@
@@ -232,29 +241,39 @@
 
     private async Task RefreshData()
     {
-        IsRefreshing = true;
-        
-        // Reliability Fix: Forcefully reload user record from the database 
-        // to pick up changes in IsAdmin or Account status without logout.
-        await AuthStateProvider.RefreshUserAsync();
-        
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var user = authState.User;
-        Username = user.Identity?.Name ?? "Guest";
-        IsAdmin = user.IsInRole("Admin");
-        
-        var currentAppUser = AuthStateProvider.GetCurrentUser();
-        if (currentAppUser != null)
+        try
         {
-            if (currentAppUser.IsAdmin) IsAdmin = true;
+            IsRefreshing = true;
+            IsLoading = true;
+            StateHasChanged();
             
-            var permissions = await Task.Run(() => UserService.GetUserPagePermissions(currentAppUser.UserId));
-            UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+            await AuthStateProvider.RefreshUserAsync();
+            
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            Username = user.Identity?.Name ?? "Guest";
+            IsAdmin = user.IsInRole("Admin");
+            
+            var currentAppUser = AuthStateProvider.GetCurrentUser();
+            if (currentAppUser != null)
+            {
+                if (currentAppUser.IsAdmin) IsAdmin = true;
+                
+                var permissions = await Task.Run(() => UserService.GetUserPagePermissions(currentAppUser.UserId));
+                UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+            }
         }
-        
-        IsLoading = false;
-        IsRefreshing = false;
-        StateHasChanged();
+        catch (Exception ex)
+        {
+            Username = "Connection Error";
+            Console.WriteLine($"Hub Load Error: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+            IsRefreshing = false;
+            StateHasChanged();
+        }
     }
 
     private bool HasAccessTo(string featureName)

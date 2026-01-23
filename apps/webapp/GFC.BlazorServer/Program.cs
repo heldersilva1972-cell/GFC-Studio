@@ -65,6 +65,7 @@ public class Program
             options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
             options.HandshakeTimeout = TimeSpan.FromSeconds(30);
             options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+            options.MaximumReceiveMessageSize = 1024 * 1024 * 10; // 10MB for image transfers
         }).AddCircuitOptions(options => options.DetailedErrors = true);
 
         builder.Services.AddSignalR(options => 
@@ -935,6 +936,42 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                         }
                     }
                     Console.WriteLine(">>> Notification System Schema Applied Successfully.");
+                }
+
+                // [AUTO-FIX 15] Run Liquor Inventory Schema Migration
+                var liquorScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "apps", "webapp", "DatabaseScripts", "20260121_LiquorInventory.sql");
+                if (File.Exists(liquorScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Liquor Inventory Schema Fixes from: {liquorScriptPath}");
+                    var liquorSql = File.ReadAllText(liquorScriptPath);
+                    var liquorBatches = System.Text.RegularExpressions.Regex.Split(liquorSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in liquorBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Liquor Inventory batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Liquor Inventory Schema Applied Successfully.");
+                }
+
+                // [AUTO-FIX 16] Run Media Assets Schema Correction
+                var mediaFixPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "Fix_MediaAssets_Schema.sql");
+                if (File.Exists(mediaFixPath))
+                {
+                    Console.WriteLine($">>> Applying Media Assets Schema Fixes from: {mediaFixPath}");
+                    var mediaSql = File.ReadAllText(mediaFixPath);
+                    var mediaBatches = System.Text.RegularExpressions.Regex.Split(mediaSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    
+                    foreach (var batch in mediaBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Media fix batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Media Assets Schema Applied Successfully.");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

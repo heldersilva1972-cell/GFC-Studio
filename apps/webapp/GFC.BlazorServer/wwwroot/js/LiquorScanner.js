@@ -1,153 +1,226 @@
-// [NEW] Liquor Scanner JS Integration
-// Uses html5-qrcode for high-performance barcode scanning
-
-var html5QrCode;
-
 window.LiquorScanner = {
-    start: async function (dotNetHelper) {
-        if (typeof Html5Qrcode === "undefined") {
-            await this.loadScript("https://unpkg.com/html5-qrcode");
-        }
+    instances: {},
+    scriptPromise: null,
 
-        const config = {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0
-        };
+    loadScript: function (url) {
+        if (window.Html5Qrcode) return Promise.resolve();
+        if (this.scriptPromise) return this.scriptPromise;
 
-        const element = document.getElementById("reader");
-        if (!element) {
-            console.error("Scanner element #reader not found");
-            return;
-        }
+        console.log("LiquorScanner: Loading html5-qrcode library...");
+        this.scriptPromise = new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = url;
+            script.onload = () => {
+                console.log("LiquorScanner: Library loaded.");
+                resolve();
+            };
+            script.onerror = (e) => {
+                this.scriptPromise = null;
+                console.error("LiquorScanner: Library failed to load.", e);
+                reject(e);
+            };
+            document.head.appendChild(script);
+        });
+        return this.scriptPromise;
+    },
 
-        if (html5QrCode) {
-            try { await this.stop(); } catch (e) { }
-        }
-
-        html5QrCode = new Html5Qrcode("reader");
-
+    start: async function (elementId, dotNetHelper, callbackName) {
         try {
-            await html5QrCode.start(
+            console.log(`LiquorScanner: Initializing scanner on #${elementId}`);
+            await this.loadScript("https://unpkg.com/html5-qrcode");
+
+            // Stop any existing session first without awaiting indefinitely
+            this.stopAllCameras().catch(e => console.warn("LiquorScanner: Pre-start cleanup failed", e));
+
+            const config = {
+                fps: 20,
+                qrbox: (viewWidth, viewHeight) => {
+                    const minDim = Math.min(viewWidth, viewHeight);
+                    return { width: minDim * 0.8, height: minDim * 0.8 };
+                },
+                aspectRatio: 1.0,
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true
+                }
+            };
+
+            const scanner = new Html5Qrcode(elementId);
+            this.instances[elementId] = scanner;
+
+            await scanner.start(
                 { facingMode: "environment" },
                 config,
                 (decodedText) => {
-                    dotNetHelper.invokeMethodAsync('OnScanSuccess', decodedText);
-                }
+                    console.log("LiquorScanner: Valid scan detected:", decodedText);
+                    this.playBeep();
+                    // Non-blocking call back to Blazor
+                    setTimeout(() => {
+                        dotNetHelper.invokeMethodAsync(callbackName, decodedText)
+                            .catch(err => console.error("LiquorScanner: Failed to notify Blazor", err));
+                    }, 10);
+                },
+                (errorMessage) => { /* Quiet scan noise */ }
             );
+            console.log("LiquorScanner: Camera active and scanning.");
         } catch (err) {
-            console.error("Unable to start scanner", err);
+            console.error(`LiquorScanner: Critical startup error:`, err);
+
+            let msg = "Camera Access Error";
+            if (err && err.name === 'NotAllowedError') msg += ": Permission denied. Please enable camera access.";
+            else if (err && err.name === 'NotFoundError') msg += ": No camera found.";
+            else if (err && err.message) msg += ": " + err.message;
+            else if (typeof err === 'string') msg += ": " + err;
+            else msg += ": Unexpected failure.";
+
+            alert(msg);
+            throw err;
         }
     },
 
-    stop: async function () {
-        if (html5QrCode) {
-            if (html5QrCode.isScanning) {
-                try { await html5QrCode.stop(); } catch (e) { }
+    stop: async function (elementId) {
+        const scanner = this.instances[elementId];
+        if (scanner) {
+            console.log(`LiquorScanner: Tearing down scanner on #${elementId}`);
+            try {
+                if (scanner.isScanning) {
+                    await scanner.stop();
+                }
+            } catch (e) {
+                console.warn("LiquorScanner: Stop call failed", e);
             }
-            try { html5QrCode.clear(); } catch (e) { }
-            html5QrCode = null;
-        }
-    },
-
-    startModal: async function (dotNetHelper) {
-        if (typeof Html5Qrcode === "undefined") {
-            await this.loadScript("https://unpkg.com/html5-qrcode");
-        }
-
-        const config = {
-            fps: 10,
-            qrbox: { width: 250, height: 150 },
-            aspectRatio: 1.0
-        };
-
-        if (window.modalScanner) {
-            try { await window.modalScanner.stop(); } catch (e) { }
-        }
-
-        window.modalScanner = new Html5Qrcode("modal-reader");
-
-        try {
-            await window.modalScanner.start(
-                { facingMode: "environment" },
-                config,
-                (decodedText) => {
-                    dotNetHelper.invokeMethodAsync('OnModalScanSuccess', decodedText);
-                }
-            );
-        } catch (err) {
-            console.error("Modal scanner error", err);
-        }
-    },
-
-    stopModal: async function () {
-        if (window.modalScanner && window.modalScanner.isScanning) {
-            try { await window.modalScanner.stop(); } catch (e) { }
+            try { scanner.clear(); } catch (e) { }
+            delete this.instances[elementId];
         }
     },
 
     stopAllCameras: async function () {
-        console.log("LiquorScanner: Stopping all cameras...");
-        try {
-            // 1. Stop html5-qrcode instances
-            if (window.modalScanner) {
-                if (window.modalScanner.isScanning) await window.modalScanner.stop().catch(() => { });
-                window.modalScanner.clear();
-                window.modalScanner = null;
-            }
-            if (html5QrCode) {
-                if (html5QrCode.isScanning) await html5QrCode.stop().catch(() => { });
-                html5QrCode.clear();
-                html5QrCode = null;
-            }
+        console.log("LiquorScanner: Emergency global camera stop requested.");
 
-            // 2. Kill all video tracks on the page
-            const videos = document.querySelectorAll('video');
-            videos.forEach(v => {
-                if (v.srcObject) {
-                    const tracks = v.srcObject.getTracks();
-                    tracks.forEach(track => {
-                        track.stop();
-                        console.log("Stopped track:", track.label);
-                    });
-                    v.srcObject = null;
+        // 1. Stop known library instances
+        const ids = Object.keys(this.instances);
+        for (const id of ids) {
+            try {
+                const scanner = this.instances[id];
+                if (scanner) {
+                    if (scanner.isScanning) await scanner.stop().catch(() => { });
+                    scanner.clear();
                 }
-            });
+            } catch (e) { }
+            delete this.instances[id];
+        }
 
-            // 3. Fallback: Global tracks
-            if (window.localStream) {
-                window.localStream.getTracks().forEach(t => t.stop());
-                window.localStream = null;
+        // 2. Clear our internal video track references
+        this.activeVideoStream = null;
+
+        // 3. Bruteforce every media track in the browser (Atomic Fix)
+        try {
+            const videoElements = document.querySelectorAll('video');
+            videoElements.forEach(v => {
+                const stream = v.srcObject;
+                if (stream && stream.getTracks) {
+                    stream.getTracks().forEach(t => {
+                        console.log("LiquorScanner: Forcibly stopping track:", t.label);
+                        t.stop();
+                    });
+                }
+                v.srcObject = null;
+                try { v.load(); } catch (e) { }
+            });
+        } catch (err) {
+            console.warn("LiquorScanner: Track cleanup error", err);
+        }
+    },
+
+    triggerClick: function (id) {
+        try {
+            const el = document.getElementById(id);
+            if (el) {
+                console.log("LiquorScanner: Firing click event on", id);
+                el.click();
+            } else {
+                console.error("LiquorScanner: Cannot click missing element:", id);
             }
         } catch (e) {
-            console.error("Error stopping cameras:", e);
+            console.error("LiquorScanner: Trigger click error", e);
         }
     },
 
-    getLocalPreview: function (selector) {
-        // Try exact ID first, then general selector
-        let input = document.getElementById(selector);
-        if (!input) input = document.querySelector(selector);
+    playBeep: function () {
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
 
-        if (input && input.files && input.files[0]) {
-            return URL.createObjectURL(input.files[0]);
-        }
-        return null;
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05);
+            gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.2);
+
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.2);
+        } catch (e) { }
     },
 
-    revokePreview: function (url) {
-        if (url && url.startsWith('blob:')) {
-            URL.revokeObjectURL(url);
+    startLiveCamera: async function (elementId) {
+        try {
+            const container = document.getElementById(elementId);
+            if (!container) return;
+
+            await this.stopAllCameras();
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment" },
+                audio: false
+            }).catch(e => { throw new Error("Could not access camera: " + e.message); });
+
+            const video = document.createElement("video");
+            video.srcObject = stream;
+            video.setAttribute("playsinline", true);
+            video.muted = true;
+            video.style.width = "100%";
+            video.style.height = "100%";
+            video.style.objectFit = "cover";
+
+            container.innerHTML = "";
+            container.appendChild(video);
+
+            video.onloadedmetadata = () => video.play().catch(e => console.warn("Play failed", e));
+
+            this.activeVideoStream = stream;
+        } catch (err) {
+            console.error("LiquorScanner: Live camera error:", err);
+            alert("Camera Error: " + err.message);
         }
     },
 
-    loadScript: function (url) {
-        return new Promise((resolve, reject) => {
-            const script = document.createElement("script");
-            script.src = url;
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-        });
+    takeSnapshot: async function () {
+        try {
+            const video = document.querySelector("video");
+            if (!video || !this.activeVideoStream) {
+                console.error("LiquorScanner: No active video stream for snapshot");
+                return null;
+            }
+
+            const canvas = document.createElement("canvas");
+            canvas.width = video.videoWidth || video.clientWidth;
+            canvas.height = video.videoHeight || video.clientHeight;
+
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+            this.playBeep();
+
+            this.stopAllCameras().catch(() => { });
+
+            return dataUrl;
+        } catch (err) {
+            console.error("LiquorScanner: Snapshot error", err);
+            return null;
+        }
     }
 };
