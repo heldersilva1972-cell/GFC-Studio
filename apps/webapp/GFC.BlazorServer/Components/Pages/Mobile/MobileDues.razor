@@ -1,0 +1,492 @@
+@page "/mobile/dues"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using DuesPaymentModel = GFC.Core.Models.DuesPayment
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IDuesRepository DuesRepo
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Dues & Payments | GFC</PageTitle>
+
+<div class="mobile-app-container">
+    <!-- HEADER -->
+    <header class="app-header">
+        <div class="container py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-3">
+                    <button class="btn btn-light rounded-3" style="width: 40px; height: 40px; padding: 0;" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <h6 class="mb-0 fw-bold header-title">Dues & Payments</h6>
+                </div>
+                <div class="badge bg-primary rounded-pill px-3 py-2">
+                    @_currentYear
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="dues-main-container">
+        @if (_isLoading)
+        {
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- top-section: locked at top -->
+            <div class="top-filter-section">
+                <div class="container pt-3">
+                    <!-- Search Bar -->
+                    <div class="mb-3">
+                        <input type="text" class="form-control" placeholder="Search members..." @bind="_searchTerm" @bind:event="oninput" />
+                    </div>
+
+                    <!-- Clickable Stats Cards - 4 boxes in 2 rows -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <div class="stat-card-compact bg-success bg-opacity-10 border-success @(_filter == "paid" ? "active" : "")" 
+                                 @onclick='() => _filter = "paid"'>
+                                <div class="stat-value-compact text-success">@_paidCount</div>
+                                <div class="stat-label-compact">Paid</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-card-compact bg-warning bg-opacity-10 border-warning @(_filter == "unpaid" ? "active" : "")" 
+                                 @onclick='() => _filter = "unpaid"'>
+                                <div class="stat-value-compact text-warning">@_unpaidCount</div>
+                                <div class="stat-label-compact">Unpaid</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-card-compact bg-info bg-opacity-10 border-info @(_filter == "waived" ? "active" : "")" 
+                                 @onclick='() => _filter = "waived"'>
+                                <div class="stat-value-compact text-info">@_waivedCount</div>
+                                <div class="stat-label-compact">Waived</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-card-compact bg-primary bg-opacity-10 border-primary">
+                                <div class="stat-value-compact text-primary">$@_totalCollected.ToString("N2")</div>
+                                <div class="stat-label-compact">Collected</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- list-section: the only part that scrolls -->
+            <div class="dues-list-scroll-container">
+                <div class="container py-2">
+                    @foreach (var item in FilteredDuesWithMembers)
+                    {
+                        <div class="app-card mb-2" style="padding: 12px 16px;">
+                            <div class="d-flex align-items-center gap-3 w-100">
+                                <div class="member-avatar">@item.Member.LastName[0]</div>
+                                <div style="flex-grow: 1;">
+                                    <h6 class="mb-0 fw-bold">@item.Member.LastName, @item.Member.FirstName</h6>
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <span class="badge @GetStatusBadgeClass(item.DuesPayment)">
+                                            @GetDuesStatus(item.DuesPayment)
+                                        </span>
+                                        @if (item.DuesPayment?.PaidDate.HasValue == true)
+                                        {
+                                            <small class="text-muted">@item.DuesPayment.PaidDate.Value.ToString("MMM dd")</small>
+                                        }
+                                        @if (item.DuesPayment?.Amount.HasValue == true && item.DuesPayment.Amount > 0)
+                                        {
+                                            <small class="fw-bold text-primary">$@item.DuesPayment.Amount</small>
+                                        }
+                                    </div>
+                                </div>
+                                @if (item.DuesPayment == null || (!item.DuesPayment.PaidDate.HasValue && item.DuesPayment.PaymentType != "WAIVED"))
+                                {
+                                    <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => MarkAsPaid(item)">
+                                        Pay
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (!FilteredDuesWithMembers.Any())
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-cash-coin display-4 opacity-25"></i>
+                            <p class="mt-2">No records found</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </main>
+
+    <!-- BOTTOM BAR -->
+    <nav class="app-nav-bar">
+        <div class="container nav-tabs-container">
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                <i class="bi bi-grid"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Hub</span>
+            </button>
+            <button class="nav-tab-item active" style="border: none; background: none;">
+                <i class="bi bi-cash-stack"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Dues</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/keycards")'>
+                <i class="bi bi-credit-card"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Cards</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/liquor/manage")'>
+                <i class="bi bi-boxes"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Stock</span>
+            </button>
+        </div>
+    </nav>
+</div>
+
+<!-- Payment Modal -->
+@if (_showPaymentModal && _selectedItem != null)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
+    <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="p-4">
+            <h5 class="fw-bold mb-3">Record Payment</h5>
+            
+            <div class="mb-3">
+                <label class="form-label fw-bold">Member</label>
+                <input type="text" class="form-control" value="@_selectedItem.Member.LastName, @_selectedItem.Member.FirstName" disabled />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-bold">Amount</label>
+                <div class="input-group">
+                    <span class="input-group-text">$</span>
+                    <input type="number" class="form-control" @bind="_paymentAmount" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-bold">Payment Date</label>
+                <input type="date" class="form-control" @bind="_paymentDate" />
+            </div>
+
+            <div class="d-grid gap-2">
+                <button class="btn btn-app-primary py-3" @onclick="ConfirmPayment" disabled="@_isSaving">
+                    @if (_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    Confirm Payment
+                </button>
+                <button class="btn btn-light py-3" @onclick="CloseModals">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .mobile-app-container {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .dues-main-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: #f8f9fa;
+    }
+    
+    .top-filter-section {
+        background: #f8f9fa;
+        z-index: 100;
+        border-bottom: 1px solid #dee2e6;
+        padding-bottom: 0.5rem;
+    }
+    
+    .dues-list-scroll-container {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .stat-card-compact {
+        padding: 0.75rem 0.5rem;
+        border-radius: 12px;
+        border: 2px solid;
+        text-align: center;
+        transition: all 0.2s;
+        cursor: pointer;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .stat-card-compact.active {
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .stat-value-compact {
+        font-size: 1.5rem;
+        font-weight: 900;
+        line-height: 1;
+    }
+    .stat-label-compact {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-top: 0.25rem;
+        color: #64748b;
+    }
+    .member-avatar {
+        width: 40px;
+        height: 40px;
+        background: var(--app-primary-gradient);
+        color: white;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 1.1rem;
+    }
+    .modal-backdrop-custom {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+    .bottom-sheet {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: white;
+        border-radius: 24px 24px 0 0;
+        z-index: 1050;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+    }
+    .sheet-handle {
+        width: 40px;
+        height: 4px;
+        background: #ddd;
+        border-radius: 2px;
+        margin: 12px auto;
+    }
+    .bottom-sheet .form-control {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        color: #212529;
+        font-weight: 500;
+    }
+    .bottom-sheet .form-control:disabled {
+        background: #e9ecef;
+        color: #6c757d;
+    }
+    .bottom-sheet .input-group-text {
+        background: #e9ecef;
+        border: 1px solid #dee2e6;
+        color: #212529;
+        font-weight: 600;
+    }
+
+    .app-nav-bar {
+        background: white;
+        border-top: 1px solid #dee2e6;
+        padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
+        position: sticky;
+        bottom: 0;
+        z-index: 100;
+    }
+
+    .nav-tabs-container {
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+    }
+
+    .nav-tab-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        color: #94a3b8;
+        text-decoration: none;
+        transition: all 0.2s;
+        border: none;
+        background: none;
+        padding: 0.5rem;
+    }
+
+    .nav-tab-item i { font-size: 1.25rem; }
+    .nav-tab-item.active { color: #0d6efd; } /* Primary color match */
+    .nav-tab-item.active i { color: #0d6efd; }
+</style>
+
+@code {
+    private bool _isLoading = true;
+    private bool _showPaymentModal = false;
+    private bool _isSaving = false;
+    private string _filter = "unpaid";
+    private string _searchTerm = "";
+    private decimal _paymentAmount = 0;
+    private DateTime _paymentDate = DateTime.Today;
+    private int _currentYear = DateTime.Now.Year;
+
+    private List<DuesPaymentModel> _allDues = new();
+    private List<Member> _allMembers = new();
+    private List<Member> _eligibleMembers = new();
+    private DuesMemberItem? _selectedItem;
+    private int _paidCount = 0;
+    private int _unpaidCount = 0;
+    private int _waivedCount = 0;
+    private decimal _totalCollected = 0;
+
+    // Helper class to combine member with their dues payment
+    private class DuesMemberItem
+    {
+        public Member Member { get; set; } = null!;
+        public DuesPaymentModel? DuesPayment { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        try
+        {
+            _allDues = await Task.Run(() => DuesRepo.GetDuesForYear(_currentYear));
+            _allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            
+            // Get eligible members (active statuses)
+            var activeStatuses = new[] { "REGULAR", "REGULAR-NP", "LIFE", "Active" };
+            _eligibleMembers = _allMembers.Where(m => activeStatuses.Contains(m.Status)).ToList();
+            
+            _paidCount = _allDues.Count(d => d.PaidDate.HasValue && d.PaymentType != "WAIVED");
+            _waivedCount = _allDues.Count(d => d.PaymentType == "WAIVED");
+            
+            // Unpaid = eligible members without a paid/waived record
+            var membersWithPaidOrWaived = _allDues
+                .Where(d => d.PaidDate.HasValue || d.PaymentType == "WAIVED")
+                .Select(d => d.MemberID)
+                .ToHashSet();
+            _unpaidCount = _eligibleMembers.Count(m => !membersWithPaidOrWaived.Contains(m.MemberID));
+            
+            _totalCollected = _allDues.Where(d => d.PaidDate.HasValue && d.Amount.HasValue).Sum(d => d.Amount.Value);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading dues: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private IEnumerable<DuesMemberItem> FilteredDuesWithMembers
+    {
+        get
+        {
+            // Combine all eligible members with their dues (if they have one)
+            var allItems = _eligibleMembers.Select(m => new DuesMemberItem
+            {
+                Member = m,
+                DuesPayment = _allDues.FirstOrDefault(d => d.MemberID == m.MemberID)
+            }).ToList();
+
+            var filtered = allItems.AsEnumerable();
+
+            if (_filter == "paid")
+                filtered = filtered.Where(i => i.DuesPayment?.PaidDate.HasValue == true && i.DuesPayment.PaymentType != "WAIVED");
+            else if (_filter == "unpaid")
+                filtered = filtered.Where(i => i.DuesPayment == null || (!i.DuesPayment.PaidDate.HasValue && i.DuesPayment.PaymentType != "WAIVED"));
+            else if (_filter == "waived")
+                filtered = filtered.Where(i => i.DuesPayment?.PaymentType == "WAIVED");
+
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                filtered = filtered.Where(i => $"{i.Member.LastName} {i.Member.FirstName}".Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return filtered.OrderBy(i => i.Member.LastName).ThenBy(i => i.Member.FirstName);
+        }
+    }
+
+    private string GetDuesStatus(DuesPaymentModel? due)
+    {
+        if (due == null) return "Unpaid";
+        if (due.PaymentType == "WAIVED") return "Waived";
+        if (due.PaidDate.HasValue) return "Paid";
+        return "Unpaid";
+    }
+
+    private string GetStatusBadgeClass(DuesPaymentModel? due)
+    {
+        if (due == null) return "bg-warning";
+        if (due.PaymentType == "WAIVED") return "bg-info";
+        if (due.PaidDate.HasValue) return "bg-success";
+        return "bg-warning";
+    }
+
+    private void MarkAsPaid(DuesMemberItem item)
+    {
+        _selectedItem = item;
+        _paymentAmount = item.DuesPayment?.Amount ?? 0;
+        _paymentDate = DateTime.Today;
+        _showPaymentModal = true;
+    }
+
+    private void CloseModals()
+    {
+        _showPaymentModal = false;
+        _selectedItem = null;
+    }
+
+    private async Task ConfirmPayment()
+    {
+        if (_selectedItem == null || _paymentAmount <= 0)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please enter a valid payment amount");
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            // Create or update dues payment
+            var duesPayment = _selectedItem.DuesPayment ?? new DuesPaymentModel
+            {
+                MemberID = _selectedItem.Member.MemberID,
+                Year = _currentYear
+            };
+
+            duesPayment.Amount = _paymentAmount;
+            duesPayment.PaidDate = _paymentDate;
+            duesPayment.PaymentType = "CASH";
+            
+            await Task.Run(() => DuesRepo.UpsertDues(duesPayment));
+            await LoadData();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+}

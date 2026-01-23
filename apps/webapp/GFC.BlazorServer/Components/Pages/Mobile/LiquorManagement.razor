@@ -174,6 +174,28 @@
             </div>
         }
     </div>
+
+    <!-- BOTTOM BAR -->
+    <nav class="app-nav-bar">
+        <div class="container nav-tabs-container">
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                <i class="bi bi-grid"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Hub</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/schedule")'>
+                <i class="bi bi-calendar-event"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Schedule</span>
+            </button>
+            <button class="nav-tab-item active" style="border: none; background: none;">
+                <i class="bi bi-boxes"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Inventory</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/analytics")'>
+                <i class="bi bi-graph-up-arrow"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Analytics</span>
+            </button>
+        </div>
+    </nav>
 </div>
 
 @if (_showEditModal)
@@ -253,18 +275,17 @@
                 </div>
 
                 <div class="mb-4">
-                    <label class="form-label fw-bold" style="color: #1e293b; font-size: 0.85rem;">Product Photo</label>
-                    <div class="image-uploader-modern">
+                    <div class="image-uploader-modern" id="liquor-uploader">
                         @if (!string.IsNullOrEmpty(_editingItem.ImageUrl))
                         {
                             <div class="preview-container">
-                                <img src="@_editingItem.ImageUrl" class="preview-img" />
+                                <img src="@_editingItem.ImageUrl" class="preview-img" id="product-preview-img" />
                                 <div class="preview-actions">
                                     <label class="btn-retake">
                                         <i class="bi bi-camera-fill me-1"></i> Retake
-                                        <InputFile OnChange="HandleFileSelected" hidden />
+                                        <InputFile OnChange="HandleFileSelected" id="photo-input" hidden />
                                     </label>
-                                    <button class="btn-delete" @onclick="() => _editingItem.ImageUrl = null">
+                                    <button class="btn-delete" @onclick="ClearImage">
                                         <i class="bi bi-trash-fill"></i>
                                     </button>
                                 </div>
@@ -278,8 +299,15 @@
                                     <div class="fw-bold text-dark">Take a Picture</div>
                                     <div class="small text-muted">Tap to open camera</div>
                                 </div>
-                                <InputFile OnChange="HandleFileSelected" hidden />
+                                <InputFile OnChange="HandleFileSelected" id="photo-input" hidden />
                             </label>
+                            @if (_isUploadingImage)
+                            {
+                                <div class="upload-overlay">
+                                    <div class="spinner-border text-primary"></div>
+                                    <p class="mt-2 small fw-bold">Processing...</p>
+                                </div>
+                            }
                         }
                     </div>
                 </div>
@@ -290,7 +318,8 @@
                 {
                     <button class="btn btn-outline-danger me-auto" @onclick="DeleteCurrent">Delete</button>
                 }
-                <button class="btn btn-primary px-5 rounded-pill py-2" @onclick="SaveItem">
+                <button class="btn btn-primary px-5 rounded-pill py-2" @onclick="SaveItem" disabled="@_isUploadingImage">
+                    @if (_isUploadingImage) { <span class="spinner-border spinner-border-sm me-2"></span> }
                     @(_editingItem.Id == 0 ? "Create Item" : "Save Changes")
                 </button>
             </div>
@@ -583,7 +612,56 @@
         background: #000;
         overflow: hidden;
     }
+
+    .upload-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(255,255,255,0.8);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 5;
+    }
+
+    .image-uploader-modern {
+        position: relative;
+    }
+
+    .app-nav-bar {
+        background: white;
+        border-top: 1px solid #f1f5f9;
+        padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
+        position: sticky;
+        bottom: 0;
+        z-index: 100;
+    }
+
+    .nav-tabs-container {
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+    }
+
+    .nav-tab-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        color: #94a3b8;
+        text-decoration: none;
+        transition: all 0.2s;
+        border: none;
+        background: none;
+        padding: 0.5rem;
+    }
+
+    .nav-tab-item i { font-size: 1.25rem; }
+    .nav-tab-item.active { color: #4f46e5; }
+    .nav-tab-item.active i { color: #4f46e5; }
 </style>
+
+@implements IDisposable
 
 @code {
     private string _activeTab = "inventory";
@@ -593,11 +671,22 @@
     private LiquorNotificationRule _myRules = new();
     
     private bool _showEditModal = false;
+    private bool _isUploadingImage = false;
     private LiquorItem _editingItem = new();
 
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+    }
+
+    public async void Dispose()
+    {
+        // Stop any active camera streams when leaving the page
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+        }
+        catch { }
     }
 
     private async Task LoadData()
@@ -635,24 +724,49 @@
             ImageUrl = item.ImageUrl,
             CurrentStock = item.CurrentStock,
             MinStockLimit = item.MinStockLimit,
-            IsActive = item.IsActive
+            IsActive = item.IsActive,
+            CreatedAt = item.CreatedAt
         };
         _showEditModal = true;
     }
 
     private async Task SaveItem()
     {
-        if (_editingItem.Id == 0)
+        if (_isUploadingImage)
         {
-            await LiquorService.CreateItemAsync(_editingItem);
+            await JSRuntime.InvokeVoidAsync("alert", "Wait! The image is still being processed.");
+            return;
         }
-        else
+
+        if (string.IsNullOrWhiteSpace(_editingItem.Name))
         {
-            await LiquorService.UpdateItemAsync(_editingItem);
+            await JSRuntime.InvokeVoidAsync("alert", "Error: Product Name is required.");
+            return;
         }
-        
-        _showEditModal = false;
-        await LoadData();
+
+        try
+        {
+            if (_editingItem.Id == 0)
+            {
+                await LiquorService.CreateItemAsync(_editingItem);
+            }
+            else
+            {
+                await LiquorService.UpdateItemAsync(_editingItem);
+            }
+            
+            _showEditModal = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            // Capture specific unique constraint or validation errors
+            var msg = ex.Message;
+            if (msg.Contains("UPC code")) { /* already specific enough */ }
+            else if (msg.Contains("entity changes")) { msg = "Database Error: Could not save changes. Please check if another item uses this UPC."; }
+            
+            await JSRuntime.InvokeVoidAsync("alert", msg);
+        }
     }
 
     private async Task DeleteCurrent()
@@ -713,63 +827,91 @@
         _ => "bi-gear"
     };
 
+    private string? _localBlobUrl = null;
+
+    private async Task ClearImage()
+    {
+        if (!string.IsNullOrEmpty(_localBlobUrl))
+        {
+            await JSRuntime.InvokeVoidAsync("LiquorScanner.revokePreview", _localBlobUrl);
+            _localBlobUrl = null;
+        }
+        _editingItem.ImageUrl = null;
+    }
+
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
         var file = e.File;
         if (file == null) return;
 
+        // 1. HARD STOP for any camera tracks to release hardware fast
+        await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+
+        _isUploadingImage = true;
+        StateHasChanged();
+
         try
         {
-            // [FIX] Compress image to prevent freezing on mobile devices
-            // Max size: 800x800, Quality: 75% - balances quality and performance
+            // 2. Client-side Instant Preview (bypass SignalR)
+            // We find the input by searching descendants of our uploader-container
+            _localBlobUrl = await JSRuntime.InvokeAsync<string>("LiquorScanner.getLocalPreview", "#photo-input");
+            if (!string.IsNullOrEmpty(_localBlobUrl))
+            {
+                _editingItem.ImageUrl = _localBlobUrl;
+                StateHasChanged();
+            }
+
+            // 3. Background Upload & Processing
+            const long maxAllowedSize = 1024 * 1024 * 15; // 15MB
+            using var memoryStream = new MemoryStream();
+            await file.OpenReadStream(maxAllowedSize).CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            using var image = await SixLabors.ImageSharp.Image.LoadAsync(memoryStream);
+            
             const int maxWidth = 800;
             const int maxHeight = 800;
-            const long maxFileSize = 1024 * 1024 * 2; // 2MB limit
-
-            using var imageStream = file.OpenReadStream(maxFileSize);
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync(imageStream);
-
-            // Calculate resize dimensions while maintaining aspect ratio
             var ratioX = (double)maxWidth / image.Width;
             var ratioY = (double)maxHeight / image.Height;
             var ratio = Math.Min(ratioX, ratioY);
 
-            var newWidth = (int)(image.Width * ratio);
-            var newHeight = (int)(image.Height * ratio);
-
-            // Resize if needed
             if (ratio < 1.0)
             {
-                image.Mutate(x => x.Resize(newWidth, newHeight));
+                image.Mutate(x => x.Resize((int)(image.Width * ratio), (int)(image.Height * ratio)));
             }
 
-            // Convert to JPEG with compression for smaller file size
             using var compressedStream = new MemoryStream();
-            var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 75 };
-            await image.SaveAsync(compressedStream, encoder);
+            await image.SaveAsync(compressedStream, new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 80 });
             compressedStream.Position = 0;
 
-            // Show immediate preview - CRITICAL: Must update UI synchronously
-            var previewBytes = compressedStream.ToArray();
-            var base64 = Convert.ToBase64String(previewBytes);
-            _editingItem.ImageUrl = $"data:image/jpeg;base64,{base64}";
-            
-            // Force UI refresh on the UI thread
-            await InvokeAsync(StateHasChanged);
-
-            // Upload to permanent storage in background
-            compressedStream.Position = 0;
             var asset = await MediaService.CreateMediaAssetAsync(compressedStream, $"{Guid.NewGuid()}.jpg", "LiquorReference", "System");
-            _editingItem.ImageUrl = asset.FilePath;
             
-            // Final UI refresh
-            await InvokeAsync(StateHasChanged);
+            if (asset != null)
+            {
+                var finalUrl = $"/uploads/{asset.StoredFileName}";
+                _editingItem.ImageUrl = finalUrl;
+                
+                // Cleanup local blob since we have the server URL
+                if (!string.IsNullOrEmpty(_localBlobUrl))
+                {
+                    await JSRuntime.InvokeVoidAsync("LiquorScanner.revokePreview", _localBlobUrl);
+                    _localBlobUrl = null;
+                }
+            }
+            
+            StateHasChanged();
         }
         catch (Exception ex)
         {
-            // Show error to user
-            await JSRuntime.InvokeVoidAsync("alert", $"Failed to process image: {ex.Message}");
-            Console.WriteLine($"Image upload error: {ex}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Image Optimization Failed: {ex.Message}");
+            Console.WriteLine($"Image optimization error: {ex}");
+        }
+        finally
+        {
+            _isUploadingImage = false;
+            // Final safety stop
+            await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+            StateHasChanged();
         }
     }
 }

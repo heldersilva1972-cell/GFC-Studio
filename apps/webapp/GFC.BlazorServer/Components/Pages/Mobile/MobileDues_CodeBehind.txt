@@ -1,0 +1,160 @@
+@code {
+    private bool _isLoading = true;
+    private bool _showPaymentModal = false;
+    private bool _isSaving = false;
+    private string _filter = "unpaid";
+    private string _searchTerm = "";
+    private decimal _paymentAmount = 0;
+    private DateTime _paymentDate = DateTime.Today;
+    private int _currentYear = DateTime.Now.Year;
+
+    private List<DuesPaymentModel> _allDues = new();
+    private List<Member> _allMembers = new();
+    private List<Member> _eligibleMembers = new();
+    private DuesMemberItem? _selectedItem;
+    private int _paidCount = 0;
+    private int _unpaidCount = 0;
+    private int _waivedCount = 0;
+    private decimal _totalCollected = 0;
+
+    // Helper class to combine member with their dues payment
+    private class DuesMemberItem
+    {
+        public Member Member { get; set; } = null!;
+        public DuesPaymentModel? DuesPayment { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        try
+        {
+            _allDues = await Task.Run(() => DuesRepo.GetDuesForYear(_currentYear));
+            _allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            
+            // Get eligible members (active statuses)
+            var activeStatuses = new[] { "REGULAR", "REGULAR-NP", "LIFE", "Active" };
+            _eligibleMembers = _allMembers.Where(m => activeStatuses.Contains(m.Status)).ToList();
+            
+            _paidCount = _allDues.Count(d => d.PaidDate.HasValue && d.PaymentType != "WAIVED");
+            _waivedCount = _allDues.Count(d => d.PaymentType == "WAIVED");
+            
+            // Unpaid = eligible members without a paid/waived record
+            var membersWithPaidOrWaived = _allDues
+                .Where(d => d.PaidDate.HasValue || d.PaymentType == "WAIVED")
+                .Select(d => d.MemberID)
+                .ToHashSet();
+            _unpaidCount = _eligibleMembers.Count(m => !membersWithPaidOrWaived.Contains(m.MemberID));
+            
+            _totalCollected = _allDues.Where(d => d.PaidDate.HasValue && d.Amount.HasValue).Sum(d => d.Amount.Value);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading dues: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private IEnumerable<DuesMemberItem> FilteredDuesWithMembers
+    {
+        get
+        {
+            // Combine all eligible members with their dues (if they have one)
+            var allItems = _eligibleMembers.Select(m => new DuesMemberItem
+            {
+                Member = m,
+                DuesPayment = _allDues.FirstOrDefault(d => d.MemberID == m.MemberID)
+            }).ToList();
+
+            var filtered = allItems.AsEnumerable();
+
+            if (_filter == "paid")
+                filtered = filtered.Where(i => i.DuesPayment?.PaidDate.HasValue == true && i.DuesPayment.PaymentType != "WAIVED");
+            else if (_filter == "unpaid")
+                filtered = filtered.Where(i => i.DuesPayment == null || (!i.DuesPayment.PaidDate.HasValue && i.DuesPayment.PaymentType != "WAIVED"));
+            else if (_filter == "waived")
+                filtered = filtered.Where(i => i.DuesPayment?.PaymentType == "WAIVED");
+
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                filtered = filtered.Where(i => $"{i.Member.LastName} {i.Member.FirstName}".Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return filtered.OrderBy(i => i.Member.LastName).ThenBy(i => i.Member.FirstName);
+        }
+    }
+
+    private string GetDuesStatus(DuesPaymentModel? due)
+    {
+        if (due == null) return "Unpaid";
+        if (due.PaymentType == "WAIVED") return "Waived";
+        if (due.PaidDate.HasValue) return "Paid";
+        return "Unpaid";
+    }
+
+    private string GetStatusBadgeClass(DuesPaymentModel? due)
+    {
+        if (due == null) return "bg-warning";
+        if (due.PaymentType == "WAIVED") return "bg-info";
+        if (due.PaidDate.HasValue) return "bg-success";
+        return "bg-warning";
+    }
+
+    private void MarkAsPaid(DuesMemberItem item)
+    {
+        _selectedItem = item;
+        _paymentAmount = item.DuesPayment?.Amount ?? 0;
+        _paymentDate = DateTime.Today;
+        _showPaymentModal = true;
+    }
+
+    private void CloseModals()
+    {
+        _showPaymentModal = false;
+        _selectedItem = null;
+    }
+
+    private async Task ConfirmPayment()
+    {
+        if (_selectedItem == null || _paymentAmount <= 0)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please enter a valid payment amount");
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            // Create or update dues payment
+            var duesPayment = _selectedItem.DuesPayment ?? new DuesPaymentModel
+            {
+                MemberID = _selectedItem.Member.MemberID,
+                Year = _currentYear
+            };
+
+            duesPayment.Amount = _paymentAmount;
+            duesPayment.PaidDate = _paymentDate;
+            duesPayment.PaymentType = "CASH";
+            
+            await Task.Run(() => DuesRepo.UpsertDues(duesPayment));
+            await LoadData();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+}

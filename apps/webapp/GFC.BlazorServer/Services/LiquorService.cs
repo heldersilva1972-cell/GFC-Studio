@@ -41,6 +41,14 @@ namespace GFC.BlazorServer.Services
         public async Task<LiquorItem> CreateItemAsync(LiquorItem item)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
+            
+            // Check for duplicate UPC
+            if (!string.IsNullOrEmpty(item.UpcCode))
+            {
+                var exists = await db.LiquorItems.AnyAsync(i => i.UpcCode == item.UpcCode && i.IsActive);
+                if (exists) throw new Exception($"A product with UPC code '{item.UpcCode}' already exists.");
+            }
+
             db.LiquorItems.Add(item);
             await db.SaveChangesAsync();
             return item;
@@ -49,8 +57,25 @@ namespace GFC.BlazorServer.Services
         public async Task UpdateItemAsync(LiquorItem item)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            db.LiquorItems.Update(item);
-            await db.SaveChangesAsync();
+            
+            // Check for duplicate UPC on OTHER items
+            if (!string.IsNullOrEmpty(item.UpcCode))
+            {
+                var exists = await db.LiquorItems.AnyAsync(i => i.UpcCode == item.UpcCode && i.Id != item.Id && i.IsActive);
+                if (exists) throw new Exception($"The UPC code '{item.UpcCode}' is already assigned to another product.");
+            }
+
+            var existing = await db.LiquorItems.FindAsync(item.Id);
+            if (existing != null)
+            {
+                // Safety: Entry tracking check
+                db.Entry(existing).CurrentValues.SetValues(item);
+                await db.SaveChangesAsync();
+            }
+            else
+            {
+                throw new Exception("Item not found in database.");
+            }
         }
 
         public async Task DeleteItemAsync(int id)

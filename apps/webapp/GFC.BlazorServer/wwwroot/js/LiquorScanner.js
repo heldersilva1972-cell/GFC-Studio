@@ -86,6 +86,61 @@ window.LiquorScanner = {
         }
     },
 
+    stopAllCameras: async function () {
+        console.log("LiquorScanner: Stopping all cameras...");
+        try {
+            // 1. Stop html5-qrcode instances
+            if (window.modalScanner) {
+                if (window.modalScanner.isScanning) await window.modalScanner.stop().catch(() => { });
+                window.modalScanner.clear();
+                window.modalScanner = null;
+            }
+            if (html5QrCode) {
+                if (html5QrCode.isScanning) await html5QrCode.stop().catch(() => { });
+                html5QrCode.clear();
+                html5QrCode = null;
+            }
+
+            // 2. Kill all video tracks on the page
+            const videos = document.querySelectorAll('video');
+            videos.forEach(v => {
+                if (v.srcObject) {
+                    const tracks = v.srcObject.getTracks();
+                    tracks.forEach(track => {
+                        track.stop();
+                        console.log("Stopped track:", track.label);
+                    });
+                    v.srcObject = null;
+                }
+            });
+
+            // 3. Fallback: Global tracks
+            if (window.localStream) {
+                window.localStream.getTracks().forEach(t => t.stop());
+                window.localStream = null;
+            }
+        } catch (e) {
+            console.error("Error stopping cameras:", e);
+        }
+    },
+
+    getLocalPreview: function (selector) {
+        // Try exact ID first, then general selector
+        let input = document.getElementById(selector);
+        if (!input) input = document.querySelector(selector);
+
+        if (input && input.files && input.files[0]) {
+            return URL.createObjectURL(input.files[0]);
+        }
+        return null;
+    },
+
+    revokePreview: function (url) {
+        if (url && url.startsWith('blob:')) {
+            URL.revokeObjectURL(url);
+        }
+    },
+
     loadScript: function (url) {
         return new Promise((resolve, reject) => {
             const script = document.createElement("script");

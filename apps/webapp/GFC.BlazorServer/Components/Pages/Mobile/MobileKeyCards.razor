@@ -1,0 +1,508 @@
+@page "/mobile/keycards"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IKeyCardRepository KeyCardRepo
+@inject IKeyCardDashboardRepository KeyCardDashboard
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Key Cards | GFC</PageTitle>
+
+<div class="mobile-app-container">
+    <!-- HEADER -->
+    <header class="app-header">
+        <div class="container py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-3">
+                    <button class="btn btn-light rounded-3" style="width: 40px; height: 40px; padding: 0;" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <h6 class="mb-0 fw-bold header-title">Key Cards</h6>
+                </div>
+                <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="OpenAssignModal">
+                    <i class="bi bi-plus-lg me-1"></i> Assign
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="keycards-main-container">
+        @if (_isLoading)
+        {
+            <div class="d-flex justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- top-section: locked at top -->
+            <div class="top-filter-section">
+                <div class="container pt-3">
+                    <!-- Search Bar -->
+                    <div class="mb-3">
+                        <input type="text" class="form-control" placeholder="Search members..." @bind="_searchTerm" @bind:event="oninput" />
+                    </div>
+
+                    <!-- Clickable Stats Cards - 3 in a row -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <div class="stat-card-compact bg-success bg-opacity-10 border-success @(_filter == "active" ? "active" : "")" 
+                                 @onclick='() => _filter = "active"'>
+                                <div class="stat-value-compact text-success">@_activeCards</div>
+                                <div class="stat-label-compact">Active</div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-card-compact bg-secondary bg-opacity-10 border-secondary @(_filter == "inactive" ? "active" : "")" 
+                                 @onclick='() => _filter = "inactive"'>
+                                <div class="stat-value-compact text-secondary">@_inactiveCards</div>
+                                <div class="stat-label-compact">Inactive</div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-card-compact bg-warning bg-opacity-10 border-warning @(_filter == "needing" ? "active" : "")" 
+                                 @onclick='() => _filter = "needing"'>
+                                <div class="stat-value-compact text-warning">@_needingCards</div>
+                                <div class="stat-label-compact">Needing</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- list-section: the only part that scrolls -->
+            <div class="cards-list-scroll-container">
+                <div class="container py-2">
+                    @if (_filter == "needing")
+                    {
+                        @foreach (var member in FilteredMembersNeedingCards)
+                        {
+                            <div class="app-card mb-2" style="padding: 12px 16px;">
+                                <div class="d-flex align-items-center gap-3 w-100">
+                                    <div class="member-avatar">@member.LastName[0]</div>
+                                    <div style="flex-grow: 1;">
+                                        <h6 class="mb-0 fw-bold">@member.LastName, @member.FirstName</h6>
+                                        <small class="text-muted">No card assigned</small>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => QuickAssign(member)">
+                                        Assign
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var card in FilteredCards)
+                        {
+                            <div class="app-card mb-2" style="padding: 12px 16px;">
+                                <div class="d-flex align-items-center gap-3 w-100">
+                                    <div class="member-avatar">@GetMemberLastInitial(card.MemberId)</div>
+                                    <div style="flex-grow: 1;">
+                                        <h6 class="mb-0 fw-bold">@GetMemberNameLastFirst(card.MemberId)</h6>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge @GetStatusBadgeClass(card.IsActive)">
+                                                @(card.IsActive ? "Active" : "Inactive")
+                                            </span>
+                                            <small class="text-muted">Card: @card.CardNumber</small>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-light btn-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" @onclick="() => ToggleCardStatus(card)">
+                                        <i class="bi @(card.IsActive ? "bi-x-circle" : "bi-check-circle")"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    }
+
+                    @if (!FilteredCards.Any() && _filter != "needing")
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-credit-card display-4 opacity-25"></i>
+                            <p class="mt-2">No cards found</p>
+                        </div>
+                    }
+
+                    @if (!FilteredMembersNeedingCards.Any() && _filter == "needing")
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-check-circle display-4 opacity-25 text-success"></i>
+                            <p class="mt-2">All members have cards!</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </main>
+
+    <!-- BOTTOM BAR -->
+    <nav class="app-nav-bar">
+        <div class="container nav-tabs-container">
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile")'>
+                <i class="bi bi-grid"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Hub</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/dues")'>
+                <i class="bi bi-cash-stack"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Dues</span>
+            </button>
+            <button class="nav-tab-item active" style="border: none; background: none;">
+                <i class="bi bi-credit-card"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Cards</span>
+            </button>
+            <button class="nav-tab-item" style="border: none; background: none;" @onclick='() => Navigation.NavigateTo("/mobile/liquor/manage")'>
+                <i class="bi bi-boxes"></i>
+                <span class="small" style="font-size: 0.65rem; font-weight: 600;">Stock</span>
+            </button>
+        </div>
+    </nav>
+</div>
+
+<!-- Assign Modal -->
+@if (_showAssignModal)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
+    <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="p-4">
+            <h5 class="fw-bold mb-3">Assign Key Card</h5>
+            
+            <div class="mb-3">
+                <label class="form-label fw-bold">Member</label>
+                <select class="form-select" @bind="_selectedMemberId">
+                    <option value="0">-- Select Member --</option>
+                    @foreach (var member in _eligibleMembers)
+                    {
+                        <option value="@member.MemberID">@member.FirstName @member.LastName</option>
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-bold">Card Number</label>
+                <input type="text" class="form-control" placeholder="Enter card number" @bind="_newCardNumber" />
+            </div>
+
+            <div class="d-grid gap-2">
+                <button class="btn btn-app-primary py-3" @onclick="AssignCard" disabled="@_isSaving">
+                    @if (_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    Assign Card
+                </button>
+                <button class="btn btn-light py-3" @onclick="CloseModals">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .mobile-app-container {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .keycards-main-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: #f8f9fa;
+    }
+    
+    .top-filter-section {
+        background: #f8f9fa;
+        z-index: 100;
+        border-bottom: 1px solid #dee2e6;
+        padding-bottom: 0.5rem;
+    }
+    
+    .cards-list-scroll-container {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .stat-card-compact {
+        padding: 0.75rem 0.5rem;
+        border-radius: 12px;
+        border: 2px solid;
+        text-align: center;
+        transition: all 0.2s;
+        cursor: pointer;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .stat-card-compact.active {
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .stat-value-compact {
+        font-size: 1.5rem;
+        font-weight: 900;
+        line-height: 1;
+    }
+    .stat-label-compact {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-top: 0.25rem;
+        color: #64748b;
+    }
+    .filter-chip {
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 2px solid #e5e7eb;
+        background: white;
+        font-weight: 600;
+        font-size: 0.85rem;
+        white-space: nowrap;
+        color: #64748b;
+    }
+    .filter-chip.active {
+        background: var(--app-primary);
+        color: white;
+        border-color: var(--app-primary);
+    }
+    .member-avatar {
+        width: 40px;
+        height: 40px;
+        background: var(--app-primary-gradient);
+        color: white;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 1.1rem;
+    }
+    .modal-backdrop-custom {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+    .bottom-sheet {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: white;
+        border-radius: 24px 24px 0 0;
+        z-index: 1050;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+    }
+    .sheet-handle {
+        width: 40px;
+        height: 4px;
+        background: #ddd;
+        border-radius: 2px;
+        margin: 12px auto;
+    }
+
+    .app-nav-bar {
+        background: white;
+        border-top: 1px solid #dee2e6;
+        padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
+        position: sticky;
+        bottom: 0;
+        z-index: 100;
+    }
+
+    .nav-tabs-container {
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+    }
+
+    .nav-tab-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        color: #94a3b8;
+        text-decoration: none;
+        transition: all 0.2s;
+        border: none;
+        background: none;
+        padding: 0.5rem;
+    }
+
+    .nav-tab-item i { font-size: 1.25rem; }
+    .nav-tab-item.active { color: #0d6efd; } /* Primary color match */
+    .nav-tab-item.active i { color: #0d6efd; }
+</style>
+
+@code {
+    private bool _isLoading = true;
+    private bool _showAssignModal = false;
+    private bool _isSaving = false;
+    private string _filter = "active";
+    private string _searchTerm = "";
+    private int _selectedMemberId = 0;
+    private string _newCardNumber = "";
+
+    private List<KeyCard> _allCards = new();
+    private List<Member> _allMembers = new();
+    private List<Member> _eligibleMembers = new();
+    private List<Member> _membersNeedingCards = new();
+    private int _activeCards = 0;
+    private int _inactiveCards = 0;
+    private int _needingCards = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        try
+        {
+            _allCards = await Task.Run(() => KeyCardRepo.GetAll());
+            _activeCards = _allCards.Count(c => c.IsActive);
+            _inactiveCards = _allCards.Count(c => !c.IsActive);
+            
+            _allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            var activeStatuses = new[] { "REGULAR", "REGULAR-NP", "LIFE", "Active" };
+            _eligibleMembers = _allMembers.Where(m => activeStatuses.Contains(m.Status)).ToList();
+            
+            // Members needing cards = eligible members without an active card
+            _membersNeedingCards = _eligibleMembers
+                .Where(m => !_allCards.Any(c => c.MemberId == m.MemberID && c.IsActive))
+                .ToList();
+            
+            _needingCards = _membersNeedingCards.Count;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading key cards: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private IEnumerable<KeyCard> FilteredCards
+    {
+        get
+        {
+            var filtered = _allCards.AsEnumerable();
+
+            if (_filter == "active")
+                filtered = filtered.Where(c => c.IsActive);
+            else if (_filter == "inactive")
+                filtered = filtered.Where(c => !c.IsActive);
+
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                filtered = filtered.Where(c =>
+                {
+                    var member = _allMembers.FirstOrDefault(m => m.MemberID == c.MemberId);
+                    return member != null && $"{member.LastName} {member.FirstName}".Contains(_searchTerm, StringComparison.OrdinalIgnoreCase);
+                });
+            }
+
+            return filtered.OrderBy(c => GetMemberLastName(c.MemberId));
+        }
+    }
+
+    private IEnumerable<Member> FilteredMembersNeedingCards
+    {
+        get
+        {
+            var filtered = _membersNeedingCards.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                filtered = filtered.Where(m => $"{m.LastName} {m.FirstName}".Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return filtered.OrderBy(m => m.LastName).ThenBy(m => m.FirstName);
+        }
+    }
+
+    private string GetMemberLastName(int memberId)
+    {
+        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
+        return member?.LastName ?? "Unknown";
+    }
+
+    private string GetMemberNameLastFirst(int memberId)
+    {
+        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
+        return member != null ? $"{member.LastName}, {member.FirstName}" : "Unknown";
+    }
+
+    private string GetMemberLastInitial(int memberId)
+    {
+        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
+        return member?.LastName?.FirstOrDefault().ToString().ToUpper() ?? "?";
+    }
+
+    private string GetStatusBadgeClass(bool isActive) => isActive ? "bg-success" : "bg-secondary";
+
+    private void QuickAssign(Member member)
+    {
+        _selectedMemberId = member.MemberID;
+        _newCardNumber = "";
+        _showAssignModal = true;
+    }
+
+    private void OpenAssignModal()
+    {
+        _showAssignModal = true;
+        _selectedMemberId = 0;
+        _newCardNumber = "";
+    }
+
+    private void CloseModals() => _showAssignModal = false;
+
+    private async Task ToggleCardStatus(KeyCard card)
+    {
+        try
+        {
+            card.IsActive = !card.IsActive;
+            await Task.Run(() => KeyCardRepo.Update(card));
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+    }
+
+    private async Task AssignCard()
+    {
+        if (_selectedMemberId == 0 || string.IsNullOrWhiteSpace(_newCardNumber))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please select a member and enter a card number");
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            await Task.Run(() => KeyCardRepo.Create(_newCardNumber, _selectedMemberId, null, "Card"));
+            await LoadData();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+}
