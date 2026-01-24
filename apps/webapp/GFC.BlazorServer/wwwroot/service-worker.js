@@ -2,7 +2,7 @@
 // Minimal implementation required for PWA installability
 // Does NOT cache aggressively to avoid breaking Blazor Server SignalR
 
-const CACHE_NAME = 'gfc-pwa-v6';
+const CACHE_NAME = 'gfc-pwa-v7';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
@@ -12,7 +12,7 @@ const STATIC_ASSETS = [
 
 // Install event - cache critical static assets only
 self.addEventListener('install', (event) => {
-    console.log('[Service Worker] Installing...');
+    console.log('[Service Worker v7] Installing...');
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             console.log('[Service Worker] Caching static assets');
@@ -24,7 +24,7 @@ self.addEventListener('install', (event) => {
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-    console.log('[Service Worker] Activating...');
+    console.log('[Service Worker v7] Activating...');
     event.waitUntil(
         caches.keys().then((cacheNames) => {
             return Promise.all(
@@ -70,9 +70,10 @@ self.addEventListener('fetch', (event) => {
             })
     );
 });
+
 // Push notification handler
 self.addEventListener('push', (event) => {
-    console.log('[Service Worker] Push Received.');
+    console.log('[Service Worker v7] Push Received.');
     let data = { title: 'GFC Alert', body: 'System notification received.' };
 
     if (event.data) {
@@ -83,10 +84,9 @@ self.addEventListener('push', (event) => {
         }
     }
 
+    // [STRICT CLEANUP] No icon, no badge, no image to prevent duplicate OS icons
     const options = {
         body: data.body,
-        icon: '/images/pwa-icon-192.png',
-        // Removed badge to prevent duplicate icon display on some devices
         vibrate: [100, 50, 100],
         data: data.url || '/',
         timestamp: Date.now()
@@ -99,7 +99,7 @@ self.addEventListener('push', (event) => {
 
 // Notification click handler
 self.addEventListener('notificationclick', (event) => {
-    console.log('[Service Worker] Notification click Received.');
+    console.log('[Service Worker v7] Notification click Received.');
 
     event.notification.close();
 
