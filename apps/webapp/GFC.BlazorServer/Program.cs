@@ -995,6 +995,44 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine(">>> Media Assets Schema Applied Successfully.");
                 }
 
+                // [AUTO-FIX 17] COMPREHENSIVE LIQUOR & MEDIA FIX (Direct SQL for reliability)
+                try
+                {
+                    var comprehensiveFixSql = @"
+                        -- MediaAssets Corrections
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'MediaAssets')
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaAssets') AND name = 'Tag') ALTER TABLE MediaAssets ADD Tag NVARCHAR(100) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaAssets') AND name = 'UploadedBy') ALTER TABLE MediaAssets ADD UploadedBy NVARCHAR(MAX) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaAssets') AND name = 'Usage') ALTER TABLE MediaAssets ADD Usage NVARCHAR(MAX) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaAssets') AND name = 'RequiredRole') ALTER TABLE MediaAssets ADD RequiredRole NVARCHAR(100) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaAssets') AND name = 'StoredFileName') ALTER TABLE MediaAssets ADD StoredFileName NVARCHAR(255) NOT NULL DEFAULT '';
+                        END
+
+                        -- MediaRenditions Corrections
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'MediaRenditions')
+                        BEGIN
+                            IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaRenditions') AND name = 'AssetId') AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaRenditions') AND name = 'MediaAssetId') EXEC sp_rename 'MediaRenditions.AssetId', 'MediaAssetId', 'COLUMN';
+                            IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaRenditions') AND name = 'Name') AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaRenditions') AND name = 'RenditionType') EXEC sp_rename 'MediaRenditions.Name', 'RenditionType', 'COLUMN';
+                            IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaRenditions') AND name = 'FilePath') AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MediaRenditions') AND name = 'Url') EXEC sp_rename 'MediaRenditions.FilePath', 'Url', 'COLUMN';
+                        END
+
+                        -- LiquorItems Corrections
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'LiquorItems')
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LiquorItems') AND name = 'ImageUrl') ALTER TABLE LiquorItems ADD ImageUrl NVARCHAR(MAX) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LiquorItems') AND name = 'BottleSize') ALTER TABLE LiquorItems ADD BottleSize NVARCHAR(50) NULL;
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LiquorItems') AND name = 'MinStockLimit') ALTER TABLE LiquorItems ADD MinStockLimit INT NOT NULL DEFAULT 2;
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(comprehensiveFixSql);
+                    Console.WriteLine(">>> COMPREHENSIVE Liquor & Media Schema Verification Applied.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error executing comprehensive liquor/media fix: {ex.Message}");
+                }
+
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually
                 // Console.WriteLine(">>> DB MIGRATION: Skipped - apply manually with 'dotnet ef database update'");
             }

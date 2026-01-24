@@ -86,12 +86,10 @@ self.addEventListener('push', (event) => {
     const options = {
         body: data.body,
         icon: '/images/pwa-icon-192.png',
-        badge: '/images/pwa-icon-192.png',
+        // Removed badge to prevent duplicate icon display on some devices
         vibrate: [100, 50, 100],
         data: data.url || '/',
-        actions: [
-            { action: 'open', title: 'Open GFC' }
-        ]
+        timestamp: Date.now()
     };
 
     event.waitUntil(
