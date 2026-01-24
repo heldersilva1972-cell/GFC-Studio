@@ -115,8 +115,9 @@ public class ControllerHealthService
             }
             else if (_consecutiveFailures < 3)
             {
-                // Don't mark offline yet, wait for 3 failures to avoid noise
-                _isOnline = true; 
+                // Don't change status yet, wait for 3 failures to avoid noise
+                // If it was online, stay online. If it was offline, stay offline.
+                _isOnline = wasOnline; 
             }
             else
             {
