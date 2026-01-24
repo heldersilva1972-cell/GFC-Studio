@@ -161,6 +161,7 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             return await db.LiquorTransactions
                 .Include(t => t.Item)
+                .Include(t => t.User)
                 .OrderByDescending(t => t.Timestamp)
                 .Take(count)
                 .ToListAsync();

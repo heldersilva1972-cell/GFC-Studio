@@ -18,6 +18,9 @@ namespace GFC.Core.Models
         [Required]
         public int UserId { get; set; }
 
+        [ForeignKey("UserId")]
+        public virtual AppUser? User { get; set; }
+
         [Required]
         public int ChangeAmount { get; set; }
 
