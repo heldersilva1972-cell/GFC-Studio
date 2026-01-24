@@ -7,7 +7,6 @@
 @using Microsoft.EntityFrameworkCore
 @inject NavigationManager Navigation
 @inject CustomAuthenticationStateProvider AuthStateProvider
-@inject IBartenderShiftService ShiftService
 @inject ILotteryShiftRepository LotteryRepo
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JSRuntime
@@ -65,16 +64,6 @@
             else
             {
                 <div class="animate-entrance">
-                    <div class="app-card mb-2 py-2" style="background: rgba(13, 110, 253, 0.04); border: 1px solid rgba(13, 110, 253, 0.1);">
-                        <div class="card-icon-box" style="background: var(--app-primary); color: white; width: 40px; height: 40px;">
-                            <i class="bi bi-clock-history"></i>
-                        </div>
-                        <div style="flex-grow: 1;">
-                            <label class="modern-label mb-0 small">Active Shift</label>
-                            <h6 class="fw-bold mb-0 small">@(ActiveShift?.ClockInTime?.ToString("hh:mm tt") ?? "No Active Shift")</h6>
-                        </div>
-                    </div>
-
                     <div class="app-card mb-2 py-2" style="display: block;">
                         <label class="modern-label mb-2 small">Shift Type</label>
                         <div class="d-flex gap-2 p-1 bg-light rounded-3">
@@ -227,7 +216,6 @@
     private bool Submitted { get; set; } = false;
     
     private AppUser? CurrentUser { get; set; }
-    private StaffShift? ActiveShift { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -240,19 +228,11 @@
 
         try
         {
-            ActiveShift = await ShiftService.GetCurrentShiftAsync(CurrentUser.Username);
-            if (ActiveShift != null)
-            {
-                ShiftType = ActiveShift.ShiftType == 1 ? "Day" : "Night";
-            }
-            else
-            {
-                ShiftType = DateTime.Now.Hour < 17 ? "Day" : "Night";
-            }
+            ShiftType = DateTime.Now.Hour < 17 ? "Day" : "Night";
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading current shift: {ex.Message}");
+            Console.WriteLine($"Error loading initial data: {ex.Message}");
         }
         finally
         {
@@ -273,22 +253,7 @@
         {
             await Task.Delay(500); // UI Polish
 
-            // 1. Submit to ShiftReports (Legacy/Summary)
-            if (ActiveShift != null)
-            {
-                var report = new GFC.Core.Models.ShiftReport
-                {
-                    ShiftId = ActiveShift.Id,
-                    BartenderId = ActiveShift.StaffMemberId,
-                    BarSales = BarSales ?? 0,
-                    LottoSales = LottoSales ?? 0,
-                    TotalDeposit = (BarSales ?? 0) + (LottoSales ?? 0),
-                    SubmittedAt = DateTime.UtcNow
-                };
-                await ShiftService.SubmitReportAsync(report);
-            }
-
-            // 2. Submit to BarSaleEntries (Main analytical table)
+            // 1. Submit to BarSaleEntries (Main analytical table)
             if ((BarSales ?? 0) > 0)
             {
                 using var db = await DbFactory.CreateDbContextAsync();
