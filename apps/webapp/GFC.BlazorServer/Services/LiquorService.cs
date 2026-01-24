@@ -49,8 +49,16 @@ namespace GFC.BlazorServer.Services
                 if (exists) throw new Exception($"A product with UPC code '{item.UpcCode}' already exists.");
             }
 
-            db.LiquorItems.Add(item);
-            await db.SaveChangesAsync();
+            try 
+            {
+                db.LiquorItems.Add(item);
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                var innerMessage = ex.InnerException?.Message ?? ex.Message;
+                throw new Exception($"Liquor Create Failed: {innerMessage}");
+            }
             return item;
         }
 
@@ -68,9 +76,17 @@ namespace GFC.BlazorServer.Services
             var existing = await db.LiquorItems.FindAsync(item.Id);
             if (existing != null)
             {
+            try 
+            {
                 // Safety: Entry tracking check
                 db.Entry(existing).CurrentValues.SetValues(item);
                 await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                var innerMessage = ex.InnerException?.Message ?? ex.Message;
+                throw new Exception($"Liquor Update Failed: {innerMessage}");
+            }
             }
             else
             {

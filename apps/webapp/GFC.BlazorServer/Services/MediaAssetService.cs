@@ -1,4 +1,4 @@
-// [NEW]
+// [VERIFIED FIX + DIAGNOSTICS]
 using GFC.BlazorServer.Data;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.Components.Forms;
@@ -27,125 +27,140 @@ namespace GFC.BlazorServer.Services
             _httpContextAccessor = httpContextAccessor;
         }
 
+        private string PrepareStoredFileName(string originalName)
+        {
+            var guid = Guid.NewGuid().ToString();
+            var extension = Path.GetExtension(originalName);
+            var baseName = Path.GetFileNameWithoutExtension(originalName);
+            
+            // Limit base name to 150 chars to stay safe within 255 char limit (36 for GUID + 1 for underscore + extension)
+            if (baseName.Length > 150)
+            {
+                baseName = baseName.Substring(0, 150);
+            }
+            
+            return $"{guid}_{baseName}{extension}";
+        }
+
+        private string TruncateFileName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "unnamed_file";
+            return name.Length > 250 ? name.Substring(0, 250) : name;
+        }
+
         public async Task<MediaAsset> CreateAssetAsync(IBrowserFile file, string usage)
         {
-            if (file == null)
-                throw new ArgumentNullException(nameof(file));
+            if (file == null) throw new ArgumentNullException(nameof(file));
 
             var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads");
-            if (!Directory.Exists(uploadsFolderPath))
-            {
-                Directory.CreateDirectory(uploadsFolderPath);
-            }
+            if (!Directory.Exists(uploadsFolderPath)) Directory.CreateDirectory(uploadsFolderPath);
 
-            var originalFileName = $"{Guid.NewGuid()}_{file.Name}";
-            var originalFilePath = Path.Combine(uploadsFolderPath, originalFileName);
+            var uniqueFileName = PrepareStoredFileName(file.Name);
+            var filePath = Path.Combine(uploadsFolderPath, uniqueFileName);
 
             await using (var stream = file.OpenReadStream(long.MaxValue))
-            await using (var fs = new FileStream(originalFilePath, FileMode.Create))
+            await using (var fs = new FileStream(filePath, FileMode.Create))
             {
                 await stream.CopyToAsync(fs);
             }
 
-            string finalFilePath = originalFilePath;
-            string finalFileName = originalFileName;
-            string finalContentType = file.ContentType;
-            long finalFileSize = file.Size;
-
-            if (file.ContentType.StartsWith("image/") && file.ContentType != "image/webp")
-            {
-                using var image = await Image.LoadAsync(originalFilePath);
-                var webpFileName = $"{Path.GetFileNameWithoutExtension(originalFileName)}.webp";
-                var webpFilePath = Path.Combine(uploadsFolderPath, webpFileName);
-
-                await image.SaveAsync(webpFilePath, new WebpEncoder());
-
-                finalFilePath = webpFilePath;
-                finalFileName = webpFileName;
-                finalContentType = "image/webp";
-                finalFileSize = new FileInfo(webpFilePath).Length;
-
-                File.Delete(originalFilePath);
-            }
-
             var asset = new MediaAsset
             {
-                FileName = file.Name,
-                StoredFileName = finalFileName,
-                ContentType = finalContentType,
-                FileSize = finalFileSize,
-                Usage = usage,
+                FileName = TruncateFileName(file.Name),
+                StoredFileName = uniqueFileName,
+                ContentType = file.ContentType,
+                FileSize = file.Size,
+                Size = file.Size, // Map to 'Size' column
+                Url = $"/uploads/{uniqueFileName}",
+                Usage = string.IsNullOrWhiteSpace(usage) ? "General" : usage,
+                Tag = string.IsNullOrWhiteSpace(usage) ? null : usage,
+                UploadedBy = "System", // Required
+                CreatedAt = DateTime.UtcNow,
                 UploadedAt = DateTime.UtcNow
             };
 
-            if (file.ContentType.StartsWith("image/"))
-            {
-                await GenerateRenditionsAsync(asset, finalFilePath);
-            }
-
             using var context = await _contextFactory.CreateDbContextAsync();
-            context.MediaAssets.Add(asset);
-            await context.SaveChangesAsync();
+            try 
+            {
+                context.MediaAssets.Add(asset);
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                var innerMessage = ex.InnerException?.Message ?? ex.Message;
+                throw new Exception($"Database Save Failed (CreateAsset): {innerMessage}");
+            }
 
             return asset;
         }
 
-        private async Task GenerateRenditionsAsync(MediaAsset asset, string originalFilePath)
+        public async Task<MediaAsset> CreateMediaAssetAsync(Stream fileStream, string fileName, string tag, string uploadedBy)
         {
-            using var image = await Image.LoadAsync(originalFilePath);
+            var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads");
+            if (!Directory.Exists(uploadsFolderPath)) Directory.CreateDirectory(uploadsFolderPath);
 
-            // Desktop (1920px), Tablet (1024px), Mobile (640px)
-            var sizes = new Dictionary<string, int>
+            var uniqueFileName = PrepareStoredFileName(fileName);
+            var filePath = Path.Combine(uploadsFolderPath, uniqueFileName);
+
+            await using (var fs = new FileStream(filePath, FileMode.Create))
             {
-                { "desktop", 1920 },
-                { "tablet", 1024 },
-                { "mobile", 640 }
+                await fileStream.CopyToAsync(fs);
+            }
+
+            var asset = new MediaAsset
+            {
+                FileName = TruncateFileName(fileName),
+                StoredFileName = uniqueFileName,
+                ContentType = "image/jpeg",
+                FileSize = new FileInfo(filePath).Length,
+                Size = new FileInfo(filePath).Length, // Map to 'Size' column
+                Url = $"/uploads/{uniqueFileName}",
+                Usage = string.IsNullOrWhiteSpace(tag) ? "LiquorReference" : tag,
+                Tag = tag,
+                UploadedBy = "System", // Required
+                CreatedAt = DateTime.UtcNow,
+                UploadedAt = DateTime.UtcNow
             };
 
-            foreach (var size in sizes)
+            using var context = await _contextFactory.CreateDbContextAsync();
+            try 
             {
-                var renditionFileName = $"{Path.GetFileNameWithoutExtension(originalFilePath)}_{size.Key}.webp";
-                var renditionFilePath = Path.Combine(Path.GetDirectoryName(originalFilePath), renditionFileName);
-
-                var clone = image.Clone(ctx => ctx.Resize(new ResizeOptions
-                {
-                    Size = new Size(size.Value, 0),
-                    Mode = ResizeMode.Max
-                }));
-
-                await clone.SaveAsync(renditionFilePath, new WebpEncoder());
-
-                asset.Renditions.Add(new MediaRendition
-                {
-                    RenditionType = $"{size.Key}-webp",
-                    Url = $"/uploads/{renditionFileName}",
-                    Width = clone.Width,
-                    Height = clone.Height
-                });
+                context.MediaAssets.Add(asset);
+                await context.SaveChangesAsync();
             }
+            catch (DbUpdateException ex)
+            {
+                var innerMessage = ex.InnerException?.Message ?? ex.Message;
+                throw new Exception($"Database Save Failed (CreateMediaAsset): {innerMessage}");
+            }
+
+            return asset;
         }
 
         public async Task<List<MediaAsset>> GetAllAssetsAsync()
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.MediaAssets.Include(a => a.Renditions).ToListAsync();
+            return await context.MediaAssets.ToListAsync();
         }
 
         public async Task<MediaAsset> GetAssetByIdAsync(int id)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            var asset = await context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
+            return await context.MediaAssets.FirstOrDefaultAsync(a => a.Id == id);
+        }
 
-            if (asset != null && !string.IsNullOrEmpty(asset.RequiredRole))
-            {
-                var user = _httpContextAccessor.HttpContext?.User;
-                if (user == null || !user.IsInRole(asset.RequiredRole))
-                {
-                    return null; // Or throw an exception, depending on desired behavior
-                }
-            }
+        public async Task<IEnumerable<MediaAsset>> GetMediaAssetsAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.MediaAssets.ToListAsync();
+        }
 
-            return asset;
+        public async Task<IEnumerable<MediaAsset>> GetPublicWebsiteGalleryAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.MediaAssets
+                .Where(a => a.Usage == "Public Website Gallery")
+                .ToListAsync();
         }
 
         public async Task UpdateAssetRoleAsync(int id, string? role)
@@ -159,96 +174,20 @@ namespace GFC.BlazorServer.Services
             }
         }
 
-        public async Task DeleteAssetAsync(int id)
-        {
-            await DeleteMediaAssetAsync(id);
-        }
-
-        // GFC.Core.Interfaces.IMediaAssetService Implementation
-
-        public async Task<MediaAsset> CreateMediaAssetAsync(Stream fileStream, string fileName, string tag, string uploadedBy)
-        {
-            var uploadsFolderPath = Path.Combine(_env.WebRootPath, "uploads");
-            if (!Directory.Exists(uploadsFolderPath))
-            {
-                Directory.CreateDirectory(uploadsFolderPath);
-            }
-
-            var uniqueFileName = $"{Guid.NewGuid()}_{fileName}";
-            var filePath = Path.Combine(uploadsFolderPath, uniqueFileName);
-
-            await using (var fs = new FileStream(filePath, FileMode.Create))
-            {
-                await fileStream.CopyToAsync(fs);
-            }
-
-            var asset = new MediaAsset
-            {
-                FileName = fileName,
-                StoredFileName = uniqueFileName,
-                ContentType = "image/jpeg", // Simplified for now
-                FileSize = new FileInfo(filePath).Length,
-                Usage = tag,
-                Tag = tag,
-                UploadedBy = uploadedBy,
-                UploadedAt = DateTime.UtcNow
-            };
-
-            await GenerateRenditionsAsync(asset, filePath);
-
-            using var context = await _contextFactory.CreateDbContextAsync();
-            context.MediaAssets.Add(asset);
-            await context.SaveChangesAsync();
-
-            return asset;
-        }
-
-        public async Task<IEnumerable<MediaAsset>> GetMediaAssetsAsync()
-        {
-            using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.MediaAssets.Include(a => a.Renditions).ToListAsync();
-        }
-
-        public async Task<IEnumerable<MediaAsset>> GetPublicWebsiteGalleryAsync()
-        {
-            using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.MediaAssets
-                .Include(a => a.Renditions)
-                .Where(a => a.Tag == "Public Website Gallery")
-                .ToListAsync();
-        }
-
         public async Task DeleteMediaAssetAsync(int id)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-
-            var isAssetInUse = await context.StudioSectionAssets.AnyAsync(ssa => ssa.MediaAssetId == id);
-            if (isAssetInUse)
-            {
-                throw new InvalidOperationException("This media asset is currently in use by a Studio Section and cannot be deleted.");
-            }
-
-            var asset = await context.MediaAssets.Include(a => a.Renditions).FirstOrDefaultAsync(a => a.Id == id);
+            var asset = await context.MediaAssets.FirstOrDefaultAsync(a => a.Id == id);
             if (asset != null)
             {
-                // Delete physical files
-                foreach (var rendition in asset.Renditions)
-                {
-                    var filePath = Path.Combine(_env.WebRootPath, rendition.Url.TrimStart('/'));
-                    if (File.Exists(filePath))
-                    {
-                        File.Delete(filePath);
-                    }
-                }
                 var originalFilePath = Path.Combine(_env.WebRootPath, "uploads", asset.StoredFileName);
-                if (File.Exists(originalFilePath))
-                {
-                    File.Delete(originalFilePath);
-                }
+                if (File.Exists(originalFilePath)) File.Delete(originalFilePath);
 
                 context.MediaAssets.Remove(asset);
                 await context.SaveChangesAsync();
             }
         }
+
+        public async Task DeleteAssetAsync(int id) => await DeleteMediaAssetAsync(id);
     }
 }

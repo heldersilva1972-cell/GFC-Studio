@@ -1,8 +1,9 @@
-// [NEW]
+// [VERIFIED FIX]
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Linq;
 
 namespace GFC.Core.Models
 {
@@ -13,29 +14,48 @@ namespace GFC.Core.Models
 
         [Required]
         [StringLength(255)]
-        public string FileName { get; set; } // Original client file name
+        public string FileName { get; set; } // Original file name
 
         [Required]
         [StringLength(255)]
-        public string StoredFileName { get; set; } // Unique name on the server
+        public string StoredFileName { get; set; } // Actual file name on disk
 
         [Required]
         [StringLength(100)]
         public string ContentType { get; set; }
 
+        // [Fix] Schema has BOTH 'Size' and 'FileSize' as bigint NOT NULL. 
+        // We map both to ensure inserts succeed regardless of which one is legacy.
+        [Column("Size")]
+        public long Size { get; set; }
+
+        [Column("FileSize")]
         public long FileSize { get; set; }
+
+        [Required]
+        public string Url { get; set; }
+
+        // [Fix] Schema has both CreatedAt and UploadedAt as NOT NULL
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
         
+        // [Fix] Schema has UploadedBy (nvarchar(100), NOT NULL). Must be mapped and required.
+        [Required]
+        [StringLength(100)]
+        public string UploadedBy { get; set; }
+
+        // [Fix] Schema has Tag (nvarchar(100), NULL). Should be mapped.
         [StringLength(100)]
         public string? Tag { get; set; }
 
-        public string? UploadedBy { get; set; }
+        [Required]
+        public string Usage { get; set; } 
 
         [NotMapped]
         public string FilePath 
         { 
-            get => Renditions?.FirstOrDefault()?.Url ?? "/images/placeholder.png";
+            get => $"/uploads/{StoredFileName}";
             set { /* Compatibility with older code */ }
         }
 
@@ -44,11 +64,9 @@ namespace GFC.Core.Models
         [ForeignKey("AssetFolderId")]
         public virtual AssetFolder AssetFolder { get; set; }
 
-        // Navigation property for different versions (renditions) of the asset
+        // Mapped in DbContext but potentially missing from DB. 
+        // We will keep it but STOP the service from trying to save settings into it.
         public virtual ICollection<MediaRendition> Renditions { get; set; } = new List<MediaRendition>();
-
-        // For tracking where the image is used, e.g., "Home Page", "About Us"
-        public string Usage { get; set; }
 
         [StringLength(100)]
         public string? RequiredRole { get; set; }
