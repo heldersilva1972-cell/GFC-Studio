@@ -17,6 +17,7 @@ namespace GFC.Core.Interfaces
         // Transaction Management
         Task<LiquorTransaction> CheckoutBottleAsync(int itemId, int userId, string? notes = null);
         Task<LiquorTransaction> RestockItemAsync(int itemId, int userId, int amount, string? notes = null);
+        Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason);
         Task<IEnumerable<LiquorTransaction>> GetRecentTransactionsAsync(int count = 50);
 
         // Notification Rules

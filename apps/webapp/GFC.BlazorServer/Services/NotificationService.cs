@@ -184,6 +184,12 @@ namespace GFC.BlazorServer.Services
                 .CountAsync(s => s.UserId == userId);
         }
 
+        public async Task<string?> GetVapidPublicKeyAsync()
+        {
+            var settings = await _context.SystemSettings.FirstOrDefaultAsync();
+            return settings?.VapidPublicKey;
+        }
+
         public async Task SubscribeToPushAsync(int userId, string endpoint, string p256dh, string auth, string? deviceName)
         {
             var existing = await _context.PushSubscriptions

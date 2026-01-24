@@ -156,6 +156,46 @@ namespace GFC.BlazorServer.Services
             return transaction;
         }
 
+        public async Task<LiquorTransaction> AdjustStockAsync(int itemId, int userId, int delta, string reason)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var item = await db.LiquorItems.FindAsync(itemId);
+            if (item == null) throw new Exception("Item not found");
+
+            var oldStock = item.CurrentStock;
+            var newStock = oldStock + delta;
+            
+            // Prevent negative stock
+            if (newStock < 0) newStock = 0;
+            
+            // Update item
+            item.CurrentStock = newStock;
+            
+            // Calculate actual effective change (in case it was clamped)
+            var actualDelta = newStock - oldStock;
+
+            // If no actual change happened (e.g., trying to reduce 0 stock), we can still log it or return null. 
+            // For now, let's log it as 0 change if that happens so the audit trail exists.
+
+            var transaction = new LiquorTransaction
+            {
+                ItemId = itemId,
+                UserId = userId,
+                ChangeAmount = actualDelta,
+                TransactionType = "Adjustment", 
+                Notes = $"{reason} (From {oldStock} to {newStock})",
+                Timestamp = DateTime.UtcNow
+            };
+
+            db.LiquorTransactions.Add(transaction);
+            await db.SaveChangesAsync();
+
+            // Trigger Notifications if stock dropped significantly or is critical
+            if (actualDelta < 0) await CheckAndNotifyAsync(item);
+
+            return transaction;
+        }
+
         public async Task<IEnumerable<LiquorTransaction>> GetRecentTransactionsAsync(int count = 50)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
@@ -226,27 +266,52 @@ namespace GFC.BlazorServer.Services
                 var user = await db.AppUsers.FindAsync(sub.UserId);
                 if (user == null) continue;
 
-                if (sub.ReceivePush)
-                {
-                    await _notificationService.SendPushNotificationAsync(user.UserId, title, body, "/mobile/liquor/manage");
-                }
-
+                // 1. Email (Prioritize reliability)
                 if (sub.ReceiveEmail && !string.IsNullOrEmpty(user.Email))
                 {
-                    await _notificationService.SendEmailAsync(user.Email, title, body);
+                    try 
+                    {
+                        await _notificationService.SendEmailAsync(user.Email, title, body);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[LiquorService] Email failed for user {user.UserId}: {ex.Message}");
+                    }
                 }
 
-                if (sub.ReceiveSms) // [TODO] Implement Phone Number lookup via Member table
+                // 2. Push Notification
+                if (sub.ReceivePush)
                 {
-                    var smsNotification = new SystemNotification
+                    try
                     {
-                        RecipientEmail = user.Email, // SMS doesn't have a dedicated field in SystemNotification yet
-                        Subject = title,
-                        Message = body,
-                        Channel = "SMS",
-                        Status = "Pending"
-                    };
-                    await _notificationService.DispatchNotificationAsync(smsNotification);
+                        await _notificationService.SendPushNotificationAsync(user.UserId, title, body, "/mobile/liquor/manage");
+                    }
+                    catch (Exception ex)
+                    {
+                         // Push often fails due to missing subscriptions or keys. Log but don't crash.
+                         Console.WriteLine($"[LiquorService] Push failed for user {user.UserId}: {ex.Message}");
+                    }
+                }
+
+                // 3. SMS (Future)
+                if (sub.ReceiveSms) 
+                {
+                    try
+                    {
+                        var smsNotification = new SystemNotification
+                        {
+                            RecipientEmail = user.Email, // SMS doesn't have a dedicated field in SystemNotification yet
+                            Subject = title,
+                            Message = body,
+                            Channel = "SMS",
+                            Status = "Pending"
+                        };
+                        await _notificationService.DispatchNotificationAsync(smsNotification);
+                    }
+                    catch (Exception ex)
+                    {
+                         Console.WriteLine($"[LiquorService] SMS failed for user {user.UserId}: {ex.Message}");
+                    }
                 }
             }
         }
