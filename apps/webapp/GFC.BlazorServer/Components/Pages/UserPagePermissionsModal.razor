@@ -122,6 +122,14 @@
 
                             @if (IsCategoryExpanded(category))
                             {
+                                @if (category.ToUpper() == "MOBILE")
+                                {
+                                    <div class="alert alert-info py-2 px-3 mb-3 border-0 rounded-3 d-flex align-items-center" style="font-size: 0.8rem; background: rgba(13, 110, 253, 0.05); color: var(--app-primary);">
+                                        <i class="bi bi-info-circle-fill me-2"></i>
+                                        <span>GFC Portal Home access is automatically granted when any tool is selected.</span>
+                                    </div>
+                                }
+
                                 <div class="row g-3">
                                     @foreach (var appPage in filteredCategories[category])
                                     {
@@ -135,8 +143,9 @@
                                                         </div>
                                                         <div class="modern-switch @(SelectedPageIds.Contains(appPage.PageId) ? "checked" : "")"></div>
                                                     </div>
-                                                    <h6 class="card-title fw-bold mb-1">@appPage.PageName</h6>
+                                                    <h6 class="card-title fw-bold mb-1">@GetCleanPageName(appPage)</h6>
                                                     <p class="card-text small text-muted mb-2 font-monospace" style="font-size: 0.7rem;">@appPage.PageRoute</p>
+                                                    <div style="font-size: 0.6rem; color:red;">DEBUG: [@appPage.PageName] | [@appPage.PageRoute]</div>
                                                     @if (!string.IsNullOrEmpty(appPage.Description))
                                                     {
                                                         <p class="small text-muted mb-0 fst-italic">@appPage.Description</p>
@@ -247,10 +256,17 @@
 
     private Dictionary<string, List<AppPage>> GetFilteredPages()
     {
-        if (string.IsNullOrWhiteSpace(_searchTerm)) return PagesByCategory;
+        var visiblePages = AllPages.Where(p => !IsHiddenPage(p));
+
+        if (string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            return visiblePages
+                .GroupBy(p => p.Category ?? "Other")
+                .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
+        }
 
         var term = _searchTerm.ToLower();
-        return AllPages
+        return visiblePages
             .Where(p => p.PageName.ToLower().Contains(term) || 
                       p.PageRoute.ToLower().Contains(term) || 
                       (p.Description?.ToLower().Contains(term) ?? false) ||
@@ -285,6 +301,21 @@
         SelectedPageIds.Clear();
     }
 
+    private bool IsHiddenPage(AppPage page)
+    {
+        var route = (page.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
+        if (!string.IsNullOrEmpty(route) && !route.StartsWith("/")) route = "/" + route;
+
+        // Filter by known variations of the hub route
+        if (route == "/mobile" || route == "/hub") return true;
+
+        // Filter by common name tokens to handle naming inconsistencies
+        var name = (page.PageName ?? "").ToLower();
+        if (name.Contains("staff portal hub") || name.Contains("portal hub")) return true;
+
+        return false;
+    }
+
     private void ToggleCategory(string category)
     {
         if (CollapsedCategories.Contains(category))
@@ -294,6 +325,27 @@
     }
 
     private bool IsCategoryExpanded(string category) => !CollapsedCategories.Contains(category);
+
+    private string GetCleanPageName(AppPage page)
+    {
+        var route = (page.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
+        if (!string.IsNullOrEmpty(route) && !route.StartsWith("/")) route = "/" + route;
+
+        return route switch
+        {
+            "/mobile" => "GFC Portal Home",
+            "/hub" => "GFC Portal Home",
+            "/mobile/schedule" => "Bartenders schedule",
+            "/mobile/shift-report" => "End of shift sales",
+            "/mobile/liquor/checkout" => "Bartender liquor checkout",
+            "/mobile/liquor/manage" => "Liquor inventory manager",
+            "/mobile/analytics" => "Income charts",
+            "/mobile/keycards" => "Mobile Key Cards",
+            "/mobile/dues" => "Mobile Dues & Payments",
+            "/mobile/manage-schedule" => "Bartender schedule manager",
+            _ => page.PageName
+        };
+    }
 
     private string GetPageIcon(AppPage page)
     {
@@ -328,6 +380,22 @@
                 {
                     wasCameraPermissionGranted = true;
                 }
+            }
+
+            // [AUTO-GRANT] If any mobile page is selected, automatically add the main portal routes
+            var mobilePagesSelected = AllPages
+                .Where(p => SelectedPageIds.Contains(p.PageId) && (p.PageRoute ?? "").ToLower().Contains("mobile/"))
+                .Any();
+                
+            if (mobilePagesSelected)
+            {
+                // Add the "/mobile" route
+                var mobileHubPage = AllPages.FirstOrDefault(p => (p.PageRoute ?? "").Trim().ToLower().TrimEnd('/') == "/mobile");
+                if (mobileHubPage != null) SelectedPageIds.Add(mobileHubPage.PageId);
+                
+                // Also add "/hub" just in case legacy routes are being used
+                var legacyHubPage = AllPages.FirstOrDefault(p => (p.PageRoute ?? "").Trim().ToLower().TrimEnd('/') == "/hub");
+                if (legacyHubPage != null) SelectedPageIds.Add(legacyHubPage.PageId);
             }
 
             await Task.Run(() => UserService.SetUserPagePermissions(

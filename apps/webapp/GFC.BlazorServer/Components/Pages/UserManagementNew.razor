@@ -359,7 +359,7 @@
                                                    checked="@_selectedPermissions.Contains(page.PageId)"
                                                    @onchange="@(e => TogglePermission(page.PageId, (bool)e.Value))" />
                                             <label class="form-check-label" for="page-@(page.PageId)">
-                                                <strong>@(page.PageName)</strong>
+                                                <strong>@GetCleanPageName(page)</strong>
                                                 @if (!string.IsNullOrEmpty(page.Description))
                                                 {
                                                     <br /><small class="text-muted">@(page.Description)</small>
@@ -434,7 +434,7 @@
                                             
                                             <label class="form-check-label" for="default-page-@(page.PageId)">
                                                 <div class="d-flex align-items-center">
-                                                    <strong>@(page.PageName)</strong>
+                                                    <strong>@GetCleanPageName(page)</strong>
                                                     @if (page.RequiresAdmin)
                                                     {
                                                         <span class="badge bg-light text-dark ms-2 border" style="font-size: 0.65rem; opacity: 0.8;">
@@ -824,8 +824,9 @@
             );
             
             // Group pages by category and sort categories by the DisplayOrder of the first page in each group
+            // [FIX] Exclude hidden system pages from the UI
             _pagesByCategory = _allPages
-                .Where(p => p.IsActive)
+                .Where(p => p.IsActive && !IsHiddenPage(p))
                 .GroupBy(p => p.Category ?? "UNSPECIFIED")
                 .OrderBy(g => g.Min(p => p.DisplayOrder))
                 .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
@@ -1269,10 +1270,24 @@
         _savingPermissions = true;
         try
         {
+            // [AUTO-GRANT] Automatically grant access to the main Portal Hubs if any mobile tool is selected
+            var mobileRoutesSelected = _allPages
+                .Where(p => _selectedPermissions.Contains(p.PageId) && (p.PageRoute ?? "").ToLower().Contains("mobile/"))
+                .Any();
+
+            if (mobileRoutesSelected)
+            {
+                var hubRoutes = _allPages.Where(p => IsHiddenPage(p) && (p.PageRoute == "/mobile" || p.PageRoute == "/hub"));
+                foreach(var hub in hubRoutes)
+                {
+                    _selectedPermissions.Add(hub.PageId);
+                }
+            }
+
             UserManagementService.SetUserPagePermissions(
                 _selectedUser.UserId,
                 _selectedPermissions.ToList(),
-                "admin" // TODO: Get current user
+                "admin" 
             );
             
             ClosePermissionsModal();
@@ -1296,7 +1311,7 @@
         
         // Group pages by category and sort them for the UI
         _pagesByCategory = _allPages
-            .Where(p => p.IsActive)
+            .Where(p => p.IsActive && !IsHiddenPage(p))
             .GroupBy(p => p.Category ?? "UNSPECIFIED")
             .OrderBy(g => g.Min(p => p.DisplayOrder))
             .ToDictionary(g => g.Key, g => g.OrderBy(p => p.DisplayOrder).ThenBy(p => p.PageName).ToList());
@@ -1338,6 +1353,40 @@
         {
             _savingDefaultPermissions = false;
         }
+    }
+
+    private bool IsHiddenPage(AppPage page)
+    {
+        var route = (page.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
+        if (!string.IsNullOrEmpty(route) && !route.StartsWith("/")) route = "/" + route;
+
+        // Filter by known variations of the hub route
+        if (route == "/mobile" || route == "/hub") return true;
+
+        // Backup filter by name
+        var name = (page.PageName ?? "").ToLower();
+        if (name.Contains("staff portal hub") || name.Contains("portal hub") || name.Contains("gfc portal home")) return true;
+
+        return false;
+    }
+
+    private string GetCleanPageName(AppPage page)
+    {
+        var route = (page.PageRoute ?? "").Trim().TrimEnd('/').ToLower();
+        if (!string.IsNullOrEmpty(route) && !route.StartsWith("/")) route = "/" + route;
+
+        return route switch
+        {
+            "/mobile/schedule" => "Bartenders schedule",
+            "/mobile/shift-report" => "End of shift sales",
+            "/mobile/liquor/checkout" => "Bartender liquor checkout",
+            "/mobile/liquor/manage" => "Liquor inventory manager",
+            "/mobile/analytics" => "Income charts",
+            "/mobile/keycards" => "Mobile Key Cards",
+            "/mobile/dues" => "Mobile Dues & Payments",
+            "/mobile/manage-schedule" => "Bartender schedule manager",
+            _ => page.PageName
+        };
     }
 
     private async Task ConfirmDeleteUser(UserListItemDto user)
