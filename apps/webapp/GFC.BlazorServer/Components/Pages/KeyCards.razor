@@ -447,14 +447,6 @@
                 @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "inactive"; }'>
             <i class="bi bi-pause-circle-fill text-warning"></i> Inactive <span class="filter-badge">@_countInactive</span>
         </button>
-        <button class="filter-pill flex-shrink-0 @(_activeTab == "assignments" && _cardStatusFilter == "unpaid" ? "active" : "")" 
-                @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "unpaid"; }' title="Active cards with unpaid dues">
-            <i class="bi bi-clock-history text-info"></i> At Risk <span class="filter-badge">@_countAtRisk</span>
-        </button>
-        <button class="filter-pill flex-shrink-0 @(_activeTab == "assignments" && _cardStatusFilter == "delinquent" ? "active" : "")" 
-                @onclick='() => { SetActiveTab("assignments"); _cardStatusFilter = "delinquent"; }' title="Cards where previous year was also unpaid">
-            <i class="bi bi-x-circle-fill text-danger"></i> Delinquent <span class="filter-badge">@_countDelinquent</span>
-        </button>
         
         <div class="filter-divider flex-shrink-0"></div>
         
@@ -1239,7 +1231,6 @@
     
     // Grace Period & Sync Status - NEW
     private DateTime? _graceEndDate;
-    private int _membersAtRiskCount = 0;
     private int _pendingSyncCount = 0;
     private DateTime? _lastSyncTime;
     private bool _controllerOnline = true;
@@ -1252,10 +1243,7 @@
     private string _gracePeriodError = string.Empty;
     private bool _isAutoSelectedMember = false;
     
-    private int _paidMembersWithoutCardsCount = 0;
     private HashSet<int> _directorIds = new();
-    private HashSet<int> _unpaidMemberIds = new();
-    private List<MemberAtRiskDto> _atRiskMembers = new();
     
     // Scanning state
     private CancellationTokenSource? _scanCts;
@@ -1292,8 +1280,6 @@
     private int _countAll = 0;
     private int _countActive = 0;
     private int _countInactive = 0;
-    private int _countAtRisk = 0;
-    private int _countDelinquent = 0;
     private int _countNeeding = 0;
     
     private GFC.BlazorServer.Components.Pages.KeyCardTabs.MembersNeedingCardsTab? _needingCardsTab;
@@ -1398,26 +1384,6 @@
             _countAll = cards.Count;
             _countActive = cards.Count(c => c.IsActive);
             _countInactive = cards.Count(c => !c.IsActive);
-            
-            _countAtRisk = 0;
-            _countDelinquent = 0;
-            
-            foreach (var card in cards.Where(c => c.IsActive))
-            {
-                var row = dashboardRows.FirstOrDefault(r => r.MemberId == card.MemberId);
-                if (row == null) continue;
-
-                var eligibility = CardService.EvaluateEligibilityForRow(row, year, graceDate);
-                
-                if (!eligibility.CurrentYearSatisfied)
-                {
-                    _countAtRisk++;
-                    if (!eligibility.Eligible && !eligibility.GracePeriodActive)
-                    {
-                        _countDelinquent++;
-                    }
-                }
-            }
 
             // Needing Cards Count - use dashboard rows for accurate waiver detection
             _countNeeding = 0;
@@ -1454,9 +1420,6 @@
             // 2. Assign Results
             _graceEndDate = settings?.GraceEndDate;
             _directorIds = boardAssignments.Select(a => a.MemberID).ToHashSet();
-            _unpaidMemberIds = new HashSet<int>(); // Not needed for card display
-            _atRiskMembers = new List<MemberAtRiskDto>(); // Not needed for card display  
-            _membersAtRiskCount = 0; // Not needed for card display
             
             // Simplified: Just use pending syncs count (detailed card metrics are in CardAssignmentsTab)
             _pendingSyncCount = pendingSyncs.Count;
@@ -1470,9 +1433,6 @@
             // Refresh counts as well
             await LoadCardCountsAsync();
 
-            // NOTE: Removed _paidMembersWithoutCardsCount calculation - requires loading all cards
-            // This metric is available in the CardAssignmentsTab which loads cards anyway
-            _paidMembersWithoutCardsCount = 0;
         }
         catch (Exception ex)
         {

@@ -4,10 +4,17 @@
 @using DuesPaymentModel = GFC.Core.Models.DuesPayment
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
+@inject IDuesInsightService DuesInsightService
 @inject IDuesRepository DuesRepo
+@inject IKeyCardRepository KeyCardRepo
 @inject IMemberRepository MemberRepository
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
+@inject IDuesWaiverRepository DuesWaiverRepository
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject GFC.BlazorServer.Services.DuesService DuesServiceEF
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@using GFC.Core.Enums
 @using GFC.BlazorServer.Components.Shared.Mobile
 
 
@@ -88,30 +95,33 @@
         else
         {
             <div class="container py-2">
-                @foreach (var item in FilteredDuesWithMembers)
+                @foreach (var item in FilteredItems)
                 {
                     <div class="app-card mb-2" style="padding: 12px 16px;">
                         <div class="d-flex align-items-center gap-3 w-100">
-                            <div class="member-avatar">@item.Member.LastName[0]</div>
+                            <div class="member-avatar">@item.FullName[0]</div>
                             <div style="flex-grow: 1;">
-                                <h6 class="mb-0 fw-bold">@item.Member.LastName, @item.Member.FirstName</h6>
+                                <h6 class="mb-0 fw-bold">@item.FullName</h6>
                                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                                    <span class="badge @GetStatusBadgeClass(item.DuesPayment)">
-                                        @GetDuesStatus(item.DuesPayment)
+                                    <span class="badge @(item.Satisfied ? (item.IsWaived ? "bg-info" : "bg-success") : "bg-warning")">
+                                        @(item.Satisfied ? (item.IsWaived ? "Waived" : "Paid") : "Unpaid")
                                     </span>
-                                    @if (item.DuesPayment?.PaidDate.HasValue == true)
+                                    <span class="badge @GetStatusBadge(item.Status)">
+                                        @GetStatusLabel(item.Status)
+                                    </span>
+                                    @if (item.PaidDate.HasValue)
                                     {
-                                        <small class="text-muted">@item.DuesPayment.PaidDate.Value.ToString("MMM dd")</small>
+                                        <small class="text-muted">@item.PaidDate.Value.ToString("MMM dd")</small>
                                     }
-                                    @if (item.DuesPayment?.Amount.HasValue == true && item.DuesPayment.Amount > 0)
+                                    @if (item.Amount.HasValue && item.Amount > 0)
                                     {
-                                        <small class="fw-bold text-primary">$@item.DuesPayment.Amount</small>
+                                        <small class="fw-bold text-primary">$@item.Amount</small>
                                     }
                                 </div>
                             </div>
-                            @if (item.DuesPayment == null || (!item.DuesPayment.PaidDate.HasValue && item.DuesPayment.PaymentType != "WAIVED"))
+                            @if (CanRecordPayment(item))
                             {
-                                <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => MarkAsPaid(item)">
+                                <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => OpenPaymentModal(item)">
                                     Pay
                                 </button>
                             }
@@ -119,7 +129,7 @@
                     </div>
                 }
 
-                @if (!FilteredDuesWithMembers.Any())
+                @if (!FilteredItems.Any())
                 {
                     <div class="text-center py-5 text-muted">
                         <i class="bi bi-cash-coin display-4 opacity-25"></i>
@@ -137,7 +147,7 @@
 </div>
 
 <!-- Payment Modal -->
-@if (_showPaymentModal && _selectedItem != null)
+@if (_showPaymentModal && _paymentTarget != null)
 {
     <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
     <div class="bottom-sheet">
@@ -147,29 +157,94 @@
             
             <div class="mb-3">
                 <label class="form-label fw-bold">Member</label>
-                <input type="text" class="form-control" value="@_selectedItem.Member.LastName, @_selectedItem.Member.FirstName" disabled />
+                <div class="p-2 bg-light rounded">
+                    <strong>@_paymentTarget.FullName</strong>
+                    <div class="small text-muted">Member ID: @_paymentTarget.MemberId</div>
+                </div>
             </div>
 
-            <div class="mb-3">
-                <label class="form-label fw-bold">Amount</label>
-                <div class="input-group">
-                    <span class="input-group-text">$</span>
-                    <input type="number" class="form-control" @bind="_paymentAmount" />
+            <div class="row g-2">
+                <div class="col-7">
+                    <label class="form-label fw-bold">Amount</label>
+                    <div class="input-group">
+                        <span class="input-group-text">$</span>
+                        <input type="number" class="form-control fw-bold" @bind="_paymentForm.Amount" />
+                    </div>
                 </div>
+                <div class="col-5">
+                    <label class="form-label fw-bold">Year</label>
+                    <select class="form-select" @bind="_paymentForm.Year">
+                        @for (int y = DateTime.Now.Year - 1; y <= DateTime.Now.Year + 1; y++)
+                        {
+                            <option value="@y">@y</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            <div class="mb-3 mt-3">
+                <label class="form-label fw-bold">Method</label>
+                <select class="form-select" @bind="_paymentForm.PaymentType">
+                    <option value="CASH">Cash</option>
+                    <option value="CHECK">Check</option>
+                    <option value="CREDIT">Credit Card</option>
+                    <option value="VENMO">Venmo</option>
+                    <option value="ZELLE">Zelle</option>
+                    <option value="OTHER">Other</option>
+                </select>
             </div>
 
             <div class="mb-3">
                 <label class="form-label fw-bold">Payment Date</label>
-                <input type="date" class="form-control" @bind="_paymentDate" />
+                <input type="date" class="form-control" @bind="_paymentForm.PaidDate" />
             </div>
 
             <div class="d-grid gap-2">
-                <button class="btn btn-app-primary py-3" @onclick="ConfirmPayment" disabled="@_isSaving">
+                <button class="btn btn-app-primary py-3" @onclick="PromptSubmitPayment" disabled="@_isSaving">
                     @if (_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                    Confirm Payment
+                    Record Payment
                 </button>
                 <button class="btn btn-light py-3" @onclick="CloseModals">Cancel</button>
             </div>
+        </div>
+    </div>
+}
+
+<!-- Success Modal (Mirroring Dues.razor) -->
+@if (_showSuccessModal && _lastPaymentMember != null)
+{
+    <div class="modal-backdrop-custom"></div>
+    <div class="bottom-sheet">
+        <div class="p-5 text-center">
+            <div class="mb-4">
+                <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+            </div>
+            <h3 class="fw-bold">Payment Recorded!</h3>
+            <p class="text-muted">Successfully logged $@_lastPaymentAmount.ToString("N0") for @_lastPaymentMember.</p>
+            
+            @if (!_hasActiveCard)
+            {
+                <div class="alert alert-warning border-0 shadow-sm text-start mb-4">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <i class="bi bi-credit-card-2-front-fill fs-5"></i>
+                        <strong class="fw-bold">No Key Card Assigned</strong>
+                    </div>
+                    <p class="mb-0 small">This member has paid their dues but does not have an active key card. Would you like to assign one now?</p>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary py-3 fw-bold" @onclick='() => Navigation.NavigateTo($"/mobile/keycards?assignTo={_lastPaymentMemberId}")'>
+                        <i class="bi bi-credit-card me-2"></i> Yes, Assign & Activate Card
+                    </button>
+                    <button class="btn btn-light py-3" @onclick="CloseSuccessModal">No, Close</button>
+                </div>
+            }
+            else
+            {
+                <div class="d-grid gap-2">
+                    <button class="btn btn-light py-3" @onclick="CloseSuccessModal">Close</button>
+                </div>
+            }
         </div>
     </div>
 }
@@ -317,32 +392,41 @@
     .nav-tab-item i { font-size: 1.25rem; }
     .nav-tab-item.active { color: #0d6efd; } /* Primary color match */
     .nav-tab-item.active i { color: #0d6efd; }
+    .bg-gold-subtle { background-color: #fef9c3; color: #ca8a04; }
 </style>
 
 @code {
     private bool _isLoading = true;
     private bool _showPaymentModal = false;
+    private bool _showSuccessModal = false;
     private bool _isSaving = false;
+    private bool _hasActiveCard = false;
     private string _filter = "unpaid";
     private string _searchTerm = "";
-    private decimal _paymentAmount = 0;
-    private DateTime _paymentDate = DateTime.Today;
+    private string _paymentMethod = "CASH";
+    private string? _lastPaymentMember;
+    private decimal _lastPaymentAmount;
+    private int _lastPaymentMemberId;
     private int _currentYear = DateTime.Now.Year;
 
-    private List<DuesPaymentModel> _allDues = new();
-    private List<Member> _allMembers = new();
-    private List<Member> _eligibleMembers = new();
-    private DuesMemberItem? _selectedItem;
+    private List<DuesListItemDto> _allItems = new();
+    private DuesSummaryDto? _summary;
+    private DuesYearSettings? _currentYearSettings;
+    private DuesListItemDto? _paymentTarget;
+    private PaymentFormModel _paymentForm = new();
+    
     private int _paidCount = 0;
     private int _unpaidCount = 0;
     private int _waivedCount = 0;
     private decimal _totalCollected = 0;
 
-    // Helper class to combine member with their dues payment
-    private class DuesMemberItem
+    private class PaymentFormModel 
     {
-        public Member Member { get; set; } = null!;
-        public DuesPaymentModel? DuesPayment { get; set; }
+        public decimal Amount { get; set; }
+        public DateTime PaidDate { get; set; } = DateTime.Today;
+        public string PaymentType { get; set; } = "CASH";
+        public int Year { get; set; }
+        public string? Notes { get; set; }
     }
 
     protected override async Task OnInitializedAsync()
@@ -355,28 +439,40 @@
         _isLoading = true;
         try
         {
-            _allDues = await Task.Run(() => DuesRepo.GetDuesForYear(_currentYear));
-            _allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            var year = _currentYear;
             
-            // Get eligible members (active statuses)
-            var activeStatuses = new[] { "REGULAR", "REGULAR-NP", "LIFE", "Active" };
-            _eligibleMembers = _allMembers.Where(m => activeStatuses.Contains(m.Status)).ToList();
+            // 1. Parallel Fetch using the official DuesInsightService (Mirroring Dues.razor)
+            var unpaidTask = DuesInsightService.GetDuesAsync(year, false);
+            var paidTask = DuesInsightService.GetDuesAsync(year, true);
+            var summaryTask = DuesInsightService.GetSummaryAsync(year);
+            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
             
-            _paidCount = _allDues.Count(d => d.PaidDate.HasValue && d.PaymentType != "WAIVED");
-            _waivedCount = _allDues.Count(d => d.PaymentType == "WAIVED");
+            await Task.WhenAll(unpaidTask, paidTask, summaryTask, settingsTask);
             
-            // Unpaid = eligible members without a paid/waived record
-            var membersWithPaidOrWaived = _allDues
-                .Where(d => d.PaidDate.HasValue || d.PaymentType == "WAIVED")
-                .Select(d => d.MemberID)
-                .ToHashSet();
-            _unpaidCount = _eligibleMembers.Count(m => !membersWithPaidOrWaived.Contains(m.MemberID));
+            _summary = await summaryTask;
+            _currentYearSettings = await settingsTask;
             
-            _totalCollected = _allDues.Where(d => d.PaidDate.HasValue && d.Amount.HasValue).Sum(d => d.Amount.Value);
+            var combined = new List<DuesListItemDto>();
+            var unpaidItems = await unpaidTask;
+            var paidItems = await paidTask;
+            
+            if (unpaidItems != null) combined.AddRange(unpaidItems);
+            if (paidItems != null) combined.AddRange(paidItems);
+            
+            _allItems = combined.GroupBy(x => x.MemberId).Select(g => g.First()).ToList();
+
+            // 2. Extract stats from official summary
+            if (_summary != null)
+            {
+                _paidCount = _summary.PaidCount;
+                _unpaidCount = _summary.UnpaidCount;
+                _waivedCount = _summary.WaivedCount;
+                _totalCollected = _summary.AmountCollected;
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading dues: {ex.Message}");
+            Console.WriteLine($"Error mirroring dues data: {ex.Message}");
         }
         finally
         {
@@ -384,98 +480,147 @@
         }
     }
 
-    private IEnumerable<DuesMemberItem> FilteredDuesWithMembers
+    private IEnumerable<DuesListItemDto> FilteredItems
     {
         get
         {
-            // Combine all eligible members with their dues (if they have one)
-            var allItems = _eligibleMembers.Select(m => new DuesMemberItem
+            var items = string.IsNullOrWhiteSpace(_searchTerm)
+                ? _allItems
+                : _allItems.Where(item => item.FullName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+            
+            return _filter switch
             {
-                Member = m,
-                DuesPayment = _allDues.FirstOrDefault(d => d.MemberID == m.MemberID)
-            }).ToList();
-
-            var filtered = allItems.AsEnumerable();
-
-            if (_filter == "paid")
-                filtered = filtered.Where(i => i.DuesPayment?.PaidDate.HasValue == true && i.DuesPayment.PaymentType != "WAIVED");
-            else if (_filter == "unpaid")
-                filtered = filtered.Where(i => i.DuesPayment == null || (!i.DuesPayment.PaidDate.HasValue && i.DuesPayment.PaymentType != "WAIVED"));
-            else if (_filter == "waived")
-                filtered = filtered.Where(i => i.DuesPayment?.PaymentType == "WAIVED");
-
-            if (!string.IsNullOrWhiteSpace(_searchTerm))
-            {
-                filtered = filtered.Where(i => $"{i.Member.LastName} {i.Member.FirstName}".Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
-            }
-
-            return filtered.OrderBy(i => i.Member.LastName).ThenBy(i => i.Member.FirstName);
+                "paid" => items.Where(i => i.Satisfied && !i.IsWaived),
+                "unpaid" => items.Where(i => !i.Satisfied),
+                "waived" => items.Where(i => i.IsWaived || i.Status == MemberStatus.Life || i.IsBoardMember),
+                _ => items
+            };
         }
     }
 
-    private string GetDuesStatus(DuesPaymentModel? due)
-    {
-        if (due == null) return "Unpaid";
-        if (due.PaymentType == "WAIVED") return "Waived";
-        if (due.PaidDate.HasValue) return "Paid";
-        return "Unpaid";
-    }
+    private bool IsExempt(DuesListItemDto item) =>
+        item.Status == MemberStatus.Life || item.IsBoardMember || item.IsWaived;
 
-    private string GetStatusBadgeClass(DuesPaymentModel? due)
-    {
-        if (due == null) return "bg-warning";
-        if (due.PaymentType == "WAIVED") return "bg-info";
-        if (due.PaidDate.HasValue) return "bg-success";
-        return "bg-warning";
-    }
+    private bool CanRecordPayment(DuesListItemDto item) =>
+        !item.Satisfied && !IsExempt(item);
 
-    private void MarkAsPaid(DuesMemberItem item)
+    private void OpenPaymentModal(DuesListItemDto item)
     {
-        _selectedItem = item;
-        _paymentAmount = item.DuesPayment?.Amount ?? 0;
-        _paymentDate = DateTime.Today;
+        _paymentTarget = item;
+        _paymentForm = new PaymentFormModel
+        {
+            Amount = item.Amount ?? _currentYearSettings?.StandardDues ?? 250m,
+            Year = _currentYear,
+            PaymentType = "CASH",
+            PaidDate = DateTime.Today
+        };
         _showPaymentModal = true;
     }
 
     private void CloseModals()
     {
         _showPaymentModal = false;
-        _selectedItem = null;
+        _paymentTarget = null;
     }
 
-    private async Task ConfirmPayment()
+    private void CloseSuccessModal()
     {
-        if (_selectedItem == null || _paymentAmount <= 0)
+        _showSuccessModal = false;
+        _lastPaymentMember = null;
+    }
+
+    private async Task PromptSubmitPayment()
+    {
+        if (_paymentTarget == null) return;
+
+        // MIRRORING Dues.razor logic for checks
+        var existingPayment = await Task.Run(() => DuesRepo.GetDuesForMemberYear(_paymentTarget.MemberId, _paymentForm.Year));
+        
+        bool isLifeMember = _paymentTarget.Status == MemberStatus.Life;
+        bool isBoardMember = _paymentTarget.IsBoardMember;
+        var waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId));
+        bool hasManualWaiver = waivers.Any(w => _paymentForm.Year >= w.StartYear && _paymentForm.Year <= w.EndYear);
+        bool hasWaivedPayment = existingPayment?.PaymentType?.Equals("WAIVED", StringComparison.OrdinalIgnoreCase) == true;
+        
+        bool isWaived = isLifeMember || isBoardMember || hasManualWaiver || hasWaivedPayment;
+
+        if (isWaived)
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Please enter a valid payment amount");
-            return;
+             // Confirm removal of waiver
+             var confirm = await JSRuntime.InvokeAsync<bool>("confirm", 
+                $"WARNING: Member has active waiver/exemption. Recording a payment will REMOVE the waiver. Proceed?");
+             if (!confirm) return;
+        }
+        else if (existingPayment != null)
+        {
+             var confirm = await JSRuntime.InvokeAsync<bool>("confirm", 
+                $"WARNING: A payment already exists for this year. Replace it?");
+             if (!confirm) return;
         }
 
+        await SubmitPaymentAsync();
+    }
+
+    private async Task SubmitPaymentAsync()
+    {
+        if (_paymentTarget == null) return;
         _isSaving = true;
+
         try
         {
-            // Create or update dues payment
-            var duesPayment = _selectedItem.DuesPayment ?? new DuesPaymentModel
-            {
-                MemberID = _selectedItem.Member.MemberID,
-                Year = _currentYear
-            };
-
-            duesPayment.Amount = _paymentAmount;
-            duesPayment.PaidDate = _paymentDate;
-            duesPayment.PaymentType = "CASH";
+            var currentUser = AuthStateProvider.GetCurrentUser();
             
-            await Task.Run(() => DuesRepo.UpsertDues(duesPayment));
+            // 1. Record via Service (Mirroring Dues.razor line 1653)
+            await DuesServiceEF.RecordPaymentAsync(
+                _paymentTarget.MemberId,
+                _paymentForm.Year,
+                _paymentForm.Amount,
+                _paymentForm.PaidDate,
+                _paymentForm.Notes ?? "Mobile Entry",
+                _paymentForm.PaymentType,
+                currentUser?.UserId);
+
+            // 2. Auto-clear waiver (Mirroring Dues.razor line 1662)
+            try 
+            {
+               var waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId));
+               var activeWaiver = waivers.FirstOrDefault(w => _paymentForm.Year >= w.StartYear && _paymentForm.Year <= w.EndYear);
+               if (activeWaiver != null)
+               {
+                   await Task.Run(() => DuesWaiverRepository.DeleteWaiver(activeWaiver.WaiverId));
+               }
+            }
+            catch { /* Secondary fail */ }
+
+            // 3. Setup success modal (Mirroring Dues.razor line 1689)
+            _lastPaymentMember = _paymentTarget.FullName;
+            _lastPaymentAmount = _paymentForm.Amount;
+            _lastPaymentMemberId = _paymentTarget.MemberId;
+            
+            var card = await Task.Run(() => KeyCardRepo.GetActiveMemberCard(_paymentTarget.MemberId));
+            _hasActiveCard = card != null && card.IsActive;
+
+            _showPaymentModal = false;
+            _showSuccessModal = true;
             await LoadData();
-            CloseModals();
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Record failed: {ex.Message}");
         }
         finally
         {
             _isSaving = false;
         }
     }
+
+    private static string GetStatusBadge(MemberStatus status) => status switch {
+        MemberStatus.Regular or MemberStatus.RegularNonPortuguese => "bg-success-subtle text-success",
+        MemberStatus.Life => "bg-gold-subtle text-gold",
+        MemberStatus.Guest => "bg-warning-subtle text-warning",
+        MemberStatus.Inactive => "bg-danger-subtle text-danger",
+        _ => "bg-light text-muted"
+    };
+
+    private static string GetStatusLabel(MemberStatus status) => status.ToString();
 }
