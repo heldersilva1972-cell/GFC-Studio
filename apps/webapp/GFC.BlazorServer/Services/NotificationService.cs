@@ -13,19 +13,20 @@ namespace GFC.BlazorServer.Services
 {
     public class NotificationService : INotificationService
     {
-        private readonly GfcDbContext _context;
+        private readonly IDbContextFactory<GfcDbContext> _dbFactory;
         private readonly GFC.Core.Interfaces.IEmailService _emailService;
         private bool _masterKillSwitchEnabled = false;
 
-        public NotificationService(GfcDbContext context, GFC.Core.Interfaces.IEmailService emailService)
+        public NotificationService(IDbContextFactory<GfcDbContext> dbFactory, GFC.Core.Interfaces.IEmailService emailService)
         {
-            _context = context;
+            _dbFactory = dbFactory;
             _emailService = emailService;
         }
 
         public async Task DispatchNotificationAsync(SystemNotification notification)
         {
-            var settings = await _context.SystemSettings.FirstOrDefaultAsync();
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var settings = await db.SystemSettings.FirstOrDefaultAsync();
             bool isBlocked = _masterKillSwitchEnabled;
 
             if (notification.Channel == "Email" && settings?.EmailEnabled == false) isBlocked = true;
@@ -41,8 +42,8 @@ namespace GFC.BlazorServer.Services
                 notification.Status = "Sent";
             }
 
-            _context.SystemNotifications.Add(notification);
-            await _context.SaveChangesAsync();
+            db.SystemNotifications.Add(notification);
+            await db.SaveChangesAsync();
         }
 
         public void EnabbleMasterKillSwitch()
@@ -64,14 +65,14 @@ namespace GFC.BlazorServer.Services
         {
             if (_masterKillSwitchEnabled) return;
 
-            var usersToNotify = await _context.UserNotificationPreferences
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var usersToNotify = await db.UserNotificationPreferences
                 .Where(p => p.SystemAlertNotifyEmail || p.SystemAlertNotifyPush)
                 .ToListAsync();
 
             foreach (var pref in usersToNotify)
             {
-                // Note: In a larger app, we'd join this, but for alerts it's fine for now
-                var user = await _context.AppUsers.FindAsync(pref.UserId);
+                var user = await db.AppUsers.FindAsync(pref.UserId);
                 if (user == null) continue;
 
                 if (pref.SystemAlertNotifyPush)
@@ -88,14 +89,8 @@ namespace GFC.BlazorServer.Services
 
         public async Task SendRentalConfirmationEmailAsync(HallRentalRequest request)
         {
-            if (_masterKillSwitchEnabled)
-            {
-                // Email blocked by kill switch
-                return;
-            }
+            if (_masterKillSwitchEnabled) return;
 
-            // TODO: Implement actual email sending logic
-            // For now, just create a notification record
             var notification = new SystemNotification
             {
                 RecipientEmail = request.RequesterEmail,
@@ -106,23 +101,19 @@ namespace GFC.BlazorServer.Services
                 SentAt = DateTime.UtcNow
             };
 
-            _context.SystemNotifications.Add(notification);
-            await _context.SaveChangesAsync();
+            using (var db = await _dbFactory.CreateDbContextAsync())
+            {
+                db.SystemNotifications.Add(notification);
+                await db.SaveChangesAsync();
+            }
 
-            // Perform actual email delivery
             await SendEmailAsync(request.RequesterEmail, notification.Subject, notification.Message);
         }
 
         public async Task SendRentalDenialEmailAsync(HallRentalRequest request, string reason)
         {
-            if (_masterKillSwitchEnabled)
-            {
-                // Email blocked by kill switch
-                return;
-            }
+            if (_masterKillSwitchEnabled) return;
 
-            // TODO: Implement actual email sending logic
-            // For now, just create a notification record
             var notification = new SystemNotification
             {
                 RecipientEmail = request.RequesterEmail,
@@ -133,10 +124,12 @@ namespace GFC.BlazorServer.Services
                 SentAt = DateTime.UtcNow
             };
 
-            _context.SystemNotifications.Add(notification);
-            await _context.SaveChangesAsync();
+            using (var db = await _dbFactory.CreateDbContextAsync())
+            {
+                db.SystemNotifications.Add(notification);
+                await db.SaveChangesAsync();
+            }
 
-            // Perform actual email delivery
             await SendEmailAsync(request.RequesterEmail, notification.Subject, notification.Message);
         }
 
@@ -154,50 +147,59 @@ namespace GFC.BlazorServer.Services
                 SentAt = DateTime.UtcNow
             };
 
-            _context.SystemNotifications.Add(notification);
-            await _context.SaveChangesAsync();
+            using (var db = await _dbFactory.CreateDbContextAsync())
+            {
+                db.SystemNotifications.Add(notification);
+                await db.SaveChangesAsync();
 
-            try
-            {
-                await _emailService.SendEmailAsync(email, subject, body);
-                notification.Status = "Sent";
-                await _context.SaveChangesAsync();
-            }
-            catch (Exception)
-            {
-                notification.Status = "Failed";
-                await _context.SaveChangesAsync();
-                throw;
+                try
+                {
+                    await _emailService.SendEmailAsync(email, subject, body);
+                    notification.Status = "Sent";
+                    db.Entry(notification).State = EntityState.Modified;
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception)
+                {
+                    notification.Status = "Failed";
+                    db.Entry(notification).State = EntityState.Modified;
+                    await db.SaveChangesAsync();
+                    throw;
+                }
             }
         }
 
         public async Task<List<SystemNotification>> GetActiveNotificationsAsync()
         {
-            return await _context.SystemNotifications
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.SystemNotifications
                                  .Where(n => n.Status == "Sent")
                                  .ToListAsync();
         }
 
         public async Task<int> GetPushSubscriptionCountAsync(int userId)
         {
-            return await _context.PushSubscriptions
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.PushSubscriptions
                 .CountAsync(s => s.UserId == userId);
         }
 
         public async Task<string?> GetVapidPublicKeyAsync()
         {
-            var settings = await _context.SystemSettings.FirstOrDefaultAsync();
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var settings = await db.SystemSettings.FirstOrDefaultAsync();
             return settings?.VapidPublicKey;
         }
 
         public async Task SubscribeToPushAsync(int userId, string endpoint, string p256dh, string auth, string? deviceName)
         {
-            var existing = await _context.PushSubscriptions
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.PushSubscriptions
                 .FirstOrDefaultAsync(s => s.UserId == userId && s.Endpoint == endpoint);
 
             if (existing == null)
             {
-                _context.PushSubscriptions.Add(new GFC.BlazorServer.Data.Entities.PushSubscription
+                db.PushSubscriptions.Add(new GFC.BlazorServer.Data.Entities.PushSubscription
                 {
                     UserId = userId,
                     Endpoint = endpoint,
@@ -206,19 +208,20 @@ namespace GFC.BlazorServer.Services
                     DeviceName = deviceName,
                     CreatedAtUtc = DateTime.UtcNow
                 });
-                await _context.SaveChangesAsync();
+                await db.SaveChangesAsync();
             }
         }
 
         public async Task UnsubscribeFromPushAsync(int userId, string endpoint)
         {
-            var existing = await _context.PushSubscriptions
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.PushSubscriptions
                 .FirstOrDefaultAsync(s => s.UserId == userId && s.Endpoint == endpoint);
 
             if (existing != null)
             {
-                _context.PushSubscriptions.Remove(existing);
-                await _context.SaveChangesAsync();
+                db.PushSubscriptions.Remove(existing);
+                await db.SaveChangesAsync();
             }
         }
 
@@ -226,21 +229,20 @@ namespace GFC.BlazorServer.Services
         {
             if (_masterKillSwitchEnabled) throw new InvalidOperationException("Notifications are currently disabled by the Master Kill Switch.");
 
-            var settings = await _context.SystemSettings.FirstOrDefaultAsync();
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var settings = await db.SystemSettings.FirstOrDefaultAsync();
             if (settings == null) throw new InvalidOperationException("System settings not found.");
             if (!settings.PushEnabled) throw new InvalidOperationException("Web Push notifications are disabled in System Settings.");
             if (string.IsNullOrEmpty(settings.VapidPublicKey) || string.IsNullOrEmpty(settings.VapidPrivateKey))
                 throw new InvalidOperationException("VAPID keys are missing. Please configure them in Communications Setup.");
 
-            var subscriptions = await _context.PushSubscriptions
+            var subscriptions = await db.PushSubscriptions
                 .Where(s => s.UserId == userId)
                 .OrderByDescending(s => s.CreatedAtUtc)
                 .ToListAsync();
 
             if (!subscriptions.Any()) throw new InvalidOperationException("User has no registered push devices. They must enable notifications in 'My Security'.");
 
-            // Deduplicate by endpoint AND only take the MOST RECENT one.
-            // This prevents duplicate notifications on devices that have both Chrome and PWA subscriptions.
             var uniqueSubscriptions = subscriptions
                 .GroupBy(s => s.Endpoint)
                 .Select(g => g.First())
@@ -274,7 +276,7 @@ namespace GFC.BlazorServer.Services
                         Status = "Sent",
                         SentAt = DateTime.UtcNow
                     };
-                    _context.SystemNotifications.Add(notification);
+                    db.SystemNotifications.Add(notification);
                 }
                 catch (Exception ex)
                 {
@@ -287,41 +289,44 @@ namespace GFC.BlazorServer.Services
                         Status = "Failed",
                         SentAt = DateTime.UtcNow
                     };
-                    _context.SystemNotifications.Add(notification);
+                    db.SystemNotifications.Add(notification);
                 }
             }
             
-            await _context.SaveChangesAsync();
+            await db.SaveChangesAsync();
         }
 
         public async Task<GFC.BlazorServer.Data.Entities.UserNotificationPreferences?> GetUserPreferencesAsync(int userId)
         {
-            return await _context.UserNotificationPreferences
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.UserNotificationPreferences
                 .FirstOrDefaultAsync(p => p.UserId == userId);
         }
 
         public async Task SaveUserPreferencesAsync(GFC.BlazorServer.Data.Entities.UserNotificationPreferences preferences)
         {
-            var existing = await _context.UserNotificationPreferences
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.UserNotificationPreferences
                 .FirstOrDefaultAsync(p => p.UserId == preferences.UserId);
 
             if (existing == null)
             {
-                _context.UserNotificationPreferences.Add(preferences);
+                db.UserNotificationPreferences.Add(preferences);
             }
             else
             {
-                preferences.Id = existing.Id; // Ensure ID matches for update
-                _context.Entry(existing).CurrentValues.SetValues(preferences);
+                preferences.Id = existing.Id;
+                db.Entry(existing).CurrentValues.SetValues(preferences);
                 existing.UpdatedAt = DateTime.UtcNow;
             }
 
-            await _context.SaveChangesAsync();
+            await db.SaveChangesAsync();
         }
 
         public async Task<List<GFC.BlazorServer.Data.Entities.UserNotificationPreferences>> GetAllPreferencesAsync()
         {
-            return await _context.UserNotificationPreferences.ToListAsync();
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.UserNotificationPreferences.ToListAsync();
         }
     }
 }

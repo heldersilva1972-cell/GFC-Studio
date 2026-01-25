@@ -126,8 +126,18 @@ namespace GFC.BlazorServer.Services
             db.LiquorTransactions.Add(transaction);
             await db.SaveChangesAsync();
 
-            // Trigger Notifications
-            await CheckAndNotifyAsync(item);
+            // Trigger Notifications in background to avoid blocking UI (e.g. slow SMTP)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await CheckAndNotifyAsync(itemId);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[LiquorService] Background notification failed: {ex.Message}");
+                }
+            });
 
             return transaction;
         }
@@ -152,6 +162,20 @@ namespace GFC.BlazorServer.Services
 
             db.LiquorTransactions.Add(transaction);
             await db.SaveChangesAsync();
+
+            // Restock rarely triggers low-stock alerts unless it's a correction, 
+            // but we'll check anyway if someone wants to know when stuff arrives.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await CheckAndNotifyAsync(itemId);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[LiquorService] Background notification failed: {ex.Message}");
+                }
+            });
 
             return transaction;
         }
@@ -191,7 +215,20 @@ namespace GFC.BlazorServer.Services
             await db.SaveChangesAsync();
 
             // Trigger Notifications if stock dropped significantly or is critical
-            if (actualDelta < 0) await CheckAndNotifyAsync(item);
+            if (actualDelta < 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await CheckAndNotifyAsync(itemId);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[LiquorService] Background notification failed: {ex.Message}");
+                    }
+                });
+            }
 
             return transaction;
         }
@@ -234,8 +271,12 @@ namespace GFC.BlazorServer.Services
             return await db.LiquorNotificationRules.ToListAsync();
         }
 
-        private async Task CheckAndNotifyAsync(LiquorItem item)
+        private async Task CheckAndNotifyAsync(int itemId)
         {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var item = await db.LiquorItems.FindAsync(itemId);
+            if (item == null) return;
+
             if (item.CurrentStock > item.MinStockLimit && item.CurrentStock > 0) return;
 
             string title = "";
@@ -255,7 +296,6 @@ namespace GFC.BlazorServer.Services
 
             if (string.IsNullOrEmpty(title)) return;
 
-            using var db = await _dbFactory.CreateDbContextAsync();
             var subscribers = await db.LiquorNotificationRules.ToListAsync();
 
             // Deduplicate by UserId to prevent sending multiple alerts to the same person if legacy data exists
@@ -306,7 +346,7 @@ namespace GFC.BlazorServer.Services
                     {
                         var smsNotification = new SystemNotification
                         {
-                            RecipientEmail = user.Email, // SMS doesn't have a dedicated field in SystemNotification yet
+                            RecipientEmail = user.Email, 
                             Subject = title,
                             Message = body,
                             Channel = "SMS",
