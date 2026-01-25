@@ -6,9 +6,23 @@
 @inject IKeyCardRepository KeyCardRepo
 @inject IKeyCardDashboardRepository KeyCardDashboard
 @inject IMemberRepository MemberRepository
+@inject IDuesYearSettingsRepository DuesYearSettingsRepository
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject KeyCardService KeyCardService
 @using GFC.BlazorServer.Components.Shared.Mobile
+@using GFC.Core.Services
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Models
+@using GFC.BlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject KeyCardLifecycleService KeyCardLifecycleService
+@inject IMemberAccessService MemberAccessService
+@inject KeyHistoryService KeyHistoryService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<GfcDbContext> DbFactory
 
 <PageTitle>Key Cards | GFC</PageTitle>
 
@@ -39,27 +53,34 @@
                         <input type="text" class="form-control" placeholder="Search members..." @bind="_searchTerm" @bind:event="oninput" />
                     </div>
 
-                    <!-- Clickable Stats Cards - 3 in a row -->
+                    <!-- Clickable Stats Cards -->
                     <div class="row g-2 mb-3">
-                        <div class="col-4">
+                        <div class="col-3">
                             <div class="stat-card-compact bg-success bg-opacity-10 border-success @(_filter == "active" ? "active" : "")" 
                                  @onclick='() => _filter = "active"'>
-                                <div class="stat-value-compact text-success">@_activeCards</div>
+                                <div class="stat-value-compact text-success">@_activeCount</div>
                                 <div class="stat-label-compact">Active</div>
                             </div>
                         </div>
-                        <div class="col-4">
+                        <div class="col-3">
                             <div class="stat-card-compact bg-secondary bg-opacity-10 border-secondary @(_filter == "inactive" ? "active" : "")" 
                                  @onclick='() => _filter = "inactive"'>
-                                <div class="stat-value-compact text-secondary">@_inactiveCards</div>
+                                <div class="stat-value-compact text-secondary">@_inactiveCount</div>
                                 <div class="stat-label-compact">Inactive</div>
                             </div>
                         </div>
-                        <div class="col-4">
+                        <div class="col-3">
                             <div class="stat-card-compact bg-warning bg-opacity-10 border-warning @(_filter == "needing" ? "active" : "")" 
                                  @onclick='() => _filter = "needing"'>
-                                <div class="stat-value-compact text-warning">@_needingCards</div>
+                                <div class="stat-value-compact text-warning">@_needingCount</div>
                                 <div class="stat-label-compact">Needing</div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="stat-card-compact bg-danger bg-opacity-10 border-danger @(_filter == "risk" ? "active" : "")" 
+                                 @onclick='() => _filter = "risk"'>
+                                <div class="stat-value-compact text-danger">@_riskCount</div>
+                                <div class="stat-label-compact">Risk</div>
                             </div>
                         </div>
                     </div>
@@ -83,59 +104,81 @@
             <div class="container py-2">
                 @if (_filter == "needing")
                 {
-                    @foreach (var member in FilteredMembersNeedingCards)
+                    @foreach (var row in FilteredDisplayRows)
                     {
                         <div class="app-card mb-2" style="padding: 12px 16px;">
                             <div class="d-flex align-items-center gap-3 w-100">
-                                <div class="member-avatar">@member.LastName[0]</div>
+                                <div class="member-avatar">@row.Source.LastName[0]</div>
                                 <div style="flex-grow: 1;">
-                                    <h6 class="mb-0 fw-bold">@member.LastName, @member.FirstName</h6>
-                                    <small class="text-muted">No card assigned</small>
+                                    <h6 class="mb-0 fw-bold">@row.Source.LastName, @row.Source.FirstName</h6>
+                                    @if (row.Source.MemberStatus == "INACTIVE")
+                                    {
+                                        <div class="badge bg-danger">INACTIVE MEMBER</div>
+                                    }
+                                    else
+                                    {
+                                        <small class="text-muted">Eligible for Card</small>
+                                    }
                                 </div>
-                                <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => QuickAssign(member)">
-                                    Assign
-                                </button>
+                                <div class="d-flex flex-column gap-1">
+                                    @if (row.Source.MemberStatus == "INACTIVE")
+                                    {
+                                        <button class="btn btn-outline-success btn-sm rounded-pill px-3" @onclick="() => ReactivateMember(row.Source.MemberId)">
+                                            Activate
+                                        </button>
+                                    }
+                                    <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => QuickAssign(row.Source)">
+                                        Assign
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     }
                 }
                 else
                 {
-                    @foreach (var card in FilteredCards)
+                    @foreach (var row in FilteredDisplayRows)
                     {
                         <div class="app-card mb-2" style="padding: 12px 16px;">
                             <div class="d-flex align-items-center gap-3 w-100">
-                                <div class="member-avatar">@GetMemberLastInitial(card.MemberId)</div>
+                                <div class="member-avatar">@row.Source.LastName[0]</div>
                                 <div style="flex-grow: 1;">
-                                    <h6 class="mb-0 fw-bold">@GetMemberNameLastFirst(card.MemberId)</h6>
+                                    <h6 class="mb-0 fw-bold">@row.Source.LastName, @row.Source.FirstName</h6>
                                     <div class="d-flex align-items-center gap-2">
-                                        <span class="badge @GetStatusBadgeClass(card.IsActive)">
-                                            @(card.IsActive ? "Active" : "Inactive")
+                                        <span class="badge @(row.IsActiveCard ? "bg-success" : "bg-secondary")">
+                                            @(row.IsActiveCard ? "Active" : "Inactive")
                                         </span>
-                                        <small class="text-muted">Card: @card.CardNumber</small>
+                                        <small class="text-muted">Card: @row.Source.KeyCardNumber</small>
                                     </div>
                                 </div>
-                                <button class="btn btn-light btn-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" @onclick="() => ToggleCardStatus(card)">
-                                    <i class="bi @(card.IsActive ? "bi-x-circle" : "bi-check-circle")"></i>
-                                </button>
+                                @if (row.KeyCardId.HasValue)
+                                {
+                                    var card = _allCards.FirstOrDefault(c => c.KeyCardId == row.KeyCardId);
+                                    if (card != null)
+                                    {
+                                        <button class="btn btn-light btn-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" @onclick="() => ToggleCardStatus(card)">
+                                            <i class="bi @(card.IsActive ? "bi-x-circle" : "bi-check-circle")"></i>
+                                        </button>
+                                    }
+                                }
                             </div>
                         </div>
                     }
                 }
 
-                @if (!FilteredCards.Any() && _filter != "needing")
+                @if (!FilteredDisplayRows.Any() && _filter != "needing")
                 {
                     <div class="text-center py-5 text-muted">
                         <i class="bi bi-credit-card display-4 opacity-25"></i>
-                        <p class="mt-2">No cards found</p>
+                        <p class="mt-2 text-wrap px-4">No cards found matching your search</p>
                     </div>
                 }
-
-                @if (!FilteredMembersNeedingCards.Any() && _filter == "needing")
+                
+                @if (!FilteredDisplayRows.Any() && _filter == "needing")
                 {
                     <div class="text-center py-5 text-muted">
                         <i class="bi bi-check-circle display-4 opacity-25 text-success"></i>
-                        <p class="mt-2">All members have cards!</p>
+                        <p class="mt-2 text-wrap px-4">All eligible members have active cards!</p>
                     </div>
                 }
             </div>
@@ -161,9 +204,9 @@
                 <label class="form-label fw-bold">Member</label>
                 <select class="form-select" @bind="_selectedMemberId">
                     <option value="0">-- Select Member --</option>
-                    @foreach (var member in _eligibleMembers)
+                    @foreach (var row in _displayCache.Where(r => !r.Source.HasActiveAssignment).Select(r => r.Source).OrderBy(r => r.LastName))
                     {
-                        <option value="@member.MemberID">@member.FirstName @member.LastName</option>
+                        <option value="@row.MemberId">@row.FirstName @row.LastName</option>
                     }
                 </select>
             </div>
@@ -338,12 +381,21 @@
     private string _newCardNumber = "";
 
     private List<KeyCard> _allCards = new();
-    private List<Member> _allMembers = new();
-    private List<Member> _eligibleMembers = new();
-    private List<Member> _membersNeedingCards = new();
-    private int _activeCards = 0;
-    private int _inactiveCards = 0;
-    private int _needingCards = 0;
+    private List<DashboardDisplayRow> _displayCache = new();
+    
+    private int _activeCount = 0;
+    private int _inactiveCount = 0;
+    private int _needingCount = 0;
+    private int _riskCount = 0;
+
+    private class DashboardDisplayRow
+    {
+        public KeyCardMemberRow Source { get; set; } = null!;
+        public bool IsEligible { get; set; }
+        public bool IsActiveCard { get; set; }
+        public bool IsRisk { get; set; }
+        public int? KeyCardId => Source.KeyCardId;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -353,26 +405,66 @@
     private async Task LoadData()
     {
         _isLoading = true;
+        StateHasChanged(); // Show spinner immediately for UX
+
         try
         {
-            _allCards = await Task.Run(() => KeyCardRepo.GetAll());
-            _activeCards = _allCards.Count(c => c.IsActive);
-            _inactiveCards = _allCards.Count(c => !c.IsActive);
+            var year = DateTime.Today.Year;
             
-            _allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
-            var activeStatuses = new[] { "REGULAR", "REGULAR-NP", "LIFE", "Active" };
-            _eligibleMembers = _allMembers.Where(m => activeStatuses.Contains(m.Status)).ToList();
-            
-            // Members needing cards = eligible members without an active card
-            _membersNeedingCards = _eligibleMembers
-                .Where(m => !_allCards.Any(c => c.MemberId == m.MemberID && c.IsActive))
-                .ToList();
-            
-            _needingCards = _membersNeedingCards.Count;
+            // 1. Parallel Data Fetching (Reduces total IO wait time)
+            var dashboardTask = Task.Run(() => KeyCardDashboard.GetMembersForYear(year));
+            var cardsTask = Task.Run(() => KeyCardRepo.GetAll());
+            var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
+
+            await Task.WhenAll(dashboardTask, cardsTask, settingsTask);
+
+            var dashboardRows = await dashboardTask;
+            _allCards = await cardsTask;
+            var settings = await settingsTask;
+            var graceDate = settings?.GraceEndDate?.Date;
+
+            // 2. Pre-Calculate everything (Eligibility is expensive, don't do it in the render loop)
+            _activeCount = 0;
+            _inactiveCount = 0;
+            _needingCount = 0;
+            _riskCount = 0;
+
+            var newCache = new List<DashboardDisplayRow>();
+
+            foreach (var row in dashboardRows)
+            {
+                var eligibility = KeyCardService.EvaluateEligibilityForRow(row, year, graceDate);
+                var isActive = false;
+
+                if (row.HasActiveAssignment)
+                {
+                    var card = _allCards.FirstOrDefault(c => c.KeyCardId == row.KeyCardId);
+                    isActive = card != null && card.IsActive;
+                    
+                    if (isActive) _activeCount++;
+                    else _inactiveCount++;
+
+                    if (!eligibility.Eligible && eligibility.GracePeriodActive) _riskCount++;
+                }
+                else if (eligibility.Eligible)
+                {
+                    _needingCount++;
+                }
+
+                newCache.Add(new DashboardDisplayRow
+                {
+                    Source = row,
+                    IsEligible = eligibility.Eligible,
+                    IsActiveCard = isActive,
+                    IsRisk = !eligibility.Eligible && eligibility.GracePeriodActive
+                });
+            }
+
+            _displayCache = newCache;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading key cards: {ex.Message}");
+            Console.WriteLine($"Critical Error in Mobile Sync: {ex.Message}");
         }
         finally
         {
@@ -380,68 +472,70 @@
         }
     }
 
-    private IEnumerable<KeyCard> FilteredCards
+    private IEnumerable<DashboardDisplayRow> FilteredDisplayRows
     {
         get
         {
-            var filtered = _allCards.AsEnumerable();
+            IEnumerable<DashboardDisplayRow> filtered;
 
-            if (_filter == "active")
-                filtered = filtered.Where(c => c.IsActive);
+            if (_filter == "needing")
+            {
+                filtered = _displayCache.Where(r => !r.Source.HasActiveAssignment && r.IsEligible);
+            }
+            else if (_filter == "active")
+            {
+                filtered = _displayCache.Where(r => r.Source.HasActiveAssignment && r.IsActiveCard);
+            }
             else if (_filter == "inactive")
-                filtered = filtered.Where(c => !c.IsActive);
+            {
+                filtered = _displayCache.Where(r => r.Source.HasActiveAssignment && !r.IsActiveCard);
+            }
+            else if (_filter == "risk")
+            {
+                filtered = _displayCache.Where(r => r.IsRisk);
+            }
+            else
+            {
+                filtered = _displayCache;
+            }
 
             if (!string.IsNullOrWhiteSpace(_searchTerm))
             {
-                filtered = filtered.Where(c =>
-                {
-                    var member = _allMembers.FirstOrDefault(m => m.MemberID == c.MemberId);
-                    return member != null && $"{member.LastName} {member.FirstName}".Contains(_searchTerm, StringComparison.OrdinalIgnoreCase);
-                });
+                var search = _searchTerm.ToLower();
+                filtered = filtered.Where(r => 
+                    r.Source.FirstName.ToLower().Contains(search) || 
+                    r.Source.LastName.ToLower().Contains(search) ||
+                    (r.Source.KeyCardNumber != null && r.Source.KeyCardNumber.Contains(search)));
             }
 
-            return filtered.OrderBy(c => GetMemberLastName(c.MemberId));
+            return filtered.OrderBy(r => r.Source.LastName).ThenBy(r => r.Source.FirstName);
         }
     }
 
-    private IEnumerable<Member> FilteredMembersNeedingCards
+    private async Task ReactivateMember(int memberId)
     {
-        get
+        try
         {
-            var filtered = _membersNeedingCards.AsEnumerable();
-
-            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            var member = await Task.Run(() => MemberRepository.GetMemberById(memberId));
+            if (member != null)
             {
-                filtered = filtered.Where(m => $"{m.LastName} {m.FirstName}".Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+                member.Status = "REGULAR";
+                member.StatusChangeDate = DateTime.Now;
+                member.InactiveDate = null;
+                await Task.Run(() => MemberRepository.UpdateMember(member));
+                await LoadData();
+                await JSRuntime.InvokeVoidAsync("alert", $"{member.FirstName} has been reactivated to Regular status.");
             }
-
-            return filtered.OrderBy(m => m.LastName).ThenBy(m => m.FirstName);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Reactivation Error: {ex.Message}");
         }
     }
 
-    private string GetMemberLastName(int memberId)
+    private void QuickAssign(KeyCardMemberRow row)
     {
-        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
-        return member?.LastName ?? "Unknown";
-    }
-
-    private string GetMemberNameLastFirst(int memberId)
-    {
-        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
-        return member != null ? $"{member.LastName}, {member.FirstName}" : "Unknown";
-    }
-
-    private string GetMemberLastInitial(int memberId)
-    {
-        var member = _allMembers.FirstOrDefault(m => m.MemberID == memberId);
-        return member?.LastName?.FirstOrDefault().ToString().ToUpper() ?? "?";
-    }
-
-    private string GetStatusBadgeClass(bool isActive) => isActive ? "bg-success" : "bg-secondary";
-
-    private void QuickAssign(Member member)
-    {
-        _selectedMemberId = member.MemberID;
+        _selectedMemberId = row.MemberId;
         _newCardNumber = "";
         _showAssignModal = true;
     }
@@ -459,8 +553,18 @@
     {
         try
         {
-            card.IsActive = !card.IsActive;
-            await Task.Run(() => KeyCardRepo.Update(card));
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User.Identity?.Name ?? "Unknown";
+
+            if (card.IsActive)
+            {
+                await KeyCardLifecycleService.DeactivateCardAsync(card.KeyCardId, "Manual", "Deactivated via Mobile", user);
+            }
+            else
+            {
+                await KeyCardLifecycleService.ReactivateCardAsync(card.KeyCardId, "Reactivated via Mobile", user);
+            }
+
             await LoadData();
         }
         catch (Exception ex)
@@ -480,13 +584,44 @@
         _isSaving = true;
         try
         {
-            await Task.Run(() => KeyCardRepo.Create(_newCardNumber, _selectedMemberId, null, "Card"));
+            // 1. Create the card in the database
+            var newCard = await Task.Run(() => KeyCardRepo.Create(_newCardNumber, _selectedMemberId, null, "Card"));
+
+            // 2. Identify performing user
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User.Identity?.Name ?? "Unknown";
+
+            // 3. Log to Audit History (Identical to Web App)
+            if (long.TryParse(_newCardNumber, out long cardNumberLong))
+            {
+                await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, "Hand-entry via Mobile", user, "Card");
+            }
+
+            // 4. Provision Door Access (Default to all enabled doors)
+            using var db = await DbFactory.CreateDbContextAsync();
+            var availableDoors = await db.Doors.Where(d => d.IsEnabled).ToListAsync();
+            if (availableDoors.Any())
+            {
+                var updates = availableDoors.Select(d => new MemberDoorAccessUpdateDto 
+                {
+                     DoorId = d.Id,
+                     CardNumber = _newCardNumber,
+                     IsEnabled = true,
+                     TimeProfileId = 1 // Default 24/7
+                }).ToList();
+                
+                await MemberAccessService.UpdateMemberDoorAccessAsync(_selectedMemberId, updates);
+            }
+
+            // 5. Push to Physical Hardware (Instant Sync)
+            await KeyCardLifecycleService.SyncCardToControllerAsync(newCard.KeyCardId, true);
+
             await LoadData();
             CloseModals();
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Security Error: {ex.Message}");
         }
         finally
         {
