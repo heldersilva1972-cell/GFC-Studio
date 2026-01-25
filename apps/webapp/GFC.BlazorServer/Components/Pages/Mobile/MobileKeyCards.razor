@@ -1,15 +1,22 @@
 @page "/mobile/keycards"
-@using GFC.Core.Interfaces
-@using GFC.Core.Models
-@using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @inject IKeyCardRepository KeyCardRepo
-@inject IKeyCardDashboardRepository KeyCardDashboard
+@inject IKeyCardDashboardRepository KeyCardDashboardRepository
 @inject IMemberRepository MemberRepository
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
 @inject IBoardRepository BoardRepository
+@inject KeyCardService CardService
+@inject NavigationManager NavManager
+@inject IJSRuntime JSRuntime
 @inject IDuesInsightService DuesInsightService
-@inject IDuesRepository DuesRepository
+@inject KeyCardLifecycleService KeyCardLifecycleService
+@inject KeyHistoryService KeyHistoryService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject IMemberAccessService MemberAccessService
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
 @using GFC.BlazorServer.Components.Shared.Mobile
 @using GFC.Core.Services
 @using GFC.BlazorServer.Services
@@ -17,15 +24,6 @@
 @using GFC.BlazorServer.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Components.Authorization
-
-@inject KeyCardLifecycleService KeyCardLifecycleService
-@inject IMemberAccessService MemberAccessService
-@inject KeyHistoryService KeyHistoryService
-@inject AuthenticationStateProvider AuthStateProvider
-@inject IDbContextFactory<GfcDbContext> DbFactory
-@inject IControllerSyncQueueRepository SyncQueueRepository
-@inject IJSRuntime JSRuntime
-@inject KeyCardService CardService
 
 <PageTitle>Key Cards | GFC</PageTitle>
 
@@ -226,20 +224,31 @@
     </div>
 </div>
 
-<!-- Assign Modal -->
+<!-- Enhanced Assign Modal -->
 @if (_showAssignModal)
 {
     <div class="modal-backdrop-custom" @onclick="CloseModals"></div>
     <div class="bottom-sheet">
         <div class="sheet-handle"></div>
-        <div class="p-4">
-            <h5 class="fw-bold mb-3">Assign Key Card</h5>
+        <div class="p-4 pt-2">
+            <h5 class="fw-bold mb-3 d-flex align-items-center">
+                <i class="bi bi-person-badge text-primary me-2"></i>
+                Assign Key Card
+            </h5>
             
+            @if (!string.IsNullOrEmpty(_assignError))
+            {
+                <div class="alert alert-danger py-2 mb-3 small d-flex align-items-center">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    @_assignError
+                </div>
+            }
+
             <div class="mb-3">
-                <label class="form-label fw-bold">Member</label>
-                <select class="form-select" @bind="_selectedMemberId">
+                <label class="form-label fw-bold small text-muted text-uppercase">1. Member</label>
+                <select class="form-select" @bind="_selectedMemberId" disabled="@_isSaving">
                     <option value="0">-- Select Member --</option>
-                    @foreach (var row in _displayCache.Where(r => !r.HasCard).OrderBy(r => r.LastName))
+                    @foreach (var row in _displayCache.Where(r => !r.HasCard || r.MemberId == _selectedMemberId).OrderBy(r => r.LastName))
                     {
                         <option value="@row.MemberId">@row.FirstName @row.LastName</option>
                     }
@@ -247,14 +256,33 @@
             </div>
 
             <div class="mb-3">
-                <label class="form-label fw-bold">Card Number</label>
-                <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control" placeholder="Enter card number" @bind="_newCardNumber" />
+                <label class="form-label fw-bold small text-muted text-uppercase">2. Access Device</label>
+                <div class="d-flex gap-2 mb-2">
+                    <button class="btn @(_selectedCardType == "Card" ? "btn-primary" : "btn-outline-secondary") flex-grow-1" @onclick='() => _selectedCardType = "Card"'>
+                        <i class="bi bi-credit-card-2-front me-1"></i> Card
+                    </button>
+                    <button class="btn @(_selectedCardType == "Fob" ? "btn-primary" : "btn-outline-secondary") flex-grow-1" @onclick='() => _selectedCardType = "Fob"'>
+                        <i class="bi bi-key-fill me-1"></i> Fob
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label fw-bold small text-muted text-uppercase">3. Card Number</label>
+                <div class="d-grid gap-2">
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control form-control-lg text-center font-monospace" placeholder="Enter number..." @bind="_newCardNumber" @bind:event="oninput" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label-modern">Notes (Optional)</label>
+                <textarea class="form-control" rows="2" @bind="_assignNotes" placeholder="Reason for assignment..."></textarea>
             </div>
 
             <div class="d-grid gap-2">
-                <button class="btn btn-app-primary py-3" @onclick="AssignCard" disabled="@_isSaving">
+                <button class="btn btn-app-primary py-3 fw-bold" @onclick="AssignCard" disabled="@(string.IsNullOrEmpty(_newCardNumber) || _selectedMemberId == 0 || _isSaving)">
                     @if (_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                    Assign Card
+                    <i class="bi bi-shield-check me-2"></i> Confirm & Activate
                 </button>
                 <button class="btn btn-light py-3" @onclick="CloseModals">Cancel</button>
             </div>
@@ -364,13 +392,38 @@
         z-index: 1050;
         padding-bottom: env(safe-area-inset-bottom);
         box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .sheet-handle {
-        width: 40px;
-        height: 4px;
-        background: #ddd;
-        border-radius: 2px;
-        margin: 12px auto;
+    .bottom-sheet.scanning-active {
+        border-top: 4px solid var(--app-primary);
+    }
+    .scan-active-box {
+        animation: pulse-bg 2s infinite;
+    }
+    @@keyframes pulse-bg {
+        0% { background-color: #f8fafc; }
+        50% { background-color: #eff6ff; }
+        100% { background-color: #f8fafc; }
+    }
+    .card-detected-box {
+        animation: slide-up 0.3s ease-out;
+    }
+    @@keyframes slide-up {
+        from { transform: translateY(10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+    .font-monospace {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace !important;
+        letter-spacing: 2px;
+    }
+    .form-label-modern {
+        font-size: 0.7rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.5rem;
+        display: block;
     }
 
     .app-nav-bar {
@@ -414,6 +467,9 @@
     private string _searchTerm = "";
     private int _selectedMemberId = 0;
     private string _newCardNumber = "";
+    private string _selectedCardType = "Card";
+    private string _assignError = string.Empty;
+    private string _assignNotes = string.Empty;
 
     private List<KeyCard> _allCards = new();
     private List<DashboardDisplayRow> _displayCache = new();
@@ -461,93 +517,74 @@
             var year = DateTime.Today.Year;
             
             // 1. Fetch data exactly as desktop does
-            var membersTask = Task.Run(() => MemberRepository.GetAllMembers());
+            var dashboardRowsTask = Task.Run(() => KeyCardDashboardRepository.GetMembersForYear(year));
             var cardsTask = Task.Run(() => KeyCardRepo.GetAll());
-            var duesCurrentTask = DuesInsightService.GetDuesAsync(year, true);
-            var duesPrevTask = DuesInsightService.GetDuesAsync(year - 1, true);
-            var boardCurrentTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
-            var boardPrevTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
             var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
-            var pendingSyncTask = Task.Run(() => SyncQueueRepository.GetByStatusAsync("PENDING"));
-            var processingSyncTask = Task.Run(() => SyncQueueRepository.GetByStatusAsync("PROCESSING"));
 
-            await Task.WhenAll(membersTask, cardsTask, duesCurrentTask, duesPrevTask, 
-                              boardCurrentTask, boardPrevTask, settingsTask, 
-                              pendingSyncTask, processingSyncTask);
+            await Task.WhenAll(dashboardRowsTask, cardsTask, settingsTask);
 
-            var members = await membersTask;
+            var dashboardRows = await dashboardRowsTask;
             var cards = await cardsTask;
-            var duesCurrent = await duesCurrentTask;
-            var duesPrev = await duesPrevTask;
-            var boardCurrent = (await boardCurrentTask).Select(a => a.MemberID).ToHashSet();
-            var boardPrev = (await boardPrevTask).Select(a => a.MemberID).ToHashSet();
             var settings = await settingsTask;
             var graceDate = settings?.GraceEndDate?.Date;
-            var pendingSyncIds = (await pendingSyncTask).Concat(await processingSyncTask).Select(x => x.KeyCardId).ToHashSet();
+
+            // Accurate check for "Has Card" must match KeyCards.razor's logic: 
+            // Anyone in the KeyCards table is NOT in the "Needing" list
+            var cardMemberIds = cards.Select(c => c.MemberId).Distinct().ToHashSet();
+
+            var cardListData = new List<DashboardDisplayRow>();
+            var needingListData = new List<DashboardDisplayRow>();
             
-            var duesCurrentMap = duesCurrent.ToDictionary(d => d.MemberId);
-            var duesPrevMap = duesPrev.ToDictionary(d => d.MemberId);
-            var membersMap = members.ToDictionary(m => m.MemberID);
-            var cardMemberIds = cards.Select(c => c.MemberId).ToHashSet();
-
-            // 2. Project Card Data with Deskop Eligibility Logic
-            var cardListData = cards.Select(c => {
-                membersMap.TryGetValue(c.MemberId, out var member);
-                
-                bool curSatisfied = boardCurrent.Contains(c.MemberId) || (duesCurrentMap.TryGetValue(c.MemberId, out var dc) && dc.Satisfied);
-                bool prevSatisfied = boardPrev.Contains(c.MemberId) || (duesPrevMap.TryGetValue(c.MemberId, out var dp) && dp.Satisfied);
-
-                var eligibility = member != null 
-                    ? CardService.GetEligibilityBulk(member, year, settings, curSatisfied, prevSatisfied)
+            // Map All Cards
+            foreach (var card in cards)
+            {
+                var row = dashboardRows.FirstOrDefault(r => r.MemberId == card.MemberId);
+                var eligibility = row != null 
+                    ? CardService.EvaluateEligibilityForRow(row, year, graceDate)
                     : new KeyCardEligibilityResult(false, false, false, false, false, null, "UNKNOWN");
 
-                return new DashboardDisplayRow
+                cardListData.Add(new DashboardDisplayRow
                 {
-                    CardId = c.KeyCardId,
-                    CardNumber = c.CardNumber,
-                    MemberId = c.MemberId,
-                    MemberName = member != null ? $"{member.LastName}, {member.FirstName}" : "Unknown",
-                    LastName = member?.LastName ?? "Unknown",
-                    FirstName = member?.FirstName ?? "Unknown",
-                    IsActive = c.IsActive,
-                    MemberStatus = member?.Status ?? "Unknown",
+                    CardId = card.KeyCardId,
+                    CardNumber = card.CardNumber,
+                    MemberId = card.MemberId,
+                    MemberName = row != null ? $"{row.LastName}, {row.FirstName}" : "Unknown Member",
+                    LastName = row?.LastName ?? "Unknown",
+                    FirstName = row?.FirstName ?? "Unknown",
+                    IsActive = card.IsActive,
+                    MemberStatus = row?.MemberStatus ?? "Status Unknown",
                     IsEligible = eligibility.Eligible,
-                    IsSyncPending = pendingSyncIds.Contains(c.KeyCardId),
                     IsPaid = eligibility.CurrentYearSatisfied,
                     DeactivationDate = eligibility.GraceEndDate,
                     IsDelinquent = !eligibility.Eligible && !eligibility.GracePeriodActive,
                     InGracePeriod = eligibility.GracePeriodActive && eligibility.PreviousYearSatisfied && !eligibility.CurrentYearSatisfied,
                     Year = year
-                };
-            }).ToList();
+                });
+            }
 
-            // 3. Project Needing Data
-            var needingListData = new List<DashboardDisplayRow>();
-            foreach (var m in members)
+            // Map Needing Cards
+            foreach (var row in dashboardRows)
             {
-                if (!cardMemberIds.Contains(m.MemberID))
+                // Skip if they already have a card in the system (matches web logic)
+                if (cardMemberIds.Contains(row.MemberId)) continue;
+
+                var eligibility = CardService.EvaluateEligibilityForRow(row, year, graceDate);
+                if (eligibility.Eligible)
                 {
-                    bool curSatisfied = boardCurrent.Contains(m.MemberID) || (duesCurrentMap.TryGetValue(m.MemberID, out var dc) && dc.Satisfied);
-                    bool prevSatisfied = boardPrev.Contains(m.MemberID) || (duesPrevMap.TryGetValue(m.MemberID, out var dp) && dp.Satisfied);
-                    
-                    var eligibility = CardService.GetEligibilityBulk(m, year, settings, curSatisfied, prevSatisfied);
-                    if (eligibility.Eligible)
+                    needingListData.Add(new DashboardDisplayRow
                     {
-                        needingListData.Add(new DashboardDisplayRow
-                        {
-                            MemberId = m.MemberID,
-                            MemberName = $"{m.LastName}, {m.FirstName}",
-                            LastName = m.LastName ?? "",
-                            FirstName = m.FirstName ?? "",
-                            MemberStatus = m.Status ?? "Unknown",
-                            IsEligible = true,
-                            Year = year
-                        });
-                    }
+                        MemberId = row.MemberId,
+                        MemberName = $"{row.LastName}, {row.FirstName}",
+                        LastName = row.LastName,
+                        FirstName = row.FirstName,
+                        MemberStatus = row.MemberStatus,
+                        IsEligible = true,
+                        Year = year
+                    });
                 }
             }
 
-            // 4. Calculate Final Metrics
+            // Summarize counts to match web exactly
             _countAll = cards.Count;
             _activeCount = cards.Count(c => c.IsActive);
             _inactiveCount = cards.Count(c => !c.IsActive);
@@ -627,14 +664,20 @@
     {
         _selectedMemberId = row.MemberId;
         _newCardNumber = "";
+        _assignNotes = "";
+        _selectedCardType = "Card";
+        _assignError = string.Empty;
         _showAssignModal = true;
     }
 
     private void OpenAssignModal()
     {
-        _showAssignModal = true;
         _selectedMemberId = 0;
         _newCardNumber = "";
+        _assignNotes = "";
+        _selectedCardType = "Card";
+        _assignError = string.Empty;
+        _showAssignModal = true;
     }
 
     private void CloseModals() => _showAssignModal = false;
@@ -667,27 +710,51 @@
     {
         if (_selectedMemberId == 0 || string.IsNullOrWhiteSpace(_newCardNumber))
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Please select a member and enter a card number");
+            _assignError = "Please select a member and a card.";
             return;
         }
 
         _isSaving = true;
+        _assignError = string.Empty;
         try
         {
-            // 1. Create the card in the database
-            var newCard = await Task.Run(() => KeyCardRepo.Create(_newCardNumber, _selectedMemberId, null, "Card"));
+            // 0. Check for duplicate card
+            var existingCard = await Task.Run(() => KeyCardRepo.GetByCardNumber(_newCardNumber));
+            if (existingCard != null)
+            {
+                _assignError = $"Card #{_newCardNumber} is already assigned to another member.";
+                _isSaving = false;
+                return;
+            }
 
-            // 2. Identify performing user
+            // 1. Create or Replace the card in the database
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User.Identity?.Name ?? "Unknown";
 
-            // 3. Log to Audit History (Identical to Web App)
-            if (long.TryParse(_newCardNumber, out long cardNumberLong))
+            // Check if member already has an active card for automatic replacement logic
+            var activeCard = await Task.Run(() => KeyCardRepo.GetActiveMemberCard(_selectedMemberId));
+            
+            KeyCard newCard;
+            if (activeCard != null)
             {
-                await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, "Hand-entry via Mobile", user, "Card");
+                var notes = string.IsNullOrWhiteSpace(_assignNotes) ? "Replaced via Mobile" : _assignNotes;
+                newCard = await Task.Run(() => KeyCardRepo.ReplaceCard(_selectedMemberId, _newCardNumber, notes, _selectedCardType))!;
+                if (long.TryParse(_newCardNumber, out long newNum) && long.TryParse(activeCard.CardNumber, out long oldNum))
+                {
+                    await KeyHistoryService.LogReplacementAsync(_selectedMemberId, oldNum, newNum, notes, user, _selectedCardType);
+                }
+            }
+            else
+            {
+                var notes = string.IsNullOrWhiteSpace(_assignNotes) ? "Assigned via Mobile" : _assignNotes;
+                newCard = await Task.Run(() => KeyCardRepo.Create(_newCardNumber, _selectedMemberId, notes, _selectedCardType));
+                if (long.TryParse(_newCardNumber, out long cardNumberLong))
+                {
+                    await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, notes, user, _selectedCardType);
+                }
             }
 
-            // 4. Provision Door Access (Default to all enabled doors)
+            // 3. Provision Door Access (Default to all enabled doors)
             using var db = await DbFactory.CreateDbContextAsync();
             var availableDoors = await db.Doors.Where(d => d.IsEnabled).ToListAsync();
             if (availableDoors.Any())
@@ -703,15 +770,15 @@
                 await MemberAccessService.UpdateMemberDoorAccessAsync(_selectedMemberId, updates);
             }
 
-            // 5. Push to Physical Hardware (Instant Sync)
-            await KeyCardLifecycleService.SyncCardToControllerAsync(newCard.KeyCardId, true);
+            // 4. Push to Physical Hardware (Instant Sync)
+            await KeyCardLifecycleService.SyncCardToControllerAsync(newCard!.KeyCardId, true);
 
             await LoadData();
             CloseModals();
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", $"Security Error: {ex.Message}");
+            _assignError = $"Error: {ex.Message}";
         }
         finally
         {
