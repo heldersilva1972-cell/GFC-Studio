@@ -234,11 +234,21 @@ namespace GFC.BlazorServer.Services
 
             var subscriptions = await _context.PushSubscriptions
                 .Where(s => s.UserId == userId)
+                .OrderByDescending(s => s.CreatedAtUtc)
                 .ToListAsync();
 
             if (!subscriptions.Any()) throw new InvalidOperationException("User has no registered push devices. They must enable notifications in 'My Security'.");
 
-            var vapidDetails = new VapidDetails(settings.VapidSubject ?? "mailto:admin@gfc.com", settings.VapidPublicKey, settings.VapidPrivateKey);
+            // Deduplicate by endpoint AND only take the MOST RECENT one.
+            // This prevents duplicate notifications on devices that have both Chrome and PWA subscriptions.
+            var uniqueSubscriptions = subscriptions
+                .GroupBy(s => s.Endpoint)
+                .Select(g => g.First())
+                .Take(1) 
+                .ToList();
+
+            var vapidSubject = !string.IsNullOrEmpty(settings.VapidSubject) ? settings.VapidSubject : "mailto:admin@gfc.com";
+            var vapidDetails = new VapidDetails(vapidSubject, settings.VapidPublicKey, settings.VapidPrivateKey);
             var webPushClient = new WebPushClient();
 
             var payload = JsonSerializer.Serialize(new
@@ -248,7 +258,7 @@ namespace GFC.BlazorServer.Services
                 url = url ?? "/"
             });
 
-            foreach (var sub in subscriptions)
+            foreach (var sub in uniqueSubscriptions)
             {
                 try
                 {

@@ -258,7 +258,13 @@ namespace GFC.BlazorServer.Services
             using var db = await _dbFactory.CreateDbContextAsync();
             var subscribers = await db.LiquorNotificationRules.ToListAsync();
 
-            foreach (var sub in subscribers)
+            // Deduplicate by UserId to prevent sending multiple alerts to the same person if legacy data exists
+            var uniqueSubscribers = subscribers
+                .GroupBy(s => s.UserId)
+                .Select(g => g.First())
+                .ToList();
+
+            foreach (var sub in uniqueSubscribers)
             {
                 if (isCritical && !sub.NotifyOnEmpty) continue;
                 if (!isCritical && !sub.NotifyOnLowStock) continue;

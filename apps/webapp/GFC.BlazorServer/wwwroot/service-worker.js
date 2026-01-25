@@ -84,11 +84,15 @@ self.addEventListener('push', (event) => {
         }
     }
 
-    // [STRICT CLEANUP] No icon, no badge, no image to prevent duplicate OS icons
+    // [PREMIUM UI] Added icon, badge and tag for native app feel
     const options = {
         body: data.body,
+        icon: '/images/pwa-icon-192.png',
+        badge: '/favicon.png',
         vibrate: [100, 50, 100],
         data: data.url || '/',
+        tag: 'gfc-alert', // Collapses multiple alerts into one
+        renotify: true,   // Vibrate even if replaced
         timestamp: Date.now()
     };
 

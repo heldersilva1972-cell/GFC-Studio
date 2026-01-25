@@ -23,7 +23,7 @@ public class UrlHelperService : IUrlHelperService
             return $"https://{settings.PrimaryDomain}";
         }
         
-        // Fallback to official domain if settings are empty (prevents IP leakage)
-        return "https://gfc.lovanow.com";
+        // Fallback to the current site base URI instead of a hardcoded domain
+        return _navigationManager.BaseUri.TrimEnd('/');
     }
 }
