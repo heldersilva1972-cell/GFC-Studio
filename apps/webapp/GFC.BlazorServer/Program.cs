@@ -215,7 +215,7 @@ public class Program
         builder.Services.AddScoped<DashboardSessionState>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.BarSalesStateContainer>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.FinancialInsightsStateContainer>();
-        builder.Services.AddScoped<TutorialService>();
+
         builder.Services.AddScoped<ICardReaderProfileService, CardReaderProfileService>();
         builder.Services.AddScoped<ICardEligibilityService, CardEligibilityService>();
         builder.Services.AddScoped<KeyCardService>();
