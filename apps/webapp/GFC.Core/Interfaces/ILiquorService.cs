@@ -24,5 +24,8 @@ namespace GFC.Core.Interfaces
         Task<LiquorNotificationRule?> GetNotificationRuleAsync(int userId);
         Task UpsertNotificationRuleAsync(LiquorNotificationRule rule);
         Task<IEnumerable<LiquorNotificationRule>> GetSubscribedUsersAsync();
+
+        // Analytics
+        Task<List<ProductTrendDTO>> GetProductTrendsAsync(int daysLookback = 30);
     }
 }

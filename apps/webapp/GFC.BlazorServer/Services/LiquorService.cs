@@ -315,5 +315,54 @@ namespace GFC.BlazorServer.Services
                 }
             }
         }
+
+
+        public async Task<List<ProductTrendDTO>> GetProductTrendsAsync(int daysLookback = 30)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            
+            var endDate = DateTime.UtcNow;
+            var startDate = endDate.AddDays(-daysLookback);
+            var previousStartDate = startDate.AddDays(-daysLookback);
+
+            // Fetch Usage Transactions
+            var transactions = await db.LiquorTransactions
+                .Include(t => t.Item)
+                .Where(t => t.Timestamp >= previousStartDate && t.ChangeAmount < 0)
+                .ToListAsync();
+
+            var trends = transactions
+                .Where(t => t.Item != null)
+                .GroupBy(t => t.Item)
+                .Select(g => 
+                {
+                    var currentUsage = g.Where(t => t.Timestamp >= startDate).Sum(t => Math.Abs(t.ChangeAmount));
+                    var prevUsage = g.Where(t => t.Timestamp < startDate).Sum(t => Math.Abs(t.ChangeAmount));
+                    
+                    double percentChange = 0;
+                    if (prevUsage > 0)
+                    {
+                        percentChange = ((double)(currentUsage - prevUsage) / prevUsage) * 100;
+                    }
+                    else if (currentUsage > 0)
+                    {
+                        percentChange = 100;
+                    }
+
+                    return new ProductTrendDTO
+                    {
+                        ItemId = g.Key!.Id,
+                        ProductName = g.Key.Name,
+                        Category = g.Key.Category ?? "Uncategorized",
+                        CurrentPeriodUsage = currentUsage,
+                        PreviousPeriodUsage = prevUsage,
+                        PercentageChange = Math.Round(percentChange, 1)
+                    };
+                })
+                .OrderByDescending(t => t.CurrentPeriodUsage)
+                .ToList();
+
+            return trends;
+        }
     }
 }
