@@ -15,12 +15,8 @@
 <div class="ops-wrapper @(_isReceivingMode ? "mode-in" : "mode-out")">
     <div class="ops-top-group bg-white border-bottom shadow-sm">
         <!-- TOP HEADER -->
-        <header class="ops-header px-3 py-2">
-            <button class="btn-back-trans" @onclick='() => Navigation.NavigateTo("/mobile")'>
-                <i class="bi bi-chevron-left"></i>
-            </button>
+        <header class="ops-header px-3 py-3 d-flex justify-content-center">
             <h1 class="h6 mb-0 fw-black text-uppercase ls-1">Liquor Operations</h1>
-            <div style="width: 44px;"></div>
         </header>
 
         <!-- ACTION MODE SWITCHER (Replaces Slider) -->
@@ -73,12 +69,14 @@
         else
         {
             <div class="ops-list p-3">
-                @foreach (var item in FilteredItems)
+                @foreach (var item in _items.OrderBy(i => i.Name))
                 {
                     bool hasPending = _isReceivingMode && _pendingRestock.ContainsKey(item.Id) && _pendingRestock[item.Id] > 0;
                     <div class="ops-card @(hasPending ? "is-pending" : "")" @onclick="() => HandleItemClick(item)">
-                        <div class="card-img">
-                            @if (!string.IsNullOrEmpty(item.ImageUrl)) { <img src="@item.ImageUrl" /> }
+                        <div class="card-img" @onclick:stopPropagation="true" @onclick='() => _zoomedImageUrl = item.ImageUrl'>
+                            @if (!string.IsNullOrEmpty(item.ImageUrl)) { 
+                                <img src="@item.ImageUrl" /> 
+                            }
                             else { <div class="no-img"><i class="bi bi-bottle"></i></div> }
                         </div>
                         <div class="card-info">
@@ -294,9 +292,35 @@
     .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
     .animate-bounce { animation: bounceFade 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
     .animate-fade-in { animation: fadeIn 0.3s ease both; }
+
+    /* IMAGE ZOOM */
+    .zoom-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+        backdrop-filter: blur(10px); z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px;
+        cursor: pointer;
+    }
+    .zoom-content { width: 100%; max-width: 450px; text-align: center; }
+    .zoom-content img { width: 100% !important; height: auto !important; border-radius: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }
+    .zoom-close { color: white; margin-top: 20px; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.5px; text-transform: uppercase; opacity: 0.7; }
+    
+    .animate-zoom { animation: zoomIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+    @@keyframes zoomIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 </style>
 
+@if (!string.IsNullOrEmpty(_zoomedImageUrl))
+{
+    <div class="zoom-overlay animate-fade-in" @onclick="() => _zoomedImageUrl = null">
+        <div class="zoom-content animate-zoom">
+            <img src="@_zoomedImageUrl" />
+            <div class="zoom-close"><i class="bi bi-x-circle-fill"></i> Tap anywhere to close</div>
+        </div>
+    </div>
+}
+
 @code {
+    private string? _zoomedImageUrl;
     private List<LiquorItem> _items = new();
     private List<string> _categories = new();
     private Dictionary<int, int> _pendingRestock = new();
@@ -323,8 +347,7 @@
         _loading = false;
     }
 
-    private IEnumerable<LiquorItem> FilteredItems => _items
-        .Where(i => (string.IsNullOrEmpty(_selectedCategory) || i.Category == _selectedCategory));
+    private IEnumerable<LiquorItem> FilteredItems => _items;
 
     private void SetReceivingMode(bool receiving)
     {

@@ -21,10 +21,6 @@
     <div class="header-nav-stack">
         <!-- PREMIUM HEADER -->
         <header class="app-header px-4 py-3 d-flex align-items-center justify-content-between">
-            <button class="btn-back-portal" @onclick='() => Navigation.NavigateTo("/mobile")'>
-                <i class="bi bi-arrow-left"></i>
-                <span>Return to GFC Portal</span>
-            </button>
             <h1 class="h5 mb-0 fw-black">Liquor inventory manager</h1>
             <button class="btn-add-circle" @onclick="OpenAddModal">
                 <i class="bi bi-plus-lg"></i>
@@ -53,15 +49,6 @@
         @if (_activeTab == "inventory")
         {
             <div class="inventory-section animate-entrance stagger-1">
-                <div class="search-box mb-4">
-                    <i class="bi bi-search"></i>
-                    <input type="text" placeholder="Search brands..." @bind="_searchTerm" @bind:event="oninput" />
-                    @if (!string.IsNullOrEmpty(_searchTerm))
-                    {
-                        <i class="bi bi-x-circle-fill clear-btn" @onclick='() => _searchTerm = ""'></i>
-                    }
-                </div>
-
                 <!-- ACTIONS BAR -->
                 <div class="actions-bar mb-4">
                     <button class="btn w-100 rounded-pill fw-black shadow-sm @(_isReceivingMode ? "btn-light border text-muted" : "btn-app-primary")" 
@@ -78,14 +65,15 @@
                 </div>
 
                 <div class="inventory-grid">
-                    @foreach (var item in FilteredItems)
+                    @foreach (var item in _items)
                     {
                         bool hasPending = _isReceivingMode && _pendingRestock.ContainsKey(item.Id) && _pendingRestock[item.Id] > 0;
                         <div class="product-card @(hasPending ? "highlight-receive" : "")" @onclick="() => OpenEditModal(item)">
-                            <div class="product-img-wrapper">
+                            <div class="product-img-wrapper" @onclick:stopPropagation="true" @onclick='() => _zoomedImageUrl = item.ImageUrl'>
                                 @if (!string.IsNullOrEmpty(item.ImageUrl))
                                 {
                                     <img src="@item.ImageUrl" alt="@item.Name" />
+                                    <div class="img-zoom-hint"><i class="bi bi-zoom-in"></i></div>
                                 }
                                 else
                                 {
@@ -107,26 +95,28 @@
                                 @if (_isReceivingMode)
                                 {
                                     <!-- Receiving Mode UI -->
-                                    <div class="receiving-panel mt-3 p-2 bg-white rounded-3 border-2 border-primary" @onclick:stopPropagation="true">
-                                        <label class="d-block small fw-black text-primary text-uppercase mb-2" style="font-size: 0.7rem; letter-spacing: 0.5px;">
+                                    <div class="receiving-panel mt-3 p-3 bg-white rounded-4 border shadow-sm" @onclick:stopPropagation="true">
+                                        <label class="d-block small fw-black text-muted text-uppercase mb-2 ls-1" style="font-size: 0.65rem;">
                                             <i class="bi bi-box-seam me-1"></i> Add to Shipment
                                         </label>
                                         
-                                        <div class="d-flex align-items-center gap-2 mb-2">
-                                            <button class="btn btn-outline-secondary fw-bold" style="width: 40px;" @onclick="() => AdjustPendingRestock(item.Id, -1)">-</button>
+                                        <div class="d-flex align-items-center gap-2 mb-3">
+                                            <button class="btn btn-step-pill" @onclick="() => AdjustPendingRestock(item.Id, -1)">
+                                                <i class="bi bi-dash"></i>
+                                            </button>
                                             
-                                            <input type="number" class="form-control text-center fw-black shadow-none border-secondary" 
-                                                   style="font-size: 1.1rem;"
+                                            <input type="number" class="form-control shipment-input"
                                                    value="@(_pendingRestock.ContainsKey(item.Id) ? _pendingRestock[item.Id] : 0)" 
                                                    @onchange="@(e => SetPendingRestock(item.Id, e.Value))" />
                                             
-                                            <button class="btn btn-primary fw-bold" style="width: 40px;" @onclick="() => AdjustPendingRestock(item.Id, 1)">+</button>
+                                            <button class="btn btn-step-pill active" @onclick="() => AdjustPendingRestock(item.Id, 1)">
+                                                <i class="bi bi-plus"></i>
+                                            </button>
                                         </div>
                                         
                                         <div class="d-flex gap-2">
-                                            <button class="btn btn-sm btn-light border flex-fill fw-bold text-muted" @onclick="() => AdjustPendingRestock(item.Id, 6)">+6</button>
-                                            <button class="btn btn-sm btn-light border flex-fill fw-bold text-muted" @onclick="() => AdjustPendingRestock(item.Id, 12)">+12</button>
-                                            <button class="btn btn-sm btn-light border flex-fill fw-bold text-muted" @onclick="() => AdjustPendingRestock(item.Id, 24)">+24</button>
+                                            <button class="btn btn-quick-add" @onclick="() => AdjustPendingRestock(item.Id, 6)">+6</button>
+                                            <button class="btn btn-quick-add" @onclick="() => AdjustPendingRestock(item.Id, 12)">+12</button>
                                         </div>
                                     </div>
                                 }
@@ -142,11 +132,11 @@
                         </div>
                     }
 
-                    @if (!FilteredItems.Any())
+                    @if (!_items.Any())
                     {
                         <div class="empty-state text-center py-5">
-                            <i class="bi bi-search display-1 text-muted opacity-25"></i>
-                            <p class="mt-3 fw-bold text-muted">No products found.</p>
+                            <i class="bi bi-box-seam display-1 text-muted opacity-25"></i>
+                            <p class="mt-3 fw-bold text-muted">No products in inventory.</p>
                         </div>
                     }
                 </div>
@@ -232,14 +222,10 @@
                 <div class="reconcile-header mb-4">
                      <p class="text-muted small mb-2">Use this tool to audit your inventory. Enter the <strong>actual</strong> number of bottles you see on the shelf.</p>
                      
-                     <div class="search-box mb-3">
-                        <i class="bi bi-search"></i>
-                        <input type="text" placeholder="Filter items..." @bind="_reconcileSearch" @bind:event="oninput" />
-                    </div>
                 </div>
 
                 <div class="reconcile-list">
-                    @foreach (var entry in _reconcileEntries.Where(e => string.IsNullOrWhiteSpace(_reconcileSearch) || e.ItemName.Contains(_reconcileSearch, StringComparison.OrdinalIgnoreCase)))
+                    @foreach (var entry in _reconcileEntries)
                     {
                         var diff = entry.ActualStart - entry.CurrentSystem;
                         <div class="reconcile-card @(diff != 0 ? "modified" : "")">
@@ -757,17 +743,21 @@
 
     /* New Stock Display */
     .product-stock-display {
+        position: absolute;
+        top: 12px;
+        right: 12px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        min-width: 90px;
-        padding: 10px 6px;
-        border-radius: 18px;
+        min-width: 80px;
+        padding: 8px 6px;
+        border-radius: 16px;
         background: #f8fafc;
         border: 1px solid #f1f5f9;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        z-index: 5;
     }
 
     .stock-label {
@@ -846,29 +836,51 @@
         background: #f0fdf4;
     }
     
-    .receiving-controls {
-        display: flex;
-        align-items: center;
-        background: #e2e8f0;
-        border-radius: 10px;
-        padding: 4px;
-        gap: 8px;
-        height: 40px;
-    }
-    
-    .btn-rec-step {
-        width: 32px;
-        height: 100%;
-        border-radius: 8px;
-        background: #fff;
-        border: none;
+    .btn-step-pill {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
         display: flex;
         align-items: center;
         justify-content: center;
         color: #475569;
-        font-size: 1rem;
+        font-size: 1.25rem;
+        transition: all 0.2s;
     }
-    .btn-rec-step.add { background: #10b981; color: white; }
+    .btn-step-pill.active {
+        background: var(--app-primary);
+        color: white;
+        border-color: var(--app-primary);
+    }
+    
+    .shipment-input {
+        flex: 1;
+        min-width: 65px;
+        height: 48px;
+        text-align: center;
+        font-size: 1.4rem;
+        font-weight: 900;
+        border-radius: 12px;
+        border: 2px solid #e2e8f0;
+        background: #fff;
+        padding: 0;
+        line-height: normal;
+    }
+    
+    .btn-quick-add {
+        flex: 1;
+        height: 38px;
+        border-radius: 12px;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        font-weight: 800;
+        font-size: 0.85rem;
+        color: #64748b;
+        transition: all 0.2s;
+    }
+    .btn-quick-add:active { transform: scale(0.95); background: #f8fafc; }
     
     .rec-val {
         flex: 1;
@@ -1132,14 +1144,37 @@
     
     @@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
     @@keyframes slideDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
+
+    /* IMAGE ZOOM */
+    .zoom-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+        backdrop-filter: blur(10px); z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px;
+        cursor: pointer;
+    }
+    .zoom-content { width: 100%; max-width: 450px; text-align: center; }
+    .zoom-content img { width: 100% !important; height: auto !important; border-radius: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }
+    .zoom-close { color: white; margin-top: 20px; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.5px; text-transform: uppercase; opacity: 0.7; }
+    
+    .animate-zoom { animation: zoomIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+    @@keyframes zoomIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .animate-fade-in { animation: fadeIn 0.2s ease; }
+
+    .img-zoom-hint {
+        position: absolute; bottom: 4px; right: 4px;
+        background: rgba(0,0,0,0.3); color: white;
+        width: 20px; height: 20px; border-radius: 6px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.7rem; pointer-events: none;
+    }
 </style>
 
 @implements IDisposable
 
 @code {
+    private string? _zoomedImageUrl;
     private string _activeTab = "inventory";
-    private string _searchTerm = "";
-    private string _reconcileSearch = "";
     private List<LiquorItem> _items = new();
     private List<LiquorTransaction> _recentTransactions = new();
     private List<ReconcileEntry> _reconcileEntries = new();
@@ -1315,9 +1350,7 @@
         }
     }
 
-    private IEnumerable<LiquorItem> FilteredItems => string.IsNullOrWhiteSpace(_searchTerm) 
-        ? _items 
-        : _items.Where(i => i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+
 
     private void OpenAddModal()
     {

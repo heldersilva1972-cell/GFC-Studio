@@ -23,7 +23,7 @@ namespace GFC.BlazorServer.Services
         public async Task<IEnumerable<LiquorItem>> GetAllItemsAsync()
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorItems.Where(i => i.IsActive).ToListAsync();
+            return await db.LiquorItems.Where(i => i.IsActive).OrderBy(i => i.Name).ToListAsync();
         }
 
         public async Task<LiquorItem?> GetItemByIdAsync(int id)
