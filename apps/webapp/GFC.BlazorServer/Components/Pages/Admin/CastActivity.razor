@@ -5,6 +5,7 @@
 @attribute [Authorize(Roles = AppRoles.Admin)]
 @inject IAuditLogRepository AuditLogRepository
 @inject IUserRepository UserRepository
+@inject IDeviceTrustService DeviceTrustService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 @implements IDisposable
@@ -16,6 +17,9 @@
             <p class="text-muted">Real-time precision tracking of who is doing what right now.</p>
         </div>
         <div class="d-flex gap-2">
+            <button class="btn btn-outline-danger btn-sm rounded-pill px-3" @onclick="RevokeAllGlobalSessionsAsync">
+                <i class="bi bi-shield-slash me-1"></i> Revoke All Global Sessions
+            </button>
             <div class="badge bg-success-subtle text-success border border-success border-opacity-25 px-3 py-2 rounded-pill">
                 <i class="bi bi-record-fill me-1"></i> Live Monitoring Active
             </div>
@@ -89,6 +93,29 @@
                                     </div>
                                 </div>
                             </div>
+
+                            @{
+                                var userSessions = _activeSessions.Where(s => s.UserId == record.PerformedByUserId).ToList();
+                            }
+                            @if (userSessions.Any())
+                            {
+                                <div class="session-info mt-3 p-3 bg-light rounded-4 border">
+                                    <label class="x-small text-uppercase fw-bold text-muted mb-2 d-block">Device Security (@userSessions.Count active)</label>
+                                    @foreach (var session in userSessions.Take(1))
+                                    {
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <div class="d-flex align-items-center x-small">
+                                                <i class="bi @GetDeviceIcon(session.UserAgent) me-2 text-primary"></i>
+                                                <span class="fw-bold">@ParseUserAgent(session.UserAgent)</span>
+                                            </div>
+                                            <span class="badge bg-white text-dark border x-small font-monospace">@session.IpAddress</span>
+                                        </div>
+                                    }
+                                    <button class="btn btn-sm btn-outline-danger w-100 mt-2 x-small py-1" @onclick="() => RevokeUserSessions(record.PerformedByUserId ?? 0, record.PerformedByDisplayName)">
+                                        <i class="bi bi-person-x me-1"></i> Kill Connections
+                                    </button>
+                                </div>
+                            }
 
                             <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
                                 <span class="x-small text-muted"><i class="bi bi-clock me-1"></i> @GetTimeAgo(record.TimestampUtc)</span>
@@ -230,6 +257,7 @@
 
 @code {
     private List<AuditLogRecord> _activityRecords = new();
+    private List<DeviceSessionDto> _activeSessions = new();
     private bool _isLoading = true;
     private global::System.Threading.Timer? _refreshTimer;
 
@@ -251,8 +279,69 @@
     private async Task RefreshAsync()
     {
         _isLoading = true;
-        _activityRecords = (await AuditLogRepository.GetLiveActivityAsync()).ToList();
-        _isLoading = false;
+        try
+        {
+            var activityTask = AuditLogRepository.GetLiveActivityAsync();
+            var sessionTask = DeviceTrustService.GetAllActiveDevicesAsync();
+            
+            await Task.WhenAll(activityTask, sessionTask);
+            
+            _activityRecords = activityTask.Result.ToList();
+            _activeSessions = sessionTask.Result;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error refreshing monitoring data: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task RevokeUserSessions(int userId, string username)
+    {
+        if (userId == 0) return;
+        
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"CRITICAL: This will immediately kill ALL active web sessions for '{username}'. They will be kicked out of the portal and forced to log in again. Proceed?");
+            
+        if (confirmed)
+        {
+            await DeviceTrustService.RevokeAllUserDevicesAsync(userId);
+            await RefreshAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task RevokeAllGlobalSessionsAsync()
+    {
+        bool confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            "DANGER: Revoke ALL active web sessions for EVERY user in the system? Everyone (including you) will be forced to log in again. Proceed?");
+            
+        if (confirmed)
+        {
+            await DeviceTrustService.CleanupExpiredTokensAsync();
+            await DeviceTrustService.RevokeAllGlobalSessionsAsync();
+            Navigation.NavigateTo("/login", true);
+        }
+    }
+
+    private string ParseUserAgent(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return "Web Browser";
+        if (userAgent.Contains("iPhone")) return "iPhone";
+        if (userAgent.Contains("Android")) return "Android Device";
+        if (userAgent.Contains("Windows")) return "Windows PC";
+        if (userAgent.Contains("Macintosh")) return "Mac";
+        return "Web Browser";
+    }
+
+    private string GetDeviceIcon(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return "bi-display";
+        if (userAgent.Contains("iPhone") || userAgent.Contains("Android")) return "bi-phone";
+        return "bi-laptop";
     }
 
     private bool IsActive(DateTime timestamp)
