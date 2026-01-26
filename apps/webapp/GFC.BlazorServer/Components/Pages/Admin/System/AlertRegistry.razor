@@ -3,6 +3,7 @@
 @using GFC.BlazorServer.Services
 @using Microsoft.AspNetCore.Authorization
 @inject INotificationService NotificationService
+@inject IUserManagementService UserManagementService
 @inject NavigationManager Navigation
 @attribute [Authorize]
 
@@ -77,7 +78,7 @@
                                     <div class="small text-muted text-truncate" style="max-width: 300px;">@alert.Message</div>
                                 </td>
                                 <td>
-                                    <div class="small">@alert.RecipientEmail</div>
+                                    <div class="small">@GetRecipientDisplay(alert.RecipientEmail)</div>
                                 </td>
                                 <td>
                                     @if (alert.Status == "Sent")
@@ -133,7 +134,7 @@
                         </div>
                         <div class="col-6 mb-3">
                             <label class="text-muted x-small text-uppercase fw-bold mb-1">Recipient</label>
-                            <div>@_selectedAlert.RecipientEmail</div>
+                            <div>@GetRecipientDisplay(_selectedAlert.RecipientEmail)</div>
                         </div>
                         <div class="col-6">
                             <label class="text-muted x-small text-uppercase fw-bold mb-1">Status</label>
@@ -166,6 +167,7 @@
 
 @code {
     private List<SystemNotification>? _alerts;
+    private Dictionary<int, string> _userNames = new();
     private string _filter = "All";
     private SystemNotification? _selectedAlert;
 
@@ -176,10 +178,35 @@
 
     private async Task RefreshAsync()
     {
+        var users = UserManagementService.GetAllUsers();
+        _userNames = users.ToDictionary(
+            u => u.UserId, 
+            u => string.IsNullOrEmpty(u.MemberName) ? u.Username : u.MemberName);
+
         _alerts = (await NotificationService.GetActiveNotificationsAsync())
                     .OrderByDescending(n => n.SentAt)
                     .ToList();
         StateHasChanged();
+    }
+
+    private string GetRecipientDisplay(string? recipient)
+    {
+        if (string.IsNullOrEmpty(recipient)) return "--";
+        
+        if (recipient.StartsWith("User:"))
+        {
+            var userIdStr = recipient.Replace("User:", "");
+            if (int.TryParse(userIdStr, out var userId))
+            {
+                if (_userNames.TryGetValue(userId, out var name))
+                {
+                    return name;
+                }
+                return $"User #{userId}";
+            }
+        }
+        
+        return recipient;
     }
 
     private void SetFilter(string filter)
