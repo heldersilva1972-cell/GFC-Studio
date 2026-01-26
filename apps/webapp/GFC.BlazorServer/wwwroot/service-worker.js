@@ -91,8 +91,8 @@ self.addEventListener('push', (event) => {
         badge: '/favicon.png',
         vibrate: [100, 50, 100],
         data: data.url || '/',
-        tag: 'gfc-alert', // Collapses multiple alerts into one
-        renotify: true,   // Vibrate even if replaced
+        tag: 'gfc-inventory-alert', // Specific tag to group inventory alerts
+        // renotify: true,   // REMOVED: This causes Chrome to show a secondary "Tap to Copy URL" notification on Android
         timestamp: Date.now()
     };
 
