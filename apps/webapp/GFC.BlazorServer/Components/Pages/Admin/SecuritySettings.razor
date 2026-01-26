@@ -49,11 +49,6 @@
         <div class="card-header bg-white border-0 p-0">
             <ul class="nav nav-tabs admin-nav-tabs border-0" role="tablist">
                 <li class="nav-item flex-fill">
-                    <button class="nav-link w-100 py-3 @(_activeTab == "permissions" ? "active border-primary border-bottom border-3" : "")" @onclick="@(() => _activeTab = "permissions")">
-                        <i class="bi bi-shield-check me-2"></i>Admin Permissions
-                    </button>
-                </li>
-                <li class="nav-item flex-fill">
                     <button class="nav-link w-100 py-3 @(_activeTab == "server" ? "active border-primary border-bottom border-3" : "")" @onclick="@(() => _activeTab = "server")">
                         <i class="bi bi-gear-fill me-2"></i>Server Identity
                     </button>
@@ -68,61 +63,6 @@
         <div class="card-body p-4 min-vh-50">
             
 
-            <!-- TAB 2: ADMIN PERMISSIONS -->
-            @if (_activeTab == "permissions")
-            {
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h5 class="fw-bold mb-0">Authorized Administrators</h5>
-                    <button class="btn btn-outline-primary btn-sm rounded-pill px-3" @onclick="() => _showAddUser = !_showAddUser">
-                        <i class="bi bi-plus-lg me-1"></i> Grant New Access
-                    </button>
-                </div>
-
-                @if (_showAddUser)
-                {
-                    <div class="bg-light p-4 rounded-4 border mb-4">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="small fw-bold text-muted mb-1">Select Existing User</label>
-                                <select class="form-select border-0 shadow-sm" @bind="_newAuthorizedUser.UserId">
-                                    <option value="0">Choose User...</option>
-                                    @foreach (var user in _allAppUsers) { <option value="@user.UserId">@user.Username</option> }
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="small fw-bold text-muted mb-1">Access Level</label>
-                                <select class="form-select border-0 shadow-sm" @bind="_newAuthorizedUser.AccessLevel">
-                                    <option value="Full Access">Full Access (Admin)</option>
-                                    <option value="View Only">View Only</option>
-                                </select>
-                            </div>
-                            <div class="col-md-2 d-flex align-items-end">
-                                <button class="btn btn-primary w-100 py-2 fw-bold" @onclick="AddAuthorizedUser">Add Admin</button>
-                            </div>
-                        </div>
-                    </div>
-                }
-
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle border rounded-4 overflow-hidden">
-                        <thead class="bg-light">
-                            <tr><th class="ps-4">Admin Name</th><th>Access Level</th><th class="text-end pe-4">Actions</th></tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var user in _authorizedUsers)
-                            {
-                                <tr>
-                                    <td class="ps-4 py-3"><div class="fw-bold fs-6">@user.User?.Username</div><div class="x-small text-muted">ID: @user.UserId</div></td>
-                                    <td><span class="badge @(user.AccessLevel == "Full Access" ? "bg-primary" : "bg-dark") rounded-pill px-3">@user.AccessLevel</span></td>
-                                    <td class="text-end pe-4">
-                                        <button class="btn btn-link text-danger p-0" @onclick="() => RemoveAuthorizedUser(user.Id, user.UserId)"><i class="bi bi-trash3 fs-5"></i></button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
 
             <!-- TAB 3: SERVER IDENTITY -->
             @if (_activeTab == "server")
@@ -224,18 +164,14 @@
 
 @using GFC.Core.DTOs
 @code {
-    private string _activeTab = "permissions";
+    private string _activeTab = "server";
     private SystemSettings _settings;
-    private List<AuthorizedUser> _authorizedUsers = new();
-    private AuthorizedUser _newAuthorizedUser = new() { AccessLevel = "Full Access" };
     private List<UserListItemDto> _allAppUsers = new();
     private List<UserNotificationPreferences> _allPreferences = new();
     
     private string _errorMessage;
     private string _successMessage;
     private bool _showAddUser = false;
-    private int _inviteUserId;
-    private string _generatedLink;
 
     [Inject] private INotificationService NotificationService { get; set; }
 
@@ -244,9 +180,7 @@
         try
         {
             _settings = await SystemSettingsService.GetAsync();
-            _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
             _allAppUsers = UserManagementService.GetAllUsers();
-            if (_allAppUsers.Any()) _inviteUserId = _allAppUsers.First().UserId;
             
             _allPreferences = await NotificationService.GetAllPreferencesAsync();
         }
@@ -282,33 +216,6 @@
         catch (Exception ex) { _errorMessage = "Save Error: " + ex.Message; }
     }
 
-    private async Task AddAuthorizedUser()
-    {
-        if (_newAuthorizedUser.UserId <= 0) return;
-        await AuthorizedUserService.AddAuthorizedUserAsync(_newAuthorizedUser);
-        _newAuthorizedUser = new AuthorizedUser() { AccessLevel = "Full Access" };
-        _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync();
-        _showAddUser = false;
-        _successMessage = "New administrator permissions granted.";
-    }
-
-    private async Task RemoveAuthorizedUser(int id, int userId) { 
-        if (await JSRuntime.InvokeAsync<bool>("confirm", "Revoke administrative privileges for this user?")) {
-            await AuthorizedUserService.RemoveAuthorizedUserAsync(id); 
-            _authorizedUsers = await AuthorizedUserService.GetAuthorizedUsersAsync(); 
-        }
-    }
-
-    private async Task GenerateInviteLink() { 
-        var token = await VpnConfigurationService.CreateOnboardingTokenAsync(_inviteUserId); 
-        var baseUrl = await UrlHelper.GetBaseUrlAsync();
-        _generatedLink = $"{baseUrl.TrimEnd('/')}/setup/{token}"; 
-    }
-
-    private async Task CopyInviteLink() {
-        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _generatedLink);
-        await JSRuntime.InvokeVoidAsync("alert", "Link copied to clipboard!");
-    }
 
     [Inject] private NavigationManager NavigationManager { get; set; }
 }
