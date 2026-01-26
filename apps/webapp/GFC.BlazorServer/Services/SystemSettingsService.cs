@@ -276,6 +276,16 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.VapidPrivateKey = settings.VapidPrivateKey;
         existingSettings.VapidSubject = settings.VapidSubject;
 
+        // Maintenance & NVR (Phase 3)
+        existingSettings.LastSuccessfulBackupUtc = settings.LastSuccessfulBackupUtc;
+        existingSettings.LastRestoreTestUtc = settings.LastRestoreTestUtc;
+        existingSettings.BackupStoragePath = settings.BackupStoragePath;
+        existingSettings.BackupRetentionCount = settings.BackupRetentionCount;
+        existingSettings.BackupFrequencyHours = settings.BackupFrequencyHours;
+        existingSettings.BackupMethod = settings.BackupMethod;
+        existingSettings.AllowServerRestoreOperations = settings.AllowServerRestoreOperations;
+        existingSettings.MaintenanceModeEnabled = settings.MaintenanceModeEnabled;
+
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
         await dbContext.SaveChangesAsync();
