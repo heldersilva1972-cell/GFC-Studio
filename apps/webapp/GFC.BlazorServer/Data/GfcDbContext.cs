@@ -118,7 +118,6 @@ public class GfcDbContext : DbContext
     public DbSet<UrlRedirect> UrlRedirects => Set<UrlRedirect>();
     
     // Network Migration
-    public DbSet<NetworkMigration> NetworkMigrations => Set<NetworkMigration>();
     public DbSet<BylawDocument> BylawDocuments => Set<BylawDocument>();
     public DbSet<BylawRevision> BylawRevisions => Set<BylawRevision>();
     

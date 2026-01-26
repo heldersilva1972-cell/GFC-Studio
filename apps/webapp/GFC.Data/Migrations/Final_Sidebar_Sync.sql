@@ -1,82 +1,81 @@
--- First, ensure the DefaultPermissions table exists for the new system
-IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[DefaultPermissions]') AND type in (N'U'))
-BEGIN
-    CREATE TABLE [dbo].[DefaultPermissions] (
-        [PageId] INT NOT NULL,
-        CONSTRAINT [PK_DefaultPermissions] PRIMARY KEY CLUSTERED ([PageId] ASC),
-        CONSTRAINT [FK_DefaultPermissions_AppPages] FOREIGN KEY ([PageId]) REFERENCES [dbo].[AppPages] ([PageId]) ON DELETE CASCADE
-    );
-END
+-- FINAL SIDEBAR SYNCHRONIZATION
+-- This script performs a destructive sync to ensure the AppPages table matches the UI exactly.
 
--- First, set all current pages to inactive so we can rebuild accurately
+-- 1. Reset all pages to inactive
 UPDATE AppPages SET IsActive = 0;
 
--- Helper to Insert or Update a page
+-- 2. Define the current master page list
 DECLARE @Pages TABLE (
     Name NVARCHAR(100),
     Route NVARCHAR(255),
     Category NVARCHAR(100),
     Descr NVARCHAR(500),
-    IsAdmin BIT
+    IsAdmin BIT,
+    Ord INT
 );
 
-INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin) VALUES
+INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
+-- DASHBOARD
+('Dashboard', '/', 'DASHBOARD', 'Main overview', 0, 1),
+
 -- MEMBERSHIP
-('Members Info', '/members', 'MEMBERSHIP', 'Member management', 0),
-('Dues/Payments', '/dues', 'MEMBERSHIP', 'Member dues and payments', 0),
-('Door Key Cards', '/keycards', 'MEMBERSHIP', 'Key card management', 0),
-('Life Eligibility', '/life-eligibility', 'MEMBERSHIP', 'Life membership eligibility', 0),
-('Non-Portuguese Queue', '/np-queue', 'MEMBERSHIP', 'Non-Portuguese membership queue', 0),
-('Club Bylaws', '/bylaws', 'MEMBERSHIP', 'Club bylaws and regulations', 0),
-('Directors', '/directors', 'MEMBERSHIP', 'Board of directors management', 0),
-('Physical Keys', '/physicalkeys', 'MEMBERSHIP', 'Physical key management', 0),
+('Members Info', '/members', 'MEMBERSHIP', 'Member directory', 0, 10),
+('Dues/Payments', '/dues', 'MEMBERSHIP', 'Payments and history', 0, 11),
+('Door Key Cards', '/keycards', 'MEMBERSHIP', 'Access tokens', 0, 12),
+('Life Eligibility', '/life-eligibility', 'MEMBERSHIP', 'Life tracking', 0, 13),
+('Non-Portuguese Queue', '/np-queue', 'MEMBERSHIP', 'Waitlist', 0, 14),
+('Club Bylaws', '/bylaws', 'MEMBERSHIP', 'Regulations', 0, 15),
+('Directors', '/directors', 'MEMBERSHIP', 'Board of directors', 0, 16),
+('Physical Keys', '/physicalkeys', 'MEMBERSHIP', 'Key inventory', 0, 17),
 
 -- CONTROLLERS
-('Access Controllers', '/controllers', 'CONTROLLERS', 'Access control system dashboard', 1),
-('Search Controller', '/controllers/discovery', 'CONTROLLERS', 'Search and discovery', 1),
-('Access Holidays', '/controllers/schedules/holidays', 'CONTROLLERS', 'Holiday access configuration', 1),
+('Access Controllers', '/controllers', 'CONTROLLERS', 'Hardware status', 1, 20),
+('Search Controller', '/controllers/discovery', 'CONTROLLERS', 'Discovery tools', 1, 21),
+('Access Holidays', '/controllers/schedules/holidays', 'CONTROLLERS', 'Holiday overrides', 1, 22),
 
 -- FINANCE
-('Reimbursements', '/reimbursements', 'FINANCE', 'Member reimbursements', 0),
-('Manage Reimbursements', '/reimbursements/manage', 'FINANCE', 'Financial management', 1),
-('Reports', '/reimbursements/reports', 'FINANCE', 'Financial reports', 1),
-('Lottery Sales', '/lottery', 'FINANCE', 'Lottery sales tracking', 0),
-('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Bar sales entry', 0),
-('Bartender Shift', '/bartender-shift', 'FINANCE', 'Shift management', 0),
+('Financial Insights', '/finance/insights', 'FINANCE', 'Analytics', 1, 30),
+('Reimbursements', '/reimbursements', 'FINANCE', 'Submit personal', 0, 31),
+('Manage Reimbursements', '/reimbursements/manage', 'FINANCE', 'Auditing', 1, 32),
+('Reports', '/reimbursements/reports', 'FINANCE', 'Exports', 1, 33),
+('Lottery Sales', '/lottery', 'FINANCE', 'Lottery data', 0, 34),
+('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Nightly sales', 1, 35),
+('Bartender Schedule', '/admin/staff-shifts', 'FINANCE', 'Staffing', 1, 36),
 
 -- ADMINISTRATION
-('Manage Users', '/users', 'ADMINISTRATION', 'User account management', 1),
-('Security & Policy', '/admin/security-settings', 'ADMINISTRATION', 'Security and policy settings', 1),
-('Legal & Documents', '/admin/documents', 'ADMINISTRATION', 'Legal documents management', 1),
-('Data Export', '/export', 'ADMINISTRATION', 'Export system data', 1),
+('Manage Users', '/users', 'ADMINISTRATION', 'User accounts', 1, 40),
+('Live Activity Feed', '/admin/users/live-activity', 'ADMINISTRATION', 'System logs', 1, 41),
+('Security & Access Hub', '/admin/security-settings', 'ADMINISTRATION', 'Security policies', 1, 42),
+('Data Export', '/export', 'ADMINISTRATION', 'CSV exports', 1, 43),
 
 -- WEBSITE
-('Page Management', '/admin/pages', 'WEBSITE', 'Website page management', 1),
-('Review Moderation', '/admin/reviews', 'WEBSITE', 'Moderate user reviews', 1),
-('Event Promotions', '/admin/event-promotions', 'WEBSITE', 'Promote events', 1),
-('Nav Menu Editor', '/admin/nav-menu-editor', 'WEBSITE', 'Edit navigation menu', 1),
-('Website Settings', '/admin/website-settings', 'WEBSITE', 'Configure website settings', 1),
-('Form Builder', '/admin/form-builder', 'WEBSITE', 'Build custom forms', 1),
-('Form Submissions', '/admin/form-submissions', 'WEBSITE', 'View form submissions', 1),
-('Special Events', '/controllers/schedules/specialevents', 'WEBSITE', 'Special events management', 1),
+('Page Management', '/admin/pages', 'WEBSITE', 'Website CMS', 1, 50),
+('Review Moderation', '/admin/reviews', 'WEBSITE', 'Review oversight', 1, 51),
+('Event Promotions', '/admin/event-promotions', 'WEBSITE', 'Landing promos', 1, 52),
+('Nav Menu Editor', '/admin/nav-menu-editor', 'WEBSITE', 'Menu structure', 1, 53),
+('Website Settings', '/admin/website-settings', 'WEBSITE', 'Site metadata', 1, 54),
+('Form Builder', '/admin/form-builder', 'WEBSITE', 'Build forms', 1, 55),
+('Form Submissions', '/admin/form-submissions', 'WEBSITE', 'View submissions', 1, 56),
+('Special Events', '/controllers/schedules/specialevents', 'WEBSITE', 'Event schedules', 1, 57),
 
 -- HALL RENTALS
-('Rental Requests', '/admin/hall-management', 'HALL RENTALS', 'Manage hall rental requests', 1),
-('Settings', '/admin/hall-rental-settings', 'HALL RENTALS', 'Hall rental settings', 1),
+('Rental Requests', '/admin/hall-management', 'HALL RENTALS', 'Hall rentals', 1, 60),
+('Rental Settings', '/admin/hall-rental-settings', 'HALL RENTALS', 'Policies', 1, 61),
 
 -- SYSTEM
-('Infrastructure Hub', '/admin/operations', 'SYSTEM', 'System infrastructure management', 1),
-('Migration Wizard', '/admin/system/migration', 'SYSTEM', 'Data migration tools', 1),
+('Infrastructure Hub', '/admin/operations', 'SYSTEM', 'Server health', 1, 70),
+('Text & Email Setup', '/admin/system/communications', 'SYSTEM', 'Communications', 1, 71),
+('System Alert Registry', '/admin/system/alerts', 'SYSTEM', 'Alert configs', 1, 72),
 
 -- CAMERA SYSTEM
-('View Monitor', '/cameras/view', 'CAMERA SYSTEM', 'View camera feeds', 0),
-('System Setup', '/cameras/configure', 'CAMERA SYSTEM', 'Camera system configuration', 1),
-('Audit Log', '/cameras/audit', 'CAMERA SYSTEM', 'Camera system audit log', 1),
+('View Monitor', '/cameras/view', 'CAMERA SYSTEM', 'Real-time feeds', 0, 80),
+('System Setup', '/cameras/configure', 'CAMERA SYSTEM', 'Camera setup', 1, 81),
+('Audit Log', '/cameras/audit', 'CAMERA SYSTEM', 'System logs', 1, 82),
 
 -- GFC STUDIO
-('Visual Editor', '/studio', 'GFC STUDIO', 'Visual page editor', 0);
+('Visual Editor', '/studio', 'GFC STUDIO', 'Visual design', 0, 90);
 
--- MERGE INTO AppPages
+-- 3. Perform the Merge
 MERGE AppPages AS target
 USING @Pages AS source
 ON LOWER(target.PageRoute) = LOWER(source.Route)
@@ -86,16 +85,13 @@ WHEN MATCHED THEN
         Category = source.Category,
         Description = source.Descr,
         RequiresAdmin = source.IsAdmin,
-        IsActive = 1
+        IsActive = 1,
+        DisplayOrder = source.Ord
 WHEN NOT MATCHED THEN
     INSERT (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES (source.Name, source.Route, source.Descr, source.Category, source.IsAdmin, 1, 0);
+    VALUES (source.Name, source.Route, source.Descr, source.Category, source.IsAdmin, 1, source.Ord);
 
--- Final cleanup: Ensure naming consistency again for any stragglers
-UPDATE AppPages SET Category = 'MEMBERSHIP' WHERE Category IN ('MEMBERS', 'Member');
-UPDATE AppPages SET Category = 'ADMINISTRATION' WHERE Category = 'ADMIN';
-
--- Remove any old pages that were not in our list
+-- 4. Delete orphaned entries
 DELETE FROM AppPages WHERE IsActive = 0;
 
-SELECT 'SYNC COMPLETE: Database now matches sidebar exactly.';
+SELECT 'SYNC COMPLETE: The database now matches the sidebar exactly.';

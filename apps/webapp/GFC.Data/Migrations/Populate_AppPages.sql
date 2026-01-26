@@ -1,183 +1,97 @@
--- Populate AppPages table with all pages from the Control Center navigation
--- This matches the exact structure shown in the sidebar
+-- Re-populate AppPages table to match the current GFC system sidebar exactly.
+-- This script ensures the permissions modal matches the actual navigation.
 
--- Dashboard
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Dashboard', '/', 'Main dashboard', 'Dashboard', 0, 1, 1);
+-- 1. Reset everything to ensure a clean sync
+UPDATE AppPages SET IsActive = 0;
+
+-- Helper table for the actual pages
+DECLARE @ActualPages TABLE (
+    Name NVARCHAR(100),
+    Route NVARCHAR(255),
+    Category NVARCHAR(100),
+    Descr NVARCHAR(500),
+    IsAdmin BIT,
+    DisplayOrder INT
+);
+
+INSERT INTO @ActualPages (Name, Route, Category, Descr, IsAdmin, DisplayOrder) VALUES
+-- DASHBOARD
+('Dashboard', '/', 'DASHBOARD', 'Main overview and stats', 0, 1),
 
 -- MEMBERSHIP
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/members')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Members Info', '/members', 'View and manage members', 'Membership', 0, 1, 10);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/dues')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Dues/Payments', '/dues', 'Manage member dues and payments', 'Membership', 0, 1, 11);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/keycards')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Door Key Cards', '/keycards', 'Key card management', 'Membership', 0, 1, 12);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/life-eligibility')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Life Eligibility', '/life-eligibility', 'Life membership eligibility', 'Membership', 0, 1, 13);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/non-portuguese-queue')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Non-Portuguese Queue', '/non-portuguese-queue', 'Non-Portuguese membership queue', 'Membership', 0, 1, 14);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/bylaws')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Club Bylaws', '/bylaws', 'Club bylaws and regulations', 'Membership', 0, 1, 15);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/directors')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Directors', '/directors', 'Board of directors', 'Membership', 0, 1, 16);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/physical-keys')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Physical Keys', '/physical-keys', 'Physical key management', 'Membership', 0, 1, 17);
+('Members Info', '/members', 'MEMBERSHIP', 'View and manage member directory', 0, 10),
+('Dues/Payments', '/dues', 'MEMBERSHIP', 'Manage member dues and history', 0, 11),
+('Door Key Cards', '/keycards', 'MEMBERSHIP', 'Key card assignment and management', 0, 12),
+('Life Eligibility', '/life-eligibility', 'MEMBERSHIP', 'Life membership tracking', 0, 13),
+('Non-Portuguese Queue', '/np-queue', 'MEMBERSHIP', 'Waitlist management', 0, 14),
+('Club Bylaws', '/bylaws', 'MEMBERSHIP', 'Digital bylaw access', 0, 15),
+('Directors', '/directors', 'MEMBERSHIP', 'Current board of directors', 0, 16),
+('Physical Keys', '/physicalkeys', 'MEMBERSHIP', 'Manual key inventory', 0, 17),
 
 -- CONTROLLERS
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/controllers')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Access Controllers', '/controllers', 'Access control system dashboard', 'Controllers', 0, 1, 20);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/search-controller')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Search Controller', '/search-controller', 'Search controller events', 'Controllers', 0, 1, 21);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/access-holidays')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Access Holidays', '/access-holidays', 'Configure access holidays', 'Controllers', 0, 1, 22);
+('Access Controllers', '/controllers', 'CONTROLLERS', 'Access control system status', 1, 20),
+('Search Controller', '/controllers/discovery', 'CONTROLLERS', 'Hardware discovery and logs', 1, 21),
+('Access Holidays', '/controllers/schedules/holidays', 'CONTROLLERS', 'Holiday schedule overrides', 1, 22),
 
 -- FINANCE
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/reimbursements')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Reimbursements', '/reimbursements', 'Member reimbursements', 'Finance', 0, 1, 30);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/manage-reimbursements')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Manage Reimbursements', '/manage-reimbursements', 'Manage reimbursement requests', 'Finance', 0, 1, 31);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/reports')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Reports', '/reports', 'Financial reports', 'Finance', 0, 1, 32);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/lottery-sales')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Lottery Sales', '/lottery-sales', 'Lottery sales tracking', 'Finance', 0, 1, 33);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/bar-sales')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Bar Sales Entry', '/bar-sales', 'Bar sales entry', 'Finance', 0, 1, 34);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/bartender-shift')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Bartender Shift', '/bartender-shift', 'Bartender shift management', 'Finance', 0, 1, 35);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/finance/insights')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Financial Insights', '/finance/insights', 'In-depth financial performance analysis', 'Finance', 0, 1, 36);
+('Financial Insights', '/finance/insights', 'FINANCE', 'Advanced financial analytics', 1, 30),
+('Reimbursements', '/reimbursements', 'FINANCE', 'Submit personal reimbursements', 0, 31),
+('Manage Reimbursements', '/reimbursements/manage', 'FINANCE', 'Audit and approve requests', 1, 32),
+('Reports', '/reimbursements/reports', 'FINANCE', 'Financial data exports', 1, 33),
+('Lottery Sales', '/lottery', 'FINANCE', 'Lottery sales performance', 0, 34),
+('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Register nightly bar sales', 1, 35),
+('Bartender Schedule', '/admin/staff-shifts', 'FINANCE', 'Staffing and shifts', 1, 36),
 
 -- ADMINISTRATION
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/users')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Manage Users', '/users', 'User account management', 'Administration', 1, 1, 40);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/security-policy')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Security & Policy', '/security-policy', 'Security and policy settings', 'Administration', 1, 1, 41);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/legal-documents')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Legal & Documents', '/legal-documents', 'Legal documents management', 'Administration', 1, 1, 42);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/data-export')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Data Export', '/data-export', 'Export system data', 'Administration', 1, 1, 43);
+('Manage Users', '/users', 'ADMINISTRATION', 'System account management', 1, 40),
+('Live Activity Feed', '/admin/users/live-activity', 'ADMINISTRATION', 'Real-time system audit logs', 1, 41),
+('Security & Access Hub', '/admin/security-settings', 'ADMINISTRATION', 'Security policies and permissions', 1, 42),
+('Data Export', '/export', 'ADMINISTRATION', 'Global data backup and CSV export', 1, 43),
 
 -- WEBSITE
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/page-management')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Page Management', '/page-management', 'Manage website pages', 'Website', 0, 1, 50);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/review-moderation')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Review Moderation', '/review-moderation', 'Moderate user reviews', 'Website', 0, 1, 51);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/event-promotions')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Event Promotions', '/event-promotions', 'Promote events', 'Website', 0, 1, 52);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/nav-menu-editor')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Nav Menu Editor', '/nav-menu-editor', 'Edit navigation menu', 'Website', 0, 1, 53);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/website-settings')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Website Settings', '/website-settings', 'Configure website settings', 'Website', 0, 1, 54);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/form-builder')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Form Builder', '/form-builder', 'Build custom forms', 'Website', 0, 1, 55);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/form-submissions')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Form Submissions', '/form-submissions', 'View form submissions', 'Website', 0, 1, 56);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/special-events')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Special Events', '/special-events', 'Special events management', 'Website', 0, 1, 57);
+('Page Management', '/admin/pages', 'WEBSITE', 'CMS page editor', 1, 50),
+('Review Moderation', '/admin/reviews', 'WEBSITE', 'Public review oversight', 1, 51),
+('Event Promotions', '/admin/event-promotions', 'WEBSITE', 'Landing page promotion blocks', 1, 52),
+('Nav Menu Editor', '/admin/nav-menu-editor', 'WEBSITE', 'Main menu structure', 1, 53),
+('Website Settings', '/admin/website-settings', 'WEBSITE', 'Global site metadata', 1, 54),
+('Form Builder', '/admin/form-builder', 'WEBSITE', 'Interactive form design', 1, 55),
+('Form Submissions', '/admin/form-submissions', 'WEBSITE', 'Form data viewing', 1, 56),
+('Special Events', '/controllers/schedules/specialevents', 'WEBSITE', 'One-time event schedules', 1, 57),
 
 -- HALL RENTALS
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/rental-requests')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Rental Requests', '/rental-requests', 'Manage hall rental requests', 'Hall Rentals', 0, 1, 60);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/rental-settings')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Settings', '/rental-settings', 'Hall rental settings', 'Hall Rentals', 0, 1, 61);
+('Rental Requests', '/admin/hall-management', 'HALL RENTALS', 'Hall booking platform', 1, 60),
+('Rental Settings', '/admin/hall-rental-settings', 'HALL RENTALS', 'Pricing and policies', 1, 61),
 
 -- SYSTEM
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/infrastructure-hub')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Infrastructure Hub', '/infrastructure-hub', 'System infrastructure management', 'System', 1, 1, 70);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/migration-wizard')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Migration Wizard', '/migration-wizard', 'Data migration tools', 'System', 1, 1, 71);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/admin/system/communications')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Text & Email Setup', '/admin/system/communications', 'Configure outbound communication channels', 'System', 1, 1, 72);
+('Infrastructure Hub', '/admin/operations', 'SYSTEM', 'Server health and recovery tools', 1, 70),
+('Text & Email Setup', '/admin/system/communications', 'SYSTEM', 'Communication channel configuration', 1, 71),
+('System Alert Registry', '/admin/system/alerts', 'SYSTEM', 'Configuration for automated alerts', 1, 72),
 
 -- CAMERA SYSTEM
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/camera-monitor')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('View Monitor', '/camera-monitor', 'View camera feeds', 'Camera System', 0, 1, 80);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/camera-setup')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('System Setup', '/camera-setup', 'Camera system configuration', 'Camera System', 1, 1, 81);
-
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/camera-audit-log')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Audit Log', '/camera-audit-log', 'Camera system audit log', 'Camera System', 1, 1, 82);
+('View Monitor', '/cameras/view', 'CAMERA SYSTEM', 'Real-time NVR feeds', 0, 80),
+('System Setup', '/cameras/configure', 'CAMERA SYSTEM', 'Camera node configuration', 1, 81),
+('Audit Log', '/cameras/audit', 'CAMERA SYSTEM', 'Camera system event log', 1, 82),
 
 -- GFC STUDIO
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/visual-editor')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Visual Editor', '/visual-editor', 'Visual page editor', 'GFC Studio', 0, 1, 90);
+('Visual Editor', '/studio', 'GFC STUDIO', 'Premium visual design center', 0, 90);
 
--- Additional common pages
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/admin/hosting-security')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Hosting & Security', '/admin/hosting-security', 'Hosting and security configuration', 'Administration', 1, 1, 44);
+-- Sync the temporary list to the real table
+MERGE AppPages AS target
+USING @ActualPages AS source
+ON LOWER(target.PageRoute) = LOWER(source.Route)
+WHEN MATCHED THEN
+    UPDATE SET 
+        PageName = source.Name,
+        Category = source.Category,
+        Description = source.Descr,
+        RequiresAdmin = source.IsAdmin,
+        IsActive = 1,
+        DisplayOrder = source.DisplayOrder
+WHEN NOT MATCHED THEN
+    INSERT (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
+    VALUES (source.Name, source.Route, source.Descr, source.Category, source.IsAdmin, 1, source.DisplayOrder);
 
-IF NOT EXISTS (SELECT 1 FROM AppPages WHERE PageRoute = '/audit-logs')
-    INSERT INTO AppPages (PageName, PageRoute, Description, Category, RequiresAdmin, IsActive, DisplayOrder)
-    VALUES ('Audit Logs', '/audit-logs', 'System audit logs', 'Administration', 1, 1, 45);
+-- Final cleanup: Remove anything that wasn't reactivated
+DELETE FROM AppPages WHERE IsActive = 0;
 
-SELECT 'Pages populated successfully. Total pages: ' + CAST(COUNT(*) AS VARCHAR) FROM AppPages;
+SELECT 'SIDEBAR SYNC COMPLETE. Database now matches actual navigation exactly.';

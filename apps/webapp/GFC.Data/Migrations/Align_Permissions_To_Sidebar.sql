@@ -23,7 +23,6 @@ UPDATE AppPages SET PageName = 'Security & Policy' WHERE PageRoute = '/admin/sec
 UPDATE AppPages SET PageName = 'Legal & Documents' WHERE PageRoute = '/admin/documents';
 UPDATE AppPages SET PageName = 'Data Export' WHERE PageRoute = '/export';
 UPDATE AppPages SET PageName = 'Infrastructure Hub' WHERE PageRoute = '/admin/operations';
-UPDATE AppPages SET PageName = 'Migration Wizard' WHERE PageRoute = '/admin/system/migration';
 UPDATE AppPages SET PageName = 'Visual Editor' WHERE PageRoute = '/studio';
 
 -- 3. Deactivate simulation and any pages that don't match the standard sidebar list
