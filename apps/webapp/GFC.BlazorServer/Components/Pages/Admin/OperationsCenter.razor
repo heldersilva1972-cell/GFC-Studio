@@ -47,6 +47,10 @@
                     <span>Download Recovery Pack</span>
                 }
             </button>
+            <button class="btn btn-dark" @onclick="OpenSystemImageModal" disabled="@_isLoading">
+                <i class="bi bi-disc-fill me-2"></i>
+                <span>Full System Image</span>
+            </button>
         </div>
     </div>
 
@@ -562,6 +566,64 @@
     </div>
 </div>
 
+@if (_showSystemImageModal)
+{
+    <div class="modal-backdrop show"></div>
+    <div class="modal show d-block" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header bg-dark text-white rounded-top-4">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-disc-fill me-2"></i>Bare-Metal System Imaging</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showSystemImageModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small">This creates a bit-for-bit clone of your entire hard drive (Windows, IIS, SQL, and all files). Plug in a large external USB drive to begin.</p>
+                    
+                    <label class="small fw-bold text-muted mb-2">Target Backup Drive</label>
+                    <div class="list-group">
+                        @if (_availableDrives == null || !_availableDrives.Any())
+                        {
+                            <div class="list-group-item text-center py-4 bg-light border-dashed">
+                                <i class="bi bi-usb-drive fs-2 text-muted d-block mb-2"></i>
+                                <span class="small text-muted">No external drives detected.</span>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var drive in _availableDrives)
+                            {
+                                <button class="list-group-item list-group-item-action @(drive.IsSystem ? "disabled bg-light" : "") @(_selectedDrive?.DriveLetter == drive.DriveLetter ? "active" : "")" 
+                                        @onclick="() => _selectedDrive = drive" disabled="@drive.IsSystem">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <div class="fw-bold">@drive.DriveLetter (@drive.Label)</div>
+                                            <small class="@(_selectedDrive?.DriveLetter == drive.DriveLetter ? "text-white-50" : "text-muted")">
+                                                @drive.FreeSpaceGb GB free of @drive.TotalSpaceGb GB
+                                            </small>
+                                        </div>
+                                        @if (drive.IsSystem) { <span class="badge bg-secondary x-small">System Drive</span> }
+                                    </div>
+                                </button>
+                            }
+                        }
+                    </div>
+
+                    <div class="alert alert-warning mt-4 border-0 rounded-3 small">
+                        <i class="bi bi-shield-exclamation me-2"></i>
+                        Note: The backup will run as a background task on the server. Do not shut down the computer while the backup is active.
+                    </div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button class="btn btn-outline-secondary rounded-pill px-4" @onclick="() => _showSystemImageModal = false">Cancel</button>
+                    <button class="btn btn-primary rounded-pill px-4" @onclick="TriggerSystemImageAsync" disabled="@(_selectedDrive == null)">
+                        Start Full Image Clone
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .spin { animation: spin 1s linear infinite; }
     @@keyframes spin { 100% {transform: rotate(360deg);} }
@@ -580,6 +642,9 @@
     private bool _isGeneratingPack = false;
     private string? _error = null;
     private string? _statusMessage = null;
+    private bool _showSystemImageModal = false;
+    private IEnumerable<DriveDescriptor>? _availableDrives;
+    private DriveDescriptor? _selectedDrive;
 
     private OperationsHealthInfo? _healthInfo;
     private PublicAccessInfo? _publicInfo;
@@ -746,6 +811,30 @@
     }
 
     private async Task RunDiagnosticsAsync() { _isRunningDiagnostics = true; try { _diagnosticLogs = await OperationsService.RunDiagnosticsAsync(); } catch (Exception ex) { _error = ex.Message; } finally { _isRunningDiagnostics = false; } }
+
+    private async Task OpenSystemImageModal()
+    {
+        _availableDrives = await OperationsService.GetAvailableDrivesAsync();
+        _selectedDrive = _availableDrives.FirstOrDefault(d => !d.IsSystem && d.FreeSpaceGb > 50);
+        _showSystemImageModal = true;
+    }
+
+    private async Task TriggerSystemImageAsync()
+    {
+        if (_selectedDrive == null) return;
+        
+        _showSystemImageModal = false;
+        var success = await OperationsService.TriggerSystemImageAsync(_selectedDrive.DriveLetter);
+        
+        if (success)
+        {
+            _statusMessage = $"System Imaging has been triggered for drive {_selectedDrive.DriveLetter}. Watch the server console for progress.";
+        }
+        else
+        {
+            _error = "Failed to trigger system imaging. Ensure you are running with administrative privileges.";
+        }
+    }
 
     private string GetRelativeTime(DateTime d) { var ts = DateTime.UtcNow - d; return ts.TotalHours < 1 ? $"{ts.Minutes}m ago" : ts.TotalDays < 1 ? $"{ts.Hours}h ago" : $"{ts.Days}d ago"; }
 }

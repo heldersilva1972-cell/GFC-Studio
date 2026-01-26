@@ -13,6 +13,17 @@ namespace GFC.BlazorServer.Services.Operations
         Task<NetworkSecurityInfo> GetNetworkSecurityInfoAsync();
         Task<byte[]> GenerateRecoveryPackAsync();
         Task<List<DiagnosticEntry>> RunDiagnosticsAsync();
+        Task<IEnumerable<DriveDescriptor>> GetAvailableDrivesAsync();
+        Task<bool> TriggerSystemImageAsync(string targetDriveLetter);
+    }
+
+    public class DriveDescriptor
+    {
+        public string DriveLetter { get; set; }
+        public string Label { get; set; }
+        public long FreeSpaceGb { get; set; }
+        public long TotalSpaceGb { get; set; }
+        public bool IsSystem { get; set; }
     }
 
     public class OperationsHealthInfo

@@ -477,13 +477,27 @@ namespace GFC.BlazorServer.Services.Operations
                 };
                 await AddFileToZipAsync(archive, "SYSTEM_SNAPSHOT.json", System.Text.Json.JsonSerializer.Serialize(snapshot, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
 
-                // 4. Scripts
-                await AddFileToZipAsync(archive, "IIS_RESTORE.ps1", GetIisRestoreScript(snapshot.Hosting));
-                await AddFileToZipAsync(archive, "SQL_BACKUP_RESTORE.ps1", GetSqlRestoreScript(snapshot.Database));
-                await AddFileToZipAsync(archive, "CLOUDFLARED_RESTORE.ps1", GetCloudflaredRestoreScript());
-                await AddFileToZipAsync(archive, "VERIFY_ONLINE.ps1", GetVerifyOnlineScript());
+                // 4. Automation Engines (Active)
+                await AddFileToZipAsync(archive, "STEP_1_INSTALL_PREREQS.ps1", GetAutoProvisionScript());
+                await AddFileToZipAsync(archive, "STEP_2_SQL_AUTO_RESTORE.ps1", GetSqlRestoreScript(snapshot.Database));
+                await AddFileToZipAsync(archive, "STEP_3_IIS_RESTORE.ps1", GetIisRestoreScript(snapshot.Hosting));
+                await AddFileToZipAsync(archive, "STEP_4_FIX_PERMISSIONS.ps1", GetPermissionScript(snapshot.Hosting));
+                await AddFileToZipAsync(archive, "STEP_5_CLOUDFLARED_SERVICE.ps1", GetCloudflaredRestoreScript());
+                await AddFileToZipAsync(archive, "VERIFY_HEALTH.ps1", GetVerifyOnlineScript());
                 
-                // 5. Docs
+                await AddFileToZipAsync(archive, "MASTER_AUTO_RECOVERY.ps1", GetMasterRestoreScript());
+                
+                // 5. Config Files (Live)
+                await AddFileToZipAsync(archive, "appsettings.json", await GetAppSettingContentAsync());
+                await AddFileToZipAsync(archive, "web.config", await GetWebConfigContentAsync());
+
+                // 6. Network & Hardware Topology
+                await AddFileToZipAsync(archive, "NETWORK_MAP.md", await GetNetworkMapContentAsync());
+
+                // 7. Security & Credentials Manifest
+                await AddFileToZipAsync(archive, "SECURITY_CREDENTIALS.md", await GetSecurityCredentialsContentAsync());
+
+                // 8. Docs
                 await AddFileToZipAsync(archive, "KNOWN_DEPENDENCIES.md", GetKnownDependenciesContent());
                 await AddFileToZipAsync(archive, "TROUBLESHOOTING.md", GetTroubleshootingContent());
             }
@@ -638,18 +652,28 @@ Write-Host ""IIS Restore Complete."" -ForegroundColor Green
 ";
 
         private string GetSqlRestoreScript(DatabaseRecoveryInfo info) =>
-$@"# SQL Restore Script
+$@"# SQL Smart Restore Engine
 # Database: {info.DatabaseName}
 
-Write-Host ""SQL Server Restore Guidance"" -ForegroundColor Cyan
-Write-Host ""---------------------------""
-Write-Host ""Target Instance: {info.InstanceName}""
-Write-Host ""Target Database: {info.DatabaseName}""
+$dbName = ""{info.DatabaseName}""
+$instance = ""{info.InstanceName}""
 
-Write-Host ""To restore, run the following SQL command in SSMS or sqlcmd:""
-Write-Host ""RESTORE DATABASE [{info.DatabaseName}] FROM DISK = 'PATH_TO_BACKUP.bak' WITH REPLACE, RECOVERY"" -ForegroundColor Yellow
+Write-Host ""Searching for latest backup in current directory..."" -ForegroundColor Cyan
+$latestBak = Get-ChildItem -Filter ""*.bak"" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-# TODO: Add automated restore logic if backup path is known and accessible.
+if ($latestBak) {{
+    Write-Host ""Found Backup: $($latestBak.Name)"" -ForegroundColor Green
+    $bakPath = $latestBak.FullName
+    
+    $sql = ""RESTORE DATABASE [$dbName] FROM DISK = '$bakPath' WITH REPLACE, RECOVERY""
+    Write-Host ""Executing SQL Restore on $instance..."" -ForegroundColor Yellow
+    
+    sqlcmd -S $instance -E -Q $sql
+    Write-Host ""Restore attempt complete."" -ForegroundColor Green
+}} else {{
+    Write-Host ""No .bak files found in this folder. Please copy a backup here and re-run."" -ForegroundColor Red
+    Write-Host ""Manual Command: RESTORE DATABASE [$dbName] FROM DISK = 'PATH_TO_BACKUP.bak' WITH REPLACE, RECOVERY""
+}}
 ";
 
         private string GetCloudflaredRestoreScript() =>
@@ -686,5 +710,195 @@ try {
 }
 ";
 
+        private async Task<string> GetAppSettingContentAsync()
+        {
+            var path = Path.Combine(_environment.ContentRootPath, "appsettings.json");
+            return File.Exists(path) ? await File.ReadAllTextAsync(path) : "{ \"Error\": \"appsettings.json not found on disk\" }";
+        }
+
+        private async Task<string> GetWebConfigContentAsync()
+        {
+            var path = Path.Combine(_environment.ContentRootPath, "web.config");
+            return File.Exists(path) ? await File.ReadAllTextAsync(path) : "<!-- web.config not found -->";
+        }
+
+        private async Task<string> GetNetworkMapContentAsync()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("# Network Infrastructure Map");
+            sb.AppendLine($"Generated on: {DateTime.Now}");
+            sb.AppendLine();
+
+            using var db = await _dbFactory.CreateDbContextAsync();
+
+            sb.AppendLine("## Access Controllers");
+            var controllers = await db.Controllers.ToListAsync();
+            foreach (var c in controllers)
+            {
+                sb.AppendLine($"- **{c.Name}**: {c.IpAddress} (Type: {c.NetworkType})");
+            }
+            sb.AppendLine();
+
+            sb.AppendLine("## Camera Nodes (Auto-Discovered)");
+            var cameras = await db.Cameras.ToListAsync();
+            foreach (var cam in cameras)
+            {
+                sb.AppendLine($"- **{cam.Name}**: {cam.IpAddress}");
+            }
+
+            return sb.ToString();
+        }
+
+        private async Task<string> GetSecurityCredentialsContentAsync()
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var settings = await db.SystemSettings.FirstOrDefaultAsync();
+
+            var sb = new StringBuilder();
+            sb.AppendLine("# Security Credentials Manifest");
+            sb.AppendLine("⚠️ **RESTRICTED ACCESS - DISASTER RECOVERY ONLY**");
+            sb.AppendLine();
+
+            sb.AppendLine("## Communications Setup");
+            sb.AppendLine($"- **Twilio Account**: {settings?.TwilioAccountSid ?? "Not Configured"}");
+            sb.AppendLine($"- **SMTP Host**: {settings?.SmtpHost ?? "Not Configured"}");
+            sb.AppendLine($"- **SMTP Port**: {settings?.SmtpPort}");
+            sb.AppendLine($"- **From Address**: {settings?.SmtpFromAddress}");
+
+            sb.AppendLine();
+            sb.AppendLine("## Web Push (VAPID)");
+            sb.AppendLine($"- **Public Key**: {settings?.VapidPublicKey ?? "Not Set"}");
+            sb.AppendLine($"- **Subject**: {settings?.VapidSubject ?? "Not Set"}");
+
+            return sb.ToString();
+        }
+
+        private string GetAutoProvisionScript() =>
+@"# Automatic Prerequisite Provisioner
+# Uses Windows Package Manager (winget)
+
+Write-Host ""GFC System: Provisioning Infrastructure..."" -ForegroundColor Cyan
+
+# 1. Install SQL Express
+Write-Host ""Installing SQL Server 2022 Express...""
+winget install Microsoft.SQLServer.2022.Express --silent --accept-package-agreements --accept-source-agreements
+
+# 2. Install .NET Hosting Bundle
+Write-Host ""Installing .NET 8 Hosting Bundle...""
+winget install Microsoft.DotNet.AspNetCore.8 --silent
+
+# 3. Install Cloudflared
+Write-Host ""Installing Cloudflared (Tunnel Engine)...""
+winget install Cloudflare.cloudflared --silent
+
+# 4. Install Management Tools
+Write-Host ""Installing SQL Management Studio...""
+winget install Microsoft.SQLServerManagementStudio --silent
+
+Write-Host ""Provisioning Complete. Please REBOOT before proceeding to Step 2."" -ForegroundColor Green
+";
+
+        private string GetPermissionScript(HostingInfo info) =>
+$@"# NTFS Permission Guard
+# Sets up folder security for the IIS User
+
+$path = ""{info.PhysicalPath}""
+$iisUser = ""IIS AppPool\{info.AppPoolName}""
+
+Write-Host ""Securing Paths at $path..."" -ForegroundColor Cyan
+
+$folders = @(""uploads"", ""temp"", ""logs"", ""wwwroot/uploads"")
+
+foreach($f in $folders) {{
+    $fullPath = Join-Path $path $f
+    if (!(Test-Path $fullPath)) {{
+        New-Item -ItemType Directory -Force -Path $fullPath | Out-Null
+    }}
+    
+    Write-Host ""Granting Modify Access to $iisUser on $f""
+    icacls $fullPath /grant ""${{iisUser}}:(OI)(CI)(M)"" /inheritance:e | Out-Null
+}}
+
+Write-Host ""Permissions Hardened."" -ForegroundColor Green
+";
+
+        private string GetMasterRestoreScript() =>
+@"# MASTER AUTO-RECOVERY ENGINE
+# Run this as Administrator to recover the entire stack
+
+Write-Host ""======================================="" -ForegroundColor Magenta
+Write-Host ""   GFC STUDIO MASTER RECOVERY ENGINE   "" -ForegroundColor Magenta
+Write-Host ""======================================="" -ForegroundColor Magenta
+
+$step = Read-Host ""Start Full Recovery? (Y/N)""
+if ($step -ne 'Y') { exit }
+
+Write-Host ""[STEP 1] Installing Prerequisites...""
+.\STEP_1_INSTALL_PREREQS.ps1
+
+Write-Host ""[STEP 2] Restoring Database...""
+.\STEP_2_SQL_AUTO_RESTORE.ps1
+
+Write-Host ""[STEP 3] Configuring IIS Web Server...""
+.\STEP_3_IIS_RESTORE.ps1
+
+Write-Host ""[STEP 4] Setting Folder Permissions...""
+.\STEP_4_FIX_PERMISSIONS.ps1
+
+Write-Host ""[STEP 5] Setting up Remote Access Service...""
+.\STEP_5_CLOUDFLARED_SERVICE.ps1
+
+Write-Host ""[FINAL] Verifying Health...""
+.\VERIFY_HEALTH.ps1
+
+Write-Host ""SYSTEM RECOVEY COMPLETE."" -ForegroundColor Green
+";
+
+        public async Task<IEnumerable<DriveDescriptor>> GetAvailableDrivesAsync()
+        {
+            return await Task.Run(() =>
+            {
+                var drives = DriveInfo.GetDrives()
+                    .Where(d => d.IsReady && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Removable))
+                    .Select(d => new DriveDescriptor
+                    {
+                        DriveLetter = d.Name.Replace("\\", ""),
+                        Label = string.IsNullOrEmpty(d.VolumeLabel) ? "Local Disk" : d.VolumeLabel,
+                        FreeSpaceGb = d.AvailableFreeSpace / 1024 / 1024 / 1024,
+                        TotalSpaceGb = d.TotalSize / 1024 / 1024 / 1024,
+                        IsSystem = d.Name.Equals(Path.GetPathRoot(_environment.ContentRootPath), StringComparison.OrdinalIgnoreCase)
+                    })
+                    .ToList();
+                return drives;
+            });
+        }
+
+        public async Task<bool> TriggerSystemImageAsync(string targetDriveLetter)
+        {
+            try
+            {
+                _logger.LogInformation("Triggering System Image backup via wbadmin to drive {Drive}", targetDriveLetter);
+                
+                // Command: wbadmin start backup -backupTarget:X: -include:C: -allCritical -quiet
+                // Note: This requires the AppPool/Process to have high elevation or a specific service to handle it.
+                // For now, we spawn the process.
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "wbadmin",
+                    Arguments = $"start backup -backupTarget:{targetDriveLetter} -include:C: -allCritical -quiet",
+                    UseShellExecute = true, // Use true for potential elevation prompt or system context
+                    Verb = "runas",
+                    CreateNoWindow = false
+                };
+
+                Process.Start(startInfo);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to trigger wbadmin system image");
+                return false;
+            }
+        }
     }
 }
