@@ -38,6 +38,39 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#121212" />
     
+    <style>
+        /* [PREMIUM] Reconnection UI Override */
+        /* This prevents the ugly gray overlay and shows a subtle status indicator instead */
+        #components-reconnect-modal {
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 10000;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-family: system-ui, -apple-system, sans-serif;
+            border-bottom: 3px solid var(--app-primary, #0d6efd);
+        }
+
+        #components-reconnect-modal.components-reconnect-show {
+            display: flex;
+        }
+
+        /* Subtle indicator for the 8 attempts */
+        #components-reconnect-modal::before {
+            content: 'Synchronizing with GFC Server...';
+            font-weight: 600;
+            font-size: 0.9rem;
+            letter-spacing: 0.5px;
+        }
+
+        /* Hide the default browser text */
+        #components-reconnect-modal h5, #components-reconnect-modal button {
+            display: none !important;
+        }
+    </style>
     <component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" />
 </head>
 <body>
@@ -69,8 +102,38 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/session-monitor.js"></script>
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
-    <script src="_framework/blazor.server.js"></script>
+    <script src="_framework/blazor.server.js" autostart="false"></script>
     <script>
+        // SMART RECONNECTION HANDLER
+        // This script targets the common mobile issue where switching apps kills the connection.
+        // It provides a smoother experience and an auto-reload failsafe.
+        Blazor.start({
+            reconnectionHandler: {
+                onConnectionDown: (options, error) => {
+                    console.warn("[GFC] Connection lost. Attempting to reconnect...");
+                    // If we are on mobile, give it a few seconds then just reload 
+                    // a fresh state if reconnection is struggling.
+                    setTimeout(() => {
+                        const modal = document.getElementById('components-reconnect-modal');
+                        if (modal && modal.classList.contains('components-reconnect-show')) {
+                            console.log("[GFC] Reconnection taking too long. Forcing fresh state.");
+                            location.reload();
+                        }
+                    }, 5000); // 5 second grace period before forcing reload
+                },
+                onConnectionUp: () => console.log("[GFC] Connection restored.")
+            }
+        });
+
+        // Monitor visibility change (app coming back to foreground)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                // If we've been gone a while, the circuit is likely dead.
+                // Re-triggering a check or just reloading if it's been in background > 30s can be helpful.
+                console.log("[GFC] App foregrounded. Ready for interaction.");
+            }
+        });
+
         window.downloadFile = function (fileName, base64Data, contentType) {
             const byteCharacters = atob(base64Data);
             const byteNumbers = new Array(byteCharacters.length);
