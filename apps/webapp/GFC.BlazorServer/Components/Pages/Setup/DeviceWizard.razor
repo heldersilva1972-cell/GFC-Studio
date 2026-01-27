@@ -116,18 +116,20 @@
             {
                 <div class="step-content text-center">
                     <div class="setup-icon-wrapper pwa">
-                        <i class="bi bi-phone-vibrate"></i>
+                        <i class="bi @(UserConnectionService.IsMobile ? "bi-phone-vibrate" : "bi-laptop")"></i>
                     </div>
-                    <h3 class="fw-bold mb-3">Install GFC App</h3>
+                    <h3 class="fw-bold mb-3">@(UserConnectionService.IsMobile ? "Install GFC App" : "Desktop Shortcut")</h3>
                     <p class="text-muted mb-4">
-                        Add GFC to your home screen for an "App-like" experience. 
-                        It works faster and keeps you securely connected.
+                        @(UserConnectionService.IsMobile 
+                            ? "Add GFC to your home screen for an \"App-like\" experience. It works faster and keeps you securely connected."
+                            : "Install the GFC App to your desktop taskbar/dock for faster access, or verify your browser shortcut."
+                        )
                     </p>
 
                     @if (_canInstall)
                     {
                         <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3" @onclick="TriggerPwaInstall">
-                            <i class="bi bi-plus-circle-fill me-2"></i>Install App Now
+                            <i class="bi bi-plus-circle-fill me-2"></i>@(UserConnectionService.IsMobile ? "Install App Now" : "Install to Desktop")
                         </button>
                     }
                     else if (!string.IsNullOrEmpty(_platformInstructions))
@@ -198,9 +200,9 @@
                         Welcome to the GFC Membership System.
                     </p>
 
-                    <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow-lg" @onclick="FinishWizard">
+                    <a href="@(UserConnectionService.IsMobile ? "/mobile" : "/")" class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow-lg">
                         <i class="bi bi-house-door-fill me-2"></i>Go to Dashboard
-                    </button>
+                    </a>
                     
                     <div class="mt-4 pt-4 border-top">
                         <div class="row g-2">
@@ -461,11 +463,27 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var user = AuthStateProvider.GetCurrentUser();
-        if (user != null && !user.PasswordChangeRequired)
+        // [FIX] Force reload from DB to ensure we have the latest PassCodeHash status
+        // The AuthState might be stale if the reset happened recently.
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var principal = authState.User;
+        var userIdStr = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        
+        if (int.TryParse(userIdStr, out int userId))
         {
-            // If passcode is already set/not required, start at Step 2 (Security Binding)
-            CurrentStep = 2;
+            var user = await UserService.GetUserAsync(userId);
+            if (user != null)
+            {
+                // Intelligent skip: ONLY skip Step 1 if the FRESH db record has a passcode
+                if (!string.IsNullOrEmpty(user.PassCodeHash))
+                {
+                    CurrentStep = 2;
+                }
+                else
+                {
+                    CurrentStep = 1;
+                }
+            }
         }
     }
 
@@ -477,8 +495,27 @@
         }
     }
 
-    private void NextStep() 
+    private async void NextStep() 
     {
+        // [FIX] Safety Check: Before finishing (entering Step 5), verify Passcode is set
+        if (CurrentStep == 4)
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdStr, out int userId))
+            {
+                var user = await UserService.GetUserAsync(userId);
+                if (user != null && string.IsNullOrEmpty(user.PassCodeHash))
+                {
+                    // WHOOPS! No passcode set. Force them back to Step 1.
+                    CurrentStep = 1;
+                    _passcodeError = "A passcode is required to complete setup.";
+                    StateHasChanged();
+                    return;
+                }
+            }
+        }
+
         CurrentStep++;
         StateHasChanged();
     }

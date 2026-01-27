@@ -224,6 +224,7 @@ INNER JOIN (
     SELECT PerformedByUserId, MAX(AuditLogId) as MaxId
     FROM AuditLogs
     WHERE TimestampUtc > DATEADD(minute, -60, GETUTCDATE())
+      AND PerformedByUserId IS NOT NULL
     GROUP BY PerformedByUserId
 ) latest ON al.AuditLogId = latest.MaxId
 LEFT JOIN AppUsers pb ON al.PerformedByUserId = pb.UserId

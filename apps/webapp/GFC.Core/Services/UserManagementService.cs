@@ -16,6 +16,7 @@ public class UserManagementService : IUserManagementService
     private readonly IPasswordPolicy _passwordPolicy;
     private readonly IPagePermissionRepository _pagePermissionRepository;
     private readonly IBoardTermConfirmationService _boardTermConfirmationService;
+    private readonly IDeviceTrustService _deviceTrustService; // [FIX] Now using Core Interface
     
     // PERFORMANCE CACHE: Persists across circuits (Static)
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, HashSet<string>> _permissionCache = new();
@@ -30,7 +31,8 @@ public class UserManagementService : IUserManagementService
         IAuditLogger auditLogger,
         IPasswordPolicy passwordPolicy,
         IPagePermissionRepository pagePermissionRepository,
-        IBoardTermConfirmationService boardTermConfirmationService)
+        IBoardTermConfirmationService boardTermConfirmationService,
+        IDeviceTrustService deviceTrustService) // [FIX] Now using Core Interface
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
@@ -41,6 +43,41 @@ public class UserManagementService : IUserManagementService
         _passwordPolicy = passwordPolicy ?? throw new ArgumentNullException(nameof(passwordPolicy));
         _pagePermissionRepository = pagePermissionRepository ?? throw new ArgumentNullException(nameof(pagePermissionRepository));
         _boardTermConfirmationService = boardTermConfirmationService ?? throw new ArgumentNullException(nameof(boardTermConfirmationService));
+        _deviceTrustService = deviceTrustService;
+    }
+
+    // ... (rest of methods)
+
+    public void DeleteUser(int userId)
+    {
+        // [FIX] Cleanup device trust environment before deleting user
+        try
+        {
+            _deviceTrustService.ResetMobileSetupAsync(userId).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[UserManagement] Warning: specific device cleanup failed during user deletion: {ex.Message}");
+        }
+
+        _userRepository.DeleteUser(userId);
+    }
+
+    public async Task DeleteUserAsync(int userId)
+    {
+        // [FIX] Cleanup device trust environment before deleting user (Async)
+        try
+        {
+            await _deviceTrustService.ResetMobileSetupAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[UserManagement] Warning: specific device cleanup failed during user deletion: {ex.Message}");
+        }
+
+        // Repository delete is currently sync, but that's okay as it's a fast db op usually.
+        // If needed we can stick it in Task.Run or update repo to be async later.
+        _userRepository.DeleteUser(userId);
     }
 
     public void ClearPermissionCache()
@@ -279,10 +316,7 @@ public class UserManagementService : IUserManagementService
         }
     }
 
-    public void DeleteUser(int userId)
-    {
-        _userRepository.DeleteUser(userId);
-    }
+    // [REMOVED duplicate DeleteUser method]
 
     public void ChangePassword(int userId, string newPassword, bool clearPasswordChangeRequired = false, int? performedByUserId = null)
     {

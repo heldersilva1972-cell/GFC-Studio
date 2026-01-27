@@ -57,7 +57,19 @@ public class AuthenticationService : IAuthenticationService
                 CreatedDate = DateTime.UtcNow
             };
             _currentUser = admin;
-            return new LoginResult { Code = LoginResultCode.Success, User = admin };
+
+            // [NEW] Ensure admin also gets a device token if requested (essential for mobile trust)
+            string? deviceToken = null;
+            if (rememberDevice)
+            {
+                deviceToken = await GenerateAndSaveDeviceTokenAsync(admin.UserId, ipAddress, null);
+            }
+
+            return new LoginResult { 
+                Code = LoginResultCode.Success, 
+                User = admin,
+                DeviceToken = deviceToken 
+            };
         }
 
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
@@ -291,11 +303,15 @@ public class AuthenticationService : IAuthenticationService
         
         _auditLogger.Log(AuditLogActions.LoginSuccessMagicLink, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
 
+        // [NEW] Magic Link logins on mobile must also return a device token for trust
+        var deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, "MagicLink");
+
         return new LoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
-            PasswordChangeRequired = user.PasswordChangeRequired
+            PasswordChangeRequired = user.PasswordChangeRequired,
+            DeviceToken = deviceToken
         };
     }
 
@@ -317,11 +333,15 @@ public class AuthenticationService : IAuthenticationService
         
         _auditLogger.Log(AuditLogActions.LoginSuccessPasskey, user.UserId, user.UserId, $"IP: {ipAddress ?? "unknown"}");
 
+        // [NEW] Passkey logins on mobile must also return a device token for trust
+        var deviceToken = await GenerateAndSaveDeviceTokenAsync(user.UserId, ipAddress, "Passkey");
+
         return new LoginResult
         {
             Code = LoginResultCode.Success,
             User = user,
-            PasswordChangeRequired = user.PasswordChangeRequired
+            PasswordChangeRequired = user.PasswordChangeRequired,
+            DeviceToken = deviceToken
         };
     }
 

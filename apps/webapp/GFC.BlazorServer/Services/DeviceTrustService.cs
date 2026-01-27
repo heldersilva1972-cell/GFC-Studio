@@ -4,37 +4,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
 
+using GFC.Core.Interfaces;
+using GFC.Core.DTOs;
+
 namespace GFC.BlazorServer.Services;
 
-/// <summary>
-/// Service for managing trusted device tokens
-/// </summary>
-public interface IDeviceTrustService
-{
-    Task<bool> ValidateDeviceTokenAsync(string token, int userId);
-    Task<string> CreateDeviceTokenAsync(int userId, string userAgent, string ipAddress, int durationDays);
-    Task<bool> RevokeDeviceTokenAsync(string token);
-    Task RevokeAllUserDevicesAsync(int userId);
-    Task CleanupExpiredTokensAsync();
-    bool ValidateToken(string token); // For middleware - validates token exists and is not expired/revoked
-    Task<int?> GetUserIdByTokenAsync(string token);
-    Task<List<TrustedDevice>> GetDevicesForUserAsync(int userId);
-    Task<List<DeviceSessionDto>> GetAllActiveDevicesAsync();
-    Task RevokeAllGlobalSessionsAsync();
-    Task ResetMobileSetupAsync(int userId);
-}
+// Interface moved to GFC.Core.Interfaces
 
-public class DeviceSessionDto
-{
-    public int UserId { get; set; }
-    public string Username { get; set; } = string.Empty;
-    public string DeviceToken { get; set; } = string.Empty;
-    public string UserAgent { get; set; } = string.Empty;
-    public string IpAddress { get; set; } = string.Empty;
-    public DateTime LastUsedUtc { get; set; }
-    public DateTime ExpiresAtUtc { get; set; }
-    public bool IsRevoked { get; set; }
-}
+// DTO moved to GFC.Core.DTOs
 
 public class DeviceTrustService : IDeviceTrustService
 {
@@ -192,10 +169,71 @@ public class DeviceTrustService : IDeviceTrustService
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Revoked {Count} active device tokens for user {UserId}.", devices.Count, userId);
             }
+
+            // [FIX] Invalidate global in-memory cache to force logout on next request
+            CustomAuthenticationStateProvider.InvalidateUser(userId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error revoking all device tokens for user {UserId}", userId);
+        }
+    }
+
+    /// <summary>
+    /// Removes expired and revoked tokens from the database
+    /// </summary>
+    public async Task CleanupExpiredTokensAsync()
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            
+            var cutoffDate = DateTime.UtcNow.AddDays(-30); // Keep revoked tokens for 30 days for audit
+            
+            var expiredTokens = await context.TrustedDevices
+                .Where(d => d.ExpiresAtUtc < DateTime.UtcNow || (d.IsRevoked && d.LastUsedUtc < cutoffDate))
+                .ToListAsync();
+
+            if (expiredTokens.Any())
+            {
+                context.TrustedDevices.RemoveRange(expiredTokens);
+                await context.SaveChangesAsync();
+                _logger.LogInformation("Cleaned up {Count} expired device tokens", expiredTokens.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cleaning up expired device tokens");
+        }
+    }
+
+    // ... (ValidateToken, GetUserIdByTokenAsync, GetDevicesForUserAsync, GetAllActiveDevicesAsync omitted for brevity) ...
+
+    public async Task RevokeAllGlobalSessionsAsync()
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var devices = await context.TrustedDevices
+                .Where(t => !t.IsRevoked)
+                .ToListAsync();
+            
+            if (devices.Any())
+            {
+                foreach (var device in devices)
+                {
+                    device.IsRevoked = true;
+                }
+                await context.SaveChangesAsync();
+                _logger.LogInformation("GLOBAL REVOKE: Revoked {Count} active device tokens system-wide.", devices.Count);
+            }
+
+            // [FIX] Invalidate ENTIRE global in-memory cache
+            CustomAuthenticationStateProvider.InvalidateAll();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error revoking all global device tokens");
         }
     }
 
@@ -372,7 +410,14 @@ public class DeviceTrustService : IDeviceTrustService
             await using var context = await _contextFactory.CreateDbContextAsync();
 
             // 1. Delete Trusted Devices (Fresh start as per user request)
+            // [NOTE] This deletes ALL trusted devices (phones, laptops, tablets) for this user.
             var devices = await context.TrustedDevices.Where(d => d.UserId == userId).ToListAsync();
+            
+            // Safety: If the user reset themselves (which shouldn't happen via UI but for safety),
+            // this loop would kill their current session token immediately.
+            // However, the UI blocks 'admin' reset, and users can't reset themselves via this tool easily.
+            // The "Logged Out" effect happens because we nuke the token they are currently using.
+            
             if (devices.Any()) context.TrustedDevices.RemoveRange(devices);
 
             // 2. Delete Push Subscriptions
@@ -387,8 +432,19 @@ public class DeviceTrustService : IDeviceTrustService
             var invites = await context.DeviceInviteTokens.Where(i => i.UserId == userId).ToListAsync();
             if (invites.Any()) context.DeviceInviteTokens.RemoveRange(invites);
 
+            // 5. [FIX] Clear the Passcode (PIN) so the wizard runs Step 1 again
+            var user = await context.AppUsers.FindAsync(userId);
+            if (user != null)
+            {
+                user.PassCodeHash = null;
+                // We don't necessarily force a password change, just the PIN
+            }
+
             await context.SaveChangesAsync();
             _logger.LogInformation("MOBILE RESET: Performed full mobile setup reset for user {UserId}.", userId);
+
+            // [FIX] Invalidate global in-memory cache to force logout on next request
+            CustomAuthenticationStateProvider.InvalidateUser(userId);
         }
         catch (Exception ex)
         {

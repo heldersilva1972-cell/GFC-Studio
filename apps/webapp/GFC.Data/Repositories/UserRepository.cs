@@ -421,6 +421,16 @@ public class UserRepository : IUserRepository
 
                 IF EXISTS (SELECT * FROM sys.tables WHERE name = 'AuthorizedUsers')
                     DELETE FROM AuthorizedUsers WHERE UserId = @UserId;
+
+                -- [FIX] Ensure mobile-related tables are cleaned up (Belt & Suspenders)
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'UserPasskeys')
+                    DELETE FROM UserPasskeys WHERE UserId = @UserId;
+
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'PushSubscriptions')
+                    DELETE FROM PushSubscriptions WHERE UserId = @UserId;
+                
+                IF EXISTS (SELECT * FROM sys.tables WHERE name = 'DeviceInviteTokens')
+                    DELETE FROM DeviceInviteTokens WHERE UserId = @UserId;
                 
                 -- Finally delete the user
                 DELETE FROM AppUsers WHERE UserId = @UserId;";

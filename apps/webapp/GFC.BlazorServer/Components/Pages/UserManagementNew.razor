@@ -685,7 +685,7 @@
                                     <button class="btn btn-outline-danger btn-sm w-100 py-2 fw-bold rounded-pill" @onclick="ResetQuickMobileSetup" disabled="@_resettingMobile">
                                         @if (_resettingMobile) { <span class="spinner-border spinner-border-sm me-2"></span> }
                                         else { <i class="bi bi-trash3-fill me-2"></i> }
-                                        Reset Entire Mobile Environment
+                                        Revoke All Linked Devices
                                     </button>
                                 </div>
                             }
@@ -1346,7 +1346,7 @@
         {
             try
             {
-                UserManagementService.DeleteUser(user.UserId);
+                await UserManagementService.DeleteUserAsync(user.UserId);
                 await LoadUsers();
             }
             catch (Exception ex)
@@ -1386,7 +1386,8 @@
         _quickGeneratedLink = "";
         _quickCopied = false;
         _showQrCode = false;
-        if (_users.Any()) _quickOnboardUserId = _users.OrderBy(u => u.Username).First().UserId;
+        // [SAFETY] Default to 0 (Choose a user...) instead of auto-selecting the first user (which might be admin)
+        _quickOnboardUserId = 0; 
     }
 
     private void CloseQuickOnboardModal()
@@ -1419,6 +1420,13 @@
         if (_quickOnboardUserId == 0) return;
         var user = _users.FirstOrDefault(u => u.UserId == _quickOnboardUserId);
         if (user == null) return;
+
+        // [SAFETY] Prevent resetting the primary admin account
+        if (user.Username.ToLowerInvariant() == "admin")
+        {
+            await JS.InvokeVoidAsync("alert", "Safety Lock: You cannot reset the environment for the primary 'admin' account.");
+            return;
+        }
         
         var confirmed = await JS.InvokeAsync<bool>("confirm", 
             $"CRITICAL: This will permanently delete all trusted devices, push subscriptions, and passkeys for '{user.Username}'. " +
@@ -1429,7 +1437,11 @@
         _resettingMobile = true;
         try
         {
+            // Explicitly log who we are resetting to debug potential session cross-talk
+            Console.WriteLine($"[UserManagement] Resetting mobile environment for UserId: {_quickOnboardUserId} (Target: {user.Username})");
+
             await DeviceTrustService.ResetMobileSetupAsync(_quickOnboardUserId);
+            
             await JS.InvokeVoidAsync("alert", "Mobile environment has been completely reset for this user.");
             _quickGeneratedLink = ""; // Force them to generate new link after reset
         }

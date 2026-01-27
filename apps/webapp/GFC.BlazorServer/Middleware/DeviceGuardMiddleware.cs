@@ -153,7 +153,7 @@ namespace GFC.BlazorServer.Middleware
                             <div>Location: {connectionService.LocationType}</div>
                             <div>Path: {path}</div>
                             <div>HasTokenParam: {context.Request.Query.ContainsKey("token")}</div>
-                            <div style='margin-top: 5px; color: #ccc;'>v.2026.01.08.0150</div>
+                            <div style='margin-top: 5px; color: #ccc;'>v.2026.01.27.0715</div>
                         </div>
                     </div>
                 </body>
