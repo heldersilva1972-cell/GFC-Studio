@@ -182,10 +182,8 @@ public class AuthenticationService : IAuthenticationService
         {
             string reason = trustedDevice == null ? "Device token not found" : (trustedDevice.IsRevoked ? "Device was revoked" : "Device token expired");
             await SafeLogLogin(null, trustedDevice?.UserId, false, ipAddress, reason);
-            if (trustedDevice != null)
-            {
-                await _trustedDeviceRepository.DeleteAsync(trustedDevice.Id);
-            }
+            
+            // [FIX] DO NOT delete the token immediately. This prevents accidental logout loops during network flickers.
             return CreateFailure(LoginResultCode.InvalidCredentials, reason);
         }
 
@@ -194,7 +192,7 @@ public class AuthenticationService : IAuthenticationService
         {
             string reason = user == null ? "User not found for token" : "User for token is inactive";
             await SafeLogLogin(user?.Username, trustedDevice.UserId, false, ipAddress, reason);
-            await _trustedDeviceRepository.DeleteAsync(trustedDevice.Id);
+            // [FIX] DO NOT delete the token immediately.
             return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
         }
 
@@ -356,15 +354,11 @@ public class AuthenticationService : IAuthenticationService
 
     public async Task LogoutAsync(string? deviceToken = null)
     {
-        if (!string.IsNullOrWhiteSpace(deviceToken))
-        {
-            var trustedDevice = await _trustedDeviceRepository.GetByTokenAsync(deviceToken);
-            if (trustedDevice != null)
-            {
-                await _trustedDeviceRepository.DeleteAsync(trustedDevice.Id);
-            }
-        }
+        // [MODIFIED] Do NOT delete/revoke the device trust token on logout.
+        // This allows the device to remain trusted for the 'Access Shield' 
+        // and enables auto-login when the user returns later.
         _currentUser = null;
+        await Task.CompletedTask;
     }
 
     public AppUser? GetCurrentUser()
@@ -452,7 +446,9 @@ public class AuthenticationService : IAuthenticationService
     {
         var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
 
-        // Enforce Single Session Policy: Revoke all existing active tokens for this user
+        // [MODIFIED] Disabled Single Session Policy based on user feedback (persistent logouts)
+        // Allowing multiple trusted devices per user for better stability.
+        /*
         var existingDevices = await _trustedDeviceRepository.GetActiveDevicesForUserAsync(userId);
         foreach (var device in existingDevices)
         {
@@ -464,6 +460,7 @@ public class AuthenticationService : IAuthenticationService
         {
             _logger.LogInformation("Revoked {Count} existing sessions for user {UserId} to enforce single-session policy.", existingDevices.Count, userId);
         }
+        */
 
         var token = GenerateSecureToken();
         var newDevice = new TrustedDevice

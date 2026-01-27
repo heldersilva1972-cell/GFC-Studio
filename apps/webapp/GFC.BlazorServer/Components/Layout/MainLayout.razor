@@ -238,17 +238,25 @@ else
     {
         _healthTimer = new System.Threading.Timer(async _ => 
         {
-            UpdateControllerStatus();
-            await CheckPwaStatus();
-            await ValidateSession();
-            await InvokeAsync(StateHasChanged);
-        }, null, 5000, 10000); // Relaxed intervals for better CPU on mobile
+            try {
+                UpdateControllerStatus();
+                await CheckPwaStatus();
+                await ValidateSession();
+                await InvokeAsync(StateHasChanged);
+            } catch (Exception ex) {
+                Logger.LogWarning("Health monitor cycle encountered an error: {Message}", ex.Message);
+            }
+        }, null, 10000, 30000); // Relaxed intervals (30s) for session health checks
 
         _sessionTimer = new System.Threading.Timer(async _ =>
         {
             var absoluteSessionMaxMinutes = _settings?.AbsoluteSessionMaxMinutes ?? 1440;
+            // [SAFEGUARD] Ensure a minimum of 60 minutes for the absolute session to prevent accidental lockout loops
+            if (absoluteSessionMaxMinutes < 60) absoluteSessionMaxMinutes = 60;
+
             if (UserSessionService.LoginTimeUtc != default && (DateTime.UtcNow - UserSessionService.LoginTimeUtc).TotalMinutes > absoluteSessionMaxMinutes)
             {
+                Logger.LogWarning("Absolute session limit reached ({Limit}m). Logging out.", absoluteSessionMaxMinutes);
                 await HandleLogout();
             }
         }, null, 60000, 60000);
@@ -546,20 +554,22 @@ else
     {
         try
         {
-            // Logout ends the session but DOES NOT revoke the hardware trust 
-            // We clear local storage so auto-login stops, but keep the cookie 
-            // so the "Access Shield" doesn't block the login page.
-            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-            await AuthStateProvider.LogoutAsync(token); // Revoke token if it exists
-            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-            await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+            Logger.LogInformation("HandleLogout initiated for user: {Username}", _currentUsername);
+
+            // [MODIFIED] Persistent Trust Strategy:
+            // We clear the authentication state in the provider, but we 
+            // PRESERVE the cookie and localStorage tokens.
+            // This ensures the 'Access Shield' middleware doesn't block the user,
+            // and allows for high-speed auto-login next time the app opens.
+            await AuthStateProvider.LogoutAsync();
 
             await Task.Delay(100);
             await UpdateUserInfo();
             Navigation.NavigateTo("/login", forceLoad: true);
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.LogError(ex, "Error during HandleLogout for user: {Username}", _currentUsername);
             Navigation.NavigateTo("/login", forceLoad: true);
         }
     }
@@ -601,8 +611,25 @@ else
     {
         try
         {
-            // Only check if we look authenticated
-            if (!_isAdmin && string.IsNullOrEmpty(_currentUsername)) return;
+            // [MODIFIED] Only check if we are currently authenticated in the UI
+            if (string.IsNullOrEmpty(_currentUsername) || _currentUsername == "Unknown") return;
+
+            // [NEW] Check if the provider still thinks we are authenticated
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (authState.User.Identity?.IsAuthenticated != true)
+            {
+                // The underlying provider already lost auth, update UI but don't force a loopify logout
+                if (!string.IsNullOrEmpty(_currentUsername) && _currentUsername != "Unknown")
+                {
+                    await UpdateUserInfo();
+                }
+                return;
+            }
+
+            // [NEW] On Desktop, we trust the SignalR circuit. 
+            // Aggressive token re-validation is a battery/reconnection strategy for MOBILE.
+            bool isMobile = UserConnectionService.IsMobile;
+            if (!isMobile) return; 
 
             var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
             if (!string.IsNullOrEmpty(token))
@@ -611,11 +638,32 @@ else
                 var isValid = DeviceTrustService.ValidateToken(token);
                 if (!isValid)
                 {
-                    await HandleLogout();
+                    Logger.LogWarning("ValidateSession: Mobile Token '{TokenSnippet}' is no longer valid (Revoked/Expired).", token.Length > 8 ? token.Substring(0, 8) : token);
+                    
+                    // Defense: Double check if the user is still valid in the identity system
+                    var currentUser = AuthStateProvider.GetCurrentUser();
+                    if (currentUser == null || !currentUser.IsActive)
+                    {
+                        var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
+                        bool isProtected = !currentUri.Contains("/login") && !currentUri.Contains("/setup") && !currentUri.Contains("/mobile");
+                        
+                        if (isProtected)
+                        {
+                            Logger.LogInformation("Forcing logout: Mobile Session/User invalid on protected page.");
+                            await HandleLogout();
+                        }
+                    }
                 }
             }
         }
-        catch { /* Ignore JS errors or concurrent disconnects */ }
+        catch (Exception ex)
+        { 
+             /* Ignore JS errors or concurrent disconnects */ 
+             if (!(ex is JSDisconnectedException || ex is TaskCanceledException))
+             {
+                 Logger.LogDebug("ValidateSession: Suppressed error: {Message}", ex.Message);
+             }
+        }
     }
     private void ToggleSidebar()
     {

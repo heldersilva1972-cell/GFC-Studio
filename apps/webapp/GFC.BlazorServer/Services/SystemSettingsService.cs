@@ -4,6 +4,7 @@ using GFC.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Caching.Memory;
+using GFC.Core.Enums;
 
 namespace GFC.BlazorServer.Services;
 
@@ -47,12 +48,18 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                 settings = new SystemSettings
                 {
                     Id = 1,
-                    LastUpdatedUtc = null
+                    LastUpdatedUtc = null,
+                    IdleTimeoutMinutes = 60,
+                    AbsoluteSessionMaxMinutes = 1440,
+                    TrustedDeviceDurationDays = 30,
+                    AccessMode = AccessMode.Open,
+                    MagicLinkEnabled = true,
+                    HostingEnvironment = "Production"
                 };
                 
                 dbContext.SystemSettings.Add(settings);
                 await dbContext.SaveChangesAsync();
-                _logger.LogInformation("Created default SystemSettings");
+                _logger.LogInformation("Created default SystemSettings with fixed defaults");
             }
             
             // Cache the settings
@@ -153,12 +160,18 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                 settings = new SystemSettings
                 {
                     Id = 1,
-                    LastUpdatedUtc = null
+                    LastUpdatedUtc = null,
+                    IdleTimeoutMinutes = 60,
+                    AbsoluteSessionMaxMinutes = 1440,
+                    TrustedDeviceDurationDays = 30,
+                    AccessMode = AccessMode.Open,
+                    MagicLinkEnabled = true,
+                    HostingEnvironment = "Production"
                 };
                 
                 dbContext.SystemSettings.Add(settings);
                 dbContext.SaveChanges();
-                _logger.LogInformation("Created default SystemSettings");
+                _logger.LogInformation("Created default SystemSettings with fixed defaults (sync)");
             }
             
             // Cache the settings

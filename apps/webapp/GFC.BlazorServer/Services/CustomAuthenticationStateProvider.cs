@@ -6,7 +6,11 @@ using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.JSInterop;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace GFC.BlazorServer.Services;
 
@@ -15,21 +19,29 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     private readonly IAuthenticationService _authenticationService;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IUserSessionService _userSessionService;
+    private readonly IJSRuntime _jsRuntime;
+    private readonly Microsoft.Extensions.Logging.ILogger<CustomAuthenticationStateProvider> _logger;
 
-    // PERFORMANCE CACHE: Persists across circuits (Static)
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (AppUser User, DateTime Expiry)> _tokenCache = new();
+    // [NEW] High-Speed Global Session Cache
+    // This persists across all user circuits and prevents redundant DB calls during reloads.
+    private static readonly ConcurrentDictionary<string, (AppUser User, DateTime Expiry)> _tokenCache = new();
 
+    // Scoped state for the current circuit
     private ClaimsPrincipal _currentPrincipal = CreateUnauthenticatedPrincipal();
     private AppUser? _currentUser;
 
     public CustomAuthenticationStateProvider(
         IAuthenticationService authenticationService,
         IHttpContextAccessor httpContextAccessor,
-        IUserSessionService userSessionService)
+        IUserSessionService userSessionService,
+        IJSRuntime jsRuntime,
+        Microsoft.Extensions.Logging.ILogger<CustomAuthenticationStateProvider> logger)
     {
         _authenticationService = authenticationService ?? throw new ArgumentNullException(nameof(authenticationService));
         _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
         _userSessionService = userSessionService ?? throw new ArgumentNullException(nameof(userSessionService));
+        _jsRuntime = jsRuntime ?? throw new ArgumentNullException(nameof(jsRuntime));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     private bool _autoLoginAttempted = false;
@@ -38,26 +50,44 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     {
         RefreshFromAuthenticationService();
 
-        // [MODIFIED] HIGH-SPEED AUTO-LOGIN: Uses static cache to survive circuit drops
+        // Standard Auto-Login: Check cookie and validate against DB
         if (_currentUser == null && !_autoLoginAttempted)
         {
             _autoLoginAttempted = true;
             try 
             {
                 var context = _httpContextAccessor.HttpContext;
-                if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token) && !string.IsNullOrEmpty(token))
+                string? token = null;
+
+                // 1. Try Cookies (Initial load / Prerendering)
+                if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
                 {
-                    // 1. Check Global Cache first (very fast)
-                    if (_tokenCache.TryGetValue(token, out var cached) && cached.Expiry > DateTime.UtcNow)
+                    // Got token from cookie
+                }
+                else 
+                {
+                    // 2. Try LocalStorage (Interactive circuit reconnection)
+                    try 
                     {
-                        var updatedUser = cached.User;
-                        _currentUser = updatedUser;
-                        _currentPrincipal = BuildPrincipal(updatedUser);
-                        _userSessionService.SetLoginTime(DateTime.UtcNow);
+                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
                     }
-                    else
+                    catch { /* Not interactive yet or JS not ready */ }
+                }
+
+                if (!string.IsNullOrEmpty(token))
+                {
+                    // 1. Check Global Cache First
+                    if (_tokenCache.TryGetValue(token, out var cachedData) && cachedData.Expiry > DateTime.UtcNow)
                     {
-                        // 2. Fallback to Database (slow but necessary if cache miss)
+                        var user = cachedData.User;
+                        _currentUser = user;
+                        _currentPrincipal = BuildPrincipal(user);
+                        _userSessionService.SetLoginTime(DateTime.UtcNow);
+                        _logger?.LogDebug("Auto-login: Restored user {Username} from global token cache.", user.Username);
+                    }
+                    else 
+                    {
+                        // 2. Fallback to Database
                         var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
                         if (result.Success && result.User != null)
                         {
@@ -65,8 +95,8 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
                             _currentUser = updatedUser;
                             _currentPrincipal = BuildPrincipal(updatedUser);
                             _userSessionService.SetLoginTime(DateTime.UtcNow);
-                            
-                            // 3. Save to Global Cache for next time (Expires in 1 hour of silence)
+
+                            // Cache for 1 hour to prevent constant DB pressure during mobile flickers
                             _tokenCache[token] = (updatedUser, DateTime.UtcNow.AddHours(1));
                         }
                     }

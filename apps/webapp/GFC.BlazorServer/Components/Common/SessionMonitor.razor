@@ -8,6 +8,7 @@
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject NavigationManager NavigationManager
 @inject CustomAuthenticationStateProvider AuthStateProvider
+@inject ILogger<SessionMonitor> Logger
 
 <div class="modal fade" id="sessionWarningModal" tabindex="-1" aria-labelledby="sessionWarningModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -39,17 +40,20 @@
             var settings = await SystemSettingsService.GetSystemSettingsAsync();
             _idleTimeoutMinutes = settings?.IdleTimeoutMinutes ?? 20;
 
-            if (_idleTimeoutMinutes > 1)
-            {
-                _dotNetRef = DotNetObjectReference.Create(this);
-                await JSRuntime.InvokeVoidAsync("sessionMonitor.init", _dotNetRef, _idleTimeoutMinutes, _idleTimeoutMinutes - 1);
-            }
+            // [SECURITY FIX] Ensure a minimum of 5 minutes to prevent race conditions or session reset loops
+            if (_idleTimeoutMinutes < 5) _idleTimeoutMinutes = 5;
+
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("sessionMonitor.init", _dotNetRef, _idleTimeoutMinutes, _idleTimeoutMinutes - 1);
         }
     }
 
     [JSInvokable]
     public void ShowIdleWarning()
     {
+        // [FIX] Always dispose existing timer before starting a new one to prevent countdown speed-up
+        _countdownTimer?.Dispose();
+
         _countdownSeconds = 60;
         _countdownTimer = new Timer(async _ =>
         {
@@ -57,11 +61,13 @@
             if (_countdownSeconds <= 0)
             {
                 _countdownTimer?.Dispose();
+                Logger.LogWarning("Session auto-logout triggered after countdown expired.");
                 await LogoutUser();
             }
             await InvokeAsync(StateHasChanged);
         }, null, 1000, 1000);
 
+        Logger.LogInformation("Idle warning displayed. User has 60 seconds to respond.");
         JSRuntime.InvokeVoidAsync("sessionMonitor.showWarningModal");
     }
 
@@ -69,9 +75,9 @@
     public async Task LogoutUser()
     {
         await JSRuntime.InvokeVoidAsync("sessionMonitor.cleanup");
-        var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-        await AuthStateProvider.LogoutAsync(token);
-        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+        // [MODIFIED] Do not clear tokens or revoke trust on idle timeout.
+        // We only want to end the interactive session.
+        await AuthStateProvider.LogoutAsync();
         NavigationManager.NavigateTo("/login", true);
     }
 

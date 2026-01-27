@@ -126,51 +126,66 @@
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
     <script src="_framework/blazor.server.js" autostart="false"></script>
     <script>
-        // ULTRA-AGGRESSIVE MOBILE RECOVERY
-        let backgroundTime = Date.now();
-        let lastHeartbeat = Date.now();
-
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
         Blazor.start({
             reconnectionHandler: {
                 onConnectionDown: () => {
-                    console.log("[GFC] Local circuit lost. Synchronizing...");
-                    setTimeout(() => {
-                        const modal = document.getElementById('components-reconnect-modal');
-                        if (modal && window.getComputedStyle(modal).display !== 'none') {
-                            location.reload();
-                        }
-                    }, 1000); // 1s max wait for auto-reconnect
+                    console.log("[GFC] Connection lost. Synchronizing...");
+                    
+                    // ONLY AGGRESSIVE ON MOBILE:
+                    // Mobile browsers often fail to reconnect SignalR after backgrounding.
+                    // Desktop browsers should be allowed to use standard reconnection.
+                    if (isMobile) {
+                        setTimeout(() => {
+                            const modal = document.getElementById('components-reconnect-modal');
+                            if (modal && window.getComputedStyle(modal).display !== 'none') {
+                                console.log("[GFC-Mobile] Forcing recovery reload.");
+                                location.reload();
+                            }
+                        }, 2500); // 2.5s for mobile to try native reconnect first
+                    }
                 }
             }
         });
 
-        // Detect if JS was frozen (suspension)
-        setInterval(() => {
-            const now = Date.now();
-            if (now - lastHeartbeat > 8000) { 
-                console.log("[GFC] Resuming from suspension. Refreshing state...");
-                location.reload();
-            }
-            lastHeartbeat = now;
-        }, 2000);
+        if (isMobile) {
+            console.log("[GFC] Mobile Optimized Recovery Active.");
+            
+            // Detect if JS was frozen (mobile suspension)
+            setInterval(() => {
+                const now = Date.now();
+                if (now - lastHeartbeat > 8000) { 
+                    console.log("[GFC] Resuming from mobile suspension. Refreshing state...");
+                    location.reload();
+                }
+                lastHeartbeat = now;
+            }, 2000);
 
-        const triggerWakeup = () => {
-            const idle = (Date.now() - backgroundTime) / 1000;
-            if (idle > 2) { // Extremely aggressive: 2s threshold
-                console.log("[GFC] Wakeup after " + Math.round(idle) + "s. Hard refresh.");
-                location.reload();
-            }
-        };
+            const triggerWakeup = () => {
+                const idle = (Date.now() - backgroundTime) / 1000;
+                if (idle > 60) { // 60s for mobile
+                    console.log("[GFC] Mobile wakeup. Recovering...");
+                    location.reload();
+                }
+            };
 
-        window.addEventListener('focus', triggerWakeup);
-        window.addEventListener('pageshow', (e) => {
-            if (e.persisted) location.reload();
-            else triggerWakeup();
-        });
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') triggerWakeup();
-            else backgroundTime = Date.now();
-        });
+            window.addEventListener('focus', triggerWakeup);
+            window.addEventListener('pageshow', (e) => {
+                if (e.persisted) location.reload();
+                else triggerWakeup();
+            });
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') triggerWakeup();
+                else backgroundTime = Date.now();
+            });
+        }
+        else {
+            // DESKTOP: Minimal interference. Just track time for manual visibility checks if needed.
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState !== 'visible') backgroundTime = Date.now();
+            });
+        }
 
         window.downloadFile = function (fileName, base64Data, contentType) {
             const byteCharacters = atob(base64Data);
