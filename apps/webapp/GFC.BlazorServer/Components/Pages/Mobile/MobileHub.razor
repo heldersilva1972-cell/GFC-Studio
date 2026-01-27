@@ -241,7 +241,25 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await RefreshData();
+        // 1. Instant check for current state to avoid flickering spinners
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var currentAppUser = AuthStateProvider.GetCurrentUser();
+
+        if (user.Identity?.IsAuthenticated == true && currentAppUser != null)
+        {
+            Username = user.Identity.Name ?? "Guest";
+            IsAdmin = currentAppUser.IsAdmin;
+            
+            // This is now near-instant due to circuit-level caching
+            var permissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
+            UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+            
+            IsLoading = false; // We have enough for first render
+        }
+
+        // 2. Background refresh if needed
+        _ = RefreshData();
     }
 
     private async Task RefreshData()
@@ -249,7 +267,6 @@
         try
         {
             IsRefreshing = true;
-            IsLoading = true;
             StateHasChanged();
             
             await AuthStateProvider.RefreshUserAsync();
@@ -257,27 +274,24 @@
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
             Username = user.Identity?.Name ?? "Guest";
-            IsAdmin = user.IsInRole("Admin");
             
             var currentAppUser = AuthStateProvider.GetCurrentUser();
             if (currentAppUser != null)
             {
-                if (currentAppUser.IsAdmin) IsAdmin = true;
-                
-                var permissions = await Task.Run(() => UserService.GetUserPagePermissions(currentAppUser.UserId));
+                IsAdmin = currentAppUser.IsAdmin;
+                var permissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
                 UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
             }
         }
         catch (Exception ex)
         {
-            Username = "Connection Error";
-            Console.WriteLine($"Hub Load Error: {ex.Message}");
+            Console.WriteLine($"Hub Refresh Error: {ex.Message}");
         }
         finally
         {
             IsLoading = false;
             IsRefreshing = false;
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         }
     }
 

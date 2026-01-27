@@ -16,6 +16,9 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IUserSessionService _userSessionService;
 
+    // PERFORMANCE CACHE: Persists across circuits (Static)
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (AppUser User, DateTime Expiry)> _tokenCache = new();
+
     private ClaimsPrincipal _currentPrincipal = CreateUnauthenticatedPrincipal();
     private AppUser? _currentUser;
 
@@ -35,32 +38,42 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     {
         RefreshFromAuthenticationService();
 
-        // [MODIFIED] ASYNC AUTO-LOGIN LOGIC logic moved here to avoid blocking and deadlocks
+        // [MODIFIED] HIGH-SPEED AUTO-LOGIN: Uses static cache to survive circuit drops
         if (_currentUser == null && !_autoLoginAttempted)
         {
-            _autoLoginAttempted = true; // Mark as attempted regardless of outcome in this circuit
+            _autoLoginAttempted = true;
             try 
             {
                 var context = _httpContextAccessor.HttpContext;
                 if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out var token) && !string.IsNullOrEmpty(token))
                 {
-                    // Asynchronously attempt to restore session from token
-                    var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
-                    if (result.Success)
+                    // 1. Check Global Cache first (very fast)
+                    if (_tokenCache.TryGetValue(token, out var cached) && cached.Expiry > DateTime.UtcNow)
                     {
-                        var updatedUser = result.User; // Capture result
-                        if (updatedUser != null)
+                        var updatedUser = cached.User;
+                        _currentUser = updatedUser;
+                        _currentPrincipal = BuildPrincipal(updatedUser);
+                        _userSessionService.SetLoginTime(DateTime.UtcNow);
+                    }
+                    else
+                    {
+                        // 2. Fallback to Database (slow but necessary if cache miss)
+                        var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
+                        if (result.Success && result.User != null)
                         {
+                            var updatedUser = result.User;
                             _currentUser = updatedUser;
                             _currentPrincipal = BuildPrincipal(updatedUser);
                             _userSessionService.SetLoginTime(DateTime.UtcNow);
+                            
+                            // 3. Save to Global Cache for next time (Expires in 1 hour of silence)
+                            _tokenCache[token] = (updatedUser, DateTime.UtcNow.AddHours(1));
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                // Log but don't crash
                  System.Diagnostics.Debug.WriteLine($"Auto-login failed: {ex.Message}");
             }
         }

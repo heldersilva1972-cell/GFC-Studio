@@ -47,9 +47,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Near-instant load due to circuit-caching
         await LoadNavItems();
         
-        // Track current page usage (Fire and forget to not block UI)
+        // Track current page usage (Fire and forget)
         _ = TrackUsage();
     }
 
@@ -60,6 +61,7 @@
             var user = AuthStateProvider.GetCurrentUser();
             if (user != null && !string.IsNullOrEmpty(ActiveTab) && ActiveTab != "Home")
             {
+                // Note: TrackPageUsageAsync will also clear the TopPages cache to keep items fresh
                 await UsageService.TrackPageUsageAsync(user.UserId, ActiveTab);
             }
         }
@@ -71,15 +73,15 @@
         var user = AuthStateProvider.GetCurrentUser();
         if (user == null) return;
 
-        // 1. Get User Permissions
+        // 1. Get User Permissions (Fast - Uses Memory Cache)
         HashSet<string> permittedRoutes = new();
         if (user.IsAdmin)
         {
-            permittedRoutes.Add("ALL"); // Wildcard for admins
+            permittedRoutes.Add("ALL");
         }
         else
         {
-            var permissions = await Task.Run(() => UserService.GetUserPagePermissions(user.UserId));
+            var permissions = UserService.GetUserPagePermissions(user.UserId);
             permittedRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
         }
 
@@ -102,11 +104,10 @@
             };
         }
 
-        // 2. Get Usage Data (Get enough to fill slots)
-        var topPages = await UsageService.GetTopUsedPagesAsync(user.UserId, 20);
+        // 2. Get Usage Data (Fast - Uses Memory Cache)
+        var topPages = await UsageService.GetTopUsedPagesAsync(user.UserId, 10);
 
-        // 3. Define Default Priority (Fallback if no usage data exists)
-        // This ensures new users or users with cleared history still see the most important apps first
+        // 3. Define Default Priority
         var defaultPriority = new List<string> 
         { 
             "Bartenders schedule", 
@@ -120,25 +121,17 @@
         };
 
         // 4. Merge Usage + Defaults
-        // We prioritize high usage items first, then fill gaps with defaults
         var candidateIds = new List<string>(topPages);
         foreach (var def in defaultPriority)
         {
-            if (!candidateIds.Contains(def))
-            {
-                candidateIds.Add(def);
-            }
+            if (!candidateIds.Contains(def)) candidateIds.Add(def);
         }
 
         // 5. Select Final Slots
-        // We need exactly 3 slots for positions 2, 3, and 4 (Hub is always #1)
         var finalSlots = new List<NavItem>();
-        
         foreach (var id in candidateIds)
         {
             if (finalSlots.Count >= 3) break; 
-
-            // Filter: Must not be Home (fixed), must be permitted
             if (id != "Hub" && id != "GFC Portal" && id != "Home" && CanAccess(id))
             {
                 finalSlots.Add(GetDefinition(id));

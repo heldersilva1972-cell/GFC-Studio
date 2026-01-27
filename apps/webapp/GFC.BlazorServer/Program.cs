@@ -60,6 +60,7 @@ public class Program
         Console.WriteLine($"[STARTUP] ----------------------------------------------------------------\n");
 
         builder.Services.AddRazorPages();
+        builder.Services.AddMemoryCache();
         builder.Services.AddServerSideBlazor().AddHubOptions(options => 
         {
             options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);

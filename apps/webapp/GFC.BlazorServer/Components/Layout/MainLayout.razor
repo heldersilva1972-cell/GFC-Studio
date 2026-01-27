@@ -175,18 +175,27 @@ else
 
     private bool _stableIsMobile = false;
 
+    private SystemSettings? _settings;
+
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            // [FIX] Detect connection info synchronously before any other logic
-            UserConnectionService.DetectConnectionIfNeeded();
+            // 1. Parallelize all core startup data fetching for lower latency
+            var settingsTask = SystemSettingsService.GetSystemSettingsAsync();
+            var safeModeTask = SystemSettingsService.GetSafeModeEnabledAsync();
+            var userInfoTask = UpdateUserInfo();
+            var themeInitTask = ThemeService.InitializeAsync();
+            
+            await Task.WhenAll(settingsTask, safeModeTask, userInfoTask, themeInitTask);
+            
+            _settings = await settingsTask;
+            _safeModeEnabled = await safeModeTask;
+
+            // 2. Critical Enforcement Checks
+            UserConnectionService.DetectConnectionIfNeeded(); 
             _stableIsMobile = UserConnectionService.IsMobile;
 
-            await CheckVpnEnforcement();
-            await UpdateUserInfo();
-            
-            _safeModeEnabled = await SystemSettingsService.GetSafeModeEnabledAsync();
             if (_safeModeEnabled && !_isAdmin && !IsAdminUser())
             {
                 Navigation.NavigateTo("/safe-mode-lockout");
@@ -194,69 +203,70 @@ else
             }
 
             UpdateControllerStatus();
+            EnforceVpnEnforcementSync(_settings);
 
-            // [FIX] Self-Healing Activation Redirect
-            // If user lands on ANY page with a ?token= query param, but isn't on the activation page,
-            // redirect them automatically. This handles cases where they get redirected to root by mistake.
+            // 3. Handle Special Redirects (Password/Activation/Mobile Only)
             var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
             if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("token", out var token))
             {
-                if (!uri.AbsolutePath.Contains("/setup/activate", StringComparison.OrdinalIgnoreCase))
-                {
+                if (!uri.AbsolutePath.Contains("/setup/activate", StringComparison.OrdinalIgnoreCase)) {
                     Navigation.NavigateTo($"/setup/activate?token={token}", forceLoad: true);
                     return;
                 }
             }
 
-            // Initial check for password setup - use sync check to avoid lifecycle delays during startup
             EnforcePasswordSetup();
-
-            _healthTimer = new System.Threading.Timer(async _ => 
-            {
-                UpdateControllerStatus();
-                // Check PWA status periodically
-                await CheckPwaStatus();
-                // Enforce Session Validity (Revocation check)
-                await ValidateSession();
-                await InvokeAsync(StateHasChanged);
-            }, null, 3000, 5000);
-
-            var settings = await SystemSettingsService.GetSystemSettingsAsync();
-            var absoluteSessionMaxMinutes = settings?.AbsoluteSessionMaxMinutes ?? 1440;
-
-            _sessionTimer = new System.Threading.Timer(async _ =>
-            {
-                if (UserSessionService.LoginTimeUtc != default && (DateTime.UtcNow - UserSessionService.LoginTimeUtc).TotalMinutes > absoluteSessionMaxMinutes)
-                {
-                    await HandleLogout();
-                }
-            }, null, 60000, 60000);
-
-            _activityTimer = new System.Threading.Timer(_ => 
-            {
-                RecordActivityHeartbeat();
-            }, null, 30000, 30000);
-            
-            AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
-
-            await ThemeService.InitializeAsync();
-            ThemeService.OnThemeChanged += StateHasChanged;
-
-            // [NEW] Enforce mobile portal for mobile devices
             RedirectMobileUsersIfNeeded();
-
-            // [NEW] Enforce dynamic page permissions
             EnforcePageAccess();
 
+            // 4. Start Background Monitors
+            StartSystemMonitors();
+            
+            AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
+            ThemeService.OnThemeChanged += StateHasChanged;
             Navigation.LocationChanged += HandleLocationChanged;
-            // Log initial page view
             LogCurrentPage();
         }
-        catch
+        catch (Exception ex)
         {
-            _currentUsername = "Unknown";
-            _isAdmin = false;
+            Logger.LogError(ex, "Critical failure during MainLayout initialization.");
+            _currentUsername = "System Error";
         }
+    }
+
+    private void StartSystemMonitors()
+    {
+        _healthTimer = new System.Threading.Timer(async _ => 
+        {
+            UpdateControllerStatus();
+            await CheckPwaStatus();
+            await ValidateSession();
+            await InvokeAsync(StateHasChanged);
+        }, null, 5000, 10000); // Relaxed intervals for better CPU on mobile
+
+        _sessionTimer = new System.Threading.Timer(async _ =>
+        {
+            var absoluteSessionMaxMinutes = _settings?.AbsoluteSessionMaxMinutes ?? 1440;
+            if (UserSessionService.LoginTimeUtc != default && (DateTime.UtcNow - UserSessionService.LoginTimeUtc).TotalMinutes > absoluteSessionMaxMinutes)
+            {
+                await HandleLogout();
+            }
+        }, null, 60000, 60000);
+
+        _activityTimer = new System.Threading.Timer(_ => RecordActivityHeartbeat(), null, 60000, 60000);
+    }
+
+    private void EnforceVpnEnforcementSync(SystemSettings? settings)
+    {
+        if (settings == null || !settings.EnforceVpn || UserConnectionService.LocationType == LocationType.Local) return;
+
+        bool shouldBlock = settings.AccessMode switch {
+            AccessMode.VpnOnly => UserConnectionService.LocationType != LocationType.VPN,
+            AccessMode.LanOrVpn => UserConnectionService.LocationType != LocationType.LAN && UserConnectionService.LocationType != LocationType.VPN,
+            _ => false
+        };
+
+        if (shouldBlock) Navigation.NavigateTo("/vpn-required");
     }
 
     private void EnforcePageAccess()

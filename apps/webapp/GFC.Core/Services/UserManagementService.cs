@@ -16,6 +16,10 @@ public class UserManagementService : IUserManagementService
     private readonly IPasswordPolicy _passwordPolicy;
     private readonly IPagePermissionRepository _pagePermissionRepository;
     private readonly IBoardTermConfirmationService _boardTermConfirmationService;
+    
+    // PERFORMANCE CACHE: Persists across circuits (Static)
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, HashSet<string>> _permissionCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, List<UserPagePermission>> _userPermissionsCache = new();
 
     public UserManagementService(
         IUserRepository userRepository,
@@ -37,6 +41,12 @@ public class UserManagementService : IUserManagementService
         _passwordPolicy = passwordPolicy ?? throw new ArgumentNullException(nameof(passwordPolicy));
         _pagePermissionRepository = pagePermissionRepository ?? throw new ArgumentNullException(nameof(pagePermissionRepository));
         _boardTermConfirmationService = boardTermConfirmationService ?? throw new ArgumentNullException(nameof(boardTermConfirmationService));
+    }
+
+    public void ClearPermissionCache()
+    {
+        _permissionCache.Clear();
+        _userPermissionsCache.Clear();
     }
 
     public List<UserListItemDto> GetAllUsers()
@@ -397,22 +407,61 @@ public class UserManagementService : IUserManagementService
 
     public List<UserPagePermission> GetUserPagePermissions(int userId)
     {
-        return _pagePermissionRepository.GetUserPermissions(userId).ToList();
+        if (_userPermissionsCache.TryGetValue(userId, out var cached))
+            return cached;
+
+        var permissions = _pagePermissionRepository.GetUserPermissions(userId).ToList();
+        _userPermissionsCache.TryAdd(userId, permissions);
+        return permissions;
     }
 
     public bool UserHasPageAccess(int userId, string pageRoute)
     {
-        return _pagePermissionRepository.HasPermission(userId, pageRoute);
+        // 1. Check if the user's permission set is already in cache
+        if (!_permissionCache.TryGetValue(userId, out var routes))
+        {
+            // First check if user is admin (very fast check)
+            var user = _userRepository.GetById(userId);
+            if (user?.IsAdmin == true)
+            {
+                routes = new HashSet<string> { "*" }; // Admin wildcard
+                _permissionCache.TryAdd(userId, routes);
+                return true;
+            }
+
+            // 2. Load all permitted routes for this user into memory once
+            var permissions = GetUserPagePermissions(userId);
+            routes = permissions
+                .Where(p => p.Page != null)
+                .Select(p => p.Page!.PageRoute.TrimStart('/').ToLowerInvariant())
+                .ToHashSet();
+            
+            _permissionCache.TryAdd(userId, routes);
+        }
+
+        // 3. Admin wildcard check
+        if (routes.Contains("*")) return true;
+
+        // 4. Clean incoming route for comparison
+        var normalized = pageRoute.TrimStart('/').ToLowerInvariant();
+        
+        // 5. High-speed memory lookup
+        return routes.Contains(normalized);
     }
 
     public void SetUserPagePermissions(int userId, List<int> pageIds, string grantedBy)
     {
         _pagePermissionRepository.SetUserPermissions(userId, pageIds, grantedBy);
+        // Invalidate specific user cache
+        _permissionCache.TryRemove(userId, out _);
+        _userPermissionsCache.TryRemove(userId, out _);
     }
 
     public void GrantAllPagePermissions(int userId, string grantedBy)
     {
         _pagePermissionRepository.GrantAllPermissions(userId, grantedBy);
+        _permissionCache.TryRemove(userId, out _);
+        _userPermissionsCache.TryRemove(userId, out _);
     }
 
     public void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy)

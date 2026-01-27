@@ -30,4 +30,5 @@ public interface IUserManagementService
     // Default Permissions
     List<int> GetDefaultPageIds();
     void SetDefaultPageIds(List<int> pageIds);
+    void ClearPermissionCache();
 }
