@@ -18,9 +18,12 @@ public class UrlHelperService : IUrlHelperService
     public async Task<string> GetBaseUrlAsync()
     {
         var settings = await _systemSettingsService.GetAsync();
+        var currentUri = new Uri(_navigationManager.BaseUri);
+        var scheme = currentUri.Scheme;
+
         if (!string.IsNullOrEmpty(settings?.PrimaryDomain))
         {
-            return $"https://{settings.PrimaryDomain}";
+            return $"{scheme}://{settings.PrimaryDomain}";
         }
         
         // Fallback to the current site base URI instead of a hardcoded domain

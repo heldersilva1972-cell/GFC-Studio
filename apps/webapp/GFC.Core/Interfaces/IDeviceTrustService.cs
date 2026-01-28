@@ -12,7 +12,8 @@ public interface IDeviceTrustService
     Task<bool> RevokeDeviceTokenAsync(string token);
     Task RevokeAllUserDevicesAsync(int userId);
     Task CleanupExpiredTokensAsync();
-    bool ValidateToken(string token); // For middleware - validates token exists and is not expired/revoked
+    bool ValidateToken(string token);
+    Task<bool> ValidateTokenAsync(string token);
     Task<int?> GetUserIdByTokenAsync(string token);
     Task<List<TrustedDevice>> GetDevicesForUserAsync(int userId);
     // Note: DeviceSessionDto will need to be moved to Core as well or represented differently if used here.

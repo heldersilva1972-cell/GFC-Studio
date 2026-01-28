@@ -40,8 +40,13 @@ public class PasskeyService : IPasskeyService
 
     public async Task<object> RequestRegistrationOptionsAsync(int userId, string username)
     {
-        // Generate a challenge for WebAuthn
-        var challenge = Convert.ToBase64String(Guid.NewGuid().ToByteArray());
+        // Generate a 32-byte challenge for WebAuthn (more robust than 16)
+        var challengeBytes = new byte[32];
+        using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(challengeBytes);
+        }
+        var challenge = Convert.ToBase64String(challengeBytes);
         
         // Get existing credentials to prevent double registration
         await using var context = await _contextFactory.CreateDbContextAsync();
@@ -49,11 +54,10 @@ public class PasskeyService : IPasskeyService
             .Where(p => p.UserId == userId)
             .Select(p => new { id = p.CredentialId, type = "public-key" })
             .ToListAsync();
-
+ 
         var rpName = _configuration["Fido2:ServerName"] ?? "GFC System";
         
         // [FIX] Robust RP ID Detection
-        // Prioritize the configured domain if available, as it's the most stable for WebAuthn
         string rpId = _configuration["Fido2:ServerDomain"];
         
         if (string.IsNullOrEmpty(rpId))
@@ -62,26 +66,26 @@ public class PasskeyService : IPasskeyService
             if (httpContext != null)
             {
                 rpId = httpContext.Request.Host.Host;
-                _logger.LogInformation("Using rpId from request: {RpId}", rpId);
             }
             else
             {
                 rpId = "localhost";
-                _logger.LogWarning("No HTTP context and no Fido2:ServerDomain config. Using fallback: {RpId}", rpId);
             }
         }
-        else
-        {
-            _logger.LogInformation("Using rpId from config: {RpId}", rpId);
-        }
-
+ 
+        // Create a 16-byte user handle (more compatible with Android/Chrome)
+        byte[] userHandle = new byte[16];
+        byte[] idBytes = System.Text.Encoding.UTF8.GetBytes(userId.ToString());
+        Array.Copy(idBytes, 0, userHandle, 0, Math.Min(idBytes.Length, 16));
+        var userBase64 = Convert.ToBase64String(userHandle);
+ 
         return new
         {
             challenge = challenge,
             rp = new { name = rpName, id = rpId },
             user = new
             {
-                id = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(userId.ToString())),
+                id = userBase64,
                 name = username,
                 displayName = username
             },
@@ -94,7 +98,8 @@ public class PasskeyService : IPasskeyService
             excludeCredentials = existingCredentials,
             authenticatorSelection = new
             {
-                authenticatorAttachment = "platform",
+                // Removing strict "platform" helps resolve NotReadableError on some devices
+                // authenticatorAttachment = "platform", 
                 requireResidentKey = false,
                 userVerification = "preferred"
             },
@@ -126,12 +131,19 @@ public class PasskeyService : IPasskeyService
                 CredentialId = credentialId,
                 PublicKey = publicKey,
                 FriendlyName = friendlyName,
-                UserHandle = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(userId.ToString())),
+                // Match the 16-byte user handle logic from RequestRegistrationOptionsAsync
+                UserHandle = Convert.ToBase64String(new byte[16]), 
                 SignatureCounter = 0,
                 AttestationFormat = "none",
                 CreatedAtUtc = DateTime.UtcNow,
-                AAGUID = null  // Set to null instead of Guid.Empty for nullable column
+                AAGUID = null
             };
+            
+            // Re-calculate the actual handle to match what was sent
+            byte[] userHandle = new byte[16];
+            byte[] idBytes = System.Text.Encoding.UTF8.GetBytes(userId.ToString());
+            Array.Copy(idBytes, 0, userHandle, 0, Math.Min(idBytes.Length, 16));
+            passkey.UserHandle = Convert.ToBase64String(userHandle);
 
             context.UserPasskeys.Add(passkey);
             var rowsAffected = await context.SaveChangesAsync();

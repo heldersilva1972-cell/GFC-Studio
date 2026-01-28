@@ -26,10 +26,13 @@ public class UserRepository : IUserRepository
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@Username", username);
             using var reader = command.ExecuteReader();
-            var user = reader.Read() ? MapReaderToUser(reader) : null;
+            if (reader.Read())
+            {
+                return MapReaderToUser(reader);
+            }
             
             // EMERGENCY BYPASS: If no user found and username is admin, return hardcoded admin
-            if (user == null && username.ToLower() == "admin")
+            if (username.ToLower() == "admin")
             {
                 return new AppUser
                 {
@@ -42,34 +45,22 @@ public class UserRepository : IUserRepository
                     PasswordChangeRequired = false
                 };
             }
-            return user;
+            return null;
         }
         catch (SqlException ex) when (ex.Number == 208) // Invalid object name
         {
-            // Table doesn't exist yet - return null
             return null;
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // Column doesn't exist yet - need to run migration script
-            // Try query without PasswordChangeRequired column
+            // Fallback to minimal query if columns are missing
             using var connection = Db.GetConnection();
             connection.Open();
-            const string sql = @"
-                SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
-                       CreatedDate, LastLoginDate, CreatedBy, Notes
-                FROM AppUsers
-                WHERE Username = @Username";
+            const string sql = "SELECT * FROM AppUsers WHERE Username = @Username";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@Username", username);
             using var reader = command.ExecuteReader();
-            if (reader.Read())
-            {
-                var user = MapReaderToUserLegacy(reader);
-                user.PasswordChangeRequired = false; // Default value
-                return user;
-            }
-            return null;
+            return reader.Read() ? MapReaderToUser(reader) : null;
         }
     }
 
@@ -99,25 +90,13 @@ public class UserRepository : IUserRepository
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // Column doesn't exist yet - need to run migration script
-            // Try query without PasswordChangeRequired column
             using var connection = Db.GetConnection();
             connection.Open();
-            const string sql = @"
-                SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
-                       CreatedDate, LastLoginDate, CreatedBy, Notes
-                FROM AppUsers
-                WHERE UserId = @UserId";
+            const string sql = "SELECT * FROM AppUsers WHERE UserId = @UserId";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@UserId", userId);
             using var reader = command.ExecuteReader();
-            if (reader.Read())
-            {
-                var user = MapReaderToUserLegacy(reader);
-                user.PasswordChangeRequired = false; // Default value
-                return user;
-            }
-            return null;
+            return reader.Read() ? MapReaderToUser(reader) : null;
         }
     }
 
@@ -145,27 +124,15 @@ public class UserRepository : IUserRepository
         {
             return null;
         }
-        catch (SqlException ex) when (ex.Number == 207) // Invalid column name
+        catch (SqlException ex) when (ex.Number == 207)
         {
-            // Column doesn't exist yet - need to run migration script
-            // Try query without PasswordChangeRequired column
             using var connection = Db.GetConnection();
             await connection.OpenAsync();
-            const string sql = @"
-                SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId,
-                       CreatedDate, LastLoginDate, CreatedBy, Notes
-                FROM AppUsers
-                WHERE UserId = @UserId";
+            const string sql = "SELECT * FROM AppUsers WHERE UserId = @UserId";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@UserId", userId);
             using var reader = await command.ExecuteReaderAsync();
-            if (await reader.ReadAsync())
-            {
-                var user = MapReaderToUserLegacy(reader);
-                user.PasswordChangeRequired = false; // Default value
-                return user;
-            }
-            return null;
+            return await reader.ReadAsync() ? MapReaderToUser(reader) : null;
         }
     }
 
@@ -195,25 +162,13 @@ public class UserRepository : IUserRepository
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // Column doesn't exist yet - need to run migration script
-            // Try query without PasswordChangeRequired column
             using var connection = Db.GetConnection();
             connection.Open();
-            const string sql = @"
-                SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
-                       CreatedDate, LastLoginDate, CreatedBy, Notes
-                FROM AppUsers
-                WHERE MemberId = @MemberId";
+            const string sql = "SELECT * FROM AppUsers WHERE MemberId = @MemberId";
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@MemberId", memberId);
             using var reader = command.ExecuteReader();
-            if (reader.Read())
-            {
-                var user = MapReaderToUserLegacy(reader);
-                user.PasswordChangeRequired = false; // Default value
-                return user;
-            }
-            return null;
+            return reader.Read() ? MapReaderToUser(reader) : null;
         }
     }
 
@@ -247,23 +202,15 @@ public class UserRepository : IUserRepository
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // Column doesn't exist yet - need to run migration script
-            // Try query without PasswordChangeRequired column
             var users = new List<AppUser>();
             using var connection = Db.GetConnection();
             connection.Open();
-            const string sql = @"
-                SELECT UserId, Username, PasswordHash, IsAdmin, IsActive, MemberId, 
-                       CreatedDate, LastLoginDate, CreatedBy, Notes
-                FROM AppUsers
-                ORDER BY Username";
+            const string sql = "SELECT * FROM AppUsers ORDER BY Username";
             using var command = new SqlCommand(sql, connection);
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
-                var user = MapReaderToUserLegacy(reader);
-                user.PasswordChangeRequired = false; // Default value
-                users.Add(user);
+                users.Add(MapReaderToUser(reader));
             }
             return users;
         }
@@ -296,30 +243,7 @@ public class UserRepository : IUserRepository
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // [FIX] Auto-Recovery: Validates if PassCodeHash is missing and adds it
-            try 
-            {
-                using var fixConnection = Db.GetConnection();
-                fixConnection.Open();
-                
-                const string checkSql = "SELECT COL_LENGTH('AppUsers', 'PassCodeHash')";
-                using var checkCmd = new SqlCommand(checkSql, fixConnection);
-                if (checkCmd.ExecuteScalar() == DBNull.Value)
-                {
-                    const string addColSql = "ALTER TABLE AppUsers ADD PassCodeHash NVARCHAR(255) NULL";
-                    using var addCmd = new SqlCommand(addColSql, fixConnection);
-                    addCmd.ExecuteNonQuery();
-                    
-                    // RETRY CREATE USER
-                    return CreateUser(user);
-                }
-            }
-            catch 
-            {
-                // Fallback to legacy behavior
-            }
-
-            // Column doesn't exist yet - insert without newer columns
+            // Fallback to minimal insert without newer columns
             using var connection = Db.GetConnection();
             connection.Open();
             const string sql = @"
@@ -376,56 +300,74 @@ public class UserRepository : IUserRepository
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // [FIX] Auto-Recovery: Validates if PassCodeHash is missing and adds it
-            try 
+            // Retry with minimal columns if specific update still fails
+            try
             {
-                using var fixConnection = Db.GetConnection();
-                fixConnection.Open();
+                using var connection = Db.GetConnection();
+                connection.Open();
+                const string sql = @"
+                    UPDATE AppUsers
+                    SET Username = @Username,
+                        PasswordHash = @PasswordHash,
+                        IsAdmin = @IsAdmin,
+                        IsActive = @IsActive,
+                        MemberId = @MemberId,
+                        LastLoginDate = @LastLoginDate,
+                        Notes = @Notes
+                    WHERE UserId = @UserId";
+                using var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@UserId", user.UserId);
+                command.Parameters.AddWithValue("@Username", user.Username);
+                command.Parameters.AddWithValue("@PasswordHash", user.PasswordHash);
+                command.Parameters.AddWithValue("@IsAdmin", user.IsAdmin);
+                command.Parameters.AddWithValue("@IsActive", user.IsActive);
+                command.Parameters.AddWithValue("@MemberId", (object?)user.MemberId ?? DBNull.Value);
+                command.Parameters.AddWithValue("@LastLoginDate", (object?)user.LastLoginDate ?? DBNull.Value);
+                command.Parameters.AddWithValue("@Notes", (object?)user.Notes ?? DBNull.Value);
+                command.ExecuteNonQuery();
+            }
+            catch { /* Final fallback - ignore failure */ }
+        }
+    }
+ 
+    private static bool _schemaCheckDone = false;
+    private static readonly object _schemaLock = new object();
+ 
+    private void EnsureSchemaUpToDate()
+    {
+        if (_schemaCheckDone) return;
+        
+        lock (_schemaLock)
+        {
+            if (_schemaCheckDone) return;
+            
+            try
+            {
+                using var connection = Db.GetConnection();
+                connection.Open();
                 
-                // Check if PassCodeHash is the missing column by trying to add it
-                // We blindly try to add it; if it exists, this might fail, but checking specific existing columns is expensive
-                // A better check:
-                const string checkSql = "SELECT COL_LENGTH('AppUsers', 'PassCodeHash')";
-                using var checkCmd = new SqlCommand(checkSql, fixConnection);
-                if (checkCmd.ExecuteScalar() == DBNull.Value)
+                var columns = new Dictionary<string, string>
                 {
-                    const string addColSql = "ALTER TABLE AppUsers ADD PassCodeHash NVARCHAR(255) NULL";
-                    using var addCmd = new SqlCommand(addColSql, fixConnection);
-                    addCmd.ExecuteNonQuery();
-                    
-                    // RETRY USER UPDATE with full properties
-                    UpdateUser(user); 
-                    return;
+                    { "PasswordChangeRequired", "BIT NOT NULL DEFAULT 0" },
+                    { "PassCodeHash", "NVARCHAR(255) NULL" },
+                    { "MfaEnabled", "BIT NOT NULL DEFAULT 0" },
+                    { "MfaSecretKey", "NVARCHAR(MAX) NULL" }
+                };
+    
+                foreach (var col in columns)
+                {
+                    const string checkTemplate = "SELECT COL_LENGTH('AppUsers', '{0}')";
+                    using var checkCmd = new SqlCommand(string.Format(checkTemplate, col.Key), connection);
+                    if (checkCmd.ExecuteScalar() == DBNull.Value)
+                    {
+                        string addColSql = $"ALTER TABLE AppUsers ADD {col.Key} {col.Value}";
+                        using var addCmd = new SqlCommand(addColSql, connection);
+                        addCmd.ExecuteNonQuery();
+                    }
                 }
+                _schemaCheckDone = true;
             }
-            catch 
-            {
-                // Fallback to legacy behavior if schema update fails
-            }
-
-            // Column doesn't exist yet and couldn't be added - update without new columns
-            using var connection = Db.GetConnection();
-            connection.Open();
-            const string sql = @"
-                UPDATE AppUsers
-                SET Username = @Username,
-                    PasswordHash = @PasswordHash,
-                    IsAdmin = @IsAdmin,
-                    IsActive = @IsActive,
-                    MemberId = @MemberId,
-                    LastLoginDate = @LastLoginDate,
-                    Notes = @Notes
-                WHERE UserId = @UserId";
-            using var command = new SqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@UserId", user.UserId);
-            command.Parameters.AddWithValue("@Username", user.Username);
-            command.Parameters.AddWithValue("@PasswordHash", user.PasswordHash);
-            command.Parameters.AddWithValue("@IsAdmin", user.IsAdmin);
-            command.Parameters.AddWithValue("@IsActive", user.IsActive);
-            command.Parameters.AddWithValue("@MemberId", (object?)user.MemberId ?? DBNull.Value);
-            command.Parameters.AddWithValue("@LastLoginDate", (object?)user.LastLoginDate ?? DBNull.Value);
-            command.Parameters.AddWithValue("@Notes", (object?)user.Notes ?? DBNull.Value);
-            command.ExecuteNonQuery();
+            catch { /* Best effort only - will retry next call if check failed */ }
         }
     }
 
@@ -577,41 +519,77 @@ public class UserRepository : IUserRepository
 
     private static AppUser MapReaderToUser(SqlDataReader reader)
     {
-        return new AppUser
+        var user = new AppUser
         {
-            UserId = reader["UserId"] != DBNull.Value ? Convert.ToInt32(reader["UserId"]) : 0,
-            Username = reader["Username"] != DBNull.Value ? reader["Username"].ToString() ?? string.Empty : string.Empty,
-            PasswordHash = reader["PasswordHash"] != DBNull.Value ? reader["PasswordHash"].ToString() ?? string.Empty : string.Empty,
-            IsAdmin = reader["IsAdmin"] != DBNull.Value && Convert.ToBoolean(reader["IsAdmin"]),
-            IsActive = reader["IsActive"] != DBNull.Value && Convert.ToBoolean(reader["IsActive"]),
-            MemberId = reader["MemberId"] != DBNull.Value ? Convert.ToInt32(reader["MemberId"]) : null,
-            CreatedDate = reader["CreatedDate"] != DBNull.Value ? Convert.ToDateTime(reader["CreatedDate"]) : DateTime.UtcNow,
-            LastLoginDate = reader["LastLoginDate"] != DBNull.Value ? Convert.ToDateTime(reader["LastLoginDate"]) : null,
-            CreatedBy = reader["CreatedBy"] as string,
-            Notes = reader["Notes"] as string,
-            PasswordChangeRequired = reader["PasswordChangeRequired"] != DBNull.Value && Convert.ToBoolean(reader["PasswordChangeRequired"]),
-            PassCodeHash = reader["PassCodeHash"] as string,
-            MfaEnabled = reader["MfaEnabled"] != DBNull.Value && Convert.ToBoolean(reader["MfaEnabled"]),
-            MfaSecretKey = reader["MfaSecretKey"] as string
+            UserId = SafeGetInt(reader, "UserId"),
+            Username = SafeGetString(reader, "Username") ?? string.Empty,
+            PasswordHash = SafeGetString(reader, "PasswordHash") ?? string.Empty,
+            IsAdmin = SafeGetBool(reader, "IsAdmin"),
+            IsActive = SafeGetBool(reader, "IsActive"),
+            MemberId = SafeGetNullableInt(reader, "MemberId"),
+            CreatedDate = SafeGetDateTime(reader, "CreatedDate", DateTime.UtcNow),
+            LastLoginDate = SafeGetNullableDateTime(reader, "LastLoginDate"),
+            CreatedBy = SafeGetString(reader, "CreatedBy"),
+            Notes = SafeGetString(reader, "Notes"),
+            PasswordChangeRequired = SafeGetBool(reader, "PasswordChangeRequired"),
+            PassCodeHash = SafeGetString(reader, "PassCodeHash"),
+            MfaEnabled = SafeGetBool(reader, "MfaEnabled"),
+            MfaSecretKey = SafeGetString(reader, "MfaSecretKey")
         };
+        return user;
     }
-
+ 
+    private static string? SafeGetString(SqlDataReader reader, string columnName)
+    {
+        try {
+            int ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+        } catch { return null; }
+    }
+ 
+    private static int SafeGetInt(SqlDataReader reader, string columnName, int defaultValue = 0)
+    {
+        try {
+            int ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? defaultValue : Convert.ToInt32(reader.GetValue(ordinal));
+        } catch { return defaultValue; }
+    }
+ 
+    private static int? SafeGetNullableInt(SqlDataReader reader, string columnName)
+    {
+        try {
+            int ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? null : Convert.ToInt32(reader.GetValue(ordinal));
+        } catch { return null; }
+    }
+ 
+    private static bool SafeGetBool(SqlDataReader reader, string columnName, bool defaultValue = false)
+    {
+        try {
+            int ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? defaultValue : Convert.ToBoolean(reader.GetValue(ordinal));
+        } catch { return defaultValue; }
+    }
+ 
+    private static DateTime SafeGetDateTime(SqlDataReader reader, string columnName, DateTime defaultValue)
+    {
+        try {
+            int ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? defaultValue : Convert.ToDateTime(reader.GetValue(ordinal));
+        } catch { return defaultValue; }
+    }
+ 
+    private static DateTime? SafeGetNullableDateTime(SqlDataReader reader, string columnName)
+    {
+        try {
+            int ordinal = reader.GetOrdinal(columnName);
+            return reader.IsDBNull(ordinal) ? null : Convert.ToDateTime(reader.GetValue(ordinal));
+        } catch { return null; }
+    }
+ 
     private static AppUser MapReaderToUserLegacy(SqlDataReader reader)
     {
-        return new AppUser
-        {
-            UserId = reader["UserId"] != DBNull.Value ? Convert.ToInt32(reader["UserId"]) : 0,
-            Username = reader["Username"] != DBNull.Value ? reader["Username"].ToString() ?? string.Empty : string.Empty,
-            PasswordHash = reader["PasswordHash"] != DBNull.Value ? reader["PasswordHash"].ToString() ?? string.Empty : string.Empty,
-            IsAdmin = reader["IsAdmin"] != DBNull.Value && Convert.ToBoolean(reader["IsAdmin"]),
-            IsActive = reader["IsActive"] != DBNull.Value && Convert.ToBoolean(reader["IsActive"]),
-            MemberId = reader["MemberId"] != DBNull.Value ? Convert.ToInt32(reader["MemberId"]) : null,
-            CreatedDate = reader["CreatedDate"] != DBNull.Value ? Convert.ToDateTime(reader["CreatedDate"]) : DateTime.UtcNow,
-            LastLoginDate = reader["LastLoginDate"] != DBNull.Value ? Convert.ToDateTime(reader["LastLoginDate"]) : null,
-            CreatedBy = reader["CreatedBy"] as string,
-            Notes = reader["Notes"] as string,
-            PasswordChangeRequired = false // Default for legacy records
-        };
+        return MapReaderToUser(reader);
     }
 
 }

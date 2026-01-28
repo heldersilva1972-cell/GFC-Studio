@@ -1,4 +1,5 @@
-// [NEW]
+using System.Threading.Tasks;
+
 namespace GFC.Core.Interfaces
 {
     public interface IUserConnectionService
@@ -8,5 +9,6 @@ namespace GFC.Core.Interfaces
         bool IsMobile { get; set; }
         void SetConnectionInfo(string ipAddress, LocationType locationType);
         void DetectConnectionIfNeeded();
+        Task DetectConnectionIfNeededAsync();
     }
 }

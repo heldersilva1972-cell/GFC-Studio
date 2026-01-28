@@ -141,15 +141,16 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         var claims = new List<Claim>
         {
             new Claim(ClaimTypes.Name, user.Username),
+            new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
             new Claim("UserId", user.UserId.ToString()),
             new Claim("IsAdmin", user.IsAdmin ? "true" : "false")
         };
-
+ 
         if (user.IsAdmin)
         {
             claims.Add(new Claim(ClaimTypes.Role, AppRoles.Admin));
         }
-
+ 
         var identity = new ClaimsIdentity(claims, authenticationType: "GfcAuth");
         return new ClaimsPrincipal(identity);
     }
@@ -235,7 +236,24 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
 
     public async Task RefreshUserAsync()
     {
-        await _authenticationService.RefreshCurrentUserAsync();
+        try 
+        {
+            // [FIX] Add a safety timeout to prevent circuit hangs during refresh
+            var refreshTask = _authenticationService.RefreshCurrentUserAsync();
+            if (await Task.WhenAny(refreshTask, Task.Delay(3000)) == refreshTask)
+            {
+                await refreshTask;
+            }
+            else 
+            {
+                _logger.LogWarning("RefreshCurrentUserAsync timed out in Provider.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during RefreshUserAsync");
+        }
+        
         RefreshFromAuthenticationService();
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
     }

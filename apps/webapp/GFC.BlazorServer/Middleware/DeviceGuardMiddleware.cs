@@ -44,22 +44,10 @@ namespace GFC.BlazorServer.Middleware
             IBlazorSystemSettingsService settingsService,
             IDeviceTrustService deviceTrustService)
         {
-            connectionService.DetectConnectionIfNeeded();
-            
-            // [NEW] Also detect mobile in middleware stage
-            if (context.Request.Headers.TryGetValue("User-Agent", out var ua))
-            {
-                var userAgent = ua.ToString().ToLower();
-                connectionService.IsMobile = userAgent.Contains("android") || 
-                                           userAgent.Contains("iphone") || 
-                                           userAgent.Contains("ipad") || 
-                                           userAgent.Contains("ipod") || 
-                                           userAgent.Contains("mobile");
-            }
-            
             var path = context.Request.Path.Value?.ToLower() ?? "";
 
-            // 1. Allow Public Paths (Login, Setup, Assets)
+            // 1. FAST PATH: Allow Public Paths (Login, Setup, Assets)
+            // Checked first to avoid hitting DB for static files
             foreach (var publicPath in PublicPaths)
             {
                 if (path.StartsWith(publicPath.ToLower()))
@@ -69,19 +57,20 @@ namespace GFC.BlazorServer.Middleware
                 }
             }
 
-            // 1a. EMERGENCY BYPASS: If a token query param is present, let it through.
-            // This ensures that even if the user lands on the wrong path (e.g. /?token=...) or 
-            // the path matching fails, the application layer can handle the redirection/activation.
+            // 1a. EMERGENCY BYPASS for tokens
             if (context.Request.Query.ContainsKey("token"))
             {
                 await _next(context);
                 return;
             }
 
-            // [NEW] 2. Device Trust Enforcement (Invite-Only Model)
-            var settings = settingsService.GetSettings();
+            // 2. RUN SECURE DETECTION ASYNC
+            await connectionService.DetectConnectionIfNeededAsync();
+            
+            // 3. Device Trust Enforcement
+            var settings = await settingsService.GetAsync();
             var mode = settings?.AccessMode ?? AccessMode.Open;
-            var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var remoteIp = connectionService.IpAddress ?? "unknown";
 
             // [FIX] RESPECT ACCESS MODE
             // 1. Local Bypass (Host PC always allowed)
@@ -100,12 +89,12 @@ namespace GFC.BlazorServer.Middleware
             {
                 // 3. Device Trust Check (Cookies)
                 bool hasValidDeviceTrust = false;
-                string? token = null;
+                string? cookieToken = null;
 
-                if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && 
-                    !string.IsNullOrEmpty(token))
+                if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out cookieToken) && 
+                    !string.IsNullOrEmpty(cookieToken))
                 {
-                    hasValidDeviceTrust = deviceTrustService.ValidateToken(token);
+                    hasValidDeviceTrust = await deviceTrustService.ValidateTokenAsync(cookieToken);
                 }
 
                 if (hasValidDeviceTrust)
@@ -115,8 +104,6 @@ namespace GFC.BlazorServer.Middleware
                 }
 
                 // 4. "Open Access" Mode Bypasses (LAN/VPN Only)
-                // If the system is in Open mode, we allow LAN and VPN connections without tokens.
-                // Public internet traffic (LTE, Coffee Shop) MUST still be trusted even in "Open" mode.
                 if (mode == AccessMode.Open)
                 {
                     if (connectionService.LocationType == LocationType.LAN || 
@@ -153,7 +140,7 @@ namespace GFC.BlazorServer.Middleware
                             <div>Location: {connectionService.LocationType}</div>
                             <div>Path: {path}</div>
                             <div>HasTokenParam: {context.Request.Query.ContainsKey("token")}</div>
-                            <div style='margin-top: 5px; color: #ccc;'>v.2026.01.27.0715</div>
+                            <div style='margin-top: 5px; color: #ccc;'>v.2026.01.28.0530</div>
                         </div>
                     </div>
                 </body>

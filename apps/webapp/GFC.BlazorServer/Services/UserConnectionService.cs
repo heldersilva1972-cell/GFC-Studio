@@ -1,4 +1,5 @@
 using GFC.Core.Interfaces;
+using GFC.BlazorServer.Data.Entities;
 using Microsoft.AspNetCore.Http;
 using System.Net;
 
@@ -42,7 +43,60 @@ namespace GFC.BlazorServer.Services
                 DetectConnection();
             }
         }
+ 
+        public async Task DetectConnectionIfNeededAsync()
+        {
+            if (LocationType == LocationType.Unknown || string.IsNullOrEmpty(IpAddress))
+            {
+                await DetectConnectionAsync();
+            }
+        }
 
+        private async Task DetectConnectionAsync()
+        {
+            try
+            {
+                var httpContext = _httpContextAccessor.HttpContext;
+                if (httpContext == null)
+                {
+                    LocationType = LocationType.Unknown;
+                    return;
+                }
+ 
+                // Detect IP and Mobile
+                DetectBasicInfo(httpContext);
+ 
+                if (string.IsNullOrEmpty(IpAddress) || !IPAddress.TryParse(IpAddress, out var remoteIp))
+                {
+                    LocationType = LocationType.Unknown;
+                    return;
+                }
+ 
+                // Check localhost
+                if (IPAddress.IsLoopback(remoteIp) || remoteIp.ToString() == "::1" || remoteIp.ToString().EndsWith(":1"))
+                {
+                    LocationType = LocationType.Local;
+                    return;
+                }
+ 
+                // Get system settings (ASYNC)
+                var settings = await _systemSettingsService.GetAsync();
+                if (settings == null)
+                {
+                    LocationType = LocationType.Public;
+                    return;
+                }
+ 
+                // Check subnets
+                LocationType = DetectSubnet(remoteIp, settings);
+            }
+            catch (Exception ex)
+            {
+                IpAddress ??= "Detection Error: " + ex.Message;
+                LocationType = LocationType.Public;
+            }
+        }
+ 
         private void DetectConnection()
         {
             try
@@ -53,86 +107,92 @@ namespace GFC.BlazorServer.Services
                     LocationType = LocationType.Unknown;
                     return;
                 }
-
-                // Get the user's IP address (handling Cloudflare/Proxies)
-                string? ipStr = null;
-                if (httpContext.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp))
+ 
+                DetectBasicInfo(httpContext);
+ 
+                if (string.IsNullOrEmpty(IpAddress) || !IPAddress.TryParse(IpAddress, out var remoteIp))
                 {
-                    ipStr = cfIp.ToString();
-                }
-                else if (httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor))
-                {
-                    ipStr = forwardedFor.ToString().Split(',').FirstOrDefault()?.Trim();
-                }
-                
-                if (string.IsNullOrEmpty(ipStr))
-                {
-                    ipStr = httpContext.Connection.RemoteIpAddress?.ToString();
-                }
-
-                // Detect Mobile Device via User Agent
-                if (httpContext.Request.Headers.TryGetValue("User-Agent", out var ua))
-                {
-                    var userAgent = ua.ToString().ToLower();
-                    IsMobile = userAgent.Contains("android") || 
-                               userAgent.Contains("iphone") || 
-                               userAgent.Contains("ipad") || 
-                               userAgent.Contains("ipod") || 
-                               userAgent.Contains("mobile");
-                }
-                if (string.IsNullOrEmpty(ipStr) || !IPAddress.TryParse(ipStr, out var remoteIp))
-                {
-                    IpAddress = ipStr ?? "Not Detected";
                     LocationType = LocationType.Unknown;
                     return;
                 }
-
-                // Check if localhost (IPv4 or IPv6)
+ 
                 if (IPAddress.IsLoopback(remoteIp) || remoteIp.ToString() == "::1" || remoteIp.ToString().EndsWith(":1"))
                 {
-                    IpAddress = remoteIp.ToString();
                     LocationType = LocationType.Local;
                     return;
                 }
-
-                // Normalize for subnet check
-                var checkIp = remoteIp;
-                if (checkIp.IsIPv4MappedToIPv6)
-                {
-                    checkIp = checkIp.MapToIPv4();
-                }
-                IpAddress = checkIp.ToString();
-
-                // Get system settings
+ 
                 var settings = _systemSettingsService.GetSettings();
                 if (settings == null)
                 {
                     LocationType = LocationType.Public;
                     return;
                 }
-
-                // Check LAN subnet
-                if (!string.IsNullOrEmpty(settings.LanSubnet) && IsInSubnet(remoteIp, settings.LanSubnet))
-                {
-                    LocationType = LocationType.LAN;
-                    return;
-                }
-
-                // Check VPN subnet (WireGuard)
-                if (!string.IsNullOrEmpty(settings.WireGuardSubnet) && IsInSubnet(remoteIp, settings.WireGuardSubnet))
-                {
-                    LocationType = LocationType.VPN;
-                    return;
-                }
-
-                // Default to Public if not in any known subnet
-                LocationType = LocationType.Public;
+ 
+                LocationType = DetectSubnet(remoteIp, settings);
             }
             catch (Exception ex)
             {
-                IpAddress = "Error: " + ex.Message;
+                IpAddress ??= "Error: " + ex.Message;
                 LocationType = LocationType.Public;
             }
+        }
+ 
+        private void DetectBasicInfo(HttpContext httpContext)
+        {
+            // Get the user's IP address (handling Cloudflare/Proxies)
+            string? ipStr = null;
+            if (httpContext.Request.Headers.TryGetValue("CF-Connecting-IP", out var cfIp))
+            {
+                ipStr = cfIp.ToString();
+            }
+            else if (httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor))
+            {
+                ipStr = forwardedFor.ToString().Split(',').FirstOrDefault()?.Trim();
+            }
+            
+            if (string.IsNullOrEmpty(ipStr))
+            {
+                ipStr = httpContext.Connection.RemoteIpAddress?.ToString();
+            }
+ 
+            // Normalize
+            if (!string.IsNullOrEmpty(ipStr) && IPAddress.TryParse(ipStr, out var remoteIp))
+            {
+                if (remoteIp.IsIPv4MappedToIPv6)
+                {
+                    ipStr = remoteIp.MapToIPv4().ToString();
+                }
+            }
+            IpAddress = ipStr;
+ 
+            // Detect Mobile Device via User Agent
+            if (httpContext.Request.Headers.TryGetValue("User-Agent", out var ua))
+            {
+                var userAgent = ua.ToString().ToLower();
+                IsMobile = userAgent.Contains("android") || 
+                           userAgent.Contains("iphone") || 
+                           userAgent.Contains("ipad") || 
+                           userAgent.Contains("ipod") || 
+                           userAgent.Contains("mobile");
+            }
+        }
+ 
+        private LocationType DetectSubnet(IPAddress remoteIp, SystemSettings settings)
+        {
+            // Check LAN subnet
+            if (!string.IsNullOrEmpty(settings.LanSubnet) && IsInSubnet(remoteIp, settings.LanSubnet))
+            {
+                return LocationType.LAN;
+            }
+ 
+            // Check VPN subnet (WireGuard)
+            if (!string.IsNullOrEmpty(settings.WireGuardSubnet) && IsInSubnet(remoteIp, settings.WireGuardSubnet))
+            {
+                return LocationType.VPN;
+            }
+ 
+            return LocationType.Public;
         }
 
         private bool IsInSubnet(IPAddress address, string cidr)

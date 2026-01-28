@@ -2,7 +2,7 @@
 @using GFC.BlazorServer.Services
 @using GFC.Core.Interfaces
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize]
+@attribute [AllowAnonymous]
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject CustomAuthenticationStateProvider AuthStateProvider
@@ -463,11 +463,45 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // [FIX] Force reload from DB to ensure we have the latest PassCodeHash status
-        // The AuthState might be stale if the reset happened recently.
+        // 1. Give the circuit a moment to stabilize (Crucial for mobile hand-off)
+        await Task.Delay(500);
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var principal = authState.User;
-        var userIdStr = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        // [FIX] Verify authentication with fail-fast short circuit.
+        // Since we are now AllowAnonymous, we handle the security check here manually.
+        if (!principal.Identity?.IsAuthenticated ?? true)
+        {
+            Logger.LogWarning("Wizard initialization reached without authenticated principal. Attempting one-time refresh.");
+            
+            // Try refresh with a strict 3-second timeout to avoid 2-minute hangs
+            var refreshTask = AuthStateProvider.RefreshUserAsync();
+            if (await Task.WhenAny(refreshTask, Task.Delay(3000)) == refreshTask)
+            {
+                await refreshTask; 
+            }
+            else 
+            {
+                Logger.LogWarning("RefreshUserAsync timed out. Redirecting to Pending Auth to break hang.");
+                Navigation.NavigateTo("/setup/pending-auth", false);
+                return;
+            }
+
+            authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            principal = authState.User;
+
+            if (!principal.Identity?.IsAuthenticated ?? true)
+            {
+                Logger.LogWarning("Authentication failed after refresh. Failing fast to broken circuit handler.");
+                Navigation.NavigateTo("/setup/pending-auth", false);
+                return;
+            }
+        }
+
+        // [FIX] Use robust ID detection
+        var userIdStr = principal.FindFirst("UserId")?.Value ?? 
+                         principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         
         if (int.TryParse(userIdStr, out int userId))
         {
@@ -478,10 +512,13 @@
                 if (!string.IsNullOrEmpty(user.PassCodeHash))
                 {
                     CurrentStep = 2;
+                    Logger.LogInformation("Existing passcode detected for user {UserId}. Skipping to Step 2.", userId);
+                    StateHasChanged(); // Force immediate draw for mobile
                 }
                 else
                 {
                     CurrentStep = 1;
+                    Logger.LogInformation("No passcode detected for user {UserId}. Starting at Step 1.", userId);
                 }
             }
         }
@@ -501,7 +538,10 @@
         if (CurrentStep == 4)
         {
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var principal = authState.User;
+            var userIdStr = principal.FindFirst("UserId")?.Value ?? 
+                             principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            
             if (int.TryParse(userIdStr, out int userId))
             {
                 var user = await UserService.GetUserAsync(userId);

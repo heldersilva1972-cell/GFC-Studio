@@ -278,6 +278,28 @@ public class DeviceTrustService : IDeviceTrustService
     }
 
     /// <summary>
+    /// Validates a token asynchronously.
+    /// </summary>
+    public async Task<bool> ValidateTokenAsync(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return false;
+        
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var device = await context.TrustedDevices
+                .FirstOrDefaultAsync(d => d.DeviceToken == token && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
+            
+            return device != null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating device token async");
+            return false;
+        }
+    }
+ 
+    /// <summary>
     /// Gets the UserId associated with a valid token
     /// </summary>
     public async Task<int?> GetUserIdByTokenAsync(string token)

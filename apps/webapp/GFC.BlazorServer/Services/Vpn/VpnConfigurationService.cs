@@ -291,13 +291,12 @@ public class VpnConfigurationService : IVpnConfigurationService
 
     private static string GenerateSecureTokenString()
     {
+        // [FIX] Using Hex instead of Base64. 
+        // Hex is 100% safe for QR scanners and bypasses all case-sensitivity or special character issues.
         var bytes = new byte[32];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(bytes);
-        return Convert.ToBase64String(bytes)
-            .Replace("+", "-")
-            .Replace("/", "_")
-            .Replace("=", "");
+        return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
     }
 
     // Legacy support or internal use
