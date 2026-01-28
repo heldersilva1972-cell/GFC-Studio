@@ -216,6 +216,7 @@ else
             }
 
             EnforcePasswordSetup();
+            EnforceMobileSetup();
             RedirectMobileUsersIfNeeded();
             EnforcePageAccess();
 
@@ -420,6 +421,7 @@ else
         await InvokeAsync(async () => {
             await UpdateUserInfo();
             EnforcePasswordSetup();
+            EnforceMobileSetup();
             StateHasChanged();
         });
     }
@@ -429,6 +431,7 @@ else
         CloseSidebar();
         LogCurrentPage();
         EnforcePasswordSetup();
+        EnforceMobileSetup();
         RedirectMobileUsersIfNeeded();
         EnforcePageAccess();
         
@@ -440,12 +443,30 @@ else
         }
     }
 
-    private void LogCurrentPage()
+    private async void LogCurrentPage()
     {
         try
         {
+            int userId = 0;
             var currentUser = AuthStateProvider.GetCurrentUser();
-            if (currentUser != null)
+
+            if (currentUser != null && currentUser.UserId > 0)
+            {
+                userId = currentUser.UserId;
+            }
+            else
+            {
+                // [FIX] Fallback: Verify async state if synchronous user is missing (common during circuit startup)
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                if (authState.User.Identity?.IsAuthenticated == true)
+                {
+                    var idClaim = authState.User.FindFirst("UserId")?.Value ?? 
+                                 authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                    int.TryParse(idClaim, out userId);
+                }
+            }
+
+            if (userId > 0)
             {
                 var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri);
                 
@@ -461,7 +482,7 @@ else
                     return;
                 }
 
-                AuditLogger.LogPageView(currentUser.UserId, relativeUri);
+                AuditLogger.LogPageView(userId, relativeUri);
             }
         }
         catch (Exception ex)
@@ -514,6 +535,47 @@ else
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Safety catch: Password enforcement check failed.");
+        }
+    }
+
+    private void EnforceMobileSetup()
+    {
+        try
+        {
+            // 1. Only enforce for mobile users
+            if (!UserConnectionService.IsMobile) return;
+
+            var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
+
+            // 2. Allow access to the wizard itself, login, and error pages
+            if (currentUri.Contains("/setup/wizard") || 
+                currentUri.Contains("/login") || 
+                currentUri.Contains("/logout") || 
+                currentUri.Contains("/error") ||
+                currentUri.Contains("/setup/activate") || // Allow activation flow
+                currentUri.Contains("/otp"))              // Allow MFA
+            {
+                return;
+            }
+
+            // 3. Check User State
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            
+            // [Defense] If user is null but we are authenticated, we might be in a 'Guest' state.
+            // Ideally we wait for the user to be loaded, but if they are missing a passcode, we MUST bounce them.
+            if (currentUser != null)
+            {
+                if (string.IsNullOrEmpty(currentUser.PassCodeHash))
+                {
+                     Logger.LogInformation("Security Enforcement: Mobile user {UserId} is missing passcode. Redirecting to wizard.", currentUser.UserId);
+                     Navigation.NavigateTo("/setup/wizard", forceLoad: false);
+                     return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error enforcing mobile setup");
         }
     }
 

@@ -29,6 +29,31 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     // Scoped state for the current circuit
     private ClaimsPrincipal _currentPrincipal = CreateUnauthenticatedPrincipal();
     private AppUser? _currentUser;
+ 
+    /// <summary>
+    /// Clears the global session cache for a specific user to force a database re-validation.
+    /// Used when a device is revoked or setup is reset.
+    /// </summary>
+    public static void InvalidateUser(int userId)
+    {
+        var tokensToInvalidate = _tokenCache
+            .Where(kvp => kvp.Value.User?.UserId == userId)
+            .Select(kvp => kvp.Key)
+            .ToList();
+ 
+        foreach (var token in tokensToInvalidate)
+        {
+            _tokenCache.TryRemove(token, out _);
+        }
+    }
+ 
+    /// <summary>
+    /// Clears the entire global session cache, forcing all users to re-validate against the database.
+    /// </summary>
+    public static void InvalidateAll()
+    {
+        _tokenCache.Clear();
+    }
 
     public CustomAuthenticationStateProvider(
         IAuthenticationService authenticationService,

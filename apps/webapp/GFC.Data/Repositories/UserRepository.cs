@@ -296,7 +296,30 @@ public class UserRepository : IUserRepository
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // Column doesn't exist yet - insert without PasswordChangeRequired
+            // [FIX] Auto-Recovery: Validates if PassCodeHash is missing and adds it
+            try 
+            {
+                using var fixConnection = Db.GetConnection();
+                fixConnection.Open();
+                
+                const string checkSql = "SELECT COL_LENGTH('AppUsers', 'PassCodeHash')";
+                using var checkCmd = new SqlCommand(checkSql, fixConnection);
+                if (checkCmd.ExecuteScalar() == DBNull.Value)
+                {
+                    const string addColSql = "ALTER TABLE AppUsers ADD PassCodeHash NVARCHAR(255) NULL";
+                    using var addCmd = new SqlCommand(addColSql, fixConnection);
+                    addCmd.ExecuteNonQuery();
+                    
+                    // RETRY CREATE USER
+                    return CreateUser(user);
+                }
+            }
+            catch 
+            {
+                // Fallback to legacy behavior
+            }
+
+            // Column doesn't exist yet - insert without newer columns
             using var connection = Db.GetConnection();
             connection.Open();
             const string sql = @"
@@ -353,7 +376,34 @@ public class UserRepository : IUserRepository
         }
         catch (SqlException ex) when (ex.Number == 207) // Invalid column name
         {
-            // Column doesn't exist yet - update without PasswordChangeRequired
+            // [FIX] Auto-Recovery: Validates if PassCodeHash is missing and adds it
+            try 
+            {
+                using var fixConnection = Db.GetConnection();
+                fixConnection.Open();
+                
+                // Check if PassCodeHash is the missing column by trying to add it
+                // We blindly try to add it; if it exists, this might fail, but checking specific existing columns is expensive
+                // A better check:
+                const string checkSql = "SELECT COL_LENGTH('AppUsers', 'PassCodeHash')";
+                using var checkCmd = new SqlCommand(checkSql, fixConnection);
+                if (checkCmd.ExecuteScalar() == DBNull.Value)
+                {
+                    const string addColSql = "ALTER TABLE AppUsers ADD PassCodeHash NVARCHAR(255) NULL";
+                    using var addCmd = new SqlCommand(addColSql, fixConnection);
+                    addCmd.ExecuteNonQuery();
+                    
+                    // RETRY USER UPDATE with full properties
+                    UpdateUser(user); 
+                    return;
+                }
+            }
+            catch 
+            {
+                // Fallback to legacy behavior if schema update fails
+            }
+
+            // Column doesn't exist yet and couldn't be added - update without new columns
             using var connection = Db.GetConnection();
             connection.Open();
             const string sql = @"

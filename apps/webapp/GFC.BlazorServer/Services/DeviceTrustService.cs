@@ -207,8 +207,6 @@ public class DeviceTrustService : IDeviceTrustService
         }
     }
 
-    // ... (ValidateToken, GetUserIdByTokenAsync, GetDevicesForUserAsync, GetAllActiveDevicesAsync omitted for brevity) ...
-
     public async Task RevokeAllGlobalSessionsAsync()
     {
         try
@@ -234,34 +232,6 @@ public class DeviceTrustService : IDeviceTrustService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error revoking all global device tokens");
-        }
-    }
-
-    /// <summary>
-    /// Removes expired and revoked tokens from the database
-    /// </summary>
-    public async Task CleanupExpiredTokensAsync()
-    {
-        try
-        {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            
-            var cutoffDate = DateTime.UtcNow.AddDays(-30); // Keep revoked tokens for 30 days for audit
-            
-            var expiredTokens = await context.TrustedDevices
-                .Where(d => d.ExpiresAtUtc < DateTime.UtcNow || (d.IsRevoked && d.LastUsedUtc < cutoffDate))
-                .ToListAsync();
-
-            if (expiredTokens.Any())
-            {
-                context.TrustedDevices.RemoveRange(expiredTokens);
-                await context.SaveChangesAsync();
-                _logger.LogInformation("Cleaned up {Count} expired device tokens", expiredTokens.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cleaning up expired device tokens");
         }
     }
 
@@ -375,31 +345,6 @@ public class DeviceTrustService : IDeviceTrustService
         {
             _logger.LogError(ex, "Error getting all active devices");
             return new List<DeviceSessionDto>();
-        }
-    }
-
-    public async Task RevokeAllGlobalSessionsAsync()
-    {
-        try
-        {
-            await using var context = await _contextFactory.CreateDbContextAsync();
-            var devices = await context.TrustedDevices
-                .Where(t => !t.IsRevoked)
-                .ToListAsync();
-            
-            if (devices.Any())
-            {
-                foreach (var device in devices)
-                {
-                    device.IsRevoked = true;
-                }
-                await context.SaveChangesAsync();
-                _logger.LogInformation("GLOBAL REVOKE: Revoked {Count} active device tokens system-wide.", devices.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error revoking all global device tokens");
         }
     }
 
