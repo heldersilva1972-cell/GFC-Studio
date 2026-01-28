@@ -75,8 +75,9 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
     {
         RefreshFromAuthenticationService();
 
-        // Standard Auto-Login: Check cookie and validate against DB
-        if (_currentUser == null && !_autoLoginAttempted)
+        // [FIX] Standard Auto-Login: Check cookie and validate against DB
+        // Removed strict _autoLoginAttempted check to allow retry if state was lost
+        if (_currentUser == null)
         {
             _autoLoginAttempted = true;
             try 
@@ -101,12 +102,16 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
 
                 if (!string.IsNullOrEmpty(token))
                 {
-                    // 1. Check Global Cache First
+                    // 1. Check Global Cache First (High speed memory hit)
                     if (_tokenCache.TryGetValue(token, out var cachedData) && cachedData.Expiry > DateTime.UtcNow)
                     {
                         var user = cachedData.User;
                         _currentUser = user;
                         _currentPrincipal = BuildPrincipal(user);
+                        
+                        // [FIX] Hydrate the scoped AuthenticationService so it's ready for sub-services
+                        await _authenticationService.LoginWithDeviceTokenAsync(token);
+                        
                         _userSessionService.SetLoginTime(DateTime.UtcNow);
                         _logger?.LogDebug("Auto-login: Restored user {Username} from global token cache.", user.Username);
                     }
@@ -129,7 +134,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
             }
             catch (Exception ex)
             {
-                 System.Diagnostics.Debug.WriteLine($"Auto-login failed: {ex.Message}");
+                 _logger?.LogError(ex, "Auto-login failed during state resolution");
             }
         }
 

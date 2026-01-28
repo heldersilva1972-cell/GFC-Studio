@@ -241,24 +241,28 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // 1. Instant check for current state to avoid flickering spinners
+        // 1. Instant check for current state
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
         var currentAppUser = AuthStateProvider.GetCurrentUser();
 
-        if (user.Identity?.IsAuthenticated == true && currentAppUser != null)
+        // [FIX] Ensure Username is set even if the AppUser object is still loading
+        Username = user.Identity?.Name ?? currentAppUser?.Username ?? "Guest";
+
+        if (user.Identity?.IsAuthenticated == true)
         {
-            Username = user.Identity.Name ?? "Guest";
-            IsAdmin = currentAppUser.IsAdmin;
+            IsAdmin = currentAppUser?.IsAdmin ?? false;
             
-            // This is now near-instant due to circuit-level caching
-            var permissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
-            UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+            if (currentAppUser != null) 
+            {
+                var permissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
+                UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+            }
             
-            IsLoading = false; // We have enough for first render
+            IsLoading = false; 
         }
 
-        // 2. Background refresh if needed
+        // 2. Background refresh to catch any recent permission changes
         _ = RefreshData();
     }
 
@@ -273,9 +277,11 @@
             
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
-            Username = user.Identity?.Name ?? "Guest";
-            
             var currentAppUser = AuthStateProvider.GetCurrentUser();
+
+            // [FIX] Consistent username resolution
+            Username = user.Identity?.Name ?? currentAppUser?.Username ?? "Guest";
+            
             if (currentAppUser != null)
             {
                 IsAdmin = currentAppUser.IsAdmin;
