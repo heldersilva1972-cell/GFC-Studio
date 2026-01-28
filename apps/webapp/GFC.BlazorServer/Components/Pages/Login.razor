@@ -13,6 +13,8 @@
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject IPasskeyService PasskeyService
 @inject IAuditLogger AuditLogger
+@inject IDeviceTrustService DeviceTrustService
+@inject IUserManagementService UserManagementService
 
 <PageTitle>Login - GFC Membership</PageTitle>
 
@@ -35,26 +37,46 @@
         }
         else
         {
-            <div class="mb-4">
-                <ul class="nav nav-pills nav-fill">
-                    <li class="nav-item">
-                        <a class="nav-link active"
-                           href="javascript:void(0)">
-                            <i class="bi bi-grid-3x3-gap-fill me-1"></i> Passcode
-                        </a>
-                    </li>
-                </ul>
-            </div>
-
-            @if (!string.IsNullOrEmpty(_error))
+            @if (_checkingPasskey)
             {
-                <div class="alert alert-danger" role="alert">@_error</div>
+                <div class="text-center py-5">
+                    <div class="mb-3">
+                        <i class="bi bi-fingerprint" style="font-size: 4rem; color: #3b82f6;"></i>
+                    </div>
+                    <h4 class="text-white mb-2">Biometric Authentication</h4>
+                    <p class="text-white-50">Please authenticate with your device...</p>
+                    <div class="spinner-border text-primary mt-3" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-outline-light btn-sm" @onclick="CancelPasskeyAndShowPasscode">
+                            Use Passcode Instead
+                        </button>
+                    </div>
+                </div>
             }
-
-            @if (!string.IsNullOrEmpty(_successMessage))
+            else
             {
-                <div class="alert alert-success" role="alert">@_successMessage</div>
-            }
+                <div class="mb-4">
+                    <ul class="nav nav-pills nav-fill">
+                        <li class="nav-item">
+                            <a class="nav-link active"
+                               href="javascript:void(0)">
+                                <i class="bi bi-grid-3x3-gap-fill me-1"></i> Passcode
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-danger" role="alert">@_error</div>
+                }
+
+                @if (!string.IsNullOrEmpty(_successMessage))
+                {
+                    <div class="alert alert-success" role="alert">@_successMessage</div>
+                }
 
             @if (_loginMode == LoginMode.Password || _loginMode == LoginMode.PassCode)
             {
@@ -143,10 +165,9 @@
                     }, 100);
                 </script>
             }
-            // Removed Magic Link Section
-
         }
-    </div>
+    }
+</div>
 </div>
 
 <style>
@@ -249,6 +270,8 @@
     private bool _loginRestricted = false;
     private LoginMode _loginMode = LoginMode.PassCode;
     private bool _isSetupMode = false;
+    private bool _checkingPasskey = false;
+    private bool _passkeyAttempted = false;
 
     [Parameter]
     [SupplyParameterFromQuery(Name = "returnUrl")]
@@ -271,7 +294,11 @@
             if (authState.User.Identity?.IsAuthenticated == true)
             {
                 Navigation.NavigateTo(GetPostLoginDestination());
+                return;
             }
+
+            // Auto-trigger passkey authentication if available
+            await TryPasskeyAuthenticationAsync();
         }
         catch (Exception ex)
         {
@@ -304,6 +331,84 @@
         {
             Logger.LogError(ex, "Failed to check login restriction");
         }
+    }
+
+    private async Task TryPasskeyAuthenticationAsync()
+    {
+        if (_passkeyAttempted || _loginRestricted)
+        {
+            return; // Don't retry or attempt if login is restricted
+        }
+
+        try
+        {
+            // Get device trust token to identify the user
+            var deviceToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+            if (string.IsNullOrEmpty(deviceToken))
+            {
+                // No device trust = no passkey possible
+                return;
+            }
+
+            // Try to get username from device trust
+            var username = await GetUsernameFromDeviceTrustAsync(deviceToken);
+            if (string.IsNullOrEmpty(username))
+            {
+                return;
+            }
+
+            // Check if user has passkeys registered
+            var hasPasskeys = await PasskeyService.HasPasskeysAsync(username);
+            if (!hasPasskeys)
+            {
+                // No passkeys registered, show passcode input
+                return;
+            }
+
+            // User has passkeys! Auto-trigger biometric prompt
+            _checkingPasskey = true;
+            _passkeyAttempted = true;
+            StateHasChanged();
+
+            await Task.Delay(500); // Brief delay for UI to render
+
+            // Trigger passkey authentication
+            _passkeyUsername = username;
+            await HandlePasskeyLoginAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Passkey auto-authentication failed, falling back to passcode");
+            _checkingPasskey = false;
+            _passkeyAttempted = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<string?> GetUsernameFromDeviceTrustAsync(string deviceToken)
+    {
+        try
+        {
+            // 1. Get User ID from Token
+            var userId = await DeviceTrustService.GetUserIdByTokenAsync(deviceToken);
+            if (userId == null) return null;
+
+            // 2. Get User from Database
+            var user = await UserManagementService.GetUserAsync(userId.Value);
+            return user?.Username;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to resolve username from device trust token");
+            return null;
+        }
+    }
+
+    private void CancelPasskeyAndShowPasscode()
+    {
+        _checkingPasskey = false;
+        _error = null;
+        StateHasChanged();
     }
 
     private void SetMode(LoginMode mode)
@@ -438,22 +543,31 @@
                     else
                     {
                         _error = result.ErrorMessageForLog ?? "Login failed after passkey verification.";
+                        _checkingPasskey = false;
                     }
                 }
                 else
                 {
                     _error = "Passkey verification failed.";
+                    _checkingPasskey = false;
                 }
+            }
+            else
+            {
+                _error = "Biometric authentication was cancelled.";
+                _checkingPasskey = false;
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Passkey login error");
-            _error = "Could not verify passkey. Ensure you are on a secure connection and have registered a passkey previously.";
+            Logger.LogError(ex, "Passkey login error: {Message}", ex.Message);
+            _error = "Biometric authentication failed. Please use your passcode.";
+            _checkingPasskey = false;
         }
         finally
         {
             _isSubmitting = false;
+            StateHasChanged();
         }
     }
 

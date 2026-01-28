@@ -110,7 +110,7 @@
 
             if (userId == null)
             {
-                _errorMessage = "Activation failed. The link may be invalid or expired.";
+                _errorMessage = "Activation failed. This link has already been used, is invalid, or has expired. Please request a new activation link.";
                 _activating = false;
                 StateHasChanged();
                 return;
@@ -120,7 +120,20 @@
             // We use a default duration (e.g., 30 days) and generic user agent since we're in Blazor context
             var deviceTrustToken = await DeviceTrustService.CreateDeviceTokenAsync(userId.Value, "Web Browser (Activated)", "Unknown IP", 30);
 
-            // 3. Set the NEW TRUST COOKIE
+            // [SECURITY] Mark the onboarding token as used to prevent reuse
+            await VpnService.SetTokenUsedAsync(activeToken);
+            Logger.LogInformation("Onboarding token marked as used for user {UserId}", userId.Value);
+
+            // 3. Clear ANY existing session to prevent cross-account pollution
+            // (e.g. if an admin was previously logged in on this phone)
+            try { await AuthStateProvider.LogoutAsync(); } catch { }
+
+            // [CRITICAL FIX] Clear the GLOBAL authentication cache
+            // The CustomAuthenticationStateProvider uses a static cache that persists across circuits.
+            // If we don't clear it, the wizard will load the CACHED user (e.g., Admin) instead of the NEW user.
+            CustomAuthenticationStateProvider.InvalidateAll();
+
+            // 4. Set the NEW TRUST COOKIE
             await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", deviceTrustToken, 365);
             await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", deviceTrustToken);
 
@@ -131,11 +144,10 @@
                 await Task.Delay(2000); // Wait longer if browser is slow
             }
             else {
-                await Task.Delay(1500);
+                await Task.Delay(1000);
             }
             
-            // 4. Determine next step based on user status
-            var user = await UserManagementService.GetUserAsync(userId.Value);
+            // 4. Determine next step based on user status (Breeze through if already set up)
             var bust = DateTime.UtcNow.Ticks;
             _nextUrl = $"/setup/wizard?setup=true&t={bust}";
 

@@ -16,6 +16,7 @@ public interface IPasskeyService
     Task<List<UserPasskey>> GetUserPasskeysAsync(int userId);
     Task<bool> RevokePasskeyAsync(int id);
     Task<bool> RevokeAllUserPasskeysAsync(int userId);
+    Task<bool> HasPasskeysAsync(string username);
 }
 
 
@@ -283,6 +284,27 @@ public class PasskeyService : IPasskeyService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error revoking all passkeys for user {UserId}", userId);
+            return false;
+        }
+    }
+
+    public async Task<bool> HasPasskeysAsync(string username)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            
+            var user = await context.Set<AppUser>()
+                .FromSqlRaw("SELECT * FROM AppUsers WHERE Username = {0}", username)
+                .FirstOrDefaultAsync();
+                
+            if (user == null) return false;
+
+            return await context.UserPasskeys.AnyAsync(p => p.UserId == user.UserId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking if user {Username} has passkeys", username);
             return false;
         }
     }

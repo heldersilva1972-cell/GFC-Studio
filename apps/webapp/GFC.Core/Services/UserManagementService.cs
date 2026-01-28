@@ -246,7 +246,8 @@ public class UserManagementService : IUserManagementService
             CreatedBy = createdBy,
             Notes = notes,
             PasswordChangeRequired = passwordChangeRequired,
-            MfaEnabled = mfaEnabled
+            MfaEnabled = mfaEnabled,
+            PassCodeHash = null // [FIX] Explicitly ensure new users have no passcode
         };
 
         var newUserId = _userRepository.CreateUser(user);

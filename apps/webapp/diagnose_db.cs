@@ -1,39 +1,30 @@
 using System;
-using Microsoft.Data.SqlClient;
-using GFC.Data;
+using GFC.Core.Interfaces;
+using GFC.Data.Repositories;
+using GFC.Core.Models;
 
-namespace Diagnostics;
-
-public class DbCheck
+namespace DBCheck
 {
-    public static void Main()
+    class Program
     {
-        try
+        static void Main(string[] args)
         {
-            // Use same logic as repository
-            using var connection = new SqlConnection("Server=(localdb)\\MSSQLLocalDB;Database=ClubMembership;Trusted_Connection=True;MultipleActiveResultSets=true;Connect Timeout=5;");
-            connection.Open();
-            
-            Console.WriteLine("--- Waivers Table ---");
-            using var cmd1 = new SqlCommand("SELECT * FROM Waivers", connection);
-            using var r1 = cmd1.ExecuteReader();
-            while (r1.Read())
+            try 
             {
-                Console.WriteLine($"ID: {r1["Id"]}, MemberID: {r1["MemberId"]}, Year: {r1["Year"]}, Reason: {r1["Reason"]}");
+                var repo = new UserRepository();
+                var users = repo.GetAllUsers();
+                Console.WriteLine($"Found {users.Count} users.");
+                foreach (var user in users)
+                {
+                    Console.WriteLine($"User: {user.Username} (ID: {user.UserId})");
+                    Console.WriteLine($"  PassCodeHash: '{(user.PassCodeHash ?? "NULL")}'");
+                    Console.WriteLine($"  PassCodeHash IsNullOrWhiteSpace: {string.IsNullOrWhiteSpace(user.PassCodeHash)}");
+                }
             }
-            r1.Close();
-
-            Console.WriteLine("\n--- DuesWaiverPeriods Table ---");
-            using var cmd2 = new SqlCommand("SELECT * FROM DuesWaiverPeriods", connection);
-            using var r2 = cmd2.ExecuteReader();
-            while (r2.Read())
+            catch (Exception ex)
             {
-                Console.WriteLine($"ID: {r2["WaiverId"]}, MemberID: {r2["MemberId"]}, Range: {r2["StartYear"]}-{r2["EndYear"]}");
+                Console.WriteLine("ERROR: " + ex.Message);
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("Error: " + ex.Message);
         }
     }
 }

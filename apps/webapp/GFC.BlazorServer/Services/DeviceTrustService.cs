@@ -47,9 +47,7 @@ public class DeviceTrustService : IDeviceTrustService
 
             if (device != null)
             {
-                // Update last used time
-                device.LastUsedUtc = DateTime.UtcNow;
-                await context.SaveChangesAsync();
+                await ExtendTokenLifeAsync(device, context);
                 return true;
             }
 
@@ -290,7 +288,13 @@ public class DeviceTrustService : IDeviceTrustService
             var device = await context.TrustedDevices
                 .FirstOrDefaultAsync(d => d.DeviceToken == token && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
             
-            return device != null;
+            if (device != null)
+            {
+                await ExtendTokenLifeAsync(device, context);
+                return true;
+            }
+
+            return false;
         }
         catch (Exception ex)
         {
@@ -417,6 +421,36 @@ public class DeviceTrustService : IDeviceTrustService
         {
             _logger.LogError(ex, "Error performing full mobile reset for user {UserId}", userId);
             throw;
+        }
+    }
+    private async Task ExtendTokenLifeAsync(TrustedDevice device, GfcDbContext context)
+    {
+        try
+        {
+            // Update last used time
+            device.LastUsedUtc = DateTime.UtcNow;
+
+            // Rolling Trust: Extend expiration based on system settings
+            // We fetch settings directly from DB to ensure we use the latest value
+            var settings = await context.SystemSettings.FirstOrDefaultAsync(s => s.Id == 1);
+            int durationDays = settings?.TrustedDeviceDurationDays ?? 30;
+
+            var newExpiration = DateTime.UtcNow.AddDays(durationDays);
+            
+            // Optimization: Only update the DB if the expiration has moved forward significantly (more than 1 day)
+            // or if we are nearing the current expiration (less than 90% of duration left).
+            // This prevents excessive DB writes on every single page navigation.
+            if (device.ExpiresAtUtc < DateTime.UtcNow.AddDays(durationDays * 0.9))
+            {
+                device.ExpiresAtUtc = newExpiration;
+                _logger.LogDebug("Rolling trust: Extended device token for user {UserId} to {ExpiresAt}", device.UserId, newExpiration);
+            }
+
+            await context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to extend token life for device {DeviceId}", device.Id);
         }
     }
 }

@@ -232,7 +232,7 @@
         justify-content: center;
         align-items: center;
         min-height: 100vh;
-        background: radial-gradient(circle at top right, #4f46e5, #000);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 1.5rem;
     }
 
@@ -468,6 +468,12 @@
 
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var principal = authState.User;
+        
+        // [DIAGNOSTIC] Log who is being processed BEFORE any other logic
+        var diagUserId = principal.FindFirst("UserId")?.Value ?? principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "UNKNOWN";
+        var diagUsername = principal.Identity?.Name ?? "UNKNOWN";
+        Logger.LogWarning("=== WIZARD START === User: {Username}, ID: {UserId}, IsAuth: {IsAuth}", 
+            diagUsername, diagUserId, principal.Identity?.IsAuthenticated ?? false);
 
         // [FIX] Verify authentication with fail-fast short circuit.
         // Since we are now AllowAnonymous, we handle the security check here manually.
@@ -475,6 +481,12 @@
         {
             Logger.LogWarning("Wizard initialization reached without authenticated principal. Attempting one-time refresh.");
             
+            // Capture current params to pass through
+            var uri = new Uri(Navigation.Uri);
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            var t = query["t"];
+            var pendingUrl = $"/setup/pending-auth?t={t}";
+
             // Try refresh with a strict 3-second timeout to avoid 2-minute hangs
             var refreshTask = AuthStateProvider.RefreshUserAsync();
             if (await Task.WhenAny(refreshTask, Task.Delay(3000)) == refreshTask)
@@ -484,7 +496,7 @@
             else 
             {
                 Logger.LogWarning("RefreshUserAsync timed out. Redirecting to Pending Auth to break hang.");
-                Navigation.NavigateTo("/setup/pending-auth", false);
+                Navigation.NavigateTo(pendingUrl, false);
                 return;
             }
 
@@ -494,7 +506,7 @@
             if (!principal.Identity?.IsAuthenticated ?? true)
             {
                 Logger.LogWarning("Authentication failed after refresh. Failing fast to broken circuit handler.");
-                Navigation.NavigateTo("/setup/pending-auth", false);
+                Navigation.NavigateTo(pendingUrl, false);
                 return;
             }
         }
@@ -505,21 +517,29 @@
         
         if (int.TryParse(userIdStr, out int userId))
         {
+            // [FIX] Force fresh fetch from DB to avoid any scoped/cached state issues
             var user = await UserService.GetUserAsync(userId);
             if (user != null)
             {
-                // Intelligent skip: ONLY skip Step 1 if the FRESH db record has a passcode
-                if (!string.IsNullOrEmpty(user.PassCodeHash))
+                var hasStalePasscode = !string.IsNullOrWhiteSpace(user.PassCodeHash);
+                
+                Logger.LogInformation("WIZARD DIAGNOSTIC: User={Username} (ID={Id}), HasPasscode={HasPass}, HashLen={HashLen}", 
+                    user.Username, userId, hasStalePasscode, user.PassCodeHash?.Length ?? 0);
+
+                // [FIX] Source of Truth: If a passcode exists in the DB, skip Step 1.
+                // We don't force Step 1 based on URL params anymore, respecting the user's previously set security.
+                if (hasStalePasscode)
                 {
                     CurrentStep = 2;
-                    Logger.LogInformation("Existing passcode detected for user {UserId}. Skipping to Step 2.", userId);
-                    StateHasChanged(); // Force immediate draw for mobile
+                    Logger.LogInformation("Existing passcode detected for user {UserId}. Skipping Step 1.", userId);
                 }
                 else
                 {
                     CurrentStep = 1;
                     Logger.LogInformation("No passcode detected for user {UserId}. Starting at Step 1.", userId);
                 }
+                
+                StateHasChanged(); // Force immediate draw for mobile
             }
         }
     }
@@ -532,7 +552,7 @@
         }
     }
 
-    private async void NextStep() 
+    private async Task NextStep() 
     {
         // [FIX] Safety Check: Before finishing (entering Step 5), verify Passcode is set
         if (CurrentStep == 4)
@@ -545,7 +565,7 @@
             if (int.TryParse(userIdStr, out int userId))
             {
                 var user = await UserService.GetUserAsync(userId);
-                if (user != null && string.IsNullOrEmpty(user.PassCodeHash))
+                if (user != null && string.IsNullOrWhiteSpace(user.PassCodeHash))
                 {
                     // WHOOPS! No passcode set. Force them back to Step 1.
                     CurrentStep = 1;
