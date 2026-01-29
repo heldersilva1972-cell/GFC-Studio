@@ -63,11 +63,17 @@ public class Program
         builder.Services.AddMemoryCache();
         builder.Services.AddServerSideBlazor().AddHubOptions(options => 
         {
-            options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
-            options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+            options.ClientTimeoutInterval = TimeSpan.FromSeconds(120); // Increased for mobile stability
+            options.HandshakeTimeout = TimeSpan.FromSeconds(60);      // Doubled for high-latency hand-offs
             options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-            options.MaximumReceiveMessageSize = 1024 * 1024 * 10; // 10MB for image transfers
-        }).AddCircuitOptions(options => options.DetailedErrors = true);
+            options.MaximumReceiveMessageSize = 1024 * 1024 * 10; // 10MB
+        }).AddCircuitOptions(options => 
+        {
+            options.DetailedErrors = true;
+            // [STABILITY] Keep user state alive for 10 minutes after signal loss instead of the default 3.
+            // This is critical for mobile users who go through tunnels or dead zones.
+            options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(10); 
+        });
 
         builder.Services.AddSignalR(options => 
         {

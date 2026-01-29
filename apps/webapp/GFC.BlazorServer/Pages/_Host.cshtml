@@ -127,52 +127,66 @@
     <script src="_framework/blazor.server.js" autostart="false"></script>
     <script>
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        let backgroundTime = Date.now();
+        let lastHeartbeat = Date.now();
         
         Blazor.start({
             reconnectionHandler: {
                 onConnectionDown: () => {
-                    console.log("[GFC] Connection lost. Synchronizing...");
+                    console.log("[GFC] Connection lost. Monitoring for recovery...");
                     
-                    // ONLY AGGRESSIVE ON MOBILE:
-                    // Mobile browsers often fail to reconnect SignalR after backgrounding.
-                    // Desktop browsers should be allowed to use standard reconnection.
+                    // SMART RECOVERY FOR MOBILE
                     if (isMobile) {
+                        // Immediately try once
+                        Blazor.reconnect();
+                        
+                        // Set a fallback: If still disconnected after 3 seconds of trying, 
+                        // and we have internet, force a clean reload.
                         setTimeout(() => {
                             const modal = document.getElementById('components-reconnect-modal');
-                            if (modal && window.getComputedStyle(modal).display !== 'none') {
-                                console.log("[GFC-Mobile] Forcing recovery reload.");
+                            if (modal && window.getComputedStyle(modal).display !== 'none' && navigator.onLine) {
+                                console.log("[GFC-Mobile] Recovery stalled. Forcing refresh.");
                                 location.reload();
                             }
-                        }, 2500); // 2.5s for mobile to try native reconnect first
+                        }, 4000); 
                     }
-                }
+                },
+                onConnectionUp: () => console.log("[GFC] Connection restored successfully.")
             }
         });
 
+        // 1. [CRITICAL] INSTANT RECOVERY on signal return
+        window.addEventListener('online', () => {
+            console.log("[GFC] Network signal detected. Triggering instant sync.");
+            Blazor.reconnect();
+        });
+
         if (isMobile) {
-            console.log("[GFC] Mobile Optimized Recovery Active.");
+            console.log("[GFC] Mobile Connectivity Shield Active.");
             
-            // Detect if JS was frozen (mobile suspension)
+            // 2. Detect if JS was frozen by OS (Mobile Sleep/Tunnel)
             setInterval(() => {
                 const now = Date.now();
-                if (now - lastHeartbeat > 15000) { // 15s for mobile stability
-                    console.log("[GFC] Resuming from mobile suspension. Refreshing state...");
-                    location.reload();
+                if (now - lastHeartbeat > 20000) { // 20s skip detected
+                    console.log("[GFC] Detected mobile suspension. Syncing...");
+                    if (navigator.onLine) Blazor.reconnect();
+                    else console.log("[GFC] Still offline. Waiting for signal.");
                 }
                 lastHeartbeat = now;
-            }, 2000);
+            }, 3000);
 
+            // 3. Smart Wakeup on app return
             const triggerWakeup = () => {
-                const idle = (Date.now() - backgroundTime) / 1000;
-                if (idle > 60) { // 60s for mobile
-                    console.log("[GFC] Mobile wakeup. Recovering...");
-                    location.reload();
+                const idleSeconds = (Date.now() - backgroundTime) / 1000;
+                if (idleSeconds > 5) { // If away for more than 5s, verify connection
+                    console.log("[GFC] App foregrounded. Verifying connection...");
+                    if (navigator.onLine) Blazor.reconnect();
                 }
             };
 
             window.addEventListener('focus', triggerWakeup);
             window.addEventListener('pageshow', (e) => {
-                if (e.persisted) location.reload();
+                if (e.persisted) Blazor.reconnect();
                 else triggerWakeup();
             });
             document.addEventListener('visibilitychange', () => {
@@ -181,7 +195,7 @@
             });
         }
         else {
-            // DESKTOP: Minimal interference. Just track time for manual visibility checks if needed.
+            // DESKTOP: Minimal tracking
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState !== 'visible') backgroundTime = Date.now();
             });
