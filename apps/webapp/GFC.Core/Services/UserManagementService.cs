@@ -367,6 +367,21 @@ public class UserManagementService : IUserManagementService
         _auditLogger.LogPasswordReset(actorUserId, user.UserId, isSelfService);
     }
 
+    public void ClearPassCode(int userId, int? performedByUserId = null)
+    {
+        var user = _userRepository.GetById(userId);
+        if (user == null)
+        {
+            throw new InvalidOperationException($"User with ID {userId} not found.");
+        }
+
+        user.PassCodeHash = null;
+        _userRepository.UpdateUser(user);
+
+        var actorUserId = performedByUserId ?? userId;
+        _auditLogger.LogPasswordReset(actorUserId, user.UserId, actorUserId == userId);
+    }
+
     public string GenerateUsernameFromMember(int memberId)
     {
         var member = _memberRepository.GetMemberById(memberId);

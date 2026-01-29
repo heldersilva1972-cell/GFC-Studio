@@ -11,6 +11,7 @@
 @inject IJSRuntime JS
 @inject IUrlHelperService UrlHelper
 @inject INotificationService NotificationService
+@inject IToastService ToastService
 @inject IVpnConfigurationService VpnService
 @using GFC.BlazorServer.Services.Vpn
 @inject IPasskeyService PasskeyService
@@ -194,6 +195,9 @@
                                 </td>
                                 <td class="text-end">
                                     <div class="action-buttons">
+                                        <button class="btn btn-outline-warning btn-sm px-2 me-2" @onclick="() => ConfirmResetPasscode(user)">
+                                            Reset Passcode
+                                        </button>
                                         <button class="btn btn-sm btn-icon" title="Edit" @onclick="() => OpenEditUserModal(user)">
                                             <i class="bi bi-pencil"></i>
                                         </button>
@@ -656,35 +660,64 @@
                 <div class="onboarding-tool p-4 bg-light rounded-4 border">
                     <div class="row g-4">
                         <div class="col-md-7">
-                            <label class="form-label fw-bold">1. Select the User to Onboard</label>
-                            <select class="form-select border-0 shadow-sm py-2 mb-4" @bind="_quickOnboardUserId">
-                                <option value="0">Choose a user...</option>
-                                @foreach (var user in _users.OrderBy(u => u.Username))
-                                {
-                                    <option value="@user.UserId">@user.Username @(string.IsNullOrEmpty(user.MemberName) ? "" : $"({user.MemberName})")</option>
-                                }
-                            </select>
-
-                            @if (_quickOnboardUserId > 0)
+                            @if (!_isStationSetup)
                             {
-                                <div class="troubleshooting-card animate-entrance card border-0 shadow-sm p-4 mb-3 bg-white rounded-4">
-                                    <label class="fw-bold text-danger small mb-2 d-block text-uppercase"><i class="bi bi-shield-exclamation me-2"></i>Troubleshooting Only</label>
-                                    <p class="x-small text-muted mb-3">If the user is stuck in a login loop or can't see the hub, use the <strong>Clean Slate</strong> reset first.</p>
-                                    
-                                    <button class="btn btn-outline-danger btn-sm w-100 py-2 fw-bold rounded-pill" @onclick="ResetQuickMobileSetup" disabled="@_resettingMobile">
-                                        @if (_resettingMobile) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                                        else { <i class="bi bi-trash3-fill me-2"></i> }
-                                        Revoke All Linked Devices
-                                    </button>
+                                <label class="form-label fw-bold">1. Select the User to Onboard</label>
+                                <select class="form-select border-0 shadow-sm py-2 mb-4" @bind="_quickOnboardUserId">
+                                    <option value="0">Choose a user...</option>
+                                    @foreach (var user in _users.OrderBy(u => u.Username))
+                                    {
+                                        <option value="@user.UserId">@user.Username @(string.IsNullOrEmpty(user.MemberName) ? "" : $"({user.MemberName})")</option>
+                                    }
+                                </select>
+
+                                @if (_quickOnboardUserId > 0)
+                                {
+                                    <div class="troubleshooting-card animate-entrance card border-0 shadow-sm p-4 mb-3 bg-white rounded-4">
+                                        <label class="fw-bold text-danger small mb-2 d-block text-uppercase"><i class="bi bi-shield-exclamation me-2"></i>Troubleshooting Only</label>
+                                        <p class="x-small text-muted mb-3">If the user is stuck in a login loop or can't see the hub, use the <strong>Clean Slate</strong> reset first.</p>
+                                        
+                                        <button class="btn btn-outline-danger btn-sm w-100 py-2 fw-bold rounded-pill" @onclick="ResetQuickMobileSetup" disabled="@_resettingMobile">
+                                            @if (_resettingMobile) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                            else { <i class="bi bi-trash3-fill me-2"></i> }
+                                            Revoke All Linked Devices
+                                        </button>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="station-mode-info animate-entrance h-100 d-flex flex-column justify-content-center p-4 bg-white rounded-4 shadow-sm border border-primary border-opacity-10 text-center">
+                                    <div class="mb-3">
+                                        <i class="bi bi-display text-primary" style="font-size: 3rem; opacity: 0.2;"></i>
+                                    </div>
+                                    <h5 class="fw-bold text-primary mb-2">Station Setup Enabled</h5>
+                                    <p class="small text-muted mb-0">This link will authorize the device for <strong>all users</strong>. Individual login will be required on the device.</p>
+                                    <div class="mt-3 p-2 bg-light rounded small">
+                                        <i class="bi bi-shield-check me-2 text-success"></i>Authorized by: <strong>Admin (@(_users.FirstOrDefault(u => u.UserId == _currentUserId)?.Username ?? "You"))</strong>
+                                    </div>
                                 </div>
                             }
                         </div>
                         <div class="col-md-5">
+                             <div class="mb-4">
+                                 <label class="form-label fw-bold">2. Mode Selection</label>
+                                 <div class="form-check form-switch p-3 bg-white rounded-4 shadow-sm border @(_isStationSetup ? "border-primary shadow-sm" : "")" style="transition: all 0.2s;">
+                                     <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" id="stationToggle" @bind="_isStationSetup" @bind:after="OnStationToggle" disabled="@(!string.IsNullOrEmpty(_quickGeneratedLink))">
+                                     <label class="form-check-label fw-bold @(_isStationSetup ? "text-primary" : "")" for="stationToggle">
+                                         <i class="bi bi-display me-2"></i>Shared / Station Mode
+                                     </label>
+                                     <p class="x-small text-muted mt-2 mb-0 ms-1">
+                                         <i class="bi bi-info-circle me-1"></i> For lobby PCs or shared tablets. Skips device setup for individuals.
+                                     </p>
+                                 </div>
+                             </div>
+
                              <label class="form-label fw-bold">3. Access Generation</label>
                              <div class="d-grid gap-2">
                                 <button class="btn btn-warning py-3 fw-bold shadow-sm" 
                                         @onclick="GenerateQuickInviteLink" 
-                                        disabled="@(_quickOnboardUserId == 0 || _generatingQuickLink || !string.IsNullOrEmpty(_quickGeneratedLink))">
+                                        disabled="@((_quickOnboardUserId == 0 && !_isStationSetup) || _generatingQuickLink || !string.IsNullOrEmpty(_quickGeneratedLink))">
                                     @if (_generatingQuickLink) { <span class="spinner-border spinner-border-sm me-2"></span> }
                                     else { <i class="bi bi-link-45deg me-1"></i> }
                                     Generate Access Link
@@ -733,7 +766,8 @@
                                 </button>
                             </div>
                             <p class="x-small text-muted mt-3 mb-0">
-                                <strong>Instructions:</strong> Inform the user to open this link on their device. It is a one-time use link valid for 1 hour.
+                                <strong>Instructions:</strong> Inform the user to open this link on their device. 
+                                @( _isStationSetup ? "This will trust the MACHINE for any user to log in." : "It is a one-time use link valid for 1 hour." )
                             </p>
                         </div>
                     }
@@ -749,6 +783,110 @@
             </div>
             <div class="modal-footer border-top-0">
                 <button class="btn btn-outline-secondary px-4" @onclick="CloseQuickOnboardModal">Done</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Reset Passcode Confirmation Modal *@
+@if (_showResetPasscodeConfirm && _selectedUser != null)
+{
+    <div class="modal-overlay" @onclick="CloseResetPasscodeModal">
+        <div class="modal-container" style="max-width: 450px;" @onclick:stopPropagation>
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title text-warning">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Reset Passcode
+                </h5>
+                <button class="btn-close" @onclick="CloseResetPasscodeModal"></button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <div class="mb-3">
+                    <i class="bi bi-shield-lock text-warning" style="font-size: 3rem; opacity: 0.5;"></i>
+                </div>
+                <h4 class="fw-bold mb-3">Are you sure?</h4>
+                <p class="text-muted">
+                    You are resetting the passcode for <strong>@_selectedUser.Username</strong>.
+                </p>
+                <div class="alert alert-info py-2 small text-start">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    The user's <strong>device trust will remain intact</strong>, but they will be prompted to set a new 6-digit passcode on their next visit.
+                </div>
+            </div>
+            <div class="modal-footer border-top-0 pt-0 d-flex gap-2">
+                <button class="btn btn-light flex-grow-1 py-2 fw-bold" @onclick="CloseResetPasscodeModal">Cancel</button>
+                <button class="btn btn-warning flex-grow-1 py-2 fw-bold" @onclick="ExecuteResetPasscode">
+                    <i class="bi bi-check-lg me-1"></i>Confirm Reset
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+
+
+@* Reset Mobile Setup Confirmation Modal *@
+@if (_showResetMobileConfirm && _quickOnboardUserId != 0)
+{
+    var user = _users.FirstOrDefault(u => u.UserId == _quickOnboardUserId);
+    if (user != null)
+    {
+        <div class="modal-overlay" @onclick="() => _showResetMobileConfirm = false">
+            <div class="modal-container" style="max-width: 450px;" @onclick:stopPropagation>
+                <div class="modal-header border-bottom-0 pb-0">
+                    <h5 class="modal-title text-danger">
+                        <i class="bi bi-exclamation-octagon-fill me-2"></i>Critical Reset
+                    </h5>
+                    <button class="btn-close" @onclick="() => _showResetMobileConfirm = false"></button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <div class="mb-3">
+                        <i class="bi bi-device-ssd-fill text-danger" style="font-size: 3rem; opacity: 0.5;"></i>
+                    </div>
+                    <h4 class="fw-bold mb-3">Clean Slate Reset?</h4>
+                    <p class="text-muted">
+                        This will permanently delete ALL trusted devices, passkeys, and push subscriptions for <strong>@user.Username</strong>.
+                    </p>
+                    <div class="alert alert-danger py-2 small text-start">
+                        <i class="bi bi-shield-exclamation me-2"></i>
+                        They will be treated as a <strong>completely new user</strong> and will need a new activation link to get back in.
+                    </div>
+                </div>
+                <div class="modal-footer border-top-0 pt-0 d-flex gap-2">
+                    <button class="btn btn-light flex-grow-1 py-2 fw-bold" @onclick="() => _showResetMobileConfirm = false">Keep Access</button>
+                    <button class="btn btn-danger flex-grow-1 py-2 fw-bold" @onclick="ExecuteResetMobile">
+                        <i class="bi bi-trash3-fill me-2"></i>Delete Everything
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@* Delete User Confirmation Modal *@
+@if (_showDeleteUserConfirm && _userToDelete != null)
+{
+    <div class="modal-overlay" @onclick="() => _showDeleteUserConfirm = false">
+        <div class="modal-container" style="max-width: 450px;" @onclick:stopPropagation>
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title text-danger">
+                    <i class="bi bi-person-x-fill me-2"></i>Delete User Account
+                </h5>
+                <button class="btn-close" @onclick="() => _showDeleteUserConfirm = false"></button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <div class="mb-3">
+                    <i class="bi bi-person-dash text-danger" style="font-size: 3rem; opacity: 0.5;"></i>
+                </div>
+                <h4 class="fw-bold mb-3">Permanent Deletion?</h4>
+                <p class="text-muted">
+                    Are you sure you want to delete <strong>@_userToDelete.Username</strong>? This will also revoke all their device access and permissions.
+                </p>
+            </div>
+            <div class="modal-footer border-top-0 pt-0 d-flex gap-2">
+                <button class="btn btn-light flex-grow-1 py-2 fw-bold" @onclick="() => _showDeleteUserConfirm = false">Keep User</button>
+                <button class="btn btn-danger flex-grow-1 py-2 fw-bold" @onclick="ExecuteDeleteUser">
+                    <i class="bi bi-trash-fill me-2"></i>Delete Permanently
+                </button>
             </div>
         </div>
     </div>
@@ -778,6 +916,7 @@
     private bool _quickCopied = false;
     private bool _showQrCode = false;
     private bool _resettingMobile = false;
+    private bool _isStationSetup = false;
 
     // User Modal
     private UserListItemDto? _editingUser = null;
@@ -798,6 +937,10 @@
     // Custom Notification Modal
     private bool _showSendNotificationModal = false;
     private CustomNotificationModel _customNotification = new();
+    private bool _showResetPasscodeConfirm = false;
+    private bool _showResetMobileConfirm = false;
+    private bool _showDeleteUserConfirm = false;
+    private UserListItemDto? _userToDelete = null;
     private bool _sendingCustomNotification = false;
     private string _sendNotificationError = "";
     private bool _sendNotificationSuccess = false;
@@ -1315,30 +1458,35 @@
     {
         if (user.Username.ToLowerInvariant() == "admin")
         {
-            await JS.InvokeVoidAsync("alert", "The primary system administrator account ('admin') cannot be deleted.");
+            await ToastService.ShowWarning("The primary system administrator account ('admin') cannot be deleted.");
             return;
         }
 
         if (user.UserId == _currentUserId)
         {
-            await JS.InvokeVoidAsync("alert", "You cannot delete your own account.");
+            await ToastService.ShowWarning("You cannot delete your own account.");
             return;
         }
 
-        var confirmed = await JS.InvokeAsync<bool>("confirm", 
-            $"Are you sure you want to delete user '{user.Username}'? This action cannot be undone.");
+        _userToDelete = user;
+        _showDeleteUserConfirm = true;
+    }
+
+    private async Task ExecuteDeleteUser()
+    {
+        if (_userToDelete == null) return;
         
-        if (confirmed)
+        try
         {
-            try
-            {
-                await UserManagementService.DeleteUserAsync(user.UserId);
-                await LoadUsers();
-            }
-            catch (Exception ex)
-            {
-                await JS.InvokeVoidAsync("alert", $"Error deleting user: {ex.Message}");
-            }
+            await UserManagementService.DeleteUserAsync(_userToDelete.UserId);
+            await ToastService.ShowSuccess($"User {_userToDelete.Username} has been deleted.");
+            _showDeleteUserConfirm = false;
+            _userToDelete = null;
+            await LoadUsers();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error deleting user: {ex.Message}");
         }
     }
 
@@ -1364,6 +1512,7 @@
     {
         _quickGeneratedLink = "";
         _showQrCode = false;
+        _isStationSetup = false;
     }
 
     private void OpenQuickOnboardModal()
@@ -1372,6 +1521,7 @@
         _quickGeneratedLink = "";
         _quickCopied = false;
         _showQrCode = false;
+        _isStationSetup = false;
         // [SAFETY] Default to 0 (Choose a user...) instead of auto-selecting the first user (which might be admin)
         _quickOnboardUserId = 0; 
     }
@@ -1381,19 +1531,37 @@
         _showQuickOnboardModal = false;
     }
 
+    private void OnStationToggle()
+    {
+        if (_isStationSetup)
+        {
+            // If turning on station mode, default the user ID to the current admin
+            // This satisfies the backend requirement while hiding the dropdown
+            _quickOnboardUserId = _currentUserId;
+        }
+    }
+
     private async Task GenerateQuickInviteLink()
     {
-        if (_quickOnboardUserId == 0) return;
+        if (_quickOnboardUserId == 0 && !_isStationSetup) return;
+        
+        // Final safeguard for station mode
+        var targetUserId = _isStationSetup ? _currentUserId : _quickOnboardUserId;
+        if (targetUserId == 0) return;
+
         _generatingQuickLink = true;
         try
         {
-            var token = await VpnService.CreateOnboardingTokenAsync(_quickOnboardUserId, 1);
+            var token = await VpnService.CreateOnboardingTokenAsync(targetUserId, 1, _isStationSetup);
             var baseUrl = await UrlHelper.GetBaseUrlAsync();
-            _quickGeneratedLink = $"{baseUrl.TrimEnd('/')}/setup/activate?token={token}";
+            
+            // For stations, we can append a hint to the URL
+            var stationSfx = _isStationSetup ? "&station=true" : "";
+            _quickGeneratedLink = $"{baseUrl.TrimEnd('/')}/setup/activate?token={token}{stationSfx}";
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", $"Failed to generate link: {ex.Message}");
+            await ToastService.ShowError($"Failed to generate link: {ex.Message}");
         }
         finally
         {
@@ -1410,34 +1578,66 @@
         // [SAFETY] Prevent resetting the primary admin account
         if (user.Username.ToLowerInvariant() == "admin")
         {
-            await JS.InvokeVoidAsync("alert", "Safety Lock: You cannot reset the environment for the primary 'admin' account.");
+            await ToastService.ShowWarning("Safety Lock: You cannot reset the environment for the primary 'admin' account.");
             return;
         }
         
-        var confirmed = await JS.InvokeAsync<bool>("confirm", 
-            $"CRITICAL: This will permanently delete all trusted devices, push subscriptions, and passkeys for '{user.Username}'. " +
-            "The user will be treated as completely new on their next mobile access. Proceed?");
+        _showResetMobileConfirm = true;
+    }
 
-        if (!confirmed) return;
-
+    private async Task ExecuteResetMobile()
+    {
+        if (_quickOnboardUserId == 0) return;
+        
         _resettingMobile = true;
+        _showResetMobileConfirm = false;
+        
         try
         {
-            // Explicitly log who we are resetting to debug potential session cross-talk
-            Console.WriteLine($"[UserManagement] Resetting mobile environment for UserId: {_quickOnboardUserId} (Target: {user.Username})");
-
             await DeviceTrustService.ResetMobileSetupAsync(_quickOnboardUserId);
-            
-            await JS.InvokeVoidAsync("alert", "Mobile environment has been completely reset for this user.");
+            await ToastService.ShowSuccess("Mobile environment has been completely reset for this user.");
             _quickGeneratedLink = ""; // Force them to generate new link after reset
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", $"Error resetting mobile setup: {ex.Message}");
+            await ToastService.ShowError($"Error resetting mobile setup: {ex.Message}");
         }
         finally
         {
             _resettingMobile = false;
+        }
+    }
+
+    private void ConfirmResetPasscode(UserListItemDto user)
+    {
+        _selectedUser = user;
+        _showResetPasscodeConfirm = true;
+    }
+
+    private void CloseResetPasscodeModal()
+    {
+        _showResetPasscodeConfirm = false;
+        _selectedUser = null;
+    }
+
+    private async Task ExecuteResetPasscode()
+    {
+        if (_selectedUser == null) return;
+        
+        try
+        {
+            UserManagementService.ClearPassCode(_selectedUser.UserId, _currentUserId);
+            _showResetPasscodeConfirm = false;
+            
+            // Show a nice success toast
+            await ToastService.ShowSuccess($"Passcode reset for {_selectedUser.Username}. They will be prompted for a new one next time they connect.");
+                
+            _selectedUser = null;
+            await LoadUsers();
+        }
+        catch (Exception ex)
+        {
+            _userModalError = $"Error resetting passcode: {ex.Message}";
         }
     }
 

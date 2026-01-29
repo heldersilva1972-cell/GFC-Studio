@@ -15,6 +15,7 @@ public interface IUserManagementService
     Task DeleteUserAsync(int userId); // [NEW] Async support
     void ChangePassword(int userId, string newPassword, bool clearPasswordChangeRequired = false, int? performedByUserId = null);
     void ChangePassCode(int userId, string newPassCode, bool clearPasswordChangeRequired = false, int? performedByUserId = null);
+    void ClearPassCode(int userId, int? performedByUserId = null);
     string GenerateUsernameFromMember(int memberId);
     List<LoginHistoryDto> GetUserLoginHistory(int userId, int limit = 50);
     List<LoginHistoryDto> GetAllLoginHistory(int limit = 100);

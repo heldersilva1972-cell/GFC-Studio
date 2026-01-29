@@ -118,6 +118,58 @@ public class DeviceTrustService : IDeviceTrustService
         }
     }
 
+    public async Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays)
+    {
+        try
+        {
+            var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            
+            var device = new TrustedDevice
+            {
+                UserId = authorizedByUserId, // Record who authorized this station
+                DeviceToken = token,
+                UserAgent = userAgent?.Length > 256 ? userAgent.Substring(0, 256) : userAgent,
+                IpAddress = ipAddress?.Length > 45 ? ipAddress.Substring(0, 45) : ipAddress,
+                LastUsedUtc = DateTime.UtcNow,
+                ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays),
+                IsRevoked = false,
+                IsStation = true
+            };
+
+            context.TrustedDevices.Add(device);
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Created STATION trust token authorized by {UserId}, expires {ExpiresAt}", 
+                authorizedByUserId, device.ExpiresAtUtc);
+
+            return token;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating station token");
+            throw;
+        }
+    }
+
+    public async Task<bool> IsStationTokenAsync(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return false;
+        
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.TrustedDevices
+                .AnyAsync(d => d.DeviceToken == token && d.IsStation && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking if token is station");
+            return false;
+        }
+    }
+
     /// <summary>
     /// Revokes a device token
     /// </summary>
@@ -363,7 +415,8 @@ public class DeviceTrustService : IDeviceTrustService
                                     IpAddress = d.IpAddress,
                                     LastUsedUtc = d.LastUsedUtc,
                                     ExpiresAtUtc = d.ExpiresAtUtc,
-                                    IsRevoked = d.IsRevoked
+                                    IsRevoked = d.IsRevoked,
+                                    IsStation = d.IsStation
                                 }).ToListAsync();
             return sessions;
         }

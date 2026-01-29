@@ -10,4 +10,5 @@ public class DeviceSessionDto
     public DateTime LastUsedUtc { get; set; }
     public DateTime ExpiresAtUtc { get; set; }
     public bool IsRevoked { get; set; }
+    public bool IsStation { get; set; }
 }

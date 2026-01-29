@@ -27,4 +27,6 @@ public class TrustedDevice
     public DateTime ExpiresAtUtc { get; set; }
 
     public bool IsRevoked { get; set; }
+    
+    public bool IsStation { get; set; }
 }

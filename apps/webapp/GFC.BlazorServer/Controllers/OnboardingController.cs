@@ -65,21 +65,21 @@ public class OnboardingController : ControllerBase
             }
 
             // Validate token
-            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
-            if (!userId.HasValue)
+            var result = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (result == null)
             {
                 _logger.LogWarning("Invalid or expired token: {Token}", token.Substring(0, Math.Min(8, token.Length)));
                 return NotFound(new { error = "Invalid or expired token" });
             }
 
-            _logger.LogInformation("Token validated successfully for user {UserId}", userId.Value);
-            _auditLogger.Log(AuditLogActions.VpnOnboardingStarted, null, userId.Value, $"Onboarding initiated via gateway. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
+            _logger.LogInformation("Token validated successfully for user {UserId}", result.UserId);
+            _auditLogger.Log(AuditLogActions.VpnOnboardingStarted, null, result.UserId, $"Onboarding initiated via gateway. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
 
             return Ok(new TokenValidationResponse
             {
                 Valid = true,
-                UserId = userId.Value,
-                UserName = $"User {userId.Value}" // TODO: Get actual username from user service
+                UserId = result.UserId,
+                UserName = $"User {result.UserId}" // TODO: Get actual username from user service
             });
         }
         catch (Exception ex)
@@ -113,16 +113,16 @@ public class OnboardingController : ControllerBase
             }
  
             // Validate token (must not be used yet)
-            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
-            if (!userId.HasValue)
+            var result = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (result == null)
             {
                 return NotFound(new { error = "Invalid or already used token" });
             }
  
             // Generate configuration (this creates/retrieves persistent VpnProfile)
-            var configContent = await _vpnConfigService.GenerateConfigForUserAsync(userId.Value, deviceName, deviceType);
+            var configContent = await _vpnConfigService.GenerateConfigForUserAsync(result.UserId, deviceName, deviceType);
  
-            _logger.LogInformation("WireGuard config generated for user {UserId}", userId.Value);
+            _logger.LogInformation("WireGuard config generated for user {UserId}", result.UserId);
  
             // Return as downloadable file
             var bytes = System.Text.Encoding.UTF8.GetBytes(configContent);
@@ -148,18 +148,18 @@ public class OnboardingController : ControllerBase
         try
         {
             // Validate token
-            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
-            if (!userId.HasValue)
+            var result = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (result == null)
             {
                 return NotFound(new { error = "Invalid or expired token" });
             }
 
-            var profileBytes = await _vpnConfigService.GenerateAppleProfileAsync(userId.Value);
+            var profileBytes = await _vpnConfigService.GenerateAppleProfileAsync(result.UserId);
             
             // Note: In production, this should be signed using a certificate (CMS/PKCS7).
             // For now, we return the raw XML. iOS/macOS will still accept it but show "Unsigned".
 
-            _auditLogger.Log(AuditLogActions.VpnAppleProfileDownloaded, userId.Value, userId.Value, $"Apple .mobileconfig profile downloaded. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
+            _auditLogger.Log(AuditLogActions.VpnAppleProfileDownloaded, result.UserId, result.UserId, $"Apple .mobileconfig profile downloaded. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
             return File(profileBytes, "application/x-apple-aspen-config", "GFC-Access.mobileconfig");
         }
         catch (Exception ex)
@@ -182,8 +182,8 @@ public class OnboardingController : ControllerBase
         try
         {
             // Validate token
-            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
-            if (!userId.HasValue)
+            var result = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (result == null)
             {
                 return NotFound(new { error = "Invalid or expired token" });
             }
@@ -226,7 +226,7 @@ public class OnboardingController : ControllerBase
                 .Replace("$Token,", $"$Token = \"{token}\",")
                 .Replace("$ApiUrl = \"https://gfc.lovanow.com\"", $"$ApiUrl = \"{baseUrl}\""));
 
-            _auditLogger.Log(AuditLogActions.VpnWindowsSetupDownloaded, userId.Value, userId.Value, $"Windows One-Click setup script downloaded. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
+            _auditLogger.Log(AuditLogActions.VpnWindowsSetupDownloaded, result.UserId, result.UserId, $"Windows One-Click setup script downloaded. IP: {Request.HttpContext.Connection.RemoteIpAddress}");
             return File(bytes, "application/x-powershell", "Setup-GFC-VPN.ps1");
         }
         catch (Exception ex)
@@ -261,8 +261,8 @@ public class OnboardingController : ControllerBase
             // We use ValidateOnboardingTokenAsync purely to check validity.
             // This token is NOT marked as used here, just checked.
             // Setup scripts will use the token later for 'config', which validates it again.
-            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
-            if (userId.HasValue)
+            var result = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (result != null)
             {
                 isAuthorized = true;
             }
@@ -323,8 +323,8 @@ public class OnboardingController : ControllerBase
         try
         {
             // Validate token
-            var userId = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
-            if (!userId.HasValue)
+            var result = await _vpnConfigService.ValidateOnboardingTokenAsync(token);
+            if (result == null)
             {
                 return NotFound(new { error = "Invalid or expired token" });
             }
@@ -334,12 +334,12 @@ public class OnboardingController : ControllerBase
  
             _logger.LogInformation(
                 "Onboarding completed for user {UserId}, Device: {DeviceInfo}, Platform: {Platform}, Success: {TestPassed}",
-                userId.Value,
+                result.UserId,
                 request.DeviceInfo ?? "Unknown",
                 request.Platform ?? "Unknown",
                 request.TestPassed);
  
-            _auditLogger.Log(AuditLogActions.VpnOnboardingCompleted, null, userId.Value, $"Gateway wizard finished. Platform: {request.Platform}, Device: {request.DeviceInfo}");
+            _auditLogger.Log(AuditLogActions.VpnOnboardingCompleted, null, result.UserId, $"Gateway wizard finished. Platform: {request.Platform}, Device: {request.DeviceInfo}");
  
             return Ok(new { success = true, message = "Onboarding marked as completed" });
         }

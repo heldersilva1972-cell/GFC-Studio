@@ -61,6 +61,14 @@ else
                             <i class="bi @GetConnectionStatusIcon()"></i>
                             <span>@_connectionStatus</span>
                         </div>
+                        
+                        @if (_isStation)
+                        {
+                            <div class="badge bg-warning text-dark px-3 py-2 rounded-pill shadow-sm animate-pulse" style="font-size: 0.7rem; border: 1px solid rgba(0,0,0,0.1);">
+                                <i class="bi bi-display-fill me-1"></i> STATION ACTIVE
+                            </div>
+                        }
+
                         <span class="app-user">@_currentUsername</span>
                         @if (_isAdmin || IsAdminUser())
                         {
@@ -157,7 +165,7 @@ else
 </div> <!-- app-shell -->
 }
 
-<SessionMonitor />
+<SessionMonitor IsStation="@_isStation" />
 
 @code {
     private string _currentUsername = string.Empty;
@@ -168,6 +176,7 @@ else
     private System.Threading.Timer? _sessionTimer;
     private System.Threading.Timer? _activityTimer;
     private bool _isControllerOnline = false;
+    private bool _isStation = false;
 
     private bool _canInstallPwa = false;
     private bool _isPwaInstalled = false;
@@ -223,6 +232,18 @@ else
             // 4. Start Background Monitors
             StartSystemMonitors();
             
+            // 5. Detect Station Mode (Lazy load for interactive check)
+            _ = Task.Run(async () => {
+                try {
+                    await Task.Delay(2000); // Wait for JS interactivity
+                    var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                    if (!string.IsNullOrEmpty(token)) {
+                        _isStation = await DeviceTrustService.IsStationTokenAsync(token);
+                        await InvokeAsync(StateHasChanged);
+                    }
+                } catch { }
+            });
+
             AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
             ThemeService.OnThemeChanged += StateHasChanged;
             Navigation.LocationChanged += HandleLocationChanged;
@@ -252,12 +273,13 @@ else
         _sessionTimer = new System.Threading.Timer(async _ =>
         {
             var absoluteSessionMaxMinutes = _settings?.AbsoluteSessionMaxMinutes ?? 1440;
+            
             // [SAFEGUARD] Ensure a minimum of 60 minutes for the absolute session to prevent accidental lockout loops
             if (absoluteSessionMaxMinutes < 60) absoluteSessionMaxMinutes = 60;
 
             if (UserSessionService.LoginTimeUtc != default && (DateTime.UtcNow - UserSessionService.LoginTimeUtc).TotalMinutes > absoluteSessionMaxMinutes)
             {
-                Logger.LogWarning("Absolute session limit reached ({Limit}m). Logging out.", absoluteSessionMaxMinutes);
+                Logger.LogWarning("Session limit reached ({Limit}m). Logging out Station: {IsStation}.", absoluteSessionMaxMinutes, _isStation);
                 await HandleLogout();
             }
         }, null, 60000, 60000);

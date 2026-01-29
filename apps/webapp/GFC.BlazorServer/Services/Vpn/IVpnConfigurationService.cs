@@ -14,7 +14,7 @@ public interface IVpnConfigurationService
     /// <summary>
     /// Generates a new onboarding token for a user.
     /// </summary>
-    Task<string> CreateOnboardingTokenAsync(int userId, int durationHours = 48);
+    Task<string> CreateOnboardingTokenAsync(int userId, int durationHours = 48, bool isStation = false);
 
     /// <summary>
     /// Generates a token ONLY if the user already has devices.
@@ -24,9 +24,9 @@ public interface IVpnConfigurationService
 
     
     /// <summary>
-    /// Validates an onboarding token. Returns the UserId if valid, or null.
+    /// Validates an onboarding token.
     /// </summary>
-    Task<int?> ValidateOnboardingTokenAsync(string token);
+    Task<OnboardingTokenResult?> ValidateOnboardingTokenAsync(string token);
     
     /// <summary>
     /// Checks if VPN testing endpoint is reachable.
@@ -73,3 +73,5 @@ public interface IVpnConfigurationService
     /// </summary>
     Task<System.Collections.Generic.List<VpnProfile>> GetUserProfilesAsync(int userId);
 }
+
+public record OnboardingTokenResult(int UserId, bool IsStation);

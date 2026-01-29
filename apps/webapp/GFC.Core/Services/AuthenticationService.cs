@@ -199,6 +199,13 @@ public class AuthenticationService : IAuthenticationService
             return CreateFailure(LoginResultCode.InvalidCredentials, reason);
         }
 
+        // [STATION MODE] Machine is trusted, but USER is not authenticated.
+        // Station tokens allow the 'Access Shield' to pass, but do NOT provide auto-login identity.
+        if (trustedDevice.IsStation)
+        {
+            return CreateFailure(LoginResultCode.InvalidCredentials, "Station Mode: Manual login required.");
+        }
+
         var user = _userRepository.GetById(trustedDevice.UserId);
         if (user == null || !user.IsActive)
         {

@@ -234,8 +234,32 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
 
     public async Task LogoutAsync(string? deviceToken = null)
     {
-        await _authenticationService.LogoutAsync(deviceToken);
-        RefreshFromAuthenticationService();
+        try 
+        {
+            // 1. Tell the server to log out (clears internal state)
+            await _authenticationService.LogoutAsync(deviceToken);
+            
+            // 2. Clear browser tokens to prevent immediate auto-login loop
+            try 
+            {
+                await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+                await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+            }
+            catch { /* Not interactive or JS not ready */ }
+
+            // 3. Clear global cache to ensure this specific token isn't reused immediately
+            if (!string.IsNullOrEmpty(deviceToken))
+            {
+                _tokenCache.TryRemove(deviceToken, out _);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during LogoutAsync");
+        }
+
+        _currentUser = null;
+        _currentPrincipal = CreateUnauthenticatedPrincipal();
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
     }
 

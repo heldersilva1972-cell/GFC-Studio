@@ -106,9 +106,9 @@
             activeToken = activeToken.Trim();
 
             // 1. Validate the Invite/Onboarding Token
-            var userId = await VpnService.ValidateOnboardingTokenAsync(activeToken);
+            var result = await VpnService.ValidateOnboardingTokenAsync(activeToken);
 
-            if (userId == null)
+            if (result == null)
             {
                 _errorMessage = "Activation failed. This link has already been used, is invalid, or has expired. Please request a new activation link.";
                 _activating = false;
@@ -116,13 +116,25 @@
                 return;
             }
 
-            // 2. Create a NEW Device Trust Token for this session
-            // We use a default duration (e.g., 30 days) and generic user agent since we're in Blazor context
-            var deviceTrustToken = await DeviceTrustService.CreateDeviceTokenAsync(userId.Value, "Web Browser (Activated)", "Unknown IP", 30);
+            var userId = result.UserId;
+            string deviceTrustToken;
+
+            if (result.IsStation)
+            {
+                // Create a STATION trust token (Shared Computer)
+                deviceTrustToken = await DeviceTrustService.CreateStationTokenAsync(userId, "Shared Computer (Station)", "Unknown IP", 365);
+                Logger.LogInformation("STATION activated by user {UserId}", userId);
+            }
+            else
+            {
+                // 2. Create a NEW Device Trust Token for this session
+                // We use a default duration (e.g., 30 days) and generic user agent since we're in Blazor context
+                deviceTrustToken = await DeviceTrustService.CreateDeviceTokenAsync(userId, "Web Browser (Activated)", "Unknown IP", 30);
+            }
 
             // [SECURITY] Mark the onboarding token as used to prevent reuse
             await VpnService.SetTokenUsedAsync(activeToken);
-            Logger.LogInformation("Onboarding token marked as used for user {UserId}", userId.Value);
+            Logger.LogInformation("Onboarding token marked as used for user {UserId}", userId);
 
             // 3. Clear ANY existing session to prevent cross-account pollution
             // (e.g. if an admin was previously logged in on this phone)
@@ -149,7 +161,15 @@
             
             // 4. Determine next step based on user status (Breeze through if already set up)
             var bust = DateTime.UtcNow.Ticks;
-            _nextUrl = $"/setup/wizard?setup=true&t={bust}";
+            
+            if (result.IsStation)
+            {
+                _nextUrl = $"/login?station=true&t={bust}";
+            }
+            else
+            {
+                _nextUrl = $"/setup/wizard?setup=true&t={bust}";
+            }
 
             _success = true;
             _activating = false;

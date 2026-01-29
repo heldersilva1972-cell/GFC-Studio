@@ -24,4 +24,6 @@ public class VpnOnboardingToken
     
     [MaxLength(500)]
     public string? DeviceInfo { get; set; }
+
+    public bool IsStation { get; set; }
 }

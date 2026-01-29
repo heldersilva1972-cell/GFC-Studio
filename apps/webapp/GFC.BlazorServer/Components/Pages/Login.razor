@@ -91,8 +91,8 @@
                                    class="form-control" 
                                    @bind-Value="_model.Username" 
                                    placeholder="Enter username"
-                                   autocomplete="off"
-                                   readonly />
+                                   autocomplete="on"
+                                   readonly="@(_isStationMode ? null : "readonly")" />
                         <ValidationMessage For="@(() => _model.Username)" />
                     </div>
 
@@ -113,17 +113,16 @@
                                    @bind="_model.Password"
                                    placeholder="000000"
                                    autocomplete="off"
-                                   readonly />
+                                   readonly="@(_isStationMode ? null : "readonly")" />
                         }
                         else
                         {
                             <input id="password"
-                                   type="password"
-                                   class="form-control"
+                                   style="border-radius: 0.75rem !important;"
                                    @bind="_model.Password"
                                    placeholder="Enter password"
                                    autocomplete="new-password"
-                                   readonly />
+                                   readonly="@(_isStationMode ? null : "readonly")" />
                         }
                         <ValidationMessage For="@(() => _model.Password)" />
                     </div>
@@ -272,6 +271,11 @@
     private bool _isSetupMode = false;
     private bool _checkingPasskey = false;
     private bool _passkeyAttempted = false;
+    private bool _isStationMode = false;
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "station")]
+    public string? StationParam { get; set; }
 
     [Parameter]
     [SupplyParameterFromQuery(Name = "returnUrl")]
@@ -287,9 +291,16 @@
         await CheckLoginRestriction();
         
         _isSetupMode = !string.IsNullOrEmpty(SetupParam);
-
+        
         try
         {
+            _isStationMode = !string.IsNullOrEmpty(StationParam);
+            if (!_isStationMode)
+            {
+                var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                _isStationMode = await DeviceTrustService.IsStationTokenAsync(token);
+            }
+
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             if (authState.User.Identity?.IsAuthenticated == true)
             {
@@ -297,8 +308,11 @@
                 return;
             }
 
-            // Auto-trigger passkey authentication if available
-            await TryPasskeyAuthenticationAsync();
+            // Auto-trigger passkey authentication if available (Not in station mode)
+            if (!_isStationMode)
+            {
+                await TryPasskeyAuthenticationAsync();
+            }
         }
         catch (Exception ex)
         {
