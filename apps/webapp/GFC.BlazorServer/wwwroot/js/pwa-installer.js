@@ -68,6 +68,12 @@ window.pwaInstaller = (function () {
     function init() {
         isStandalone = checkIfStandalone();
 
+        // Check for early-captured prompt
+        if (window._pwaBeforeInstallPrompt) {
+            console.log('[PWA Installer] Recovering early-captured prompt');
+            deferredPrompt = window._pwaBeforeInstallPrompt;
+        }
+
         window.addEventListener('beforeinstallprompt', (e) => {
             console.log('[PWA Installer] Install prompt available');
             e.preventDefault();
