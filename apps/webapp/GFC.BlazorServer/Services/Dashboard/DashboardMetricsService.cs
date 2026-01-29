@@ -300,37 +300,29 @@ public class DashboardMetricsService : IDashboardMetricsService
         var previousLookup = BuildLatestDuesLookup(previousYearDues);
         var gracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date <= graceEndDate.Value;
 
-        var active = 0;
-        var pastDue = 0;
+        var statusActiveCount = 0;
+        var unpaidCount = 0;
 
         foreach (var member in members)
         {
-            if (MemberStatusHelper.IsPending(member))
-            {
-                continue;
-            }
-
+            if (MemberStatusHelper.IsPending(member)) continue;
             var normalizedStatus = MemberStatusHelper.NormalizeStatus(member.Status);
-            if (!IsActiveStatus(normalizedStatus))
-            {
-                continue;
-            }
+            if (!IsActiveStatus(normalizedStatus)) continue;
+
+            // This member is status-active (Regular/Life/NP-Reg/Board)
+            statusActiveCount++;
 
             var currentSatisfied = IsDuesSatisfied(TryGet(currentLookup, member.MemberID));
             var previousSatisfied = IsDuesSatisfied(TryGet(previousLookup, member.MemberID));
 
             var inGoodStanding = currentSatisfied || (gracePeriodActive && previousSatisfied);
-            if (inGoodStanding)
+            if (!inGoodStanding)
             {
-                active++;
-            }
-            else
-            {
-                pastDue++;
+                unpaidCount++;
             }
         }
 
-        return (active, pastDue);
+        return (statusActiveCount, unpaidCount);
     }
 
     private static CoreDuesPayment? TryGet(IReadOnlyDictionary<int, CoreDuesPayment> lookup, int memberId)
