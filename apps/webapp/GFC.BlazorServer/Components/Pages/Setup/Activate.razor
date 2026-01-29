@@ -136,28 +136,21 @@
             await VpnService.SetTokenUsedAsync(activeToken);
             Logger.LogInformation("Onboarding token marked as used for user {UserId}", userId);
 
-            // 3. Clear ANY existing session to prevent cross-account pollution
-            // (e.g. if an admin was previously logged in on this phone)
-            try { await AuthStateProvider.LogoutAsync(); } catch { }
+            // [MOD] Bypassing explicit LogoutAsync to avoid JS-interop hangs on mobile.
+            // forceLoad: true on the next step will naturally reset the circuit and clear local state.
 
             // [CRITICAL FIX] Clear the GLOBAL authentication cache
             // The CustomAuthenticationStateProvider uses a static cache that persists across circuits.
             // If we don't clear it, the wizard will load the CACHED user (e.g., Admin) instead of the NEW user.
             CustomAuthenticationStateProvider.InvalidateAll();
 
-            // 4. Set the NEW TRUST COOKIE
+            // [MOD] Direct hand-off. Overwriting cookie/localStorage is enough before the force-load redirect.
+            // Removing redundant verifyCookie+Delay which added 2-3s of perceived lag.
             await JS.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", deviceTrustToken, 365);
             await JS.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", deviceTrustToken);
-
-            // [FIX] Verify cookie before leaving
-            var cookieVerified = await JS.InvokeAsync<bool>("window.verifyCookie", "GFC_DeviceTrustToken");
-            if (!cookieVerified) {
-                Logger.LogWarning("Cookie verification failed on first attempt. Waiting longer...");
-                await Task.Delay(2000); // Wait longer if browser is slow
-            }
-            else {
-                await Task.Delay(1000);
-            }
+            
+            // Give a tiny window for the browser to register the disk writes
+            await Task.Delay(200);
             
             // 4. Determine next step based on user status (Breeze through if already set up)
             var bust = DateTime.UtcNow.Ticks;
