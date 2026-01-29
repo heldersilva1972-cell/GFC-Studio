@@ -58,20 +58,24 @@ public class PasskeyService : IPasskeyService
  
         var rpName = _configuration["Fido2:ServerName"] ?? "GFC System";
         
-        // [FIX] Robust RP ID Detection
+        // [FIX] Dynamic RP ID Detection
+        // If we are on localhost, we MUST use 'localhost' as the RP ID, otherwise the browser rejects it.
+        // We only use the configured ServerDomain if it matches the current request or if the request is unknown.
+        var httpContext = _httpContextAccessor.HttpContext;
+        string currentHost = httpContext?.Request.Host.Host ?? "localhost";
+        
         string rpId = _configuration["Fido2:ServerDomain"];
         
-        if (string.IsNullOrEmpty(rpId))
+        // If hardcoded RP ID doesn't match current host, and current host is 'localhost', override it.
+        // Also override if no RP ID is configured.
+        if (string.IsNullOrEmpty(rpId) || (currentHost == "localhost" && rpId != "localhost"))
         {
-            var httpContext = _httpContextAccessor.HttpContext;
-            if (httpContext != null)
-            {
-                rpId = httpContext.Request.Host.Host;
-            }
-            else
-            {
-                rpId = "localhost";
-            }
+            rpId = currentHost;
+        }
+        else if (currentHost.Contains(".") && !rpId.Contains("."))
+        {
+            // If we have a real domain but config is simple/missing, use the domain
+            rpId = currentHost;
         }
  
         // Create a 16-byte user handle (more compatible with Android/Chrome)
@@ -189,7 +193,15 @@ public class PasskeyService : IPasskeyService
         }
 
         var challenge = Convert.ToBase64String(Guid.NewGuid().ToByteArray());
-        var rpId = _configuration["Fido2:ServerDomain"] ?? "localhost";
+        
+        // [FIX] Dynamic RP ID Detection (Login)
+        var httpContext = _httpContextAccessor.HttpContext;
+        string currentHost = httpContext?.Request.Host.Host ?? "localhost";
+        string rpId = _configuration["Fido2:ServerDomain"];
+        if (string.IsNullOrEmpty(rpId) || (currentHost == "localhost" && rpId != "localhost"))
+        {
+            rpId = currentHost;
+        }
 
         return new
         {

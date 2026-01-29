@@ -50,14 +50,17 @@ public class UserManagementService : IUserManagementService
 
     public void DeleteUser(int userId)
     {
-        // [FIX] Cleanup device trust environment before deleting user
+        // [FIX] Cleanup caches and device trust before deleting user
         try
         {
             _deviceTrustService.ResetMobileSetupAsync(userId).GetAwaiter().GetResult();
+            _permissionCache.TryRemove(userId, out _);
+            _userPermissionsCache.TryRemove(userId, out _);
+            _deviceTrustService.InvalidateUserSession(userId);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[UserManagement] Warning: specific device cleanup failed during user deletion: {ex.Message}");
+            Console.Error.WriteLine($"[UserManagement] Warning: specific device/cache cleanup failed during user deletion: {ex.Message}");
         }
 
         _userRepository.DeleteUser(userId);
@@ -65,14 +68,17 @@ public class UserManagementService : IUserManagementService
 
     public async Task DeleteUserAsync(int userId)
     {
-        // [FIX] Cleanup device trust environment before deleting user (Async)
+        // [FIX] Cleanup caches and device trust before deleting user (Async)
         try
         {
             await _deviceTrustService.ResetMobileSetupAsync(userId);
+            _permissionCache.TryRemove(userId, out _);
+            _userPermissionsCache.TryRemove(userId, out _);
+            _deviceTrustService.InvalidateUserSession(userId);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[UserManagement] Warning: specific device cleanup failed during user deletion: {ex.Message}");
+            Console.Error.WriteLine($"[UserManagement] Warning: specific device/cache cleanup failed during user deletion: {ex.Message}");
         }
 
         // Repository delete is currently sync, but that's okay as it's a fast db op usually.
@@ -377,6 +383,9 @@ public class UserManagementService : IUserManagementService
 
         user.PassCodeHash = null;
         _userRepository.UpdateUser(user);
+
+        // [FIX] Invalidate global in-memory cache to force security enforcement on next request
+        _deviceTrustService.InvalidateUserSession(userId);
 
         var actorUserId = performedByUserId ?? userId;
         _auditLogger.LogPasswordReset(actorUserId, user.UserId, actorUserId == userId);

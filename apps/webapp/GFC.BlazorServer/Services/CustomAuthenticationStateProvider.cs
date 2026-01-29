@@ -14,13 +14,18 @@ using System.Linq;
 
 namespace GFC.BlazorServer.Services;
 
-public class CustomAuthenticationStateProvider : AuthenticationStateProvider
+public class CustomAuthenticationStateProvider : AuthenticationStateProvider, IDisposable
 {
     private readonly IAuthenticationService _authenticationService;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IUserSessionService _userSessionService;
     private readonly IJSRuntime _jsRuntime;
     private readonly Microsoft.Extensions.Logging.ILogger<CustomAuthenticationStateProvider> _logger;
+
+    // [NEW] Real-Time Multi-Circuit Invalidation
+    // Allows an admin action in one circuit (e.g. deleting a user) to instantly terminate
+    // the sessions in ALL other active circuits for that user.
+    private static event Action<int>? OnUserInvalidated;
 
     // [NEW] High-Speed Global Session Cache
     // This persists across all user circuits and prevents redundant DB calls during reloads.
@@ -45,6 +50,9 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         {
             _tokenCache.TryRemove(token, out _);
         }
+
+        // [NEW] Notify all active circuits to self-destruct if they belong to this user
+        OnUserInvalidated?.Invoke(userId);
     }
  
     /// <summary>
@@ -67,6 +75,23 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider
         _userSessionService = userSessionService ?? throw new ArgumentNullException(nameof(userSessionService));
         _jsRuntime = jsRuntime ?? throw new ArgumentNullException(nameof(jsRuntime));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        // [NEW] Subscribe to global invalidation events
+        OnUserInvalidated += HandleUserInvalidated;
+    }
+
+    private async void HandleUserInvalidated(int userId)
+    {
+        if (_currentUser != null && _currentUser.UserId == userId)
+        {
+            _logger.LogInformation("Circuit for User {UserId} invalidated by administrative action.", userId);
+            await LogoutAsync(); 
+        }
+    }
+
+    public void Dispose()
+    {
+        OnUserInvalidated -= HandleUserInvalidated;
     }
 
     private bool _autoLoginAttempted = false;

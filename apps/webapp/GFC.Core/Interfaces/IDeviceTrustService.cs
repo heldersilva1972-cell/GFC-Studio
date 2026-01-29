@@ -28,4 +28,6 @@ public interface IDeviceTrustService
     Task<List<GFC.Core.DTOs.DeviceSessionDto>> GetAllActiveDevicesAsync(); 
     Task RevokeAllGlobalSessionsAsync();
     Task ResetMobileSetupAsync(int userId);
+    void InvalidateUserSession(int userId);
+    void InvalidateAllUserSessions();
 }

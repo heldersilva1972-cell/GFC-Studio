@@ -224,8 +224,7 @@ else
                 }
             }
 
-            EnforcePasswordSetup();
-            EnforceMobileSetup();
+            EnforceSecuritySetup();
             RedirectMobileUsersIfNeeded();
             EnforcePageAccess();
 
@@ -263,6 +262,7 @@ else
             try {
                 UpdateControllerStatus();
                 await CheckPwaStatus();
+                await AuthStateProvider.RefreshUserAsync(); // [NEW] Sync user state with DB to pickup admin changes (like Passcode Reset)
                 await ValidateSession();
                 await InvokeAsync(StateHasChanged);
             } catch (Exception ex) {
@@ -442,8 +442,7 @@ else
     {
         await InvokeAsync(async () => {
             await UpdateUserInfo();
-            EnforcePasswordSetup();
-            EnforceMobileSetup();
+            EnforceSecuritySetup();
             StateHasChanged();
         });
     }
@@ -452,8 +451,7 @@ else
     {
         CloseSidebar();
         LogCurrentPage();
-        EnforcePasswordSetup();
-        EnforceMobileSetup();
+        EnforceSecuritySetup();
         RedirectMobileUsersIfNeeded();
         EnforcePageAccess();
         
@@ -529,75 +527,64 @@ else
         catch { /* Best effort */ }
     }
 
-    private void EnforcePasswordSetup()
+    /// <summary>
+    /// Unified security enforcement for both Desktop and Mobile.
+    /// Redirects users to required setup steps (Password Change, Passcode Setup, etc.)
+    /// </summary>
+    private void EnforceSecuritySetup()
     {
         try
         {
             var currentUser = AuthStateProvider.GetCurrentUser();
-            if (currentUser == null) return;
-            
             var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
             
-            // Only redirect if they need a change
-            if (currentUser.PasswordChangeRequired)
-            {
-                // Strictly check if we are already on a page that handles authentication/setup
-                bool isBypassPage = currentUri.Contains("/changepassword") || 
-                                   currentUri.Contains("/login") || 
-                                   currentUri.Contains("/setup/activate") ||
-                                   currentUri.Contains("/setup/wizard") ||
-                                   currentUri.Contains("/auth/magic-login");
+            // 1. Unified Bypass List (Public/Auth/Setup pages)
+            var publicPaths = new[] { 
+                "/login", "/setup", "/changepassword", "/error", "/safe-mode-lockout", 
+                "/vpn-required", "/verify-mfa", "/logout", "/auth/magic-login", "/otp" 
+            };
+            
+            bool isPublicPage = publicPaths.Any(p => currentUri.StartsWith(p.ToLower()));
 
-                if (!isBypassPage)
-                {
-                    Navigation.NavigateTo("/changepassword", forceLoad: false);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Safety catch: Password enforcement check failed.");
-        }
-    }
-
-    private void EnforceMobileSetup()
-    {
-        try
-        {
-            // 1. Only enforce for mobile users
-            if (!UserConnectionService.IsMobile) return;
-
-            var currentUri = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLower();
-
-            // 2. Allow access to the wizard itself, login, and error pages
-            if (currentUri.Contains("/setup/wizard") || 
-                currentUri.Contains("/login") || 
-                currentUri.Contains("/logout") || 
-                currentUri.Contains("/error") ||
-                currentUri.Contains("/setup/activate") || // Allow activation flow
-                currentUri.Contains("/otp"))              // Allow MFA
+            if (isPublicPage) 
             {
                 return;
             }
 
-            // 3. Check User State
-            var currentUser = AuthStateProvider.GetCurrentUser();
-            
-            // [Defense] If user is null but we are authenticated, we might be in a 'Guest' state.
-            // Ideally we wait for the user to be loaded, but if they are missing a passcode, we MUST bounce them.
-            if (currentUser != null)
+            // [FIX] If we have no user object but are on a protected page, we MUST redirect to login.
+            // This captures cases where the user was deleted or the session expired.
+            if (currentUser == null)
             {
-                if (string.IsNullOrEmpty(currentUser.PassCodeHash))
-                {
-                     Logger.LogInformation("Security Enforcement: Mobile user {UserId} is missing passcode. Redirecting to wizard.", currentUser.UserId);
-                     Navigation.NavigateTo("/setup/wizard", forceLoad: false);
-                     return;
-                }
+                Logger.LogWarning("Security Enforcement: Unauthenticated access attempt to {Path}. Redirecting to login.", currentUri);
+                Navigation.NavigateTo("/login", forceLoad: true);
+                return;
             }
+
+            // 2. Force Password Change (Legacy password check)
+            if (currentUser.PasswordChangeRequired)
+            {
+                Navigation.NavigateTo("/changepassword", forceLoad: false);
+                return;
+            }
+
+            // 3. Force Passcode Setup (Next Gen Security)
+        // [FIX] Mandatory for Mobile (Shield requirement). Optional/Prompt-only for Desktop.
+        if (string.IsNullOrEmpty(currentUser.PassCodeHash))
+        {
+            // [BYPASS] Emergency 'admin' on the host computer should never be locked out of the UI
+            bool isHostAdmin = currentUser.Username.ToLower() == "admin" && UserConnectionService.LocationType == LocationType.Local;
+            
+            if (UserConnectionService.IsMobile && !isHostAdmin)
+            {
+                 Logger.LogInformation("Security Enforcement: Mobile User {Username} is missing passcode. Redirecting to mandatory setup.", currentUser.Username);
+                 Navigation.NavigateTo("/setup/wizard?setup=true", forceLoad: false);
+                 return;
+            }
+        }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error enforcing mobile setup");
+            Logger.LogWarning(ex, "Safety catch: Security enforcement check failed.");
         }
     }
 
@@ -710,8 +697,10 @@ else
                 return;
             }
 
-            // [NEW] On Desktop, we trust the SignalR circuit. 
-            // Aggressive token re-validation is a battery/reconnection strategy for MOBILE.
+            // [NEW] Trigger security re-validation if the user object might be stale
+            // This captures admin-driven changes (like Passcode Reset) within 30s.
+            EnforceSecuritySetup();
+
             bool isMobile = UserConnectionService.IsMobile;
             if (!isMobile) return; 
 

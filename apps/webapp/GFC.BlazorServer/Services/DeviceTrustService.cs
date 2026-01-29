@@ -506,4 +506,14 @@ public class DeviceTrustService : IDeviceTrustService
             _logger.LogWarning(ex, "Failed to extend token life for device {DeviceId}", device.Id);
         }
     }
+
+    public void InvalidateUserSession(int userId)
+    {
+        CustomAuthenticationStateProvider.InvalidateUser(userId);
+    }
+
+    public void InvalidateAllUserSessions()
+    {
+        CustomAuthenticationStateProvider.InvalidateAll();
+    }
 }
