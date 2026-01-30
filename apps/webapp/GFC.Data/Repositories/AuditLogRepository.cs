@@ -38,8 +38,8 @@ public class AuditLogRepository : IAuditLogRepository
         connection.Open();
 
         const string sql = @"
-INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details, PageUrl, DurationSeconds)
-VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @PageUrl, @DurationSeconds);";
+INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details, PageUrl, DurationSeconds, IpAddress, DeviceToken)
+VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @PageUrl, @DurationSeconds, @IpAddress, @DeviceToken);";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@TimestampUtc", entry.TimestampUtc == default ? DateTime.UtcNow : entry.TimestampUtc);
@@ -49,6 +49,8 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @Pa
         command.Parameters.AddWithValue("@Details", (object?)entry.Details ?? DBNull.Value);
         command.Parameters.AddWithValue("@PageUrl", (object?)entry.PageUrl ?? DBNull.Value);
         command.Parameters.AddWithValue("@DurationSeconds", entry.DurationSeconds);
+        command.Parameters.AddWithValue("@IpAddress", (object?)entry.IpAddress ?? DBNull.Value);
+        command.Parameters.AddWithValue("@DeviceToken", (object?)entry.DeviceToken ?? DBNull.Value);
 
         command.ExecuteNonQuery();
     }
@@ -110,7 +112,7 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @Pa
         var countSql = $"SELECT COUNT(*) FROM AuditLogs al {whereClause};";
 
         var pageSql = $@"
-SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds,
+SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds, al.IpAddress, al.DeviceToken,
        pb.Username AS PerformedByUsername, pb.MemberId AS PerformedByMemberId,
        tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId,
        pbm.FirstName AS PerformedByFirstName, pbm.LastName AS PerformedByLastName,
@@ -218,7 +220,7 @@ WHERE AuditLogId = (
             await connection.OpenAsync();
 
             const string sql = @"
-SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds,
+SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds, al.IpAddress, al.DeviceToken,
        pb.Username AS PerformedByUsername, pb.MemberId AS PerformedByMemberId,
        tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId,
        pbm.FirstName AS PerformedByFirstName, pbm.LastName AS PerformedByLastName,
@@ -285,12 +287,26 @@ BEGIN
         [Details] NVARCHAR(MAX) NULL,
         [PageUrl] NVARCHAR(255) NULL,
         [DurationSeconds] INT NOT NULL DEFAULT 0,
+        [IpAddress] NVARCHAR(45) NULL,
+        [DeviceToken] NVARCHAR(100) NULL,
         CONSTRAINT [FK_AuditLogs_PerformedBy] FOREIGN KEY ([PerformedByUserId]) REFERENCES [dbo].[AppUsers]([UserId]),
         CONSTRAINT [FK_AuditLogs_Target] FOREIGN KEY ([TargetUserId]) REFERENCES [dbo].[AppUsers]([UserId])
     );
 
     CREATE INDEX [IX_AuditLogs_TimestampUtc] ON [dbo].[AuditLogs]([TimestampUtc] DESC);
     CREATE INDEX [IX_AuditLogs_Action] ON [dbo].[AuditLogs]([Action]);
+END
+ELSE
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[AuditLogs]') AND name = N'IpAddress')
+    BEGIN
+        ALTER TABLE [dbo].[AuditLogs] ADD [IpAddress] NVARCHAR(45) NULL;
+    END
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[AuditLogs]') AND name = N'DeviceToken')
+    BEGIN
+        ALTER TABLE [dbo].[AuditLogs] ADD [DeviceToken] NVARCHAR(100) NULL;
+    END
 END";
 
         using var command = new SqlCommand(sql, connection);
@@ -326,6 +342,8 @@ END";
             Details = reader["Details"] as string,
             PageUrl = reader["PageUrl"] as string,
             DurationSeconds = reader.IsDBNull(reader.GetOrdinal("DurationSeconds")) ? 0 : reader.GetInt32(reader.GetOrdinal("DurationSeconds")),
+            IpAddress = reader["IpAddress"] as string,
+            DeviceToken = reader["DeviceToken"] as string,
             PerformedByDisplayName = BuildDisplayName(performedByUserId, reader["PerformedByUsername"] as string, performedByMemberName),
             TargetDisplayName = BuildDisplayName(targetUserId, reader["TargetUsername"] as string, targetMemberName)
         };

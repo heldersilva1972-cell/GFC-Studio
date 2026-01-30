@@ -95,13 +95,40 @@
                             </div>
 
                             @{
-                                var userSessions = _activeSessions.Where(s => s.UserId == record.PerformedByUserId).ToList();
+                                // Find all devices owned by this user (Personal Devices)
+                                var userSessions = _activeSessions.Where(s => s.UserId == record.PerformedByUserId && !s.IsStation).ToList();
+                                
+                                // [SMART ATTRIBUTION]
+                                // Check if this user's current activity is coming from a Shared Station.
+                                // If yes, move the station visibility to this user's card so we know WHICH machine they are on.
+                                if (!string.IsNullOrEmpty(record.DeviceToken))
+                                {
+                                    var activeStation = _activeSessions.FirstOrDefault(s => s.DeviceToken == record.DeviceToken && s.IsStation);
+                                    if (activeStation != null)
+                                    {
+                                        userSessions.Add(activeStation);
+                                    }
+                                }
+                                else if (!string.IsNullOrEmpty(record.IpAddress))
+                                {
+                                    // Fallback to IP matching if token wasn't captured
+                                    var ipStation = _activeSessions.FirstOrDefault(s => s.IpAddress == record.IpAddress && s.IsStation);
+                                    if (ipStation != null && !userSessions.Any(s => s.DeviceToken == ipStation.DeviceToken))
+                                    {
+                                        userSessions.Add(ipStation);
+                                    }
+                                }
+
+                                // If this is the ADMIN authorized the stations (UserId: 1), 
+                                // and they are NOT currently using them, we hide them from the admin card 
+                                // to stop the "Shared Station showed under Admin" confusion.
+                                // They only show under the person ACTUALLY on the machine.
                             }
                             @if (userSessions.Any())
                             {
                                 <div class="session-info mt-3 p-3 bg-light rounded-4 border">
                                     <label class="x-small text-uppercase fw-bold text-muted mb-2 d-block">Device Security (@userSessions.Count active)</label>
-                                    @foreach (var session in userSessions)
+                                    @foreach (var session in userSessions.OrderByDescending(s => s.IsStation))
                                     {
                                         <div class="d-flex justify-content-between align-items-center mb-1">
                                             <div class="d-flex align-items-center x-small">
@@ -115,8 +142,8 @@
                                                 }
                                             </div>
                                             <div class="d-flex align-items-center gap-2">
-                                                <span class="badge bg-white text-dark border x-small font-monospace">@session.IpAddress</span>
-                                                <button class="btn btn-link btn-sm p-0 text-danger" title="Revoke this device" @onclick='() => RevokeSessionAsync(session.DeviceToken, session.IsStation ? "Shared Station" : ParseUserAgent(session.UserAgent))'>
+                                                <span class="badge bg-white text-dark border x-small font-monospace">@(string.IsNullOrEmpty(session.IpAddress) ? "Shared IP" : session.IpAddress)</span>
+                                                <button class="btn btn-link btn-sm p-0 text-danger" title="Revoke trust from this device" @onclick='() => RevokeSessionAsync(session.DeviceToken, session.IsStation ? "Shared Station" : ParseUserAgent(session.UserAgent))'>
                                                     <i class="bi bi-x-circle-fill"></i>
                                                 </button>
                                             </div>

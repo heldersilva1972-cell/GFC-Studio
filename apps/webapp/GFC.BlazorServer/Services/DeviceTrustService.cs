@@ -125,21 +125,32 @@ public class DeviceTrustService : IDeviceTrustService
             var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
 
             await using var context = await _contextFactory.CreateDbContextAsync();
-            
-            var device = new TrustedDevice
-            {
-                UserId = authorizedByUserId, // Record who authorized this station
-                DeviceToken = token,
-                UserAgent = userAgent?.Length > 256 ? userAgent.Substring(0, 256) : userAgent,
-                IpAddress = ipAddress?.Length > 45 ? ipAddress.Substring(0, 45) : ipAddress,
-                LastUsedUtc = DateTime.UtcNow,
-                ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays),
-                IsRevoked = false,
-                IsStation = true
-            };
+        
+        // [AUTO-CLEANUP] Remove any existing stations from this IP before creating a new one
+        var existingStations = await context.TrustedDevices
+            .Where(d => d.IsStation && d.IpAddress == ipAddress && !d.IsRevoked)
+            .ToListAsync();
 
-            context.TrustedDevices.Add(device);
-            await context.SaveChangesAsync();
+        foreach (var oldStation in existingStations)
+        {
+            oldStation.IsRevoked = true;
+            _logger.LogInformation("Auto-cleanup: Revoking old station session from IP {IP}", ipAddress);
+        }
+
+        var device = new TrustedDevice
+        {
+            UserId = authorizedByUserId, // Record who authorized this station
+            DeviceToken = token,
+            UserAgent = userAgent?.Length > 256 ? userAgent.Substring(0, 256) : userAgent,
+            IpAddress = ipAddress?.Length > 45 ? ipAddress.Substring(0, 45) : ipAddress,
+            LastUsedUtc = DateTime.UtcNow,
+            ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays),
+            IsRevoked = false,
+            IsStation = true
+        };
+
+        context.TrustedDevices.Add(device);
+        await context.SaveChangesAsync();
 
             _logger.LogInformation("Created STATION trust token authorized by {UserId}, expires {ExpiresAt}", 
                 authorizedByUserId, device.ExpiresAtUtc);

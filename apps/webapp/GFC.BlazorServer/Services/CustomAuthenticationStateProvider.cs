@@ -96,12 +96,11 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
 
     private bool _autoLoginAttempted = false;
 
-    public override async Task<AuthenticationState> GetAuthenticationStateAsync()
+        public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
         RefreshFromAuthenticationService();
 
         // [FIX] Standard Auto-Login: Check cookie and validate against DB
-        // Removed strict _autoLoginAttempted check to allow retry if state was lost
         if (_currentUser == null)
         {
             _autoLoginAttempted = true;
@@ -110,49 +109,61 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                 var context = _httpContextAccessor.HttpContext;
                 string? token = null;
 
-                // 1. Try Cookies (Initial load / Prerendering)
-                if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
+                // [STATION GUARD] 
+                // If this machine is tagged as a Shared Station, we ABSOLUTELY FORBID auto-login.
+                // This is the machine authorization token (Station Identity).
+                bool isSharedStation = context?.Request.Cookies.ContainsKey("GFC_StationIdentity") == true;
+                
+                if (isSharedStation)
                 {
-                    // Got token from cookie
+                    _logger?.LogDebug("Auto-login: Station Mode Detected. User auto-login is forbidden.");
                 }
-                else 
+                else
                 {
-                    // 2. Try LocalStorage (Interactive circuit reconnection)
-                    try 
+                    // 1. Try Cookies (Initial load / Prerendering)
+                    if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
                     {
-                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-                    }
-                    catch { /* Not interactive yet or JS not ready */ }
-                }
-
-                if (!string.IsNullOrEmpty(token))
-                {
-                    // 1. Check Global Cache First (High speed memory hit)
-                    if (_tokenCache.TryGetValue(token, out var cachedData) && cachedData.Expiry > DateTime.UtcNow)
-                    {
-                        var user = cachedData.User;
-                        _currentUser = user;
-                        _currentPrincipal = BuildPrincipal(user);
-                        
-                        // [FIX] Hydrate the scoped AuthenticationService so it's ready for sub-services
-                        await _authenticationService.LoginWithDeviceTokenAsync(token);
-                        
-                        _userSessionService.SetLoginTime(DateTime.UtcNow);
-                        _logger?.LogDebug("Auto-login: Restored user {Username} from global token cache.", user.Username);
+                        // Got token from cookie
                     }
                     else 
                     {
-                        // 2. Fallback to Database
-                        var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
-                        if (result.Success && result.User != null)
+                        // 2. Try LocalStorage (Interactive circuit reconnection)
+                        try 
                         {
-                            var updatedUser = result.User;
-                            _currentUser = updatedUser;
-                            _currentPrincipal = BuildPrincipal(updatedUser);
-                            _userSessionService.SetLoginTime(DateTime.UtcNow);
+                            token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                        }
+                        catch { /* Not interactive yet or JS not ready */ }
+                    }
 
-                            // Cache for 1 hour to prevent constant DB pressure during mobile flickers
-                            _tokenCache[token] = (updatedUser, DateTime.UtcNow.AddHours(1));
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        // 1. Check Global Cache First (High speed memory hit)
+                        if (_tokenCache.TryGetValue(token, out var cachedData) && cachedData.Expiry > DateTime.UtcNow)
+                        {
+                            var user = cachedData.User;
+                            _currentUser = user;
+                            _currentPrincipal = BuildPrincipal(user);
+                            
+                            // [FIX] Hydrate the scoped AuthenticationService so it's ready for sub-services
+                            await _authenticationService.LoginWithDeviceTokenAsync(token);
+                            
+                            _userSessionService.SetLoginTime(DateTime.UtcNow);
+                            _logger?.LogDebug("Auto-login: Restored user {Username} from global token cache.", user.Username);
+                        }
+                        else 
+                        {
+                            // 2. Fallback to Database
+                            var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
+                            if (result.Success && result.User != null)
+                            {
+                                var updatedUser = result.User;
+                                _currentUser = updatedUser;
+                                _currentPrincipal = BuildPrincipal(updatedUser);
+                                _userSessionService.SetLoginTime(DateTime.UtcNow);
+
+                                // Cache for 1 hour to prevent constant DB pressure during mobile flickers
+                                _tokenCache[token] = (updatedUser, DateTime.UtcNow.AddHours(1));
+                            }
                         }
                     }
                 }

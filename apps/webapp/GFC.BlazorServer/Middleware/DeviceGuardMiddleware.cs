@@ -91,10 +91,19 @@ namespace GFC.BlazorServer.Middleware
                 bool hasValidDeviceTrust = false;
                 string? cookieToken = null;
 
+                // Check for regular user identity token
                 if (context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out cookieToken) && 
                     !string.IsNullOrEmpty(cookieToken))
                 {
                     hasValidDeviceTrust = await deviceTrustService.ValidateTokenAsync(cookieToken);
+                }
+
+                // [NEW] Check for machine-specific station identity
+                if (!hasValidDeviceTrust && 
+                    context.Request.Cookies.TryGetValue("GFC_StationIdentity", out var stationToken) && 
+                    !string.IsNullOrEmpty(stationToken))
+                {
+                    hasValidDeviceTrust = await deviceTrustService.IsStationTokenAsync(stationToken);
                 }
 
                 if (hasValidDeviceTrust)

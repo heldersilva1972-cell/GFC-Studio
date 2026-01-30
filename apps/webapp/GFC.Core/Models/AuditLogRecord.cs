@@ -26,4 +26,8 @@ public class AuditLogRecord
     public string? PageUrl { get; set; }
 
     public int DurationSeconds { get; set; }
+
+    public string? IpAddress { get; set; }
+
+    public string? DeviceToken { get; set; }
 }

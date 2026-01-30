@@ -284,7 +284,7 @@ else
             }
         }, null, 60000, 60000);
 
-        _activityTimer = new System.Threading.Timer(_ => RecordActivityHeartbeat(), null, 60000, 60000);
+        _activityTimer = new System.Threading.Timer(_ => _ = RecordActivityHeartbeat(), null, 60000, 60000);
     }
 
     private void EnforceVpnEnforcementSync(SystemSettings? settings)
@@ -502,7 +502,19 @@ else
                     return;
                 }
 
-                AuditLogger.LogPageView(userId, relativeUri);
+                // [NEW] Capture Machine Identity
+                string? deviceToken = null;
+                try
+                {
+                    deviceToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
+                    if (string.IsNullOrEmpty(deviceToken))
+                    {
+                        deviceToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_DeviceTrustToken");
+                    }
+                }
+                catch { /* Not interactive yet */ }
+
+                AuditLogger.LogPageView(userId, relativeUri, null, UserConnectionService.IpAddress, deviceToken);
             }
         }
         catch (Exception ex)
@@ -511,7 +523,7 @@ else
         }
     }
 
-    private void RecordActivityHeartbeat()
+    private async Task RecordActivityHeartbeat()
     {
         try
         {
@@ -521,7 +533,22 @@ else
                 var relativeUri = Navigation.ToBaseRelativePath(Navigation.Uri);
                 if (string.IsNullOrEmpty(relativeUri)) relativeUri = "Dashboard";
                 
+                // [NEW] Capture Machine Identity for Heartbeat
+                string? deviceToken = null;
+                try
+                {
+                    deviceToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
+                    if (string.IsNullOrEmpty(deviceToken))
+                    {
+                        deviceToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_DeviceTrustToken");
+                    }
+                }
+                catch { }
+
                 AuditLogger.UpdatePageViewDuration(currentUser.UserId, relativeUri, 30);
+                
+                // We don't have a direct IP/Token param on UpdatePageViewDuration yet, 
+                // but the last PageView recorded it. We might want to add a heartbeat-specific log if needed.
             }
         }
         catch { /* Best effort */ }

@@ -57,22 +57,25 @@
             }
             else
             {
-                <div class="mb-4">
-                    <ul class="nav nav-pills nav-fill">
-                        <li class="nav-item">
-                            <a class="nav-link @(_loginMode == LoginMode.PassCode ? "active" : "")" 
-                               href="javascript:void(0)" @onclick="@(() => SetMode(LoginMode.PassCode))">
-                                <i class="bi bi-grid-3x3-gap-fill me-1"></i> Passcode
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link @(_loginMode == LoginMode.Password ? "active" : "")" 
-                               href="javascript:void(0)" @onclick="@(() => SetMode(LoginMode.Password))">
-                                <i class="bi bi-key-fill me-1"></i> Password
-                            </a>
-                        </li>
-                    </ul>
-                </div>
+                @if (!_isStationMode)
+                {
+                    <div class="mb-4">
+                        <ul class="nav nav-pills nav-fill">
+                            <li class="nav-item">
+                                <a class="nav-link @(_loginMode == LoginMode.PassCode ? "active" : "")" 
+                                   href="javascript:void(0)" @onclick="@(() => SetMode(LoginMode.PassCode))">
+                                    <i class="bi bi-grid-3x3-gap-fill me-1"></i> Passcode
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link @(_loginMode == LoginMode.Password ? "active" : "")" 
+                                   href="javascript:void(0)" @onclick="@(() => SetMode(LoginMode.Password))">
+                                    <i class="bi bi-key-fill me-1"></i> Password
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                }
 
                 @if (!string.IsNullOrEmpty(_error))
                 {
@@ -300,11 +303,12 @@
         
         try
         {
-            _isStationMode = !string.IsNullOrEmpty(StationParam);
-            if (!_isStationMode)
+            // If this machine has the Station Identity cookie, it is locked into Station Mode.
+            _isStationMode = await JSRuntime.InvokeAsync<bool>("window.verifyCookie", "GFC_StationIdentity");
+
+            if (_isStationMode)
             {
-                var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-                _isStationMode = await DeviceTrustService.IsStationTokenAsync(token);
+                _loginMode = LoginMode.PassCode;
             }
 
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -448,9 +452,16 @@
         {
             var passwordToUse = _model.Password?.Trim();
 
-            // Force RememberMe for ALL modes to ensure session is tracked in DB
-            // This ensures the device appears in "Active Web Sessions" and enforces single-session policy.
-            _model.RememberMe = true;
+            // Force RememberMe for personal devices, but NEVER for shared stations
+            // This ensures stations always require a fresh login after the browser is closed.
+            if (!_isStationMode)
+            {
+                _model.RememberMe = true;
+            }
+            else
+            {
+                _model.RememberMe = false;
+            }
 
             var result = await AuthStateProvider.LoginAsync(_model.Username, passwordToUse, _model.RememberMe);
 
@@ -487,6 +498,7 @@
             }
             else
             {
+                // Ensure we don't have a personal token on a station, but KEEP the Station Identity cookie.
                 await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
             }
 

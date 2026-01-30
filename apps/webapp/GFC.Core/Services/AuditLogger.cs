@@ -17,7 +17,7 @@ public class AuditLogger : IAuditLogger
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public void Log(string action, int? performedByUserId, int? targetUserId, string? details = null)
+    public void Log(string action, int? performedByUserId, int? targetUserId, string? details = null, string? ipAddress = null, string? deviceToken = null)
     {
         var sanitizedTargetUserId = IsUserAccountAction(action) ? targetUserId : null;
 
@@ -26,29 +26,31 @@ public class AuditLogger : IAuditLogger
             PerformedByUserId = performedByUserId,
             TargetUserId = sanitizedTargetUserId,
             Action = action,
-            Details = details
+            Details = details,
+            IpAddress = ipAddress,
+            DeviceToken = deviceToken
         });
     }
 
-    public void LogAdminCreation(int? performedByUserId, int targetUserId, string username, int? memberId)
+    public void LogAdminCreation(int? performedByUserId, int targetUserId, string username, int? memberId, string? ipAddress = null, string? deviceToken = null)
     {
         var details = $"Admin created for '{username}' (memberId: {memberId?.ToString() ?? "none"}; roles: Admin)";
-        Log(AuditLogActions.AdminCreated, performedByUserId, targetUserId, details);
+        Log(AuditLogActions.AdminCreated, performedByUserId, targetUserId, details, ipAddress, deviceToken);
     }
 
-    public void LogPasswordReset(int? performedByUserId, int targetUserId, bool isSelfService, string? notes = null)
+    public void LogPasswordReset(int? performedByUserId, int targetUserId, bool isSelfService, string? notes = null, string? ipAddress = null, string? deviceToken = null)
     {
         var details = $"Password reset (self-service: {isSelfService}, notes: {notes ?? "none"})";
-        Log(AuditLogActions.PasswordReset, performedByUserId, targetUserId, details);
+        Log(AuditLogActions.PasswordReset, performedByUserId, targetUserId, details, ipAddress, deviceToken);
     }
 
-    public void LogSuspiciousLoginAttempt(string username, string? ipAddress, string reason, int? targetUserId = null)
+    public void LogSuspiciousLoginAttempt(string username, string? ipAddress, string reason, int? targetUserId = null, string? deviceToken = null)
     {
         var details = $"Suspicious login attempt for '{username}' from {ipAddress ?? "unknown"}: {reason}";
-        Log(AuditLogActions.SuspiciousLoginAttempt, null, targetUserId, details);
+        Log(AuditLogActions.SuspiciousLoginAttempt, null, targetUserId, details, ipAddress, deviceToken);
     }
 
-    public void LogPageView(int userId, string pageUrl, string? pageTitle = null)
+    public void LogPageView(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
     {
         var details = string.IsNullOrWhiteSpace(pageTitle) ? pageUrl : $"{pageTitle} ({pageUrl})";
         WriteEntry(new AuditLogEntry
@@ -57,7 +59,9 @@ public class AuditLogger : IAuditLogger
             Action = AuditLogActions.PageView,
             Details = details,
             PageUrl = pageUrl,
-            TimestampUtc = DateTime.UtcNow
+            TimestampUtc = DateTime.UtcNow,
+            IpAddress = ipAddress,
+            DeviceToken = deviceToken
         });
     }
 

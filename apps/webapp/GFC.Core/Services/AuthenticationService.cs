@@ -480,21 +480,25 @@ public class AuthenticationService : IAuthenticationService
     {
         var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
 
-        // [MODIFIED] Disabled Single Session Policy based on user feedback (persistent logouts)
-        // Allowing multiple trusted devices per user for better stability.
-        /*
+        // [AUTO-CLEANUP] Find existing sessions for this user from the same device
         var existingDevices = await _trustedDeviceRepository.GetActiveDevicesForUserAsync(userId);
-        foreach (var device in existingDevices)
+        var duplicates = existingDevices.Where(d => 
+            d.IpAddress == ipAddress && 
+            d.UserAgent == userAgent && 
+            !d.IsStation // Don't auto-revoke specialized stations via regular login
+        ).ToList();
+
+        foreach (var device in duplicates)
         {
             device.IsRevoked = true;
             await _trustedDeviceRepository.UpdateAsync(device);
         }
         
-        if (existingDevices.Any())
+        if (duplicates.Any())
         {
-            _logger.LogInformation("Revoked {Count} existing sessions for user {UserId} to enforce single-session policy.", existingDevices.Count, userId);
+            _logger.LogInformation("Auto-cleanup: Revoked {Count} duplicate sessions for user {UserId} (Device match: {IP})", 
+                duplicates.Count, userId, ipAddress ?? "unknown");
         }
-        */
 
         var token = GenerateSecureToken();
         var newDevice = new TrustedDevice
