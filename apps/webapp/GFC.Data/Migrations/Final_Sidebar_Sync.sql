@@ -40,7 +40,7 @@ INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
 
 ('Lottery Sales', '/lottery', 'FINANCE', 'Lottery data', 0, 34),
 ('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Nightly sales', 1, 35),
-('Bartender Schedule', '/admin/staff-shifts', 'FINANCE', 'Staffing', 1, 36),
+('Bartender Schedule', '/admin/staff-shifts', 'MEMBERSHIP', 'Staffing', 1, 36),
 
 -- ADMINISTRATION
 ('Manage Users', '/users', 'ADMINISTRATION', 'User accounts', 1, 40),
