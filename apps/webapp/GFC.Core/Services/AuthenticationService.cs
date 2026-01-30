@@ -211,7 +211,14 @@ public class AuthenticationService : IAuthenticationService
         {
             string reason = user == null ? "User not found for token" : "User for token is inactive";
             await SafeLogLogin(user?.Username, trustedDevice.UserId, false, ipAddress, reason);
-            // [FIX] DO NOT delete the token immediately.
+            
+            // [SECURITY FIX] If user is deleted, revoke the orphaned token immediately
+            if (user == null)
+            {
+                trustedDevice.IsRevoked = true;
+                await _trustedDeviceRepository.UpdateAsync(trustedDevice);
+            }
+            
             return CreateFailure(LoginResultCode.AccountLockedOrDisabled, reason);
         }
 

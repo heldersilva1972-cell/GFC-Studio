@@ -12,16 +12,19 @@ public class BackupSchedulerService : BackgroundService
 {
     private readonly BackupConfigService _configService;
     private readonly IDatabaseBackupService _backupService;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<BackupSchedulerService> _logger;
     private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(1); // Check every minute
 
     public BackupSchedulerService(
         BackupConfigService configService,
         IDatabaseBackupService backupService,
+        IServiceProvider serviceProvider,
         ILogger<BackupSchedulerService> logger)
     {
         _configService = configService ?? throw new ArgumentNullException(nameof(configService));
         _backupService = backupService ?? throw new ArgumentNullException(nameof(backupService));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -45,6 +48,19 @@ public class BackupSchedulerService : BackgroundService
                         if (success)
                         {
                             _logger.LogInformation("Scheduled backup completed successfully.");
+                            
+                            // Record the successful backup to update health status
+                            try
+                            {
+                                using var scope = _serviceProvider.CreateScope();
+                                var dataProtectionService = scope.ServiceProvider.GetRequiredService<GFC.BlazorServer.Services.DataProtection.IDataProtectionService>();
+                                await dataProtectionService.LogBackupCompletesAsync(0); // System user
+                                _logger.LogInformation("Backup timestamp recorded in SystemSettings.");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to record backup timestamp, but backup file was created successfully.");
+                            }
                         }
                         else
                         {

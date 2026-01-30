@@ -75,6 +75,24 @@ public class UserManagementService : IUserManagementService
             _permissionCache.TryRemove(userId, out _);
             _userPermissionsCache.TryRemove(userId, out _);
             _deviceTrustService.InvalidateUserSession(userId);
+            
+            // [SECURITY FIX] Clear global token cache to prevent deleted users from auto-logging in
+            // This is critical - without this, orphaned device tokens can still authenticate
+            try
+            {
+                // Use reflection to call the static method from the Blazor layer
+                var authStateProviderType = Type.GetType("GFC.BlazorServer.Services.CustomAuthenticationStateProvider, GFC.BlazorServer");
+                if (authStateProviderType != null)
+                {
+                    var invalidateMethod = authStateProviderType.GetMethod("InvalidateUser", 
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    invalidateMethod?.Invoke(null, new object[] { userId });
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[UserManagement] Warning: Failed to invalidate global token cache: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {
