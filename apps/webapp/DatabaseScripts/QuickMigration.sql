@@ -91,7 +91,6 @@ BEGIN
         ('NP Queue', '/np-queue', 'Non-profit queue', 'Financial', 0, 42),
         ('Reimbursements', '/reimbursements', 'Reimbursement requests', 'Financial', 0, 43),
         ('Reimbursement Management', '/reimbursements/manage', 'Manage reimbursements', 'Financial', 0, 44),
-        ('Reimbursement Reports', '/reimbursements/reports', 'Reimbursement reports', 'Financial', 0, 45),
         ('Reimbursement Settings', '/reimbursements/settings', 'Reimbursement settings', 'Financial', 1, 46),
         
         -- Administration
@@ -115,9 +114,9 @@ END
 GO
 
 -- Verify
-SELECT 'AppPages' as TableName, COUNT(*) as RowCount FROM AppPages
+SELECT 'AppPages' as TableName, COUNT(*) as TotalRows FROM AppPages
 UNION ALL
-SELECT 'UserPagePermissions', COUNT(*) FROM UserPagePermissions;
+SELECT 'UserPagePermissions' as TableName, COUNT(*) as TotalRows FROM UserPagePermissions;
 GO
 
 PRINT '';

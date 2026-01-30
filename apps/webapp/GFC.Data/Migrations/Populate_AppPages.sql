@@ -37,7 +37,7 @@ INSERT INTO @ActualPages (Name, Route, Category, Descr, IsAdmin, DisplayOrder) V
 ('Financial Insights', '/finance/insights', 'FINANCE', 'Advanced financial analytics', 1, 30),
 ('Reimbursements', '/reimbursements', 'FINANCE', 'Submit personal reimbursements', 0, 31),
 ('Manage Reimbursements', '/reimbursements/manage', 'FINANCE', 'Audit and approve requests', 1, 32),
-('Reports', '/reimbursements/reports', 'FINANCE', 'Financial data exports', 1, 33),
+
 ('Lottery Sales', '/lottery', 'FINANCE', 'Lottery sales performance', 0, 34),
 ('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Register nightly bar sales', 1, 35),
 ('Bartender Schedule', '/admin/staff-shifts', 'FINANCE', 'Staffing and shifts', 1, 36),

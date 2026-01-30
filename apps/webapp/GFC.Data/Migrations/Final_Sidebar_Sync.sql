@@ -37,7 +37,7 @@ INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
 ('Financial Insights', '/finance/insights', 'FINANCE', 'Analytics', 1, 30),
 ('Reimbursements', '/reimbursements', 'FINANCE', 'Submit personal', 0, 31),
 ('Manage Reimbursements', '/reimbursements/manage', 'FINANCE', 'Auditing', 1, 32),
-('Reports', '/reimbursements/reports', 'FINANCE', 'Exports', 1, 33),
+
 ('Lottery Sales', '/lottery', 'FINANCE', 'Lottery data', 0, 34),
 ('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Nightly sales', 1, 35),
 ('Bartender Schedule', '/admin/staff-shifts', 'FINANCE', 'Staffing', 1, 36),
