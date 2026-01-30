@@ -67,22 +67,35 @@ public class DatabaseBackupService : IDatabaseBackupService
             await connection.OpenAsync(cancellationToken);
 
             // Build BACKUP DATABASE command
+            // Added WITH CHECKSUM to detect page-level corruption during the backup process
             var backupSql = $@"
                 BACKUP DATABASE [{config.DatabaseName}]
                 TO DISK = @BackupPath
                 WITH FORMAT, INIT, NAME = N'{config.DatabaseName}-Full Database Backup', 
-                SKIP, NOREWIND, NOUNLOAD, STATS = 10";
+                SKIP, NOREWIND, NOUNLOAD, STATS = 10, CHECKSUM";
 
-            using var command = new SqlCommand(backupSql, connection);
-            command.CommandTimeout = 300; // 5 minutes timeout
-            command.Parameters.AddWithValue("@BackupPath", backupFilePath);
+            using (var command = new SqlCommand(backupSql, connection))
+            {
+                command.CommandTimeout = 300; // 5 minutes timeout
+                command.Parameters.AddWithValue("@BackupPath", backupFilePath);
 
-            _logger.LogInformation("Starting database backup: {DatabaseName} to {BackupPath}", 
-                config.DatabaseName, backupFilePath);
+                _logger.LogInformation("Starting database backup: {DatabaseName} to {BackupPath} (Integrity Check Enabled)", 
+                    config.DatabaseName, backupFilePath);
 
-            await command.ExecuteNonQueryAsync(cancellationToken);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
 
-            _logger.LogInformation("Database backup completed successfully: {BackupPath}", backupFilePath);
+            // Verification Step: Run RESTORE VERIFYONLY to ensure the backup file is actually readable and healthy
+            _logger.LogInformation("Verifying backup integrity for: {BackupPath}", backupFilePath);
+            var verifySql = "RESTORE VERIFYONLY FROM DISK = @BackupPath";
+            using (var verifyCommand = new SqlCommand(verifySql, connection))
+            {
+                verifyCommand.CommandTimeout = 300;
+                verifyCommand.Parameters.AddWithValue("@BackupPath", backupFilePath);
+                await verifyCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            _logger.LogInformation("Database backup and verification completed successfully: {BackupPath}", backupFilePath);
 
             // Update last backup time in config
             config.LastBackupTime = DateTime.UtcNow;
