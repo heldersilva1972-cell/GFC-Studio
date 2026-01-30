@@ -67,6 +67,8 @@ namespace GFC.BlazorServer.Services.Operations
         public string ConnectionStringMasked { get; set; }
         public DateTime? LastBackupTime { get; set; }
         public string BackupLocation { get; set; }
+        public double SizeMb { get; set; }
+        public double UsedMb { get; set; }
     }
 
     public class DiagnosticEntry

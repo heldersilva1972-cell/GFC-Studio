@@ -171,25 +171,47 @@ namespace GFC.BlazorServer.Services.Operations
             // Query for last backup
              try
             {
-                // This query works on SQL Server to get last backup time
-                var sql = "SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset WHERE database_name = @dbName AND type = 'D'";
-                var cmd = db.Database.GetDbConnection().CreateCommand();
-                cmd.CommandText = sql;
-                var p = cmd.CreateParameter();
-                p.ParameterName = "@dbName";
-                p.Value = info.DatabaseName;
-                cmd.Parameters.Add(p);
-
                 await db.Database.OpenConnectionAsync();
-                var result = await cmd.ExecuteScalarAsync();
-                if (result != null && result != DBNull.Value)
+
+                // 1. Last Backup Time
+                var backupSql = "SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset WHERE database_name = @dbName AND type = 'D'";
+                using (var cmd = db.Database.GetDbConnection().CreateCommand())
                 {
-                    info.LastBackupTime = (DateTime)result;
+                    cmd.CommandText = backupSql;
+                    var p = cmd.CreateParameter();
+                    p.ParameterName = "@dbName";
+                    p.Value = info.DatabaseName;
+                    cmd.Parameters.Add(p);
+
+                    var result = await cmd.ExecuteScalarAsync();
+                    if (result != null && result != DBNull.Value)
+                    {
+                        info.LastBackupTime = (DateTime)result;
+                    }
+                }
+
+                // 2. Database Size and Used Space
+                var sizeSql = @"SELECT 
+                    SUM(size * 1.0 / 128) AS TotalSizeMB,
+                    SUM(CAST(FILEPROPERTY(name, 'SpaceUsed') AS INT) * 1.0 / 128) AS UsedSizeMB
+                    FROM sys.database_files";
+                
+                using (var cmd = db.Database.GetDbConnection().CreateCommand())
+                {
+                    cmd.CommandText = sizeSql;
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
+                        {
+                            info.SizeMb = reader.IsDBNull(0) ? 0 : Convert.ToDouble(reader.GetValue(0));
+                            info.UsedMb = reader.IsDBNull(1) ? 0 : Convert.ToDouble(reader.GetValue(1));
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not retrieve last backup time from SQL Server");
+                _logger.LogWarning(ex, "Could not retrieve database metrics from SQL Server");
             }
 
             return info;
