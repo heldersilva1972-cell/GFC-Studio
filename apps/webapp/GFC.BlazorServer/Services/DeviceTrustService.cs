@@ -402,22 +402,30 @@ public class DeviceTrustService : IDeviceTrustService
         try
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
-            var sessions = await context.TrustedDevices
+            
+            // BUG FIX: Fetch devices first, then project in memory
+            // This avoids EF translation errors with complex string interpolation and null checks
+            var devices = await context.TrustedDevices
                                 .Include(d => d.User)
                                 .Where(d => !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
                                 .OrderByDescending(d => d.LastUsedUtc)
-                                .Select(d => new DeviceSessionDto
-                                {
-                                    UserId = d.User.UserId,
-                                    Username = d.User.Username,
-                                    DeviceToken = d.DeviceToken,
-                                    UserAgent = d.UserAgent,
-                                    IpAddress = d.IpAddress,
-                                    LastUsedUtc = d.LastUsedUtc,
-                                    ExpiresAtUtc = d.ExpiresAtUtc,
-                                    IsRevoked = d.IsRevoked,
-                                    IsStation = d.IsStation
-                                }).ToListAsync();
+                                .ToListAsync();
+            
+            var sessions = devices.Select(d => new DeviceSessionDto
+            {
+                UserId = d.UserId,
+                Username = d.IsStation 
+                    ? $"Station Device (Auth by: {(d.User != null ? d.User.Username : "Unknown")})"
+                    : (d.User != null ? d.User.Username : "Deleted User"),
+                DeviceToken = d.DeviceToken,
+                UserAgent = d.UserAgent,
+                IpAddress = d.IpAddress,
+                LastUsedUtc = d.LastUsedUtc,
+                ExpiresAtUtc = d.ExpiresAtUtc,
+                IsRevoked = d.IsRevoked,
+                IsStation = d.IsStation
+            }).ToList();
+            
             return sessions;
         }
         catch (Exception ex)

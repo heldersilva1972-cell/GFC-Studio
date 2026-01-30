@@ -189,13 +189,17 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             connection.Open();
 
             const string sql = @"
-UPDATE TOP(1) AuditLogs 
+UPDATE AuditLogs
 SET DurationSeconds = DurationSeconds + @Seconds
-WHERE PerformedByUserId = @UserId 
-  AND Action = 'PageView' 
-  AND PageUrl = @PageUrl
-  AND TimestampUtc > DATEADD(hour, -2, GETUTCDATE())
-ORDER BY AuditLogId DESC;";
+WHERE AuditLogId = (
+    SELECT TOP 1 AuditLogId 
+    FROM AuditLogs
+    WHERE PerformedByUserId = @UserId 
+      AND Action = 'PageView' 
+      AND PageUrl = @PageUrl
+      AND TimestampUtc > DATEADD(hour, -2, GETUTCDATE())
+    ORDER BY AuditLogId DESC
+)";
 
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@UserId", userId);
