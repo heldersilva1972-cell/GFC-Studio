@@ -168,6 +168,7 @@ else
 <SessionMonitor IsStation="@_isStation" />
 
 @code {
+    private int _currentPageLogId;
     private string _currentUsername = string.Empty;
     private bool _isAdmin = false;
     private bool _safeModeEnabled = false;
@@ -246,12 +247,19 @@ else
             AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
             ThemeService.OnThemeChanged += StateHasChanged;
             Navigation.LocationChanged += HandleLocationChanged;
-            LogCurrentPage();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Critical failure during MainLayout initialization.");
             _currentUsername = "System Error";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LogCurrentPage();
         }
     }
 
@@ -521,20 +529,10 @@ else
                         deviceToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
                     }
 
-                    // 3. Ensure IP is ready (Wait up to 2 seconds if detection is in progress)
-                    int retries = 0;
-                    while (string.IsNullOrEmpty(ipAddress) && retries < 10)
-                    {
-                        await UserConnectionService.DetectConnectionIfNeededAsync();
-                        ipAddress = UserConnectionService.IpAddress;
-                        if (!string.IsNullOrEmpty(ipAddress)) break;
-                        await Task.Delay(200);
-                        retries++;
-                    }
                 }
                 catch { /* Not interactive yet or JS disconnected */ }
 
-                AuditLogger.LogPageView(userId, relativeUri, null, ipAddress, deviceToken);
+                _currentPageLogId = await AuditLogger.LogPageViewAsync(userId, relativeUri, null, ipAddress, deviceToken);
             }
         }
         catch (Exception ex)
@@ -562,13 +560,18 @@ else
                     {
                         deviceToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_DeviceTrustToken");
                     }
+
+                    // Fallback to LocalStorage
+                    if (string.IsNullOrEmpty(deviceToken))
+                    {
+                        deviceToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                    }
                 }
                 catch { }
 
-                AuditLogger.UpdatePageViewDuration(currentUser.UserId, relativeUri, 30);
+                await AuditLogger.UpdatePageViewDurationAsync(currentUser.UserId, relativeUri, 30, UserConnectionService.IpAddress, deviceToken, _currentPageLogId);
                 
-                // We don't have a direct IP/Token param on UpdatePageViewDuration yet, 
-                // but the last PageView recorded it. We might want to add a heartbeat-specific log if needed.
+                // We've successfully updated the identity if it was missing 
             }
         }
         catch { /* Best effort */ }

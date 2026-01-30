@@ -12,20 +12,33 @@ public class AuditLogRepository : IAuditLogRepository
     private static bool _isInitialized;
     private static readonly object _initLock = new();
 
-    public void Insert(GFC.Core.Models.AuditLogEntry entry)
+    public int Insert(AuditLogEntry entry)
     {
         try
         {
-            InsertInternal(entry);
+            return InsertInternal(entry);
         }
         catch (SqlException ex) when (ex.Number == 208) // Invalid object name
         {
             EnsureTableExists();
-            InsertInternal(entry);
+            return InsertInternal(entry);
         }
     }
 
-    private static void InsertInternal(GFC.Core.Models.AuditLogEntry entry)
+    public async Task<int> InsertAsync(AuditLogEntry entry)
+    {
+        try
+        {
+            return await InsertInternalAsync(entry);
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            EnsureTableExists();
+            return await InsertInternalAsync(entry);
+        }
+    }
+
+    private static int InsertInternal(AuditLogEntry entry)
     {
         EnsureInitialized();
 
@@ -39,6 +52,7 @@ public class AuditLogRepository : IAuditLogRepository
 
         const string sql = @"
 INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details, PageUrl, DurationSeconds, IpAddress, DeviceToken)
+OUTPUT INSERTED.AuditLogId
 VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @PageUrl, @DurationSeconds, @IpAddress, @DeviceToken);";
 
         using var command = new SqlCommand(sql, connection);
@@ -52,7 +66,39 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @Pa
         command.Parameters.AddWithValue("@IpAddress", (object?)entry.IpAddress ?? DBNull.Value);
         command.Parameters.AddWithValue("@DeviceToken", (object?)entry.DeviceToken ?? DBNull.Value);
 
-        command.ExecuteNonQuery();
+        return (int)command.ExecuteScalar();
+    }
+
+    private static async Task<int> InsertInternalAsync(AuditLogEntry entry)
+    {
+        EnsureInitialized();
+
+        if (entry.PerformedByUserId.HasValue && entry.PerformedByUserId.Value <= 0)
+        {
+            entry.PerformedByUserId = null;
+        }
+
+        using var connection = Db.GetConnection();
+        await connection.OpenAsync();
+
+        const string sql = @"
+INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details, PageUrl, DurationSeconds, IpAddress, DeviceToken)
+OUTPUT INSERTED.AuditLogId
+VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @PageUrl, @DurationSeconds, @IpAddress, @DeviceToken);";
+
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@TimestampUtc", entry.TimestampUtc == default ? DateTime.UtcNow : entry.TimestampUtc);
+        command.Parameters.AddWithValue("@PerformedByUserId", entry.PerformedByUserId.HasValue ? entry.PerformedByUserId.Value : DBNull.Value);
+        command.Parameters.AddWithValue("@TargetUserId", entry.TargetUserId.HasValue ? entry.TargetUserId.Value : DBNull.Value);
+        command.Parameters.AddWithValue("@Action", entry.Action);
+        command.Parameters.AddWithValue("@Details", (object?)entry.Details ?? DBNull.Value);
+        command.Parameters.AddWithValue("@PageUrl", (object?)entry.PageUrl ?? DBNull.Value);
+        command.Parameters.AddWithValue("@DurationSeconds", entry.DurationSeconds);
+        command.Parameters.AddWithValue("@IpAddress", (object?)entry.IpAddress ?? DBNull.Value);
+        command.Parameters.AddWithValue("@DeviceToken", (object?)entry.DeviceToken ?? DBNull.Value);
+
+        var result = await command.ExecuteScalarAsync();
+        return (int)(result ?? 0);
     }
 
     public async Task<PagedResult<AuditLogRecord>> GetAuditLogsAsync(
@@ -183,17 +229,21 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
         }
     }
 
-    public void UpdateDuration(int userId, string pageUrl, int additionalSeconds)
+    public void UpdateDuration(int userId, string pageUrl, int additionalSeconds, string? ipAddress = null, string? deviceToken = null, int? logId = null)
     {
         try
         {
             using var connection = Db.GetConnection();
             connection.Open();
 
+            // [NO GUESSING] If we have a logId, update that exact record.
+            // Otherwise, fallback to the latest PageView for this user (compatibility).
             const string sql = @"
 UPDATE AuditLogs
-SET DurationSeconds = DurationSeconds + @Seconds
-WHERE AuditLogId = (
+SET DurationSeconds = DurationSeconds + @Seconds,
+    IpAddress = COALESCE(IpAddress, @IpAddress),
+    DeviceToken = COALESCE(DeviceToken, @DeviceToken)
+WHERE AuditLogId = COALESCE(@LogId, (
     SELECT TOP 1 AuditLogId 
     FROM AuditLogs
     WHERE PerformedByUserId = @UserId 
@@ -201,12 +251,15 @@ WHERE AuditLogId = (
       AND PageUrl = @PageUrl
       AND TimestampUtc > DATEADD(hour, -2, GETUTCDATE())
     ORDER BY AuditLogId DESC
-)";
+))";
 
             using var command = new SqlCommand(sql, connection);
             command.Parameters.AddWithValue("@UserId", userId);
             command.Parameters.AddWithValue("@PageUrl", pageUrl);
             command.Parameters.AddWithValue("@Seconds", additionalSeconds);
+            command.Parameters.AddWithValue("@IpAddress", (object?)ipAddress ?? DBNull.Value);
+            command.Parameters.AddWithValue("@DeviceToken", (object?)deviceToken ?? DBNull.Value);
+            command.Parameters.AddWithValue("@LogId", (object?)logId ?? DBNull.Value);
             command.ExecuteNonQuery();
         }
         catch { /* Best effort for heartbeat */ }

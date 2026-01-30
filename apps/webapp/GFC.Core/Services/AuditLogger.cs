@@ -50,24 +50,44 @@ public class AuditLogger : IAuditLogger
         Log(AuditLogActions.SuspiciousLoginAttempt, null, targetUserId, details, ipAddress, deviceToken);
     }
 
-    public void LogPageView(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
+    public int LogPageView(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
     {
         var details = string.IsNullOrWhiteSpace(pageTitle) ? pageUrl : $"{pageTitle} ({pageUrl})";
-        WriteEntry(new AuditLogEntry
+        return WriteEntry(new AuditLogEntry
         {
             PerformedByUserId = userId,
             Action = AuditLogActions.PageView,
-            Details = details,
+            Details = $"Navigated to {details}",
             PageUrl = pageUrl,
-            TimestampUtc = DateTime.UtcNow,
             IpAddress = ipAddress,
             DeviceToken = deviceToken
         });
     }
 
-    public void UpdatePageViewDuration(int userId, string pageUrl, int seconds)
+    public async Task<int> LogPageViewAsync(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
     {
-        _repository.UpdateDuration(userId, pageUrl, seconds);
+        var details = string.IsNullOrWhiteSpace(pageTitle) ? pageUrl : $"{pageTitle} ({pageUrl})";
+        return await WriteEntryAsync(new AuditLogEntry
+        {
+            PerformedByUserId = userId,
+            Action = AuditLogActions.PageView,
+            Details = $"Navigated to {details}",
+            PageUrl = pageUrl,
+            IpAddress = ipAddress,
+            DeviceToken = deviceToken
+        });
+    }
+
+    public void UpdatePageViewDuration(int userId, string pageUrl, int seconds, string? ipAddress = null, string? deviceToken = null, int? logId = null)
+    {
+        _repository.UpdateDuration(userId, pageUrl, seconds, ipAddress, deviceToken, logId);
+    }
+
+    public async Task UpdatePageViewDurationAsync(int userId, string pageUrl, int seconds, string? ipAddress = null, string? deviceToken = null, int? logId = null)
+    {
+        // For now, we reuse the repository method which is sync, but we call it from an async wrapper.
+        // We could also implement UpdateDurationAsync in repository if needed.
+        await Task.Run(() => _repository.UpdateDuration(userId, pageUrl, seconds, ipAddress, deviceToken, logId));
     }
 
     private static bool IsUserAccountAction(string action)
@@ -77,7 +97,7 @@ public class AuditLogger : IAuditLogger
             or AuditLogActions.SuspiciousLoginAttempt;
     }
 
-    private void WriteEntry(AuditLogEntry entry)
+    private int WriteEntry(AuditLogEntry entry)
     {
         try
         {
@@ -86,11 +106,30 @@ public class AuditLogger : IAuditLogger
                 entry.TimestampUtc = DateTime.UtcNow;
             }
 
-            _repository.Insert(entry);
+            return _repository.Insert(entry);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to write audit log entry for action {Action}", entry.Action);
+            return 0;
+        }
+    }
+
+    private async Task<int> WriteEntryAsync(AuditLogEntry entry)
+    {
+        try
+        {
+            if (entry.TimestampUtc == default)
+            {
+                entry.TimestampUtc = DateTime.UtcNow;
+            }
+
+            return await _repository.InsertAsync(entry);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write audit log entry for action {Action}", entry.Action);
+            return 0;
         }
     }
 }

@@ -95,38 +95,17 @@
                             </div>
 
                             @{
-                                // Find all personal devices owned by this user
+                                // 1. Get user's personal devices
                                 var userSessions = _activeSessions.Where(s => s.UserId == record.PerformedByUserId && !s.IsStation).ToList();
                                 
-                                // [SMART ATTRIBUTION]
-                                // Check if this user's current activity is coming from a Shared Station.
-                                if (!string.IsNullOrEmpty(record.DeviceToken))
-                                {
-                                    var activeStation = _activeSessions.FirstOrDefault(s => s.DeviceToken == record.DeviceToken && s.IsStation);
-                                    if (activeStation != null)
-                                    {
-                                        userSessions.Add(activeStation);
-                                    }
-                                }
-                                else if (!string.IsNullOrEmpty(record.IpAddress))
-                                {
-                                    // Fallback to IP matching
-                                    var ipStation = _activeSessions.FirstOrDefault(s => s.IpAddress == record.IpAddress && s.IsStation);
-                                    if (ipStation != null && !userSessions.Any(s => s.DeviceToken == ipStation.DeviceToken))
-                                    {
-                                        userSessions.Add(ipStation);
-                                    }
-                                }
-
-                                // [PREVENT CLUTTER] If this is the ADMIN (UserId: 1), 
-                                // we ONLY show their ACTUAL personal devices.
-                                // Shared Stations are only shown on the card of the user ACTUALLY using them.
-                                if (record.PerformedByUserId == 1)
-                                {
-                                    // We've already filtered stations out of the initial userSessions list.
-                                    // But what if the Admin is ACTUALLY using the station? 
-                                    // The Smart Attribution above will add it if they are.
-                                }
+                                // 2. Add stations mapped to this specific user (Pre-calculated precision)
+                                var userStations = _activeSessions
+                                    .Where(s => s.IsStation && 
+                                               _stationToUserMap.TryGetValue(s.DeviceToken, out var ownerId) && 
+                                               ownerId == record.PerformedByUserId)
+                                    .ToList();
+                                
+                                userSessions.AddRange(userStations);
                             }
                             @if (userSessions.Any())
                             {
@@ -306,6 +285,7 @@
 </style>
 
 @code {
+    private Dictionary<string, int> _stationToUserMap = new();
     private List<AuditLogRecord> _activityRecords = new();
     private List<DeviceSessionDto> _activeSessions = new();
     private bool _isLoading = true;
@@ -338,6 +318,31 @@
             
             _activityRecords = activityTask.Result.ToList();
             _activeSessions = sessionTask.Result;
+
+            // [NO GUESSING] Map Stations to Users precisely
+            _stationToUserMap.Clear();
+            var stations = _activeSessions.Where(s => s.IsStation).ToList();
+            
+            foreach (var station in stations)
+            {
+                // Find the BEST user match for this specific piece of hardware
+                var matchingUserRecord = _activityRecords
+                    .Where(r => 
+                        // Tier 1: Exact Token Match (Physical proof)
+                        r.DeviceToken == station.DeviceToken || 
+                        // Tier 2: IP Match (Logical proof, skip loopback)
+                        (r.IpAddress == station.IpAddress && 
+                         r.IpAddress != "::1" && r.IpAddress != "127.0.0.1" && !r.IpAddress.EndsWith(":1"))
+                    )
+                    .OrderByDescending(r => r.DeviceToken == station.DeviceToken) // Token matches first
+                    .ThenByDescending(r => r.TimestampUtc) // Most recent activity wins
+                    .FirstOrDefault();
+
+                if (matchingUserRecord != null && matchingUserRecord.PerformedByUserId.HasValue)
+                {
+                    _stationToUserMap[station.DeviceToken] = matchingUserRecord.PerformedByUserId.Value;
+                }
+            }
         }
         catch (Exception ex)
         {

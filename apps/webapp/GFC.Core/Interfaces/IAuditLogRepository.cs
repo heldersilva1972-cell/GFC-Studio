@@ -7,7 +7,8 @@ namespace GFC.Core.Interfaces;
 
 public interface IAuditLogRepository
 {
-    void Insert(AuditLogEntry entry);
+    int Insert(AuditLogEntry entry);
+    Task<int> InsertAsync(AuditLogEntry entry);
 
     Task<PagedResult<AuditLogRecord>> GetAuditLogsAsync(
         string? actionFilter,
@@ -20,5 +21,5 @@ public interface IAuditLogRepository
 
     Task<IReadOnlyList<string>> GetDistinctActionsAsync();
     Task<IReadOnlyList<AuditLogRecord>> GetLiveActivityAsync();
-    void UpdateDuration(int userId, string pageUrl, int additionalSeconds);
+    void UpdateDuration(int userId, string pageUrl, int additionalSeconds, string? ipAddress = null, string? deviceToken = null, int? logId = null);
 }
