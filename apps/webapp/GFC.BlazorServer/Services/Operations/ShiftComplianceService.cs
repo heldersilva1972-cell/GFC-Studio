@@ -68,16 +68,18 @@ public class ShiftComplianceService : IShiftComplianceService
     private bool IsShiftCompleted(DateTime date, string shiftType)
     {
         var now = DateTime.Now;
+        // Use 5 AM as business day rollover
         var businessToday = now.Hour < 5 ? DateTime.Today.AddDays(-1) : DateTime.Today;
 
         if (date < businessToday) return true;
 
         if (date == businessToday)
         {
-            // If it's Day shift, it ends around 6-7 PM
+            // If it's Day shift, it ends based on configured time (+ 2 hour buffer for reporting)
             if (shiftType == "Day")
             {
-                return now.Hour >= 19; 
+                var dayEndTime = ShiftDefaults.DayEnd.Hours == 0 ? 24 : ShiftDefaults.DayEnd.Hours;
+                return now.Hour >= (dayEndTime + 2); 
             }
             
             // If it's Night shift, it's only completed once business day rolls over

@@ -144,4 +144,10 @@ public class SystemSettings
     public string? VapidPublicKey { get; set; }
     public string? VapidPrivateKey { get; set; }
     public string? VapidSubject { get; set; }
+
+    // Standard Shift Times
+    public TimeSpan DayShiftStartTime { get; set; } = new TimeSpan(9, 0, 0);
+    public TimeSpan DayShiftEndTime { get; set; } = new TimeSpan(17, 0, 0);
+    public TimeSpan NightShiftStartTime { get; set; } = new TimeSpan(18, 0, 0);
+    public TimeSpan NightShiftEndTime { get; set; } = new TimeSpan(2, 0, 0);
 }

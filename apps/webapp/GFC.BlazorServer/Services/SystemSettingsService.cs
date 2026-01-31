@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Caching.Memory;
 using GFC.Core.Enums;
+using GFC.Core.Models;
 
 namespace GFC.BlazorServer.Services;
 
@@ -64,6 +65,14 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
             
             // Cache the settings
             _cache.Set(CacheKey, settings, CacheExpiration);
+            
+            // Sync ShiftDefaults
+            GFC.Core.Models.ShiftDefaults.SetDefaults(
+                settings.DayShiftStartTime, 
+                settings.DayShiftEndTime, 
+                settings.NightShiftStartTime, 
+                settings.NightShiftEndTime
+            );
             
             return settings;
         }
@@ -176,6 +185,14 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
             
             // Cache the settings
             _cache.Set(CacheKey, settings, CacheExpiration);
+            
+            // Sync ShiftDefaults
+            GFC.Core.Models.ShiftDefaults.SetDefaults(
+                settings.DayShiftStartTime, 
+                settings.DayShiftEndTime, 
+                settings.NightShiftStartTime, 
+                settings.NightShiftEndTime
+            );
             
             return settings;
         }
@@ -299,7 +316,21 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.AllowServerRestoreOperations = settings.AllowServerRestoreOperations;
         existingSettings.MaintenanceModeEnabled = settings.MaintenanceModeEnabled;
 
+        // Standard Shift Times
+        existingSettings.DayShiftStartTime = settings.DayShiftStartTime;
+        existingSettings.DayShiftEndTime = settings.DayShiftEndTime;
+        existingSettings.NightShiftStartTime = settings.NightShiftStartTime;
+        existingSettings.NightShiftEndTime = settings.NightShiftEndTime;
+
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
+
+        // Sync ShiftDefaults immediately
+        GFC.Core.Models.ShiftDefaults.SetDefaults(
+            settings.DayShiftStartTime, 
+            settings.DayShiftEndTime, 
+            settings.NightShiftStartTime, 
+            settings.NightShiftEndTime
+        );
 
         await dbContext.SaveChangesAsync();
         

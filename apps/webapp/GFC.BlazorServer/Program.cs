@@ -649,6 +649,19 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                     Console.WriteLine($">>> Error refining ControllerEvents schema: {ex.Message}");
                 }
 
+                // Initialize ShiftDefaults from database
+                try
+                {
+                    var settingsService = services.GetRequiredService<IBlazorSystemSettingsService>();
+                    // Using Task.Run().GetAwaiter().GetResult() as Main is synchronous
+                    Task.Run(async () => await settingsService.GetAsync()).GetAwaiter().GetResult();
+                    Console.WriteLine(">>> [Startup] ShiftDefaults initialized from database.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error initializing ShiftDefaults: {ex.Message}");
+                }
+
                 // [AUTO-FIX 2] Run the Video Security Tables script
                 var securityScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "add-video-security-tables.sql");
                 if (File.Exists(securityScriptPath))

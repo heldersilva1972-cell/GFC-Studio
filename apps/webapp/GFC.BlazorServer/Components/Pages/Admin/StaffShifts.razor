@@ -9,6 +9,7 @@
 @inject IMemberRepository MemberRepository
 @inject IToastService ToastService
 @inject IJSRuntime JSRuntime
+@inject IBlazorSystemSettingsService SystemSettingsService
 
 <style>
     .calendar-container {
@@ -82,9 +83,14 @@
 <div class="card mb-4">
     <div class="card-header d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2">
         <h5 class="mb-0">Bartender Roster</h5>
-        <button class="btn btn-success btn-sm w-100 w-md-auto" @onclick="OpenAddStaffModal">
-            <i class="bi bi-plus-circle"></i> Add New Bartender
-        </button>
+        <div class="d-flex flex-wrap gap-2 w-100 w-md-auto">
+            <button class="btn btn-outline-primary btn-sm flex-fill" @onclick="OpenShiftSettingsModal">
+                <i class="bi bi-clock"></i> Shift Times
+            </button>
+            <button class="btn btn-success btn-sm flex-fill" @onclick="OpenAddStaffModal">
+                <i class="bi bi-plus-circle"></i> Add New Bartender
+            </button>
+        </div>
     </div>
     <div class="card-body">
         @{
@@ -654,6 +660,29 @@
                                 </div>
                             </div>
                         }
+
+                        <hr />
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="customTimesSwitch" @bind="_useCustomTimes">
+                            <label class="form-check-label fw-bold" for="customTimesSwitch">Customize shift times for this assignment</label>
+                        </div>
+
+                        @if (_useCustomTimes)
+                        {
+                            <div class="row g-2 animate-entrance">
+                                <div class="col-6">
+                                    <label class="form-label small">Start Time</label>
+                                    <input type="time" class="form-control" @bind="_customShiftStart" />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">End Time</label>
+                                    <input type="time" class="form-control" @bind="_customShiftEnd" />
+                                </div>
+                            </div>
+                            <div class="form-text small text-muted mt-2">
+                                <i class="bi bi-info-circle me-1"></i> Custom times will only apply to the days selected above.
+                            </div>
+                        }
                     }
                     else
                     {
@@ -864,6 +893,11 @@
     private bool isExistingMemberMode = false;
     private List<DayOfWeek> targetDays = new();
     
+    // Custom Shift Times
+    private bool _useCustomTimes = false;
+    private DateTime _customShiftStart;
+    private DateTime _customShiftEnd;
+
     private ViewMode viewMode = ViewMode.Week;
     private string errorMessage = string.Empty;
 
@@ -1200,6 +1234,19 @@
 
         newShift = new StaffShift { Date = date, ShiftType = shiftType == "Day" ? 1 : 2 };
         
+        // Default custom times
+        _useCustomTimes = false;
+        if (newShift.ShiftType == 1)
+        {
+            _customShiftStart = DateTime.Today.AddHours(9);
+            _customShiftEnd = DateTime.Today.AddHours(17);
+        }
+        else
+        {
+            _customShiftStart = DateTime.Today.AddHours(18);
+            _customShiftEnd = DateTime.Today.AddHours(26);
+        }
+
         // Ensure weeklyShifts is correctly populated for the target week
         // so that the "Also assign to" logic correctly hides occupied days.
         var weekSun = date.Date.AddDays(-(int)date.Date.DayOfWeek);
@@ -1251,6 +1298,19 @@
                     
                     if (newShift.Id > 0)
                     {
+                        if (_useCustomTimes)
+                        {
+                            newShift.CustomStartTime = newShift.Date.Date.Add(_customShiftStart.TimeOfDay);
+                            // If end time is early morning, it's next day
+                            var endOffset = _customShiftEnd.TimeOfDay < _customShiftStart.TimeOfDay ? 1 : 0;
+                            newShift.CustomEndTime = newShift.Date.Date.AddDays(endOffset).Add(_customShiftEnd.TimeOfDay);
+                        }
+                        else
+                        {
+                            newShift.CustomStartTime = null;
+                            newShift.CustomEndTime = null;
+                        }
+
                         // Update existing shift
                         await ShiftService.UpdateStaffShiftAsync(newShift);
                         await ToastService.ShowSuccess($"Shift updated for {selectedStaff.Name} on {newShift.Date:MMM dd}");
@@ -1287,6 +1347,14 @@
                                     StaffName = selectedStaff.Name,
                                     Status = "Scheduled"
                                 };
+
+                                if (_useCustomTimes)
+                                {
+                                    shiftToAdd.CustomStartTime = targetDate.Date.Add(_customShiftStart.TimeOfDay);
+                                    var endOffset = _customShiftEnd.TimeOfDay < _customShiftStart.TimeOfDay ? 1 : 0;
+                                    shiftToAdd.CustomEndTime = targetDate.Date.AddDays(endOffset).Add(_customShiftEnd.TimeOfDay);
+                                }
+
                                 await ShiftService.CreateStaffShiftAsync(shiftToAdd);
                                 createdCount++;
                             }
@@ -1299,6 +1367,7 @@
                     }
                     
                     targetDays.Clear();
+                    _useCustomTimes = false;
                     CloseModals();
                     await LoadShifts();
                 }
@@ -1375,6 +1444,30 @@
         // Open assignment modal with current shift
         newShift = shift;
         selectedStaffId = shift.StaffMemberId;
+
+        // Load custom times if they exist
+        if (shift.CustomStartTime.HasValue && shift.CustomEndTime.HasValue)
+        {
+            _useCustomTimes = true;
+            _customShiftStart = shift.CustomStartTime.Value;
+            _customShiftEnd = shift.CustomEndTime.Value;
+        }
+        else
+        {
+            _useCustomTimes = false;
+            // Defaults based on shift type
+            if (shift.ShiftType == 1)
+            {
+                _customShiftStart = DateTime.Today.AddHours(9);
+                _customShiftEnd = DateTime.Today.AddHours(17);
+            }
+            else
+            {
+                _customShiftStart = DateTime.Today.AddHours(18);
+                _customShiftEnd = DateTime.Today.AddHours(26);
+            }
+        }
+
         showAssignmentModal = true;
         StateHasChanged();
     }
@@ -1496,4 +1589,110 @@
         else
             expandedStaffId = id;
     }
+
+    // Standard Shift Times Modal
+    private bool _showShiftSettingsModal = false;
+    private bool _isSavingShiftSettings = false;
+    private DateTime _dayShiftStart;
+    private DateTime _dayShiftEnd;
+    private DateTime _nightShiftStart;
+    private DateTime _nightShiftEnd;
+
+    private async Task OpenShiftSettingsModal()
+    {
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            _dayShiftStart = DateTime.Today.Add(settings.DayShiftStartTime);
+            _dayShiftEnd = DateTime.Today.Add(settings.DayShiftEndTime);
+            _nightShiftStart = DateTime.Today.Add(settings.NightShiftStartTime);
+            _nightShiftEnd = DateTime.Today.Add(settings.NightShiftEndTime);
+            _showShiftSettingsModal = true;
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError("Failed to load shift settings: " + ex.Message);
+        }
+    }
+
+    private void CloseShiftSettingsModal() => _showShiftSettingsModal = false;
+
+    private async Task SaveShiftSettings()
+    {
+        _isSavingShiftSettings = true;
+        try
+        {
+            var settings = await SystemSettingsService.GetAsync();
+            settings.DayShiftStartTime = _dayShiftStart.TimeOfDay;
+            settings.DayShiftEndTime = _dayShiftEnd.TimeOfDay;
+            settings.NightShiftStartTime = _nightShiftStart.TimeOfDay;
+            settings.NightShiftEndTime = _nightShiftEnd.TimeOfDay;
+
+            await SystemSettingsService.UpdateAsync(settings);
+            await ToastService.ShowSuccess("Standard shift times updated successfully.");
+            _showShiftSettingsModal = false;
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError("Failed to save shift settings: " + ex.Message);
+        }
+        finally
+        {
+            _isSavingShiftSettings = false;
+        }
+    }
+}
+
+@if (_showShiftSettingsModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" role="dialog" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-clock-fill me-2"></i>Standard Shift Times</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseShiftSettingsModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-4">Set the default operational hours for all shifts. These times will be used when assigning new bartenders but can still be overridden individually.</p>
+                    
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <h6 class="fw-bold text-primary border-bottom pb-2 mb-3"><i class="bi bi-sun-fill me-2"></i>Day Shift</h6>
+                            <div class="row">
+                                <div class="col-6">
+                                    <label class="form-label small">Start Time</label>
+                                    <input type="time" class="form-control" @bind="_dayShiftStart" />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">End Time</label>
+                                    <input type="time" class="form-control" @bind="_dayShiftEnd" />
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-12 mt-4">
+                            <h6 class="fw-bold text-info border-bottom pb-2 mb-3"><i class="bi bi-moon-stars-fill me-2"></i>Night Shift</h6>
+                            <div class="row">
+                                <div class="col-6">
+                                    <label class="form-label small">Start Time</label>
+                                    <input type="time" class="form-control" @bind="_nightShiftStart" />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">End Time</label>
+                                    <input type="time" class="form-control" @bind="_nightShiftEnd" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-secondary px-4" @onclick="CloseShiftSettingsModal">Cancel</button>
+                    <button type="button" class="btn btn-primary px-4" @onclick="SaveShiftSettings" disabled="@_isSavingShiftSettings">
+                        @if (_isSavingShiftSettings) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 }
