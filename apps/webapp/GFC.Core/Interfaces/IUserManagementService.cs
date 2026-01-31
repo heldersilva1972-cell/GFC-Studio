@@ -6,7 +6,8 @@ namespace GFC.Core.Interfaces;
 public interface IUserManagementService
 {
     List<UserListItemDto> GetAllUsers();
-    List<ActiveMemberDto> GetActiveMembersForUserCreation();
+    List<ActiveMemberDto> GetEligibleDirectorsForUserCreation();
+    List<ActiveMemberDto> GetEligibleMembersForUserCreation(); // Returns active members not in directors list
     AppUser? GetUser(int userId);
     Task<AppUser?> GetUserAsync(int userId);
     int CreateUser(string username, string password, bool isAdmin, int? memberId, string? notes, string? createdBy, bool passwordChangeRequired = false, int? createdByUserId = null, bool mfaEnabled = false);

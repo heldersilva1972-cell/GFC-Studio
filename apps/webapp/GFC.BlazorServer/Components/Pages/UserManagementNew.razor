@@ -256,20 +256,38 @@
 
                 @if (!IsEditingAdmin)
                 {
-                    <div class="form-group">
-                        <label class="form-label">Member</label>
-                        <select class="form-select" @bind="_userForm.MemberId" @bind:after="OnMemberSelected">
-                            <option value="">-- Select Member (Optional) --</option>
-                            @foreach (var member in _availableMembers)
-                            {
-                                <option value="@member.MemberId">@member.DisplayName</option>
-                            }
-                        </select>
-                        @if (_editingUser == null)
-                        {
-                            <small class="form-text">Username will be auto-generated from member name</small>
-                        }
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label text-primary fw-bold">Directors</label>
+                                <select class="form-select border-primary border-opacity-25" @bind="_userForm.MemberId" @bind:after="OnMemberSelected">
+                                    <option value="">-- Select Director --</option>
+                                    @foreach (var member in _availableDirectors)
+                                    {
+                                        <option value="@member.MemberId">@member.DisplayName</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label fw-bold">Active Members</label>
+                                <select class="form-select" @bind="_userForm.MemberId" @bind:after="OnMemberSelected">
+                                    <option value="">-- Select Active Member --</option>
+                                    @foreach (var member in _availableMembers)
+                                    {
+                                        <option value="@member.MemberId">@member.DisplayName</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
                     </div>
+                    @if (_editingUser == null)
+                    {
+                        <div class="text-center mt-n2 mb-3">
+                            <small class="form-text text-muted">Username will be auto-generated from member name</small>
+                        </div>
+                    }
                 }
 
                 @if (IsEditingAdmin)
@@ -341,6 +359,25 @@
 @* Permissions Modal *@
 @if (_showPermissionsModal && _selectedUser != null)
 {
+    @* Use the standalone modal component *@
+    <UserPagePermissionsModal 
+        UserId="@_selectedUser.UserId"
+        Username="@_selectedUser.Username"
+        IsAdmin="@_selectedUser.IsAdmin"
+        IsDirector="@_selectedUser.IsDirector"
+        OnClose="ClosePermissionsModal"
+        OnSaved="ClosePermissionsModal" />
+}
+
+@if (false)
+{
+    @* 
+       [REMOVED INLINE MODAL] 
+       We are now using the shared UserPagePermissionsModal component to ensure 
+       consistent logic for permission filtering and layout across the app.
+       The inline code below is kept hidden just in case revert is needed, 
+       but effectiveness is replaced by the component above.
+    *@
     <div class="modal-overlay" @onclick="ClosePermissionsModal">
         <div class="modal-container modal-lg" @onclick:stopPropagation>
             <div class="modal-header">
@@ -365,6 +402,12 @@
                 <div class="permissions-grid">
                     @foreach (var category in _pagesByCategory)
                     {
+                        @* [POLICY] Only show MOBILE permissions for regular active members *@
+                        if (!_selectedUser.IsAdmin && !_selectedUser.IsDirector && category.Key.ToUpper() != "MOBILE")
+                        {
+                            continue;
+                        }
+
                         <div class="permission-category">
                             <h4 class="category-title">
                                 <i class="bi bi-folder2-open me-2"></i>@category.Key
@@ -889,6 +932,7 @@
 @code {
     private List<UserListItemDto> _users = new();
     private List<ActiveMemberDto> _availableMembers = new();
+    private List<ActiveMemberDto> _availableDirectors = new();
     private List<AppPage> _allPages = new();
     private Dictionary<string, List<AppPage>> _pagesByCategory = new();
     private HashSet<int> _defaultPermissions = new();
@@ -961,7 +1005,8 @@
         {
             await Task.WhenAll(
                 Task.Run(() => _users = UserManagementService.GetAllUsers()),
-                Task.Run(() => _availableMembers = UserManagementService.GetActiveMembersForUserCreation()),
+                Task.Run(() => _availableDirectors = UserManagementService.GetEligibleDirectorsForUserCreation()),
+                Task.Run(() => _availableMembers = UserManagementService.GetEligibleMembersForUserCreation()),
                 Task.Run(() => _allPages = UserManagementService.GetAllPages().ToList()),
                 Task.Run(async () => {
                     var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -1183,7 +1228,10 @@
             return;
 
         var memberId = int.Parse(_userForm.MemberId);
-        var selectedMember = _availableMembers.FirstOrDefault(m => m.MemberId == memberId);
+        
+        // Check both lists
+        var selectedMember = _availableMembers.FirstOrDefault(m => m.MemberId == memberId) 
+                             ?? _availableDirectors.FirstOrDefault(m => m.MemberId == memberId);
         
         if (selectedMember != null)
         {

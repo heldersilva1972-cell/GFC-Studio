@@ -164,12 +164,9 @@ public class UserManagementService : IUserManagementService
         return result;
     }
 
-    public List<ActiveMemberDto> GetActiveMembersForUserCreation()
+    private HashSet<int> GetCurrentAndTransitionalDirectors()
     {
         var currentYear = DateTime.Now.Year;
-        var allMembers = _memberRepository.GetAllMembers();
-        
-        // Fetch current and previous year directors (transitional) in bulk
         var currentDirectors = _boardRepository.GetAssignmentsByYear(currentYear)
             .Select(a => a.MemberID)
             .ToHashSet();
@@ -185,6 +182,14 @@ public class UserManagementService : IUserManagementService
             }
         }
 
+        return currentDirectors;
+    }
+
+    public List<ActiveMemberDto> GetEligibleDirectorsForUserCreation()
+    {
+        var allMembers = _memberRepository.GetAllMembers();
+        var currentDirectors = GetCurrentAndTransitionalDirectors();
+
         // Filter for members who are both active and currently on the board/directors list.
         var eligibleDirectors = allMembers
             .Where(m => IsActiveForDues(m) && currentDirectors.Contains(m.MemberID))
@@ -199,6 +204,27 @@ public class UserManagementService : IUserManagementService
             .ToList();
 
         return eligibleDirectors;
+    }
+
+    public List<ActiveMemberDto> GetEligibleMembersForUserCreation()
+    {
+        var allMembers = _memberRepository.GetAllMembers();
+        var currentDirectors = GetCurrentAndTransitionalDirectors();
+
+        // Filter for members who are active but NOT on the board/directors list.
+        var eligibleMembers = allMembers
+            .Where(m => IsActiveForDues(m) && !currentDirectors.Contains(m.MemberID))
+            .OrderBy(m => m.LastName)
+            .ThenBy(m => m.FirstName)
+            .Select(m => new ActiveMemberDto(
+                m.MemberID,
+                $"{m.LastName}, {m.FirstName}",
+                m.FirstName,
+                m.LastName,
+                m.Status))
+            .ToList();
+
+        return eligibleMembers;
     }
 
     private static bool IsActiveForDues(Member member)

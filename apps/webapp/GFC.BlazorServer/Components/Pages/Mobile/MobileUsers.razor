@@ -288,6 +288,12 @@
                     {
                         @foreach (var category in _pagesByCategory.Keys)
                         {
+                            @* [POLICY] Only show MOBILE permissions for regular active members *@
+                            if (!_newIsAdmin && !_newIsDirector && category.ToUpper() != "MOBILE")
+                            {
+                                continue;
+                            }
+
                             <div class="category-group mb-3">
                                 <h6 class="text-primary small fw-bold mb-2 ps-1">@category</h6>
                                 <div class="bg-light bg-opacity-50 rounded-4 border px-3 py-1">
@@ -343,16 +349,22 @@
                 }
 
                 <div class="form-group mb-4">
-                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">Username <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control border-0 bg-light py-2 rounded-4 shadow-sm" 
-                           @bind="_newUserForm.Username" placeholder="Enter username" />
+                    <label class="form-label x-small fw-bold text-primary text-uppercase mb-2">Directors</label>
+                    <select class="form-select border-0 bg-light py-2 rounded-4 shadow-sm" 
+                            @bind="_newUserForm.MemberId" @bind:after="OnMemberSelected">
+                        <option value="">-- Select Director --</option>
+                        @foreach (var member in _availableDirectors)
+                        {
+                            <option value="@member.MemberId">@member.DisplayName</option>
+                        }
+                    </select>
                 </div>
 
                 <div class="form-group mb-4">
-                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">Member</label>
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">Active Members</label>
                     <select class="form-select border-0 bg-light py-2 rounded-4 shadow-sm" 
                             @bind="_newUserForm.MemberId" @bind:after="OnMemberSelected">
-                        <option value="">-- Select Member (Optional) --</option>
+                        <option value="">-- Select Active Member --</option>
                         @foreach (var member in _availableMembers)
                         {
                             <option value="@member.MemberId">@member.DisplayName</option>
@@ -518,6 +530,7 @@
     // Add User State
     private bool _showAddModal;
     private List<ActiveMemberDto> _availableMembers = new();
+    private List<ActiveMemberDto> _availableDirectors = new();
     private UserFormModel _newUserForm = new();
     private string _addModalError = "";
 
@@ -545,8 +558,9 @@
             .GroupBy(p => p.Category ?? "DASHBOARD")
             .ToDictionary(g => g.Key, g => g.OrderBy(p => p.PageName).ToList());
 
-        // Load available members for creation
-        _availableMembers = await Task.Run(() => UserService.GetActiveMembersForUserCreation());
+        // Load available members and directors for creation
+        _availableDirectors = await Task.Run(() => UserService.GetEligibleDirectorsForUserCreation());
+        _availableMembers = await Task.Run(() => UserService.GetEligibleMembersForUserCreation());
 
         _loading = false;
     }
