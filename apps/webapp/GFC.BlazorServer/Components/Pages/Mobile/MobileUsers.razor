@@ -28,9 +28,14 @@
                 </button>
                 <h5 class="mb-0 fw-bold">User Management</h5>
             </div>
-            <button class="btn btn-warning-soft btn-sm rounded-pill px-3 fw-bold" @onclick="ToggleQuickOnboard">
-                <i class="bi @(_showQuickOnboard ? "bi-x-lg" : "bi-lightning-charge-fill") me-1"></i> Quick
-            </button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary-soft btn-sm rounded-pill px-3 fw-bold shadow-sm" @onclick="OpenAddModal">
+                    <i class="bi bi-person-plus-fill me-1"></i> Add
+                </button>
+                <button class="btn btn-warning-soft btn-sm rounded-pill px-3 fw-bold shadow-sm" @onclick="ToggleQuickOnboard">
+                    <i class="bi @(_showQuickOnboard ? "bi-x-lg" : "bi-lightning-charge-fill") me-1"></i> Quick
+                </button>
+            </div>
         </div>
     </div>
 
@@ -151,20 +156,6 @@
                 </div>
             </div>
 
-            <!-- SEARCH -->
-            <div class="search-bar-container mb-4">
-                <div class="search-input-group shadow-sm">
-                    <i class="bi bi-search"></i>
-                    <input type="text" class="form-control border-0" placeholder="Search members or users..." 
-                           @bind="_searchQuery" @bind:event="oninput" />
-                    @if (!string.IsNullOrEmpty(_searchQuery))
-                    {
-                        <button class="btn btn-link text-muted p-0 me-2" @onclick='() => _searchQuery = ""'>
-                            <i class="bi bi-x-circle-fill"></i>
-                        </button>
-                    }
-                </div>
-            </div>
 
             <!-- USER LIST -->
             @if (_loading)
@@ -173,10 +164,10 @@
                     <div class="spinner-border text-primary opacity-50"></div>
                 </div>
             }
-            else if (FilteredUsers.Any())
+            else if (_users.Any())
             {
                 <div class="user-list d-flex flex-column gap-3">
-                    @foreach (var user in FilteredUsers)
+                    @foreach (var user in _users.OrderBy(u => u.Username))
                     {
                         <div class="user-mobile-card animate-entrance stagger-1 @(!user.IsActive ? "inactive" : "")">
                             <div class="d-flex align-items-center justify-content-between p-3" @onclick="() => ToggleUserExpansion(user.UserId)">
@@ -358,6 +349,82 @@
     </div>
 }
 
+<!-- ADD USER DRAWER -->
+@if (_showAddModal)
+{
+    <div class="mobile-drawer-overlay animate-fade-in" @onclick="CloseModals">
+        <div class="mobile-drawer animate-slide-up" @onclick:stopPropagation>
+            <div class="drawer-header p-4 pb-2">
+                <div class="d-flex justify-content-between align-items-center mb-0">
+                    <h5 class="fw-bold mb-0">Add New User</h5>
+                    <button class="btn-close" @onclick="CloseModals"></button>
+                </div>
+            </div>
+            
+            <div class="drawer-body p-4">
+                @if (!string.IsNullOrEmpty(_addModalError))
+                {
+                    <div class="alert alert-danger x-small rounded-4 mb-3 border-0">
+                        <i class="bi bi-exclamation-triangle me-2"></i>@_addModalError
+                    </div>
+                }
+
+                <div class="form-group mb-4">
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">Username <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control border-0 bg-light py-2 rounded-4 shadow-sm" 
+                           @bind="_newUserForm.Username" placeholder="Enter username" />
+                </div>
+
+                <div class="form-group mb-4">
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">Member</label>
+                    <select class="form-select border-0 bg-light py-2 rounded-4 shadow-sm" 
+                            @bind="_newUserForm.MemberId" @bind:after="OnMemberSelected">
+                        <option value="">-- Select Member (Optional) --</option>
+                        @foreach (var member in _availableMembers)
+                        {
+                            <option value="@member.MemberId">@member.DisplayName</option>
+                        }
+                    </select>
+                    <div class="mt-2 text-muted x-small italic text-center">
+                        Username will be auto-generated from member name
+                    </div>
+                </div>
+
+                <div class="roles-selection mt-4">
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-3">Roles & Status</label>
+                    <div class="bg-light bg-opacity-50 rounded-4 border p-3">
+                        <div class="form-check form-switch d-flex justify-content-between align-items-center mb-3 p-0">
+                            <label class="form-check-label small" for="addAdminCheck">
+                                <i class="bi bi-shield-fill-check text-warning me-2"></i>Administrator
+                            </label>
+                            <input class="form-check-input ms-0" type="checkbox" @bind="_newUserForm.IsAdmin" id="addAdminCheck" />
+                        </div>
+                        <div class="form-check form-switch d-flex justify-content-between align-items-center mb-3 p-0">
+                            <label class="form-check-label small" for="addDirectorCheck">
+                                <i class="bi bi-person-lines-fill text-info me-2"></i>Director / Officer
+                            </label>
+                            <input class="form-check-input ms-0" type="checkbox" @bind="_newUserForm.IsDirector" id="addDirectorCheck" />
+                        </div>
+                        <div class="form-check form-switch d-flex justify-content-between align-items-center mb-0 p-0">
+                            <label class="form-check-label small" for="addActiveCheck">
+                                <i class="bi bi-check-circle-fill text-success me-2"></i>Active Account
+                            </label>
+                            <input class="form-check-input ms-0" type="checkbox" @bind="_newUserForm.IsActive" id="addActiveCheck" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="drawer-footer p-4 pt-0">
+                <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow" @onclick="SaveNewUser" disabled="@_saving">
+                    @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                    <i class="bi bi-check-lg me-1"></i>Create User
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .mobile-page-container {
         position: fixed;
@@ -383,6 +450,7 @@
     }
     .btn-icon-round:active { background: rgba(0,0,0,0.05); }
 
+    .btn-primary-soft { background: rgba(79, 70, 229, 0.1); color: #4f46e5; border: none; }
     .btn-warning-soft { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: none; }
     .bg-primary-soft { background: rgba(79, 70, 229, 0.1); color: #4f46e5; }
     .bg-success-soft { background: rgba(16, 185, 129, 0.1); color: #10b981; }
@@ -480,6 +548,12 @@
     private Dictionary<string, List<AppPage>> _pagesByCategory = new();
     private HashSet<int> _selectedPermissions = new();
 
+    // Add User State
+    private bool _showAddModal;
+    private List<ActiveMemberDto> _availableMembers = new();
+    private UserFormModel _newUserForm = new();
+    private string _addModalError = "";
+
     // Actions State
     private bool _showRoleModal;
     private UserListItemDto? _selectedUser;
@@ -504,7 +578,76 @@
             .GroupBy(p => p.Category ?? "DASHBOARD")
             .ToDictionary(g => g.Key, g => g.OrderBy(p => p.PageName).ToList());
 
+        // Load available members for creation
+        _availableMembers = await Task.Run(() => UserService.GetActiveMembersForUserCreation());
+
         _loading = false;
+    }
+
+    private void OpenAddModal()
+    {
+        _newUserForm = new UserFormModel();
+        _addModalError = "";
+        _showAddModal = true;
+    }
+
+    private async Task OnMemberSelected()
+    {
+        if (string.IsNullOrEmpty(_newUserForm.MemberId)) return;
+        if (int.TryParse(_newUserForm.MemberId, out var memberId))
+        {
+            try
+            {
+                var username = await Task.Run(() => UserService.GenerateUsernameFromMember(memberId));
+                _newUserForm.Username = username;
+            }
+            catch (Exception ex)
+            {
+                _addModalError = ex.Message;
+            }
+        }
+    }
+
+    private async Task SaveNewUser()
+    {
+        if (string.IsNullOrWhiteSpace(_newUserForm.Username))
+        {
+            _addModalError = "Username is required.";
+            return;
+        }
+
+        _saving = true;
+        _addModalError = "";
+        try
+        {
+            int? memberId = string.IsNullOrEmpty(_newUserForm.MemberId) ? null : int.Parse(_newUserForm.MemberId);
+            
+            // Create user (Passcode will be set during device setup)
+            var userId = UserService.CreateUser(
+                _newUserForm.Username,
+                "", // Initial password placeholder
+                _newUserForm.IsAdmin,
+                memberId,
+                _newUserForm.Notes,
+                "admin",
+                passwordChangeRequired: true
+            );
+
+            // Set role and isActive if repo supports directly (Update to sync)
+            UserService.UpdateUser(userId, _newUserForm.Username, null, memberId, _newUserForm.Notes, null, _newUserForm.IsAdmin, _newUserForm.IsActive);
+
+            Toast.ShowSuccess($"User '{_newUserForm.Username}' created successfully.");
+            await LoadUsers();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            _addModalError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
     }
 
     private IEnumerable<UserListItemDto> FilteredUsers => _users
@@ -625,7 +768,18 @@
     private void CloseModals()
     {
         _showRoleModal = false;
+        _showAddModal = false;
         _selectedUser = null;
+    }
+
+    public class UserFormModel
+    {
+        public string Username { get; set; } = "";
+        public string? MemberId { get; set; }
+        public bool IsAdmin { get; set; }
+        public bool IsDirector { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string? Notes { get; set; }
     }
 
     private void SetRole(bool isAdmin, bool isDirector)
