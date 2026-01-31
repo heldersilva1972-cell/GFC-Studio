@@ -11,6 +11,7 @@
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Services.Controllers
 @using GFC.BlazorServer.Services.Dashboard
+@using GFC.BlazorServer.Services.Operations
 @attribute [Authorize]
 @inject IDashboardService DashboardService
 @inject IDashboardMetricsService DashboardMetricsService
@@ -32,6 +33,7 @@
 @inject IKeyCardRepository KeyCardRepository
 @using GFC.BlazorServer.Services.DataProtection
 @inject IDataProtectionService DataProtectionService
+@inject IShiftComplianceService ShiftComplianceService
 
 @inject IUserManagementService UserManagementService
 @using GFC.BlazorServer.Services
@@ -195,19 +197,24 @@
                         </div>
                     }
 
-                    @if (_pendingSyncCount > 0)
+                    @if (_canViewShiftAlerts)
                     {
-                        <div class="pulse-tile pulse-warning shadow-sm">
-                            <div class="pulse-icon"><i class="bi bi-cloud-arrow-up-fill"></i></div>
-                            <div class="pulse-content">
-                                <div class="pulse-title">Controller Sync Pending</div>
-                                <div class="pulse-message">@_pendingSyncCount card updates are waiting to be uploaded to hardware.</div>
+                        @foreach (var shift in _missingShifts)
+                        {
+                            <div class="pulse-tile pulse-warning shadow-sm animate-pulse-border">
+                                <div class="pulse-icon"><i class="bi bi-clock-history"></i></div>
+                                <div class="pulse-content">
+                                    <div class="pulse-title">SHIFT SALES ALERT</div>
+                                    <div class="pulse-message">@shift.Message</div>
+                                </div>
+                                <div class="pulse-action">
+                                    <a href="/mobile/shift-report" class="btn btn-sm btn-outline-warning rounded-pill px-3 fw-bold">Enter Now</a>
+                                </div>
                             </div>
-                            <div class="pulse-action">
-                                <a href="/keycards/sync-queue" class="btn btn-sm btn-outline-warning rounded-pill px-3 fw-bold">Sync</a>
-                            </div>
-                        </div>
+                        }
                     }
+
+                    @if (_pendingSyncCount > 0)
 
                     @foreach (var alert in _alertPreview)
                     {
@@ -802,6 +809,8 @@
     }
 
     private List<DashboardAlert> Alerts { get; set; } = new();
+    private List<MissingShiftAlert> _missingShifts = new();
+    private bool _canViewShiftAlerts;
     
     // Key Card & Sync Data
     private DateTime? _graceEndDate;
@@ -870,6 +879,7 @@
                 _canViewInsights = UserManagementService.UserHasPageAccess(userId, "/finance/insights");
                 _canViewStaff = UserManagementService.UserHasPageAccess(userId, "/admin/staff-shifts");
                 _canViewStudio = UserManagementService.UserHasPageAccess(userId, "/studio");
+                _canViewShiftAlerts = UserManagementService.UserHasPageAccess(userId, "/widgets/shift-sales-alert");
             }
         }
         catch (Exception ex)
@@ -906,6 +916,7 @@
         var alertsTask = DashboardService.GetAlertSummaryAsync();
         var backupStatusTask = DashboardService.GetBackupStatusAsync();
         var rentalsTask = RentalService.GetRentalRequestsAsync();
+        var shiftComplianceTask = _canViewShiftAlerts ? ShiftComplianceService.GetMissingShiftsAsync() : Task.FromResult(new List<MissingShiftAlert>());
 
         // 2. Define minimum splash duration (Reduced for faster perceived speed)
         var minSplashDelay = includeSplash ? Task.Delay(800) : Task.CompletedTask;
@@ -990,6 +1001,18 @@
                 var important = BuildAlertPreview(_alerts);
                 _alertPreview.AddRange(important);
                 _importantAlerts.AddRange(important);
+            }
+            
+            try
+            {
+                if (_canViewShiftAlerts)
+                {
+                    _missingShifts = await shiftComplianceTask;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Dashboard:shiftCompliance] {ex.Message}");
             }
             
             StateHasChanged();

@@ -5,7 +5,9 @@
 @inject NavigationManager Navigation
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject IUserManagementService UserService
+@inject IShiftComplianceService ShiftComplianceService
 @inject IJSRuntime JSRuntime
+@using GFC.BlazorServer.Services.Operations
 @using GFC.BlazorServer.Components.Shared.Mobile
 @attribute [Authorize]
 
@@ -42,6 +44,22 @@
                 <h4 class="fw-bold mb-1">GFC Portal</h4>
                 <p class="text-muted small">Access your shift tools and analytics.</p>
             </div>
+
+            @if (!IsLoading && _missingShifts.Any() && HasAccessTo("Shift Sales Alert"))
+            {
+                <div class="alert alert-warning border-0 shadow-sm rounded-4 mb-4 animate-entrance" style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b !important;">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-warning d-flex align-items-center justify-content-center" style="min-width: 40px; height: 40px;">
+                            <i class="bi bi-clock-history text-white fs-5"></i>
+                        </div>
+                        <div style="flex-grow: 1;">
+                            <div class="fw-bold text-dark small text-uppercase" style="letter-spacing: 0.5px;">Shift Sales Alert</div>
+                            <div class="text-muted" style="font-size: 0.75rem;">@_missingShifts.Count report(s) are missing from the last 48 hours.</div>
+                        </div>
+                        <button class="btn btn-warning btn-sm rounded-pill fw-bold px-3" @onclick='() => NavigateTo("/mobile/shift-report")'>Fix</button>
+                    </div>
+                </div>
+            }
 
             @if (IsLoading)
             {
@@ -233,6 +251,7 @@
     private string Username { get; set; } = "...";
     private bool IsLoading { get; set; } = true;
     private HashSet<string> UserRoutes { get; set; } = new();
+    private List<MissingShiftAlert> _missingShifts = new();
     
     private bool IsAdmin { get; set; }
     private bool HasAnyMobileTools => IsAdmin || UserRoutes.Any(r => r.Contains("mobile"));
@@ -257,6 +276,12 @@
             {
                 var permissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
                 UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+            }
+            
+            
+            if (HasAccessTo("Shift Sales Alert"))
+            {
+                _missingShifts = await ShiftComplianceService.GetMissingShiftsAsync();
             }
             
             IsLoading = false; 
@@ -287,6 +312,11 @@
                 IsAdmin = currentAppUser.IsAdmin;
                 var permissions = UserService.GetUserPagePermissions(currentAppUser.UserId);
                 UserRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+
+                if (HasAccessTo("Shift Sales Alert"))
+                {
+                    _missingShifts = await ShiftComplianceService.GetMissingShiftsAsync();
+                }
             }
         }
         catch (Exception ex)
@@ -318,6 +348,7 @@
             "Mobile Key Cards" => cleanRoutes.Contains("mobile/keycards"),
             "Mobile Dues & Payments" => cleanRoutes.Contains("mobile/dues"),
             "bartender schedule manager" => cleanRoutes.Contains("mobile/manage-schedule"),
+            "Shift Sales Alert" => cleanRoutes.Contains("widgets/shift-sales-alert") || cleanRoutes.Contains("mobile/shift-report"),
             _ => false
         };
     }

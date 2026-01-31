@@ -10,6 +10,7 @@
 @inject ILotteryShiftRepository LotteryRepo
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JSRuntime
+@inject IAuditLogger AuditLogger
 @using GFC.BlazorServer.Components.Shared.Mobile
 @attribute [Authorize]
 
@@ -40,7 +41,7 @@
                     <h4 class="fw-bold">Report Submitted!</h4>
                     <p class="text-muted small">Your sales figures have been recorded.</p>
                     <div class="mt-3 d-grid gap-2">
-                        <button class="btn btn-app-primary w-100 py-2" @onclick='() => Submitted = false'>
+                        <button class="btn btn-app-primary w-100 py-2" @onclick="PrepareNewSubmission">
                             Submit Another
                         </button>
                         <button class="btn btn-light w-100 py-2 rounded-4 fw-bold" @onclick='() => Navigation.NavigateTo("/mobile")'>
@@ -61,24 +62,61 @@
             else
             {
                 <div class="animate-entrance">
+                    <!-- DATE & SHIFT SELECTOR -->
                     <div class="app-card mb-2 py-2" style="display: block;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="modern-label small mb-0">Shift Information</label>
+                            @if (!ShowDatePicker)
+                            {
+                                <button class="btn btn-link btn-sm p-0 text-primary fw-bold text-decoration-none" @onclick="() => ShowDatePicker = true" style="font-size: 0.75rem;">
+                                    <i class="bi bi-calendar-event me-1"></i>Change Date
+                                </button>
+                            }
+                        </div>
+
+                        <div class="d-flex align-items-center gap-3 mb-3 p-2 rounded-3 bg-light border border-light">
+                            <div class="rounded-circle bg-white d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                                <i class="bi @(ShiftType == "Day" ? "bi-sun-fill text-warning" : "bi-moon-stars-fill text-primary") fs-5"></i>
+                            </div>
+                            <div>
+                                <div class="fw-bold" style="font-size: 0.95rem;">@ReportDate.ToString("dddd, MMM dd")</div>
+                                <div class="text-muted small">@(ShiftType) Shift Report</div>
+                            </div>
+                        </div>
+
+                        @if (ShowDatePicker)
+                        {
+                            <div class="mb-3 animate-entrance">
+                                <label class="modern-label extra-small mb-1">Select Date</label>
+                                <input type="date" class="form-control rounded-3 border-0 bg-light p-2" @bind="ReportDate" @bind:after="CheckExisting" />
+                            </div>
+                        }
+
                         <label class="modern-label mb-2 small">Shift Type</label>
                         <div class="d-flex gap-2 p-1 bg-light rounded-3">
-                            <button type="button" class='shift-opt @(ShiftType == "Day" ? "active" : "")' @onclick='() => ShiftType = "Day"'>
+                            <button type="button" class='shift-opt @(ShiftType == "Day" ? "active" : "")' @onclick='() => SetShift("Day")'>
                                 <i class="bi bi-sun-fill"></i> Day
                             </button>
-                            <button type="button" class='shift-opt @(ShiftType == "Night" ? "active" : "")' @onclick='() => ShiftType = "Night"'>
+                            <button type="button" class='shift-opt @(ShiftType == "Night" ? "active" : "")' @onclick='() => SetShift("Night")'>
                                 <i class="bi bi-moon-stars-fill"></i> Night
                             </button>
                         </div>
                     </div>
+
+                    @if (ExistingEntryFound)
+                    {
+                        <div class="alert alert-info py-2 px-3 mb-2 border-0 rounded-3 d-flex align-items-center" style="font-size: 0.75rem;">
+                            <i class="bi bi-info-circle-fill me-2"></i>
+                            <span>Existing record found. Changes will be tracked.</span>
+                        </div>
+                    }
 
                     <div class="app-card mb-2 py-2" style="display: block;">
                         <div class="mb-2">
                             <label class="modern-label small">Bar Sales</label>
                             <div class="d-flex align-items-center gap-2">
                                 <span class="fs-4 fw-bold text-muted opacity-50">$</span>
-                                <input type="number" step="0.01" class="modern-big-input-compact" placeholder="0.00" @bind-value="BarSales" />
+                                <input type="number" step="0.01" inputmode="decimal" class="modern-big-input-compact" placeholder="0.00" @bind-value="BarSales" onfocus="this.select()" />
                             </div>
                         </div>
 
@@ -86,7 +124,7 @@
                             <label class="modern-label small">Lottery Sales</label>
                             <div class="d-flex align-items-center gap-2">
                                 <span class="fs-4 fw-bold text-muted opacity-50">$</span>
-                                <input type="number" step="0.01" class="modern-big-input-compact" placeholder="0.00" @bind-value="LottoSales" />
+                                <input type="number" step="0.01" inputmode="decimal" class="modern-big-input-compact" placeholder="0.00" @bind-value="LottoSales" onfocus="this.select()" />
                             </div>
                         </div>
                         
@@ -112,10 +150,17 @@
                             }
                             else
                             {
-                                <i class="bi bi-cloud-upload-fill me-2"></i>
-                                <span>Submit Report</span>
+                                <i class="bi @(ExistingEntryFound ? "bi-check-all" : "bi-cloud-upload-fill") me-2"></i>
+                                <span>@(ExistingEntryFound ? "Update Report" : "Submit Report")</span>
                             }
                         </button>
+
+                        <div class="mt-2 pt-2 border-top text-center w-100">
+                            <button class="btn btn-link text-danger text-decoration-none fw-bold w-100 py-2" @onclick="HandleCancel">
+                                <i class="bi bi-x-circle me-1"></i> Cancel & Return
+                            </button>
+                            <p class="mb-0 text-muted" style="font-size: 0.65rem; opacity: 0.8;">Data entered will not be saved.</p>
+                        </div>
                     </div>
                 </div>
             }
@@ -159,6 +204,13 @@
         flex-shrink: 0;
         background: white;
         z-index: 1000;
+    }
+
+    .extra-small {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--app-text-muted);
     }
 </style>
 
@@ -206,13 +258,25 @@
     private decimal? BarSales { get; set; }
     private decimal? LottoSales { get; set; }
     private string ShiftType { get; set; } = "Day";
+    private DateTime ReportDate { get; set; } = DateTime.Today;
     private string? Notes { get; set; }
     
     private bool Loading { get; set; } = true;
     private bool IsSubmitting { get; set; } = false;
     private bool Submitted { get; set; } = false;
+    private bool ShowDatePicker { get; set; } = false;
+    private bool ExistingEntryFound { get; set; } = false;
     
+    // Original values for auditing
+    private BarSaleEntry? ExistingBarEntry { get; set; }
+    private LotteryShift? ExistingLottoEntry { get; set; }
+
     private AppUser? CurrentUser { get; set; }
+
+    private void HandleCancel()
+    {
+        Navigation.NavigateTo("/mobile");
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -225,7 +289,8 @@
 
         try
         {
-            ShiftType = DateTime.Now.Hour < 17 ? "Day" : "Night";
+            ApplyBusinessDayLogic();
+            await CheckExisting();
         }
         catch (Exception ex)
         {
@@ -235,6 +300,86 @@
         {
             Loading = false;
         }
+    }
+
+    private void ApplyBusinessDayLogic()
+    {
+        var now = DateTime.Now;
+        var totalMinutes = now.Hour * 60 + now.Minute;
+
+        // Logic:
+        // 5:00 AM – 7:29 PM (05:00 - 19:29) -> Today, Day
+        // 7:30 PM – 11:59 PM (19:30 - 23:59) -> Today, Night
+        // 12:00 AM – 4:59 AM (00:00 - 04:59) -> Yesterday, Night
+
+        if (totalMinutes < 300) // Before 5 AM
+        {
+            ReportDate = DateTime.Today.AddDays(-1);
+            ShiftType = "Night";
+        }
+        else if (totalMinutes < 1170) // Before 7:30 PM
+        {
+            ReportDate = DateTime.Today;
+            ShiftType = "Day";
+        }
+        else // After 7:30 PM
+        {
+            ReportDate = DateTime.Today;
+            ShiftType = "Night";
+        }
+    }
+
+    private async Task SetShift(string type)
+    {
+        ShiftType = type;
+        await CheckExisting();
+    }
+
+    private async Task CheckExisting()
+    {
+        ExistingEntryFound = false;
+        ExistingBarEntry = null;
+        ExistingLottoEntry = null;
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            // Check for Bar Entry
+            ExistingBarEntry = await db.BarSaleEntries
+                .FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == ShiftType);
+
+            // Check for Lottery Entry
+            var lottoShifts = LotteryRepo.GetByDateRange(ReportDate, ReportDate);
+            ExistingLottoEntry = lottoShifts.FirstOrDefault(s => s.ShiftType == ShiftType);
+
+            if (ExistingBarEntry != null || ExistingLottoEntry != null)
+            {
+                ExistingEntryFound = true;
+                BarSales = ExistingBarEntry?.TotalSales > 0 ? ExistingBarEntry.TotalSales : null;
+                LottoSales = ExistingLottoEntry?.TotalSales > 0 ? ExistingLottoEntry.TotalSales : null;
+                Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
+            }
+            else
+            {
+                // Clear fields if no existing entry
+                BarSales = null;
+                LottoSales = null;
+                Notes = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error checking existing entry: {ex.Message}");
+        }
+    }
+
+    private void PrepareNewSubmission()
+    {
+        Submitted = false;
+        ApplyBusinessDayLogic();
+        ShowDatePicker = false;
+        _ = CheckExisting();
     }
 
     private async Task HandleSubmit()
@@ -249,16 +394,40 @@
         try
         {
             await Task.Delay(500); // UI Polish
+            using var db = await DbFactory.CreateDbContextAsync();
 
-            // 1. Submit to BarSaleEntries (Main analytical table)
-            if ((BarSales ?? 0) > 0)
+            // 1. Bar Sales (Main logic)
+            if (ExistingBarEntry != null)
             {
-                using var db = await DbFactory.CreateDbContextAsync();
+                // UPDATE
+                var entry = await db.BarSaleEntries.FindAsync(ExistingBarEntry.Id);
+                if (entry != null)
+                {
+                    // Tracking change
+                    if (entry.TotalSales != (BarSales ?? 0))
+                    {
+                        var oldVal = entry.TotalSales;
+                        entry.OriginalTotalSales ??= entry.TotalSales; // Keep very first value if not set
+                        entry.ModifiedBy = CurrentUser?.Username;
+                        entry.ModifiedDate = DateTime.UtcNow;
+
+                        AuditLogger.Log("Bar Sales Correction", CurrentUser?.UserId, null, 
+                            $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Changed from ${oldVal:N2} to ${BarSales:N2}");
+                    }
+                    
+                    entry.TotalSales = BarSales ?? 0;
+                    entry.Notes = Notes;
+                    await db.SaveChangesAsync();
+                }
+            }
+            else if ((BarSales ?? 0) > 0)
+            {
+                // NEW
                 var barEntry = new BarSaleEntry
                 {
                     SaleDate = DateTime.Now,
+                    AdjustedSaleDate = ReportDate,
                     TotalSales = BarSales ?? 0,
-                    TotalItemsSold = 0, // Not collected here
                     Shift = ShiftType,
                     Notes = Notes,
                     CreatedAt = DateTime.UtcNow
@@ -267,15 +436,35 @@
                 await db.SaveChangesAsync();
             }
 
-            // 3. Submit to LotteryShifts (Lottery specific table)
-            if ((LottoSales ?? 0) > 0)
+            // 2. Lottery Sales
+            if (ExistingLottoEntry != null)
             {
+                // UPDATE
+                if (ExistingLottoEntry.TotalSales != (LottoSales ?? 0))
+                {
+                    var oldVal = ExistingLottoEntry.TotalSales;
+                    ExistingLottoEntry.OriginalTotalSales ??= ExistingLottoEntry.TotalSales;
+                    ExistingLottoEntry.ModifiedBy = CurrentUser?.Username;
+                    ExistingLottoEntry.ModifiedDate = DateTime.UtcNow;
+
+                    AuditLogger.Log("Lottery Sales Correction", CurrentUser?.UserId, null, 
+                        $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Changed from ${oldVal:N2} to ${LottoSales:N2}");
+                }
+
+                ExistingLottoEntry.TotalSales = LottoSales ?? 0;
+                ExistingLottoEntry.Notes = Notes;
+                LotteryRepo.Update(ExistingLottoEntry);
+            }
+            else if ((LottoSales ?? 0) > 0)
+            {
+                // NEW
                 var lottoShift = new LotteryShift
                 {
-                    ShiftDate = DateTime.Today,
+                    ShiftDate = ReportDate,
                     EmployeeName = CurrentUser?.Username ?? "Unknown",
                     ShiftType = ShiftType,
                     TotalSales = LottoSales ?? 0,
+                    OriginalTotalSales = LottoSales ?? 0,
                     Notes = Notes,
                     CreatedBy = CurrentUser?.Username,
                     CreatedDate = DateTime.UtcNow,
@@ -285,11 +474,6 @@
             }
 
             Submitted = true;
-            
-            // Reset fields
-            BarSales = 0;
-            LottoSales = 0;
-            Notes = null;
         }
         catch (Exception ex)
         {

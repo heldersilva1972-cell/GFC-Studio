@@ -25,6 +25,12 @@ namespace GFC.Core.Models
         
         public DateTime? AdjustedSaleDate { get; set; }
 
+        public decimal? OriginalTotalSales { get; set; }
+
+        public string? ModifiedBy { get; set; }
+
+        public DateTime? ModifiedDate { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

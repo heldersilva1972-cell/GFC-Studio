@@ -20,6 +20,8 @@ namespace GFC.Core.Models
         public decimal TotalPayouts { get; set; }
         public decimal TotalCancels { get; set; }
         
+        public decimal? OriginalTotalSales { get; set; }
+        
         // Calculated values
         public decimal NetSales => TotalSales - TotalPayouts - TotalCancels;
         public decimal ExpectedCash => StartingCash + NetSales;
