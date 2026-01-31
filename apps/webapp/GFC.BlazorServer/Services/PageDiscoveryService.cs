@@ -48,15 +48,32 @@ public class PageDiscoveryService
                     _pagePermissionRepository.AddPage(page);
                     added++;
                 }
-                else if (!existing.IsActive)
+                else 
                 {
-                    // Just reactivate it if it was deleted
-                    existing.IsActive = true;
-                    _pagePermissionRepository.UpdatePage(existing);
+                    bool changed = false;
+                    if (!existing.IsActive)
+                    {
+                        existing.IsActive = true;
+                        changed = true;
+                    }
+
+                    // AUTO-FIX CATEGORY: If the existing page is in DASHBOARD or has no category,
+                    // but we've discovered it in a specific namespace segment, update it.
+                    if (string.IsNullOrEmpty(existing.Category) || existing.Category == "DASHBOARD" || existing.Category == "UNSPECIFIED")
+                    {
+                        if (!string.IsNullOrEmpty(page.Category) && page.Category != "DASHBOARD")
+                        {
+                            existing.Category = page.Category;
+                            changed = true;
+                        }
+                    }
+
+                    if (changed)
+                    {
+                        _pagePermissionRepository.UpdatePage(existing);
+                        updated++;
+                    }
                 }
-                
-                // WE NO LONGER OVERWRITE NAMES OR CATEGORIES HERE.
-                // The database is now the master record.
             }
 
             // Deactivate pages that no longer exist in the codebase
