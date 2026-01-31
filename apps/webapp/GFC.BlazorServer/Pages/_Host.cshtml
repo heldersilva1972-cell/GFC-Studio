@@ -163,23 +163,32 @@
         
         Blazor.start({
             reconnectionHandler: {
-                onConnectionDown: () => {
+                onConnectionDown: async () => {
                     console.log("[GFC] Connection lost. Monitoring for recovery...");
                     
-                    // SMART RECOVERY FOR MOBILE
+                    // [SELF-HEALING] Smart recovery for mobile
                     if (isMobile) {
-                        // Immediately try once
-                        Blazor.reconnect();
-                        
-                        // Set a fallback: If still disconnected after 3 seconds of trying, 
-                        // and we have internet, force a clean reload.
+                        try {
+                            const reconnected = await Blazor.reconnect();
+                            if (!reconnected) {
+                                // If reconnection returned false, the circuit is DEAD on the server.
+                                // We MUST reload to restore functionality.
+                                console.log("[GFC-Mobile] Circuit was terminated by server. Forcing fresh reload.");
+                                location.reload();
+                            }
+                        } catch (e) {
+                            console.log("[GFC-Mobile] Reconnection failed critically. Refreshing.");
+                            location.reload();
+                        }
+
+                        // Fallback: If still disconnected but browser says we are online, force a refresh
                         setTimeout(() => {
                             const modal = document.getElementById('components-reconnect-modal');
                             if (modal && window.getComputedStyle(modal).display !== 'none' && navigator.onLine) {
                                 console.log("[GFC-Mobile] Recovery stalled. Forcing refresh.");
                                 location.reload();
                             }
-                        }, 4000); 
+                        }, 5000); 
                     }
                 },
                 onConnectionUp: () => console.log("[GFC] Connection restored successfully.")
@@ -189,7 +198,9 @@
         // 1. [CRITICAL] INSTANT RECOVERY on signal return
         window.addEventListener('online', () => {
             console.log("[GFC] Network signal detected. Triggering instant sync.");
-            Blazor.reconnect();
+            Blazor.reconnect().then(res => {
+                if (!res && isMobile) location.reload(); // If circuit gone, restart app
+            });
         });
 
         if (isMobile) {
@@ -198,26 +209,49 @@
             // 2. Detect if JS was frozen by OS (Mobile Sleep/Tunnel)
             setInterval(() => {
                 const now = Date.now();
-                if (now - lastHeartbeat > 20000) { // 20s skip detected
+                // If the interval skipped significantly (OS sleep), verify connection
+                if (now - lastHeartbeat > 20000) { 
                     console.log("[GFC] Detected mobile suspension. Syncing...");
-                    if (navigator.onLine) Blazor.reconnect();
-                    else console.log("[GFC] Still offline. Waiting for signal.");
+                    if (navigator.onLine) {
+                        Blazor.reconnect().then(res => {
+                            if (!res) location.reload(); // Circuit died while sleeping
+                        });
+                    }
                 }
                 lastHeartbeat = now;
             }, 3000);
 
             // 3. Smart Wakeup on app return
-            const triggerWakeup = () => {
+            const triggerWakeup = async () => {
                 const idleSeconds = (Date.now() - backgroundTime) / 1000;
-                if (idleSeconds > 5) { // If away for more than 5s, verify connection
+                
+                // If away for more than 10 minutes, the server definitely killed the circuit.
+                // Rebranding the "refresh" as a sync to the user.
+                if (idleSeconds > 600) { 
+                   console.log("[GFC] Long inactivity. Refreshing circuit.");
+                   location.reload();
+                   return;
+                }
+
+                if (idleSeconds > 3) { 
                     console.log("[GFC] App foregrounded. Verifying connection...");
-                    if (navigator.onLine) Blazor.reconnect();
+                    if (navigator.onLine) {
+                        try {
+                            const reconnected = await Blazor.reconnect();
+                            if (!reconnected) {
+                                console.log("[GFC] Circuit expired. Reloading.");
+                                location.reload();
+                            }
+                        } catch (e) {
+                            location.reload();
+                        }
+                    }
                 }
             };
 
             window.addEventListener('focus', triggerWakeup);
             window.addEventListener('pageshow', (e) => {
-                if (e.persisted) Blazor.reconnect();
+                if (e.persisted) Blazor.reconnect().then(res => { if(!res) location.reload(); });
                 else triggerWakeup();
             });
             document.addEventListener('visibilitychange', () => {
