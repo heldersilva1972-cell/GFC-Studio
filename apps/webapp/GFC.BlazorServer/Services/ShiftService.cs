@@ -62,7 +62,11 @@ namespace GFC.BlazorServer.Services
 
             foreach (var shift in shifts)
             {
-                if (shift.StaffMember != null)
+                if (shift.Status == "Closed")
+                {
+                    shift.StaffName = "CLOSED";
+                }
+                else if (shift.StaffMember != null)
                 {
                     shift.StaffName = shift.StaffMember.Name ?? "Unknown";
                 }
@@ -101,7 +105,9 @@ namespace GFC.BlazorServer.Services
 
                 foreach (var shift in shifts)
                 {
-                    if (shift.StaffMember != null)
+                    if (shift.Status == "Closed")
+                        shift.StaffName = "CLOSED";
+                    else if (shift.StaffMember != null)
                         shift.StaffName = shift.StaffMember.Name ?? "Unknown";
                     else
                         shift.StaffName = "Unassigned";

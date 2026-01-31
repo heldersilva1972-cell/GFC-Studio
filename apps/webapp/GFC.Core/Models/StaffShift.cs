@@ -10,8 +10,7 @@ namespace GFC.Core.Models
         [Key]
         public int Id { get; set; }
 
-        [Required]
-        public int StaffMemberId { get; set; }
+        public int? StaffMemberId { get; set; }
 
         public DateTime Date { get; set; }
 
