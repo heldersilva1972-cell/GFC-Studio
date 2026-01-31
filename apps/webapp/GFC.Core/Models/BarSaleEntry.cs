@@ -25,6 +25,8 @@ namespace GFC.Core.Models
         
         public DateTime? AdjustedSaleDate { get; set; }
 
+        public bool IsAudited { get; set; }
+
         public decimal? OriginalTotalSales { get; set; }
 
         public string? ModifiedBy { get; set; }

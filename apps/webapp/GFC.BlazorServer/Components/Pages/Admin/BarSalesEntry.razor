@@ -152,6 +152,11 @@
         justify-content: space-between;
         border: 1px solid #f1f5f9;
     }
+    
+    .bg-verified-bright {
+        background-color: #00e676 !important; /* Brighter Material Green */
+        box-shadow: 0 0 6px rgba(0, 230, 118, 0.6);
+    }
 </style>
 
 <div class="bar-sales-page">
@@ -170,11 +175,17 @@
             <button class="nav-tab-btn @(_activeView == "graph" ? "active" : "")" @onclick='() => _activeView = "graph"'>
                 <i class="bi bi-graph-up"></i> Sales Graph
             </button>
-            <button class="nav-tab-btn @(_activeView == "entry" ? "active" : "")" @onclick='() => SwitchToEntry()'>
+            <button class="nav-tab-btn @(_activeView == "entry" ? "active" : "")" @onclick="SwitchToEntry">
                 <i class="bi bi-plus-circle"></i> New Entry
             </button>
-            <button class="nav-tab-btn @(_activeView == "log" ? "active" : "")" @onclick='() => _activeView = "log"'>
+            <button class="nav-tab-btn @(_activeView == "log" ? "active" : "")" @onclick="SwitchToLog">
                 <i class="bi bi-journal-text"></i> Activity Log
+            </button>
+            <button class="nav-tab-btn @(_activeView == "compliance" ? "active" : "")" @onclick="LoadComplianceView">
+                <i class="bi bi-calendar-check"></i> Compliance
+            </button>
+            <button class="nav-tab-btn @(_activeView == "lottery" ? "active" : "")" @onclick="LoadLotteryView">
+                <i class="bi bi-ticket-perforated"></i> Lottery
             </button>
         </div>
 
@@ -392,9 +403,26 @@
                             <InputNumber class="form-control input-premium w-100" @bind-Value="_model.TotalItemsSold" onfocus="this.select()" />
                         </div>
                         <div class="col-md-12">
-                            <label class="form-label-premium text-info">Notes</label>
-                            <InputText class="form-control input-premium w-100" @bind-Value="_model.Notes" placeholder="Context (e.g. Member Event)..." />
+                             <label class="form-label-premium">Notes</label>
+                             <InputText class="form-control input-premium w-100" @bind-Value="_model.Notes" placeholder="Context (e.g. Member Event)..." />
                         </div>
+
+                        <!-- Manual Accounting Date Override (Visible when editing or optional) -->
+                        <div class="col-md-12">
+                            <label class="form-label-premium text-danger">Accounting Date (Business Day)</label>
+                            <div class="p-3 rounded-3" style="background: #fff5f5; border: 2px solid #fee2e2;">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="flex-grow-1">
+                                        <InputDate class="form-control input-premium w-100" @bind-Value="_manualAdjustedDate" />
+                                    </div>
+                                    <div class="text-muted small">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        Overrides the auto-calculated date based on time. Leave empty to use auto-logic.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="col-md-12">
                             <label class="form-label-premium">Shift Type</label>
                             <div class="d-flex gap-4 p-3 rounded-3" style="background: #f8fafc; border: 2px solid #f1f5f9;">
@@ -479,7 +507,7 @@
                         </select>
                     </div>
                     
-                    <div class="flex-grow-1 overflow-auto">
+                    <div class="flex-grow-1 overflow-auto p-4" style="background: #f8fafc;">
                         @if (_entries == null)
                         {
                             <div class="text-center py-5">
@@ -495,85 +523,102 @@
                         }
                         else
                         {
-                            <div class="table-responsive">
-                                <table class="table table-hover align-middle mb-0">
-                                    <thead class="bg-light sticky-top">
-                                        <tr>
-                                            <th class="ps-4 py-3 text-uppercase text-muted small fw-bold border-0">Date</th>
-                                            <th class="py-3 text-uppercase text-muted small fw-bold border-0">Details</th>
-                                            <th class="pe-4 py-3 text-end text-uppercase text-muted small fw-bold border-0">Revenue</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var entry in _entries)
-                                        {
-                                            <tr>
-                                                <td class="ps-4 border-bottom-0">
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <button class="btn btn-sm btn-link p-0 text-dark hover-primary" 
-                                                                style="text-decoration: none;"
-                                                                @onclick="() => AdjustDate(entry, -1)"
-                                                                title="Move back 1 day"
-                                                                disabled="@(_updatingEntryId == entry.Id)">
-                                                            <i class="bi bi-chevron-left"></i>
-                                                        </button>
-                                                        <div class="text-center" style="min-width: 90px;">
-                                                            <div class="fw-bold text-dark">@GetEffectiveDate(entry).ToString("ddd, MMM dd, yyyy")</div>
-                                                            <div class="small text-secondary fw-semibold">@GetEffectiveDate(entry).ToString("hh:mm tt")</div>
-                                                            @if (entry.AdjustedSaleDate.HasValue)
-                                                            {
-                                                                <div class="badge bg-white text-danger border border-danger mt-1 shadow-sm" style="font-size: 0.65rem;" title="Original: @entry.SaleDate.ToString("MMM dd")">
-                                                                    Adj from @entry.SaleDate.ToString("MMM dd")
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                        <button class="btn btn-sm btn-link p-0 text-dark hover-primary" 
-                                                                style="text-decoration: none;"
-                                                                @onclick="() => AdjustDate(entry, 1)" 
-                                                                title="Move forward 1 day"
-                                                                disabled="@(_updatingEntryId == entry.Id)">
-                                                            <i class="bi bi-chevron-right"></i>
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                                <td class="border-bottom-0">
-                                                    <div class="text-dark">
-                                                        @(string.IsNullOrEmpty(entry.Notes) ? "Standard Sale" : entry.Notes)
-                                                        <button class="btn btn-sm badge rounded-pill bg-light text-dark border ms-2" 
-                                                                style="font-weight: 500; cursor: pointer; transition: all 0.2s ease;"
-                                                                @onclick="() => ToggleShift(entry)"
-                                                                title="Click to switch shift (Day/Night)"
-                                                                disabled="@(_updatingEntryId == entry.Id)">
-                                                            @if (_updatingEntryId == entry.Id)
-                                                            {
-                                                                <span class="spinner-border spinner-border-sm me-1 text-primary" role="status" aria-hidden="true" style="width: 0.7em; height: 0.7em;"></span>
-                                                            }
-                                                            else
-                                                            {
-                                                                <i class="bi @(entry.Shift == "Night" ? "bi-moon-stars-fill text-info" : "bi-sun-fill text-warning") me-1"></i>
-                                                            }
-                                                            @entry.Shift
-                                                        </button>
-                                                    </div>
-                                                    <div class="small text-muted">@entry.TotalItemsSold items</div>
-                                                </td>
-                                                <td class="pe-4 text-end border-bottom-0">
-                                                    <div class="d-flex align-items-center justify-content-end gap-3">
-                                                        <span class="fw-bold text-success bg-success bg-opacity-10 px-2 py-1 rounded">
-                                                            @entry.TotalSales.ToString("C")
+                            <div class="d-flex flex-column gap-3">
+                                @foreach (var entry in _entries)
+                                {
+                                    var isDay = entry.Shift == "Day";
+                                    var shiftColor = isDay ? "warning" : "info";
+                                    var shiftIcon = isDay ? "bi-sun-fill" : "bi-moon-stars-fill";
+                                    var isLocked = entry.IsAudited; // Locked status alias
+                                    
+                                    <div class="card border-0 shadow-sm animate-entrance @(entry.IsAudited ? "border-success border-start border-4" : "")">
+                                        <div class="card-body d-flex align-items-center p-3">
+                                            
+                                            <!-- LEFT: DATE & NAV -->
+                                            <div class="d-flex align-items-center gap-3 pe-4 border-end" style="min-width: 220px;">
+                                                <button class="btn btn-link link-dark p-0 opacity-50 hover-opacity-100" 
+                                                        style="visibility: @(isLocked ? "hidden" : "visible");"
+                                                        @onclick="() => AdjustDate(entry, -1)" 
+                                                        disabled="@(_updatingEntryId == entry.Id || isLocked)">
+                                                    <i class="bi bi-chevron-left fs-5"></i>
+                                                </button>
+                                                
+                                                <div class="text-center flex-grow-1">
+                                                    <div class="small text-uppercase text-muted fw-bold">@GetEffectiveDate(entry).ToString("yyyy")</div>
+                                                    <div class="h4 fw-bold mb-0 text-dark">@GetEffectiveDate(entry).ToString("ddd")</div>
+                                                    <div class="text-secondary fw-semibold">@GetEffectiveDate(entry).ToString("MMM dd")</div>
+                                                </div>
+
+                                                <button class="btn btn-link link-dark p-0 opacity-50 hover-opacity-100" 
+                                                        style="visibility: @(isLocked ? "hidden" : "visible");"
+                                                        @onclick="() => AdjustDate(entry, 1)" 
+                                                        disabled="@(_updatingEntryId == entry.Id || isLocked)">
+                                                    <i class="bi bi-chevron-right fs-5"></i>
+                                                </button>
+                                            </div>
+
+                                            <!-- MIDDLE: INFO -->
+                                            <div class="flex-grow-1 px-4">
+                                                <div class="d-flex align-items-center gap-2 mb-1">
+                                                    <!-- Shift Badge: Clickable ONLY if NOT locked -->
+                                                    <button class="badge rounded-pill border-0 bg-@shiftColor bg-opacity-10 text-@shiftColor text-uppercase px-2 py-1"
+                                                            style="@(isLocked ? "cursor: default; opacity: 0.8;" : "cursor: pointer;")"
+                                                            @onclick="() => { if(!isLocked) ToggleShift(entry); }"
+                                                            title="@(isLocked ? "Verified - Unlock to change" : "Click to toggle shift")"
+                                                            disabled="@(_updatingEntryId == entry.Id)">
+                                                        <i class="bi @shiftIcon me-1"></i> @entry.Shift
+                                                        @if (isLocked) { <i class="bi bi-lock-fill ms-1" style="font-size: 0.8em;"></i> }
+                                                    </button>
+                                                    
+                                                    @if (entry.AdjustedSaleDate.HasValue)
+                                                    {
+                                                        <span class="badge rounded-pill bg-danger bg-opacity-10 text-danger">
+                                                            Adj from @entry.SaleDate.ToString("ddd, MMM dd")
                                                         </span>
-                                                        <button class="btn btn-sm btn-outline-primary rounded-circle" 
+                                                    }
+                                                </div>
+                                                
+                                                <div class="fw-bold text-dark fs-5">
+                                                    @(string.IsNullOrEmpty(entry.Notes) ? "Standard Sale" : entry.Notes)
+                                                </div>
+                                                <div class="small text-muted">
+                                                     Recorded: @entry.SaleDate.ToString("hh:mm tt") • @entry.TotalItemsSold items
+                                                </div>
+                                            </div>
+
+                                            <!-- RIGHT: ACTION -->
+                                            <div class="text-end ps-4 border-start">
+                                                <div class="h3 fw-bold text-success mb-2">@entry.TotalSales.ToString("C")</div>
+                                                
+                                                <div class="d-flex justify-content-end gap-2">
+                                                    <button class="btn btn-sm rounded-pill px-3 fw-bold @(entry.IsAudited ? "btn-success" : "btn-outline-success")"
+                                                            @onclick="() => ToggleVerify(entry)"
+                                                            disabled="@(_updatingEntryId == entry.Id)">
+                                                        @if (entry.IsAudited)
+                                                        {
+                                                            <span><i class="bi bi-check-lg me-1"></i> Verified</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span>Verify</span>
+                                                        }
+                                                    </button>
+                                                    
+                                                    @if (!isLocked)
+                                                    {
+                                                        <button class="btn btn-sm btn-light border rounded-circle text-muted" 
                                                                 style="width: 32px; height: 32px; padding: 0;"
-                                                                @onclick="() => EditEntry(entry)"
-                                                                title="Edit Entry">
-                                                            <i class="bi bi-pencil"></i>
+                                                                @onclick="() => EditEntry(entry)" 
+                                                                title="Edit">
+                                                            <i class="bi bi-pencil-fill small"></i>
                                                         </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
+                                                    }
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                }
                             </div>
                         }
                     </div>
@@ -598,16 +643,205 @@
                 </div>
             </div>
         }
+        
+        @if (_activeView == "compliance")
+        {
+            <div class="analytics-card animate-entrance">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 class="fw-bold mb-1">Compliance Audit</h3>
+                        <p class="text-muted small mb-0">Year-at-a-glance shift verification</p>
+                    </div>
+                    <div class="d-flex align-items-center gap-4">
+                        <!-- Enhanced Visual Legend -->
+                        <div class="d-flex gap-3 align-items-center bg-light px-3 py-2 rounded-pill border">
+                            <div class="d-flex align-items-center gap-1 small fw-bold">
+                                <div class="rounded-circle bg-secondary bg-opacity-10 border" style="width: 10px; height: 10px;"></div>
+                                <span class="text-muted" style="font-size: 0.75rem;">MISSING</span>
+                            </div>
+                            <div class="d-flex align-items-center gap-1 small fw-bold">
+                                <div class="rounded-circle bg-warning" style="width: 10px; height: 10px;"></div>
+                                <span class="text-dark" style="font-size: 0.75rem;">ENTERED</span>
+                            </div>
+                            <div class="d-flex align-items-center gap-1 small fw-bold">
+                                <div class="rounded-circle bg-verified-bright" style="width: 10px; height: 10px;"></div>
+                                <span class="text-dark" style="font-size: 0.75rem;">VERIFIED</span>
+                            </div>
+                            <div class="d-flex align-items-center gap-1 small fw-bold">
+                                <div class="rounded-circle bg-danger" style="width: 10px; height: 10px;"></div>
+                                <span class="text-danger" style="font-size: 0.75rem;">DUPLICATE</span>
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-2">
+                            <label class="small fw-bold text-muted text-uppercase mb-0" style="white-space: nowrap;">Audit Year:</label>
+                            <select class="form-select form-select-sm w-auto fw-bold" @bind="_complianceYear" @bind:after="LoadComplianceData">
+                                @foreach(var year in _availableYears.OrderByDescending(y => y))
+                                {
+                                    <option value="@year">@year</option>
+                                }
+                                @if(!_availableYears.Any())
+                                {
+                                    <option value="@DateTime.Now.Year">@DateTime.Now.Year</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_isLoadingCompliance)
+                {
+                     <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                       <table class="table table-bordered text-center align-middle" style="font-size: 0.8rem;">
+                           <thead class="bg-light">
+                               <tr>
+                                   <th class="text-start ps-3" style="width: 80px;">Month</th>
+                                   @for(int d=1; d<=31; d++) { <th style="width: 30px; padding: 4px;">@d</th> }
+                               </tr>
+                           </thead>
+                           <tbody>
+                               @for(int m=1; m<=12; m++)
+                               {
+                                   <tr>
+                                       <td class="text-start fw-bold ps-3">@GetMonthAbbreviation(m)</td>
+                                       @for(int d=1; d<=31; d++)
+                                       {
+                                                                                       var localMonth = m;
+                                            var localDay = d;
+                                            var daysInMonth = DateTime.DaysInMonth(_complianceYear, localMonth);
+                                           if (d > daysInMonth)
+                                           {
+                                               <td class="bg-light"></td>
+                                           }
+                                           else
+                                           {
+                                                                                               var status = _complianceGrid.ContainsKey((localMonth, localDay)) ? _complianceGrid[(localMonth, localDay)] : (DayStatus: "Missing", NightStatus: "Missing", DayCount: 0, NightCount: 0, DayAudited: false, NightAudited: false);
+                                               
+                                               <td class="p-1">
+                                                   <div class="d-flex flex-column gap-1 align-items-center">
+                                                       <!-- DAY SHIFT DOT -->
+                                                        @{
+                                                            string dayColor = "bg-secondary bg-opacity-10 border"; // Missing
+                                                            if (status.DayCount == 1) dayColor = status.DayAudited ? "bg-verified-bright" : "bg-warning";
+                                                            else if (status.DayCount > 1) dayColor = "bg-danger";
+                                                        }
+                                                       <div title="Day Shift: @(status.DayCount > 0 ? (status.DayAudited ? "Verified" : "Unverified") : "Missing")" 
+                                                            class="rounded-circle @dayColor" 
+                                                            style="width: 10px; height: 10px; cursor: @(status.DayCount > 0 ? "pointer" : "default")"
+                                                            @onclick='() => { if(status.DayCount > 0) JumpToLog(localMonth, localDay, "Day"); }'></div>
+
+                                                       <!-- NIGHT SHIFT DOT -->
+                                                        @{
+                                                            string nightColor = "bg-secondary bg-opacity-10 border"; // Missing
+                                                            if (status.NightCount == 1) nightColor = status.NightAudited ? "bg-verified-bright" : "bg-warning";
+                                                            else if (status.NightCount > 1) nightColor = "bg-danger";
+                                                        }
+                                                       <div title="Night Shift: @(status.NightCount > 0 ? (status.NightAudited ? "Verified" : "Unverified") : "Missing")"
+                                                            class="rounded-circle @nightColor" 
+                                                            style="width: 10px; height: 10px; cursor: @(status.NightCount > 0 ? "pointer" : "default")"
+                                                            @onclick='() => { if(status.NightCount > 0) JumpToLog(localMonth, localDay, "Night"); }'></div>
+                                                   </div>
+                                               </td>
+                                           }
+                                       }
+                                   </tr>
+                               }
+                           </tbody>
+                       </table>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (_activeView == "lottery")
+        {
+            <div class="analytics-card animate-entrance">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 class="fw-bold mb-1">Lottery Sales</h3>
+                        <p class="text-muted small mb-0">Recent lottery shift reports</p>
+                    </div>
+                </div>
+
+                @if (_isLoadingLottery)
+                {
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                }
+                else if (_lotteryEntries == null || !_lotteryEntries.Any())
+                {
+                    <div class="text-center py-5">
+                        <i class="bi bi-ticket-perforated fs-1 text-muted opacity-50"></i>
+                        <p class="mt-3 text-muted">No lottery records found.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex flex-column gap-3">
+                        @foreach (var entry in _lotteryEntries)
+                        {
+                            var isDay = entry.ShiftType == "Day";
+                            var shiftColor = isDay ? "warning" : "info";
+                            var shiftIcon = isDay ? "bi-sun-fill" : "bi-moon-stars-fill";
+
+                            <div class="card border-0 shadow-sm">
+                                <div class="card-body d-flex align-items-center p-3">
+                                    <!-- DATE -->
+                                    <div class="d-flex flex-column align-items-center pe-4 border-end" style="min-width: 100px;">
+                                        <div class="h5 fw-bold mb-0 text-dark">@entry.ShiftDate.ToString("MMM dd")</div>
+                                        <div class="small text-muted">@entry.ShiftDate.Year</div>
+                                    </div>
+
+                                    <!-- INFO -->
+                                    <div class="flex-grow-1 px-4">
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <span class="badge rounded-pill bg-@shiftColor bg-opacity-10 text-@shiftColor text-uppercase px-2 py-1">
+                                                <i class="bi @shiftIcon me-1"></i> @entry.ShiftType
+                                            </span>
+                                            <span class="text-muted small">@entry.EmployeeName</span>
+                                        </div>
+                                        <div class="small text-muted">@entry.Notes</div>
+                                    </div>
+
+                                    <!-- SALES -->
+                                    <div class="text-end ps-4 border-start">
+                                        <div class="h4 fw-bold text-success mb-0">@entry.TotalSales.ToString("C")</div>
+                                        <div class="small text-muted">Total Sales</div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
     </div>
 </div>
 
 @code {
     private BarSaleEntry _model = new();
     private List<BarSaleEntry> _entries;
+
+    // Compliance View State
+    private int _complianceYear = DateTime.Now.Year;
+    private Dictionary<(int Month, int Day), (string DayStatus, string NightStatus, int DayCount, int NightCount, bool DayAudited, bool NightAudited)> _complianceGrid;
+    private bool _isLoadingCompliance = false;
+
+    // Lottery View State
+    private List<LotteryShift> _lotteryEntries;
+    private bool _isLoadingLottery = false;
     private string _activeView = "performance";
     private bool _isSaving = false;
     private bool _showSuccess = false;
     private bool _isEditing = false;
+    private string _jumpShiftFilter = ""; // Filter by specific shift when jumping from compliance
     private string _successMessage;
     private string _errorDetails;
 
@@ -640,9 +874,12 @@
     private string _chartShiftFilter = ""; // Empty = All Shifts
     private DateTime _customStartDate = DateTime.Now.AddDays(-30);
     private DateTime _customEndDate = DateTime.Now;
+    
+    private DateTime? _manualAdjustedDate; // For explicit overrides in Edit Form
 
     private bool _isLoadingData = false;
     private bool _isFirstRender = true;
+    private global::System.Threading.SemaphoreSlim _dataLock = new(1, 1);
 
     protected override async Task OnInitializedAsync()
     {
@@ -654,15 +891,10 @@
             _grandTotalItemsSold = StateCache.GrandTotalItemsSold;
             _availableYears = StateCache.AvailableYears;
             _totalEntries = StateCache.TotalEntries;
-            
-            // Background refresh without blocking UI
-            _ = Task.Run(async () => await LoadData(false));
         }
-        else
-        {
-            // First time ever: show skeletons/spinner
-            _ = LoadData();
-        }
+
+        // CONTROLLED LOAD: Await the first load to ensure context is stable
+        await LoadData(recalculateStats: !StateCache.HasData);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -683,6 +915,7 @@
         _selectedEntryYear = DateTime.Now.Year;
         _selectedHour = DateTime.Now.Hour;
         _selectedMinute = DateTime.Now.Minute;
+        _manualAdjustedDate = null; // Reset manual override
         _activeView = "entry";
     }
 
@@ -701,12 +934,15 @@
             CreatedAt = entry.CreatedAt
         };
 
-        var effDate = entry.AdjustedSaleDate ?? entry.SaleDate;
-        _selectedMonth = effDate.Month;
-        _selectedDay = effDate.Day;
-        _selectedEntryYear = effDate.Year;
-        _selectedHour = effDate.Hour;
-        _selectedMinute = effDate.Minute;
+        // Use raw SaleDate for the time/date pickers so the user sees the actual recorded timestamp
+        _selectedMonth = entry.SaleDate.Month;
+        _selectedDay = entry.SaleDate.Day;
+        _selectedEntryYear = entry.SaleDate.Year;
+        _selectedHour = entry.SaleDate.Hour;
+        _selectedMinute = entry.SaleDate.Minute;
+
+        // Populate the separate Business Date field
+        _manualAdjustedDate = entry.AdjustedSaleDate;
 
         _activeView = "entry";
     }
@@ -721,7 +957,8 @@
             if (StateCache.PageCache.TryGetValue(_currentPage, out var cachedPage))
             {
                 _entries = cachedPage;
-                _ = LoadData(false); // Background refresh
+                StateHasChanged();
+                await LoadData(recalculateStats: false, force: true); // Background refresh
             }
             else
             {
@@ -739,7 +976,8 @@
             if (StateCache.PageCache.TryGetValue(_currentPage, out var cachedPage))
             {
                 _entries = cachedPage;
-                _ = LoadData(false);
+                StateHasChanged();
+                await LoadData(recalculateStats: false, force: true);
             }
             else
             {
@@ -748,16 +986,17 @@
         }
     }
 
-    private async Task LoadData(bool recalculateStats = true)
+    private async Task LoadData(bool recalculateStats = true, bool force = false)
     {
-        if (_isLoadingData) return;
+        if (_isLoadingData && !force) return;
         
+        // Block consecutive redundant calls immediately
+        _isLoadingData = true;
+        
+        await _dataLock.WaitAsync();
         try
         {
-            _isLoadingData = true;
-            // Don't set _entries to null if we already have data to show (optimistic/background)
-            if (_entries == null) StateHasChanged();
-
+            StateHasChanged(); 
             using var db = await DbFactory.CreateDbContextAsync();
             
             // Base Query - ALWAYS use AsNoTracking for read-only performance
@@ -770,6 +1009,23 @@
                 query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
             }
 
+            if (!string.IsNullOrEmpty(_jumpShiftFilter))
+            {
+                query = query.Where(e => e.Shift == _jumpShiftFilter);
+            }
+
+            // NEW: Handle Custom Date Range (set by JumpToLog)
+            if (_selectedPeriod == "custom")
+            {
+                // Optimized Date Filter (Handles original Date and Business override correctly)
+                var start = _customStartDate.Date;
+                var end = _customEndDate.Date.AddDays(1);
+                
+                query = query.Where(e => 
+                    (e.AdjustedSaleDate != null && e.AdjustedSaleDate >= start && e.AdjustedSaleDate < end) || 
+                    (e.AdjustedSaleDate == null && e.SaleDate >= start && e.SaleDate < end));
+            }
+
             // 1. Fetch total count
             _totalEntries = await query.CountAsync();
 
@@ -779,16 +1035,12 @@
                 // Heuristic: If we have cached stats and aren't forcing a refresh, skip the heavy sum
                 if (_grandTotalRevenue == 0 || recalculateStats)
                 {
-                    var stats = await db.BarSaleEntries.AsNoTracking()
-                        .GroupBy(x => 1)
-                        .Select(g => new { 
-                            Revenue = g.Sum(x => (decimal?)x.TotalSales) ?? 0, 
-                            Items = g.Sum(x => (int?)x.TotalItemsSold) ?? 0 
-                        })
-                        .FirstOrDefaultAsync();
-
-                    _grandTotalRevenue = stats?.Revenue ?? 0;
-                    _grandTotalItemsSold = stats?.Items ?? 0;
+                    _grandTotalRevenue = await db.BarSaleEntries.AsNoTracking().SumAsync(x => (decimal?)x.TotalSales) ?? 0;
+                    _grandTotalItemsSold = await db.BarSaleEntries.AsNoTracking().SumAsync(x => (int?)x.TotalItemsSold) ?? 0;
+                    
+                    // Cache the new stats
+                    StateCache.GrandTotalRevenue = _grandTotalRevenue;
+                    StateCache.GrandTotalItemsSold = _grandTotalItemsSold;
                 }
             }
 
@@ -828,11 +1080,10 @@
             _isLoadingData = false;
             await InvokeAsync(StateHasChanged);
         }
-        catch (Exception ex)
+        finally
         {
             _isLoadingData = false;
-            Console.WriteLine($"Error loading data: {ex}");
-            _errorDetails = $"Error loading data: {ex.Message}";
+            _dataLock.Release();
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -859,6 +1110,10 @@
 
     private async Task UpdateChart()
     {
+        // Prevent trying to render chart if the view doesn't contain the canvas
+        if (_activeView != "graph") return;
+
+        await _dataLock.WaitAsync();
         try
         {
             using var db = await DbFactory.CreateDbContextAsync();
@@ -1002,9 +1257,10 @@
             
             await JS.InvokeVoidAsync("barSalesCharts.renderChart", "barSalesChart", new { labels, datasets });
         }
-        catch (Exception ex)
+        finally
         {
-            await JS.InvokeVoidAsync("console.error", "UpdateChart Error:", ex.Message);
+            _dataLock.Release();
+            StateHasChanged();
         }
     }
 
@@ -1023,13 +1279,50 @@
                 _selectedDay = maxDays;
             }
 
-            _model.SaleDate = new DateTime(
+            var enteredDate = new DateTime(
                 _selectedEntryYear, 
                 _selectedMonth, 
                 _selectedDay, 
                 _selectedHour,
                 _selectedMinute, 
                 0);
+
+            _model.SaleDate = enteredDate;
+
+            // AUTO-ADJUST LOGIC (Matches Mobile App)
+            // 1. Calculate Shift Context based on TIME only
+            var totalMinutes = enteredDate.Hour * 60 + enteredDate.Minute;
+            
+            // Logic:
+            // 12:00 AM – 4:59 AM -> Previous Day, Night Shift
+            // 5:00 AM – 7:29 PM -> Same Day, Day Shift
+            // 7:30 PM – 11:59 PM -> Same Day, Night Shift
+
+            if (totalMinutes < 300) // Before 5 AM
+            {
+                _model.AdjustedSaleDate = enteredDate.Date.AddDays(-1);
+                _model.Shift = "Night"; 
+            }
+            else if (totalMinutes < 1170) // Before 7:30 PM (19:30)
+            {
+                _model.AdjustedSaleDate = enteredDate.Date;
+                if (!_isEditing) _model.Shift = "Day"; // Only auto-set on new, respect edit
+            }
+            else // After 7:30 PM
+            {
+                _model.AdjustedSaleDate = enteredDate.Date;
+                if (!_isEditing) _model.Shift = "Night";
+            }
+
+            // FINAL OVERRIDE: If user manually selected a specific Business Date in the UI
+            if (_manualAdjustedDate.HasValue)
+            {
+                _model.AdjustedSaleDate = _manualAdjustedDate.Value.Date;
+            }
+
+            // Override if user explicitly successfully chose a shift type in the UI?
+            // For now, we trust the time-based logic strictly for AdjustedDate, but we can let Shift type be loose if needed.
+            // However, to fix the "Saturday 1am" vs "Friday Night" issue, we MUST set AdjustedDate to Friday.
 
             using var db = await DbFactory.CreateDbContextAsync();
             
@@ -1056,19 +1349,18 @@
             // IMPORTANT: Update UI state IMMEDIATELY so "Processing..." disappears
             StateHasChanged();
             
-            // Now do the heavier background work to refresh the view
-            await LoadData();
-            await UpdateChart();
+            // Refresh data via the locker
+            await LoadData(recalculateStats: true, force: true);
             StateHasChanged();
 
             await Task.Delay(1500); // Short delay for "Recorded!" feedback
             _showSuccess = false;
-            // _showEntryForm = false; // Kept open per user request
             StateHasChanged();
         }
-        catch (Exception ex)
+        finally
         {
             _isSaving = false;
+            _dataLock.Release();
             StateHasChanged();
         }
     }
@@ -1086,6 +1378,7 @@
     {
         if (_updatingEntryId.HasValue) return;
 
+        await _dataLock.WaitAsync();
         _updatingEntryId = entry.Id;
         StateHasChanged();
 
@@ -1127,6 +1420,7 @@
         finally
         {
             _updatingEntryId = null;
+            _dataLock.Release();
             StateHasChanged();
         }
     }
@@ -1140,6 +1434,7 @@
     {
         if (_updatingEntryId.HasValue) return;
 
+        await _dataLock.WaitAsync();
         _updatingEntryId = entry.Id;
         StateHasChanged();
 
@@ -1157,11 +1452,6 @@
 
                 // Update local model
                 entry.Shift = newShift;
-                
-                // Refresh charts
-                await UpdateChart();
-                
-                // Optional: Show brief success feedback?
             }
         }
         catch (Exception ex)
@@ -1171,6 +1461,223 @@
         finally
         {
             _updatingEntryId = null;
+            _dataLock.Release();
+            StateHasChanged();
+        }
+    }
+    private async Task ToggleVerify(BarSaleEntry entry)
+    {
+        if (_updatingEntryId.HasValue) return;
+
+        await _dataLock.WaitAsync();
+        _updatingEntryId = entry.Id;
+        StateHasChanged();
+
+        try 
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var dbEntry = await db.BarSaleEntries.FindAsync(entry.Id);
+            if(dbEntry != null)
+            {
+                dbEntry.IsAudited = !dbEntry.IsAudited;
+                entry.IsAudited = dbEntry.IsAudited;
+                await db.SaveChangesAsync();
+            }
+        }
+        catch(Exception ex)
+        {
+             Console.WriteLine($"Error verifying entry: {ex.Message}");
+        }
+        finally
+        {
+            _updatingEntryId = null;
+            _dataLock.Release();
+            StateHasChanged();
+        }
+    }
+
+    private bool IsLikelyMisdated(BarSaleEntry entry)
+    {
+        // Warn if:
+        // 1. It's marked as NIGHT shift
+        // 2. The recorded hour is between midnight and 5am
+        // 3. BUT the effective date is the SAME as the recording date (meaning it hasn't been shifted back)
+        if (entry.Shift == "Night" && 
+            entry.SaleDate.Hour < 5 && 
+            (!entry.AdjustedSaleDate.HasValue || entry.AdjustedSaleDate.Value.Date == entry.SaleDate.Date))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private string GetMonthAbbreviation(int month)
+    {
+        return global::System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetAbbreviatedMonthName(month);
+    }
+
+    private async Task SwitchToLog()
+    {
+        _activeView = "log";
+        _jumpShiftFilter = ""; // Clear specific shift jump
+        _selectedPeriod = "year"; // Return to default list view
+        _selectedDayFilter = ""; // Clear generic day filter
+        _currentPage = 1;
+        
+        // Refresh with force to ensure we update immediately
+        await LoadData(recalculateStats: false, force: true);
+    }
+
+    private async Task JumpToLog(int month, int day, string? shift = null)
+    {
+        // 1. Calculate the target date based on selected Compliance Year
+        var targetDate = new DateTime(_complianceYear, month, day);
+
+        // UI STATE: Immediate switch
+        _activeView = "log";
+        _selectedPeriod = "custom";
+        _customStartDate = targetDate;
+        _customEndDate = targetDate;
+        _jumpShiftFilter = shift ?? "";
+        _currentPage = 1;
+        _selectedDayFilter = ""; 
+
+        // Force an immediate render to switch tabs
+        StateHasChanged();
+
+        // 2. Perform the data load using 'force' to bypass the loading guard
+        await LoadData(recalculateStats: false, force: true);
+    }
+
+    // --- NEW TAB LOGIC ---
+
+    private async Task LoadComplianceView()
+    {
+        _activeView = "compliance";
+        await LoadComplianceData();
+    }
+
+    private async Task LoadComplianceData()
+    {
+        if (_isLoadingCompliance) return;
+
+        await _dataLock.WaitAsync();
+        _isLoadingCompliance = true;
+        _complianceGrid = new Dictionary<(int, int), (string, string, int, int, bool, bool)>();
+        StateHasChanged();
+
+        try 
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            // SQL RANGE: Optimization for SQL Index usage
+            var startOfYear = new DateTime(_complianceYear, 1, 1);
+            var endOfYear = new DateTime(_complianceYear, 12, 31);
+
+            // Fetch daily counts efficiently
+            var complianceData = await db.BarSaleEntries.AsNoTracking()
+                .Where(e => e.SaleDate >= startOfYear && e.SaleDate <= endOfYear)
+                .GroupBy(e => new { 
+                    Date = (e.AdjustedSaleDate ?? e.SaleDate).Date, 
+                    Shift = e.Shift 
+                })
+                .Select(g => new { 
+                    g.Key.Date, 
+                    g.Key.Shift, 
+                    Count = g.Count(), 
+                    HasVerified = g.Any(x => x.IsAudited) 
+                })
+                .ToListAsync();
+
+            foreach(var entry in complianceData)
+            {
+                var day = entry.Date.Day;
+                var month = entry.Date.Month;
+                
+                // Get or create existing status for this coordinate
+                var key = (month, day);
+                var current = _complianceGrid.ContainsKey(key) ? _complianceGrid[key] : (DayStatus: "Missing", NightStatus: "Missing", DayCount: 0, NightCount: 0, DayAudited: false, NightAudited: false);
+
+                if (entry.Shift == "Day")
+                {
+                    current.DayStatus = entry.Count > 0 ? "Entered" : "Missing";
+                    current.DayCount = entry.Count;
+                    current.DayAudited = entry.HasVerified;
+                }
+                else
+                {
+                    current.NightStatus = entry.Count > 0 ? "Entered" : "Missing";
+                    current.NightCount = entry.Count;
+                    current.NightAudited = entry.HasVerified;
+                }
+                
+                _complianceGrid[key] = current;
+            }
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine($"Error loading compliance: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingCompliance = false;
+            _dataLock.Release();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadLotteryView()
+    {
+        _activeView = "lottery";
+        await LoadLotteryData();
+    }
+
+    private async Task LoadLotteryData()
+    {
+        if (_isLoadingLottery) return;
+
+        await _dataLock.WaitAsync();
+        _isLoadingLottery = true;
+        StateHasChanged();
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            _lotteryEntries = new List<LotteryShift>();
+            
+            using var connection = new Microsoft.Data.SqlClient.SqlConnection(db.Database.GetConnectionString());
+            await connection.OpenAsync();
+            
+            var sql = @"
+                SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, TotalSales, Notes 
+                FROM LotteryShifts 
+                ORDER BY ShiftDate DESC";
+                
+            using var command = new Microsoft.Data.SqlClient.SqlCommand(sql, connection);
+            using var reader = await command.ExecuteReaderAsync();
+            
+            while(await reader.ReadAsync())
+            {
+                _lotteryEntries.Add(new LotteryShift
+                {
+                    ShiftId = reader.GetInt32(0),
+                    ShiftDate = reader.GetDateTime(1),
+                    EmployeeName = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    ShiftType = reader.IsDBNull(3) ? "Day" : reader.GetString(3),
+                    TotalSales = reader.GetDecimal(4),
+                    Notes = reader.IsDBNull(5) ? null : reader.GetString(5)
+                });
+            }
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine($"Error loading lottery: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingLottery = false;
+            _dataLock.Release();
             StateHasChanged();
         }
     }

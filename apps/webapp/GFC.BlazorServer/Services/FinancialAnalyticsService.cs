@@ -84,13 +84,13 @@ namespace GFC.BlazorServer.Services
             if (request.IncomeTypes.Contains("Bar Sales"))
             {
                 var points = await db.BarSaleEntries
-                    .Where(e => request.Years.Contains(e.SaleDate.Year))
+                    .Where(e => request.Years.Contains((e.AdjustedSaleDate ?? e.SaleDate).Year))
                     .Select(e => new FinancialDataPoint 
                     { 
-                        Date = e.SaleDate, 
+                        Date = (e.AdjustedSaleDate ?? e.SaleDate), 
                         Amount = e.TotalSales, 
                         IncomeType = "Bar Sales", 
-                        Year = e.SaleDate.Year 
+                        Year = (e.AdjustedSaleDate ?? e.SaleDate).Year 
                     })
                     .ToListAsync();
                 allPoints.AddRange(points);
