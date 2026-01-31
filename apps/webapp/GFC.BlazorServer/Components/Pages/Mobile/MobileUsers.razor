@@ -153,14 +153,15 @@
                         <div class="user-mobile-card animate-entrance stagger-1 @(!user.IsActive ? "inactive" : "")">
                             <div class="d-flex align-items-center justify-content-between p-3" @onclick="() => ToggleUserExpansion(user.UserId)">
                                 <div class="d-flex align-items-center gap-3">
-                                    <div class="user-icon @(user.IsAdmin ? "admin" : user.IsDirector ? "director" : "regular")">
-                                        <i class="bi @(user.IsAdmin ? "bi-shield-fill-check" : "bi-person-fill")"></i>
+                                    <div class="user-icon @(user.IsAdmin ? "admin" : user.IsDirector ? "director" : "bartender")">
+                                        <i class="bi @(user.IsAdmin ? "bi-shield-fill-check" : user.IsDirector ? "bi-person-badge-fill" : "bi-cup-straw")"></i>
                                     </div>
                                     <div>
                                         <div class="fw-bold d-flex align-items-center gap-2">
                                             @user.Username
                                             @if (user.IsAdmin) { <span class="badge-mini admin">Admin</span> }
                                             else if (user.IsDirector) { <span class="badge-mini director">Director</span> }
+                                            else { <span class="badge-mini bartender">Bartender</span> }
                                         </div>
                                         @if (!string.IsNullOrEmpty(user.MemberName))
                                         {
@@ -188,11 +189,18 @@
                                                 <i class="bi bi-device-ssd me-1"></i> Revoke
                                             </button>
                                         </div>
-                                        <div class="col-12">
+                                        <div class="col-6">
                                             <button class="btn @(user.IsActive ? "btn-outline-danger" : "btn-success") btn-sm w-100 rounded-pill py-2" 
                                                     @onclick="() => ToggleUserStatus(user)" disabled="@(user.Username.ToLower() == "admin")">
                                                 <i class="bi @(user.IsActive ? "bi-person-x" : "bi-person-check") me-1"></i> 
-                                                @(user.IsActive ? "Deactivate User" : "Activate User")
+                                                @(user.IsActive ? "Deactivate" : "Activate")
+                                            </button>
+                                        </div>
+                                        <div class="col-6">
+                                             <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2" 
+                                                    @onclick="() => ConfirmDeleteUser(user)" 
+                                                    disabled="@(user.Username.ToLower() == "admin" || user.UserId == _currentUserId)">
+                                                <i class="bi bi-trash me-1"></i> Delete
                                             </button>
                                         </div>
                                         @if (user.Username.ToLower() == "admin")
@@ -404,6 +412,42 @@
     </div>
 }
 
+<!-- DELETE CONFIRMATION DRAWER -->
+@if (_showDeleteConfirm && _userToDelete != null)
+{
+    <div class="mobile-drawer-overlay animate-fade-in" @onclick="CloseModals">
+        <div class="mobile-drawer animate-slide-up" @onclick:stopPropagation>
+            <div class="drawer-header p-4 pb-0 text-center">
+                 <div class="mx-auto bg-danger bg-opacity-10 text-danger rounded-circle d-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                    <i class="bi bi-exclamation-triangle-fill fs-3"></i>
+                </div>
+                <h5 class="fw-bold text-danger mb-2">Delete User?</h5>
+                <p class="text-muted small mb-0">
+                    Are you sure you want to delete <strong>@_userToDelete.Username</strong>? This action cannot be undone.
+                </p>
+                @if (_userToDelete.IsDirector)
+                {
+                     <div class="alert alert-warning x-small border-0 rounded-4 mt-3 mb-0 text-start">
+                        <i class="bi bi-info-circle-fill me-1"></i> <strong>Director Account:</strong> Deleting this user will only remove their login access. Their Board Member record remains in the database.
+                    </div>
+                }
+            </div>
+            
+            <div class="drawer-footer p-4">
+                <div class="d-grid gap-3">
+                    <button class="btn btn-danger py-3 rounded-pill fw-bold shadow-sm" @onclick="ExecuteDeleteUser" disabled="@_saving">
+                        @if (_saving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        Yes, Delete User
+                    </button>
+                     <button class="btn btn-outline-secondary py-3 rounded-pill fw-bold" @onclick="CloseModals" disabled="@_saving">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .mobile-page-container {
         position: fixed;
@@ -467,6 +511,7 @@
     .user-icon.admin { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
     .user-icon.director { background: rgba(6, 182, 212, 0.1); color: #06b6d4; }
     .user-icon.regular { background: rgba(79, 70, 229, 0.1); color: #4f46e5; }
+    .user-icon.bartender { background: rgba(100, 116, 139, 0.1); color: #475569; }
 
     .badge-mini {
         font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
@@ -474,6 +519,7 @@
     }
     .badge-mini.admin { background: #fef3c7; color: #92400e; }
     .badge-mini.director { background: #e0f2fe; color: #075985; }
+    .badge-mini.bartender { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 
     .status-dot { width: 8px; height: 8px; border-radius: 50%; }
     .status-dot.active { background: #10b981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
@@ -541,8 +587,22 @@
     private bool _newIsDirector;
     private bool _saving;
 
+    private int _currentUserId;
+    private bool _showDeleteConfirm;
+    private UserListItemDto? _userToDelete;
+
     protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+             var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+             if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid))
+             {
+                 _currentUserId = uid;
+             }
+        }
         await LoadUsers();
     }
 
@@ -750,7 +810,49 @@
     {
         _showRoleModal = false;
         _showAddModal = false;
+        _showDeleteConfirm = false;
         _selectedUser = null;
+        _userToDelete = null;
+    }
+
+    private void ConfirmDeleteUser(UserListItemDto user)
+    {
+        if (user.Username.ToLowerInvariant() == "admin")
+        {
+            Toast.ShowWarning("The primary 'admin' account cannot be deleted.");
+            return;
+        }
+        
+        if (user.UserId == _currentUserId)
+        {
+            Toast.ShowWarning("You cannot delete your own account.");
+            return;
+        }
+
+        _userToDelete = user;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task ExecuteDeleteUser()
+    {
+        if (_userToDelete == null) return;
+        
+        _saving = true;
+        try
+        {
+            await UserService.DeleteUserAsync(_userToDelete.UserId);
+            Toast.ShowSuccess($"User '{_userToDelete.Username}' has been deleted.");
+            await LoadUsers();
+            CloseModals();
+        }
+        catch (Exception ex)
+        {
+            Toast.ShowError($"Failed to delete user: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
     }
 
     public class UserFormModel
