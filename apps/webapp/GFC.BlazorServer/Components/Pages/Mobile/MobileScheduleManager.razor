@@ -92,11 +92,12 @@
                                             <i class="bi bi-pencil-square ms-1 opacity-50"></i>
                                         </button>
                                     </label>
-                                    <select class="form-select border shadow-sm" 
-                                            style="background: #ffffff !important; font-weight: 700;"
-                                            value="@(dayShift?.StaffMemberId ?? 0)" 
+                                    <select class="form-select border shadow-sm @(dayShift?.Status == "Closed" ? "bg-danger bg-opacity-10 text-danger border-danger" : "bg-white text-dark")" 
+                                            style='font-weight: 700;'
+                                            value="@(dayShift?.Status == "Closed" ? -1 : (dayShift?.StaffMemberId ?? 0))" 
                                             @onchange="(e) => AssignShift(day, 1, e)">
                                         <option value="0">-- Unassigned --</option>
+                                        <option value="-1">-- CLOSED --</option>
                                         @foreach (var staff in _activeStaff)
                                         {
                                             <option value="@staff.Id">@staff.Name</option>
@@ -114,11 +115,12 @@
                                             <i class="bi bi-pencil-square ms-1 opacity-50"></i>
                                         </button>
                                     </label>
-                                    <select class="form-select border shadow-sm" 
-                                            style="background: #ffffff !important; font-weight: 700;"
-                                            value="@(nightShift?.StaffMemberId ?? 0)" 
+                                    <select class="form-select border shadow-sm @(nightShift?.Status == "Closed" ? "bg-danger bg-opacity-10 text-danger border-danger" : "bg-white text-dark")" 
+                                            style='font-weight: 700;'
+                                            value="@(nightShift?.Status == "Closed" ? -1 : (nightShift?.StaffMemberId ?? 0))" 
                                             @onchange="(e) => AssignShift(day, 2, e)">
                                         <option value="0">-- Unassigned --</option>
+                                        <option value="-1">-- CLOSED --</option>
                                         @foreach (var staff in _activeStaff)
                                         {
                                             <option value="@staff.Id">@staff.Name</option>
@@ -242,11 +244,14 @@
     @if (_showAddStaff)
     {
         <div class="modal-backdrop-custom animate-fade-in" @onclick="CloseModals"></div>
-        <div class="bottom-sheet animate-slide-up">
+        <div class="bottom-sheet animate-slide-up" style="max-height: 90vh; display: flex; flex-direction: column;">
             <div class="sheet-handle"></div>
-            <div class="p-4">
-                <h5 class="fw-bold mb-3">Add New Bartender</h5>
-                
+            <div class="px-4 pb-2 d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold mb-0">Add New Bartender</h5>
+                <button type="button" class="btn-close" @onclick="CloseModals" aria-label="Close"></button>
+            </div>
+            
+            <div class="p-4" style="overflow-y: auto; flex: 1;">
                 <div class="mb-4">
                     <label class="modern-label mb-2">Source Type</label>
                     <div class="d-flex gap-2 p-1 bg-light rounded-4">
@@ -257,31 +262,39 @@
 
                 @if (_isMemberMode)
                 {
-                    <div class="mb-4">
+                    <div class="mb-4 animate-entrance">
                         <label class="modern-label mb-2">Select Member</label>
-                        <select class="form-select modern-select" @bind="_selectedMemberId">
-                            <option value="0">-- Select a member --</option>
+                        <div class="member-list-scroll shadow-sm" style="max-height: 350px;">
                             @foreach (var member in _allMembers)
                             {
-                                <option value="@member.MemberID">@member.FirstName @member.LastName</option>
+                                <div class="member-item @(_selectedMemberId == member.MemberID.ToString() ? "selected" : "")" 
+                                     @onclick="() => _selectedMemberId = member.MemberID.ToString()">
+                                    <div>
+                                        <div class="fw-bold">@member.FirstName @member.LastName</div>
+                                    </div>
+                                    @if (_selectedMemberId == member.MemberID.ToString())
+                                    {
+                                        <i class="bi bi-check-circle-fill"></i>
+                                    }
+                                </div>
                             }
-                        </select>
+                        </div>
                     </div>
                 }
                 else
                 {
-                    <div class="mb-4">
+                    <div class="mb-4 animate-entrance">
                         <label class="modern-label mb-2">Display Name</label>
-                        <input type="text" class="form-control modern-input" placeholder="e.g. John Smith" @bind="_newStaffName" />
+                        <input type="text" class="form-control modern-select" placeholder="e.g. John Smith" @bind="_newStaffName" />
                     </div>
                 }
 
-                <div class="d-grid gap-2">
-                    <button class="btn btn-app-primary py-3" @onclick="SaveStaff" disabled="@_isSaving">
+                <div class="d-grid gap-2 mt-4">
+                    <button class="btn btn-app-primary py-3 fw-bold" @onclick="SaveStaff" disabled="@(_isSaving || (_isMemberMode && _selectedMemberId == "0") || (!_isMemberMode && string.IsNullOrWhiteSpace(_newStaffName)))">
                         @if(_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
                         Add to Roster
                     </button>
-                    <button class="btn btn-light py-3 border-0 rounded-4" @onclick="CloseModals">Cancel</button>
+                    <button class="btn btn-light py-3 border-0 rounded-4 text-muted" @onclick="CloseModals">Cancel</button>
                 </div>
             </div>
         </div>
@@ -370,6 +383,36 @@
     .src-opt.active { background: white; color: var(--app-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
 
     .modern-select { height: 55px; border-radius: 14px; border: 1px solid #eee; background: #f8f9fa; font-weight: 600; }
+    
+    .search-input {
+        background: #f8f9fa;
+        border: 1px solid #eee;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-size: 0.9rem;
+        width: 100%;
+    }
+
+    .member-list-scroll {
+        max-height: 250px;
+        overflow-y: auto;
+        border: 1px solid #eee;
+        border-radius: 12px;
+        background: #fff;
+    }
+
+    .member-item {
+        padding: 12px 16px;
+        border-bottom: 1px solid #f8f9fa;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .member-item:last-child { border-bottom: none; }
+    .member-item.selected { background: var(--app-primary-gradient); color: white; }
+    .member-item.selected .text-muted { color: rgba(255,255,255,0.8) !important; }
 </style>
 
 @code {
@@ -387,6 +430,7 @@
     private bool _isSaving = false;
     private string _newStaffName = "";
     private string _selectedMemberId = "0";
+    private string _memberSearch = "";
 
     // Global Settings Temp
     private DateTime _tempDayStart;
@@ -539,6 +583,28 @@
                     await ShiftService.DeleteStaffShiftAsync(existing.Id);
                 }
             }
+            else if (staffId == -1)
+            {
+                // Mark as CLOSED
+                if (existing != null)
+                {
+                    existing.StaffMemberId = 0;
+                    existing.StaffName = "CLOSED";
+                    existing.Status = "Closed";
+                    await ShiftService.UpdateStaffShiftAsync(existing);
+                }
+                else
+                {
+                    var shift = new StaffShift
+                    {
+                        Date = date,
+                        ShiftType = type,
+                        StaffMemberId = 0,
+                        Status = "Closed"
+                    };
+                    await ShiftService.CreateStaffShiftAsync(shift);
+                }
+            }
             else
             {
                 var staff = _activeStaff.First(s => s.Id == staffId);
@@ -546,6 +612,7 @@
                 {
                     existing.StaffMemberId = staffId;
                     existing.StaffName = staff.Name;
+                    existing.Status = "Scheduled";
                     await ShiftService.UpdateStaffShiftAsync(existing);
                 }
                 else
@@ -589,8 +656,8 @@
         }
     }
 
-    private void OpenAddStaff() { _showAddStaff = true; _newStaffName = ""; _selectedMemberId = "0"; }
-    private void CloseModals() { _showAddStaff = false; }
+    private void OpenAddStaff() { _showAddStaff = true; _newStaffName = ""; _selectedMemberId = "0"; _memberSearch = ""; }
+    private void CloseModals() { _showAddStaff = false; _memberSearch = ""; }
 
     private async Task SaveStaff()
     {
@@ -641,6 +708,11 @@
 
     private string GetShiftTimeString(StaffShift? shift, string type)
     {
+        if (shift != null && shift.Status == "Closed")
+        {
+            return "CLOSED";
+        }
+
         if (shift != null && shift.CustomStartTime.HasValue && shift.CustomEndTime.HasValue)
         {
             return $"{shift.StartTime:htt} - {shift.EndTime:htt} (CUSTOM)";
