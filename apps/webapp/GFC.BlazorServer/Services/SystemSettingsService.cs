@@ -54,7 +54,6 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                     AbsoluteSessionMaxMinutes = 1440,
                     TrustedDeviceDurationDays = 30,
                     AccessMode = AccessMode.Open,
-                    MagicLinkEnabled = true,
                     HostingEnvironment = "Production"
                 };
                 
@@ -134,8 +133,8 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
 
     public async Task<string> GetPreferredMfaMethodAsync()
     {
-        var settings = await GetAsync();
-        return settings.PreferredMagicLinkMethod ?? "Email";
+        // MFA is currently disabled globally. If enabled, we default to SMS if available, then Email.
+        return "SMS"; 
     }
 
     public async Task<bool> GetSmsEnabledAsync()
@@ -174,7 +173,6 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
                     AbsoluteSessionMaxMinutes = 1440,
                     TrustedDeviceDurationDays = 30,
                     AccessMode = AccessMode.Open,
-                    MagicLinkEnabled = true,
                     HostingEnvironment = "Production"
                 };
                 
@@ -273,7 +271,6 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         // Hosting & Security Framework (Phase 2)
         existingSettings.HostingEnvironment = settings.HostingEnvironment;
         existingSettings.TrustedDeviceDurationDays = settings.TrustedDeviceDurationDays;
-        existingSettings.MagicLinkEnabled = settings.MagicLinkEnabled;
         existingSettings.EnforceVpn = settings.EnforceVpn;
         existingSettings.AccessMode = settings.AccessMode;
         existingSettings.IdleTimeoutMinutes = settings.IdleTimeoutMinutes;
@@ -298,7 +295,7 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.SmtpFromAddress = settings.SmtpFromAddress;
         existingSettings.SmtpFromName = settings.SmtpFromName;
 
-        existingSettings.PreferredMagicLinkMethod = settings.PreferredMagicLinkMethod;
+
 
         // Web Push Settings (Phase 4)
         existingSettings.PushEnabled = settings.PushEnabled;

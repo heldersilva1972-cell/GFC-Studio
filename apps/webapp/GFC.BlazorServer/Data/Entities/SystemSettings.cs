@@ -95,7 +95,7 @@ public class SystemSettings
     [Range(1, 365)]
     public int TrustedDeviceDurationDays { get; set; } = 30;
 
-    public bool MagicLinkEnabled { get; set; } = true;
+
 
     public bool EnforceVpn { get; set; } = false;
     public GFC.Core.Enums.AccessMode AccessMode { get; set; } = GFC.Core.Enums.AccessMode.Open;
@@ -123,7 +123,6 @@ public class SystemSettings
     // Communication Settings & Toggles
     public bool SmsEnabled { get; set; } = false;
     public bool EmailEnabled { get; set; } = false;
-    public string PreferredMagicLinkMethod { get; set; } = "Email"; // "Email" or "SMS"
 
     // SMS Settings (Twilio)
     public string? TwilioAccountSid { get; set; }
