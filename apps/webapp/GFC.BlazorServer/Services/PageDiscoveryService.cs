@@ -157,6 +157,9 @@ public class PageDiscoveryService
         if (upperNs.Contains("PAGES.STUDIO")) 
             return "GFC STUDIO";
 
+        if (upperNs.Contains("PAGES.MOBILE")) 
+            return "MOBILE";
+
         return "DASHBOARD";
     }
 

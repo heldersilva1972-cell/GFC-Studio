@@ -73,7 +73,18 @@ INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
 ('Audit Log', '/cameras/audit', 'CAMERA SYSTEM', 'System logs', 1, 82),
 
 -- GFC STUDIO
-('Visual Editor', '/studio', 'GFC STUDIO', 'Visual design', 0, 90);
+('Visual Editor', '/studio', 'GFC STUDIO', 'Visual design', 0, 90),
+
+-- MOBILE
+('Mobile Hub', '/mobile', 'MOBILE', 'Mobile terminal', 0, 100),
+('Mobile Schedule', '/mobile/schedule', 'MOBILE', 'Bartender shifts', 0, 101),
+('Mobile Sales', '/mobile/shift-report', 'MOBILE', 'End of shift', 0, 102),
+('Mobile Checkout', '/mobile/liquor/checkout', 'MOBILE', 'Bottle scanning', 0, 103),
+('Mobile Inventory', '/mobile/liquor/manage', 'MOBILE', 'Stock control', 0, 104),
+('Mobile Analytics', '/mobile/analytics', 'MOBILE', 'Income charts', 0, 105),
+('Mobile Key Cards', '/mobile/keycards', 'MOBILE', 'Direct access', 0, 106),
+('Mobile Dues', '/mobile/dues', 'MOBILE', 'Payment entry', 0, 107),
+('Mobile Roster', '/mobile/manage-schedule', 'MOBILE', 'Schedule admin', 0, 108);
 
 -- 3. Perform the Merge
 MERGE AppPages AS target
