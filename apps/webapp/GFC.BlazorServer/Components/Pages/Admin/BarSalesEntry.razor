@@ -185,6 +185,9 @@
             <button class="nav-tab-btn @(_activeView == "compliance" ? "active" : "")" @onclick="LoadComplianceView">
                 <i class="bi bi-calendar-check"></i> Compliance
             </button>
+            <button class="nav-tab-btn @(_activeView == "analysis" ? "active" : "")" @onclick="LoadAnalysisView">
+                <i class="bi bi-calculator"></i> Revenue Analysis
+            </button>
             <button class="nav-tab-btn @(_activeView == "lottery" ? "active" : "")" @onclick="LoadLotteryView">
                 <i class="bi bi-ticket-perforated"></i> Lottery
             </button>
@@ -839,6 +842,194 @@
                 }
             </div>
         }
+
+        @if (_activeView == "analysis")
+        {
+            <div class="analytics-card animate-entrance">
+                <div class="row g-4 mb-5">
+                    <!-- CONTROLS -->
+                    <div class="col-lg-8">
+                        <div class="p-4 bg-light rounded-4 border h-100">
+                            <h4 class="fw-bold text-dark mb-4">Revenue Calibration</h4>
+                            
+                            <div class="row g-4 align-items-center mb-4">
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-2">Beer Sales Adjustment</label>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <input type="range" class="form-range flex-grow-1" min="0" max="80" step="1" @bind="_calibratedBeerPercent" @bind:event="oninput" id="beerRange">
+                                        <div class="bg-white px-3 py-2 rounded-3 border fw-bold text-dark" style="min-width: 80px; text-align: center;">
+                                            @_calibratedBeerPercent%
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-2">Food Sales Adjustment</label>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <input type="range" class="form-range flex-grow-1" min="0" max="60" step="1" @bind="_calibratedFoodPercent" @bind:event="oninput" id="foodRange">
+                                        <div class="bg-white px-3 py-2 rounded-3 border fw-bold text-dark" style="min-width: 80px; text-align: center;">
+                                            @_calibratedFoodPercent%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-flex align-items-center justify-content-between pt-3 border-top">
+                                <div>
+                                    <div class="small fw-bold text-muted text-uppercase">Target Revenue / Bottle</div>
+                                    <div class="text-muted small">Standard expected return per 750ml</div>
+                                </div>
+                                <div class="input-group" style="width: 150px;">
+                                    <span class="input-group-text bg-white border-end-0 fw-bold text-success">$</span>
+                                    <input type="number" class="form-control text-end fw-bold" @bind="_targetRevPerBottle" @bind:event="oninput" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- GAP ANALYSIS -->
+                    <div class="col-lg-4">
+                        @{
+                            // Calculate aggregate stats for the most recent month (or average of visible)
+                            var recent = _analysisMonths.FirstOrDefault();
+                            double gapPercent = 0;
+                            double requiredNonLiquor = 0;
+                            if (recent != null)
+                            {
+                                requiredNonLiquor = recent.RequiredNonLiquorPercent(_targetRevPerBottle);
+                                var currentConfig = _calibratedBeerPercent + _calibratedFoodPercent;
+                                gapPercent = requiredNonLiquor - currentConfig;
+                            }
+                        }
+                        <div class="p-4 rounded-4 border h-100 position-relative overflow-hidden" 
+                             style="background: #f8fafc; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                            
+                            <div class="d-flex justify-content-between align-items-start mb-3 position-relative" style="z-index: 2;">
+                                <div>
+                                    <h5 class="fw-bold mb-1 text-dark">Gap Analysis</h5>
+                                    <div class="small text-muted">Recent Month Health Check</div>
+                                </div>
+                                <i class="bi bi-pie-chart-fill fs-3 text-secondary opacity-50"></i>
+                            </div>
+
+                            @if (recent != null)
+                            {
+                                <div class="mb-3 position-relative" style="z-index: 2;">
+                                    @{
+                                        // Standard Bootstrap colors work well on light background
+                                        var valueClass = gapPercent > 0 ? "text-danger" : "text-success"; 
+                                    }
+                                    <div class="display-6 fw-bold @valueClass">
+                                        @(gapPercent > 0 ? "+" : "")@gapPercent.ToString("0.0")%
+                                    </div>
+                                    <div class="small text-muted">
+                                        @(gapPercent > 0 ? "Extra non-liquor sales needed to justify usage" : "Surplus! Revenue exceeds liquor cost expectations")
+                                    </div>
+                                </div>
+
+                                <div class="pt-3 border-top border-secondary border-opacity-10 position-relative" style="z-index: 2;">
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span class="text-muted">Required Variance:</span>
+                                        <span class="fw-bold text-dark">@requiredNonLiquor.ToString("0.0")%</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between small">
+                                        <span class="text-muted">Your Config:</span>
+                                        <span class="fw-bold text-dark">@((_calibratedBeerPercent + _calibratedFoodPercent).ToString("0.0"))%</span>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-center py-4 text-muted opacity-50">No Data</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MAIN TABLE -->
+                <h5 class="fw-bold text-dark mb-3">Monthly Breakdown</h5>
+                <div class="table-responsive rounded-4 border mb-5">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light">
+                            <tr class="text-muted text-uppercase small" style="font-size: 0.75rem;">
+                                <th class="py-3 ps-4">Month</th>
+                                <th class="text-end">Total Sales</th>
+                                <th class="text-end text-primary">Adj. Liquor Sales</th>
+                                <th class="text-center">Bottles Used</th>
+                                <th class="text-end fw-bold">Actual / Bottle</th>
+                                <th class="text-end text-muted">Target</th>
+                                <th class="text-center pe-4">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var m in _analysisMonths)
+                            {
+                                var adjSales = m.AdjustedLiquorSales(_calibratedBeerPercent, _calibratedFoodPercent);
+                                var actualPerBottle = m.ActualRevPerBottle(_calibratedBeerPercent, _calibratedFoodPercent);
+                                var isHealthy = actualPerBottle >= _targetRevPerBottle;
+                                var variance = _targetRevPerBottle > 0 ? (actualPerBottle - _targetRevPerBottle) / _targetRevPerBottle : 0;
+                                
+                                <tr class="bg-white" @onclick="() => m.IsExpanded = !m.IsExpanded" style="cursor: pointer;">
+                                    <td class="ps-4 fw-bold text-dark">
+                                        <i class="bi bi-chevron-@(m.IsExpanded ? "down" : "right") me-2 text-muted small"></i>
+                                        @m.Date.ToString("MMMM yyyy")
+                                    </td>
+                                    <td class="text-end text-muted">@m.TotalBarSales.ToString("C0")</td>
+                                    <td class="text-end fw-bold text-primary">@adjSales.ToString("C0")</td>
+                                    <td class="text-center">
+                                        <span class="badge bg-light text-dark border">@m.BottlesUsed</span>
+                                    </td>
+                                    <td class="text-end fw-bold fs-6">@actualPerBottle.ToString("C0")</td>
+                                    <td class="text-end text-muted small">@_targetRevPerBottle.ToString("C0")</td>
+                                    <td class="text-center pe-4">
+                                        @if (isHealthy)
+                                        {
+                                            <span class="badge rounded-pill bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3">
+                                                <i class="bi bi-check-circle-fill me-1"></i> Healthy
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge rounded-pill bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-3">
+                                                <i class="bi bi-exclamation-triangle-fill me-1"></i> Check
+                                            </span>
+                                        }
+                                    </td>
+                                </tr>
+                                if (m.IsExpanded)
+                                {
+                                    <tr class="bg-light bg-opacity-50">
+                                        <td colspan="7" class="p-4">
+                                            <div class="rounded-4 bg-white p-3 border shadow-sm">
+                                                <h6 class="fw-bold text-muted text-uppercase small mb-3">Inventory Usage Detail - @m.Date.ToString("MMMM")</h6>
+                                                
+                                                @if (m.TopBrands.Any())
+                                                {
+                                                    <div class="row g-2">
+                                                        @foreach(var brand in m.TopBrands)
+                                                        {
+                                                            <div class="col-md-3 col-6">
+                                                                <div class="d-flex justify-content-between align-items-center p-2 border rounded-3 h-100">
+                                                                    <div class="fw-bold text-dark text-truncate pe-2" title="@brand.Name">@brand.Name</div>
+                                                                    <span class="badge bg-secondary text-white rounded-pill">@brand.Count</span>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-muted small fst-italic">No bottle usage recorded for this month.</div>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
     </div>
 </div>
 
@@ -854,6 +1045,40 @@
     // Lottery View State
     private List<LotteryShift> _lotteryEntries;
     private bool _isLoadingLottery = false;
+    
+    // Revenue Analysis State
+    private List<RevenueAnalysisMonth> _analysisMonths = new();
+    private bool _isLoadingAnalysis = false;
+    private double _calibratedBeerPercent = 15;
+    private double _calibratedFoodPercent = 5;
+    private decimal _targetRevPerBottle = 110;
+
+    public class RevenueAnalysisMonth
+    {
+        public DateTime Date { get; set; }
+        public decimal TotalBarSales { get; set; }
+        public int BottlesUsed { get; set; }
+        public bool IsExpanded { get; set; }
+        public List<(string Name, int Count)> TopBrands { get; set; } = new();
+        
+        // Calculated Properties
+        public decimal AdjustedLiquorSales(double beerPct, double foodPct) => 
+            TotalBarSales * (decimal)(1 - ((beerPct + foodPct) / 100.0));
+            
+        public decimal ActualRevPerBottle(double beerPct, double foodPct) => 
+            BottlesUsed == 0 ? 0 : AdjustedLiquorSales(beerPct, foodPct) / BottlesUsed;
+
+        public double RequiredNonLiquorPercent(decimal targetPerBottle) 
+        {
+             // Target Liquor Revenue needed
+             decimal neededLiquor = BottlesUsed * targetPerBottle;
+             if (TotalBarSales == 0) return 0;
+             if (neededLiquor > TotalBarSales) return 0; // Impossible case, implies 100% liquor isn't enough
+             
+             decimal surplusCheck = TotalBarSales - neededLiquor;
+             return (double)(surplusCheck / TotalBarSales) * 100.0;
+        }
+    }
     private string _activeView = "performance";
     private bool _isSaving = false;
     private bool _showSuccess = false;
@@ -1629,6 +1854,87 @@
         finally
         {
             _isLoadingLottery = false;
+            _dataLock.Release();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAnalysisView()
+    {
+        _activeView = "analysis";
+        await LoadAnalysisData();
+    }
+
+    private async Task LoadAnalysisData()
+    {
+        if (_isLoadingAnalysis) return;
+        await _dataLock.WaitAsync();
+        _isLoadingAnalysis = true;
+        StateHasChanged();
+
+        try 
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            // 1. Fetch Bar Sales Grouped by Month
+            var salesData = await db.BarSaleEntries.AsNoTracking()
+                .GroupBy(x => new { Year = (x.AdjustedSaleDate ?? x.SaleDate).Year, Month = (x.AdjustedSaleDate ?? x.SaleDate).Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, Total = g.Sum(x => x.TotalSales) })
+                .ToListAsync();
+
+            // 2. Fetch Usage Data (Items removed)
+            var usageTransactions = await db.LiquorTransactions.AsNoTracking()
+                .Include(t => t.Item)
+                .Where(t => t.ChangeAmount < 0)
+                .ToListAsync();
+
+            // Group usage in memory to handle complex object tracking
+            var usageGrouped = usageTransactions
+                .GroupBy(t => new { t.Timestamp.Year, t.Timestamp.Month })
+                .Select(g => new { 
+                    g.Key.Year, 
+                    g.Key.Month, 
+                    TotalBottles = g.Sum(t => Math.Abs(t.ChangeAmount)),
+                    Brands = g.GroupBy(t => t.Item != null ? t.Item.Name : "Unknown")
+                              .Select(b => (Name: b.Key, Count: b.Sum(t => Math.Abs(t.ChangeAmount))))
+                              .OrderByDescending(b => b.Count)
+                              .ToList()
+                })
+                .ToList();
+
+            // 3. Merge Data
+            _analysisMonths = new List<RevenueAnalysisMonth>();
+            
+            // Get all unique year/months from both sets
+            var allDates = salesData.Select(x => new DateTime(x.Year, x.Month, 1))
+                .Union(usageGrouped.Select(x => new DateTime(x.Year, x.Month, 1)))
+                .Distinct()
+                .OrderByDescending(d => d)
+                .Take(24) // Limit to last 2 years
+                .ToList();
+
+            foreach(var date in allDates)
+            {
+                var sales = salesData.FirstOrDefault(x => x.Year == date.Year && x.Month == date.Month)?.Total ?? 0;
+                var usage = usageGrouped.FirstOrDefault(x => x.Year == date.Year && x.Month == date.Month);
+                
+                _analysisMonths.Add(new RevenueAnalysisMonth
+                {
+                    Date = date,
+                    TotalBarSales = sales,
+                    BottlesUsed = usage?.TotalBottles ?? 0,
+                    TopBrands = usage?.Brands ?? new List<(string, int)>()
+                });
+            }
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine($"Error loading analysis: {ex.Message}");
+            _errorDetails = ex.Message;
+        }
+        finally
+        {
+            _isLoadingAnalysis = false;
             _dataLock.Release();
             StateHasChanged();
         }
