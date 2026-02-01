@@ -8,6 +8,7 @@ namespace GFC.BlazorServer.Services
         public List<BarSaleEntry>? Entries { get; set; }
         public decimal GrandTotalRevenue { get; set; }
         public int GrandTotalItemsSold { get; set; }
+        public Dictionary<int, decimal> AnnualRevenue { get; set; } = new();
         public List<int> AvailableYears { get; set; } = new();
         public int TotalEntries { get; set; }
         

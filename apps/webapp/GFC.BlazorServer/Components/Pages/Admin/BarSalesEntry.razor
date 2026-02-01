@@ -222,6 +222,22 @@
                         </div>
                     </div>
                 </div>
+
+                @if (_annualRevenue != null && _annualRevenue.Any())
+                {
+                    <hr class="my-4 opacity-10" />
+                    <div class="row g-3">
+                        @foreach (var yearStat in _annualRevenue.OrderByDescending(k => k.Key))
+                        {
+                            <div class="col-6 col-md-3 col-lg-2">
+                                <div class="p-3 bg-light rounded-4 border text-center h-100">
+                                    <div class="small fw-bold text-muted text-uppercase mb-1">@yearStat.Key</div>
+                                    <div class="h5 fw-bold text-dark mb-0">@yearStat.Value.ToString("C0")</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
             </div>
         }
 
@@ -864,6 +880,7 @@
 
     private decimal _grandTotalRevenue = 0;
     private int _grandTotalItemsSold = 0;
+    private Dictionary<int, decimal> _annualRevenue = new();
 
     private List<int> _availableYears = new();
     private List<int> _selectedComparisonYears = new();
@@ -890,6 +907,7 @@
             _entries = StateCache.Entries;
             _grandTotalRevenue = StateCache.GrandTotalRevenue;
             _grandTotalItemsSold = StateCache.GrandTotalItemsSold;
+            _annualRevenue = StateCache.AnnualRevenue;
             _availableYears = StateCache.AvailableYears;
             _totalEntries = StateCache.TotalEntries;
         }
@@ -1043,6 +1061,14 @@
                 _grandTotalRevenue = await db.BarSaleEntries.AsNoTracking().SumAsync(x => (decimal?)x.TotalSales) ?? 0;
                 _grandTotalItemsSold = await db.BarSaleEntries.AsNoTracking().SumAsync(x => (int?)x.TotalItemsSold) ?? 0;
                 
+                // Calculate Annual Breakdown
+                var annualStats = await db.BarSaleEntries.AsNoTracking()
+                    .GroupBy(x => (x.AdjustedSaleDate ?? x.SaleDate).Year)
+                    .Select(g => new { Year = g.Key, Total = g.Sum(x => (decimal?)x.TotalSales) ?? 0 })
+                    .ToListAsync();
+                
+                _annualRevenue = annualStats.ToDictionary(k => k.Year, v => v.Total);
+
                 StateCache.GrandTotalRevenue = _grandTotalRevenue;
                 StateCache.GrandTotalItemsSold = _grandTotalItemsSold;
             }
@@ -1070,6 +1096,7 @@
         StateCache.Entries = _entries;
         StateCache.GrandTotalRevenue = _grandTotalRevenue;
         StateCache.GrandTotalItemsSold = _grandTotalItemsSold;
+        StateCache.AnnualRevenue = _annualRevenue;
         StateCache.AvailableYears = _availableYears;
         StateCache.TotalEntries = _totalEntries;
         StateCache.PageCache[_currentPage] = _entries;
