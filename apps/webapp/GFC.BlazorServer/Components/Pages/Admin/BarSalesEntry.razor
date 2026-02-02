@@ -12,7 +12,7 @@
 @inject ILotteryShiftService LotteryService
 @attribute [Authorize]
 
-<PageTitle>Bar Sales Entry | GFC Admin</PageTitle>
+<PageTitle>Bar/Lottery Sales | GFC Admin</PageTitle>
 
 <style>
     /* Hide number input spinners */
@@ -166,7 +166,7 @@
     <div class="bar-sales-container">
         <div class="hero-section text-center">
             <div>
-                <h2 class="fw-bold mb-1">Bar Revenue Analytics</h2>
+                <h2 class="fw-bold mb-1">Bar/Lottery Sales</h2>
                 <p class="opacity-75 small mb-0">Financial tracking and inventory movement</p>
             </div>
         </div>
@@ -1288,6 +1288,7 @@
     // Lottery View State
     private List<LotteryShift> _lotteryEntries;
     private bool _isLoadingLottery = false;
+    private DateTime? _lotteryDateFilter; // Added for compliance jumping
     private LotteryShift _lotteryModel = new() { ShiftDate = DateTime.Now, Commission = 0, CashBonus = 0, ClaimsBonus = 0, NetDue = 0, TotalSales = 0, TotalPayouts = 0, TotalCancels = 0 };
     private bool _isLotterySaving = false;
     
@@ -2188,13 +2189,15 @@
     private async Task JumpToLog(int month, int day, string? shift = null)
     {
         // For Lottery, jump to the lottery page with filter
+        // For Lottery, jump to the lottery page with filter
         if (_complianceSource == "Lottery")
         {
-             // We can pass date via query parameter if we enhance Lottery.razor, or just nav there
-             // For now, let's navigate to the main lottery page. Ideally, we'd pass ?date={targetDate}
-             Navigation.NavigateTo("/lottery", forceLoad: false);
-             // TODO: Update Lottery.razor to handle query string date if needed.
-             return;
+            var targetLotteryDate = new DateTime(_complianceYear, month, day);
+            _activeView = "lottery";
+            _lotteryDateFilter = targetLotteryDate;
+            await LoadLotteryData();
+            StateHasChanged();
+            return;
         }
 
         // 1. Calculate the target date based on selected Compliance Year
@@ -2346,6 +2349,7 @@
     private async Task LoadLotteryView()
     {
         _activeView = "lottery";
+        _lotteryDateFilter = null; // Reset filter when manually clicking tab
         await LoadLotteryData();
     }
 
@@ -2369,9 +2373,11 @@
             var sql = @"
                 SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, TotalSales, Notes, Commission, CashBonus, ClaimsBonus, NetDue
                 FROM LotteryShifts 
+                WHERE (@DateFilter IS NULL OR CAST(ShiftDate AS DATE) = CAST(@DateFilter AS DATE))
                 ORDER BY ShiftDate DESC";
                 
             using var command = new Microsoft.Data.SqlClient.SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@DateFilter", (object)_lotteryDateFilter ?? DBNull.Value);
             using var reader = await command.ExecuteReaderAsync();
             
             while(await reader.ReadAsync())

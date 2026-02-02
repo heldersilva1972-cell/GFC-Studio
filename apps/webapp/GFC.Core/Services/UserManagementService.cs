@@ -548,6 +548,10 @@ public class UserManagementService : IUserManagementService
         // 4. Clean incoming route for comparison
         var normalized = pageRoute.TrimStart('/').ToLowerInvariant();
         
+        // [MOD] Implicit access to dashboard/home for all active users
+        if (string.IsNullOrEmpty(normalized) || normalized == "dashboard" || normalized == "home")
+            return true;
+            
         // 5. High-speed memory lookup
         return routes.Contains(normalized);
     }
