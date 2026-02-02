@@ -4,21 +4,84 @@
 @using DuesPaymentModel = GFC.Core.Models.DuesPayment
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
-@inject IDuesInsightService DuesInsightService
-@inject IDuesRepository DuesRepo
-@inject IKeyCardRepository KeyCardRepo
-@inject IMemberRepository MemberRepository
-@inject IDuesYearSettingsRepository DuesYearSettingsRepository
-@inject IDuesWaiverRepository DuesWaiverRepository
-@inject NavigationManager Navigation
-@inject IJSRuntime JSRuntime
-@inject GFC.BlazorServer.Services.DuesService DuesServiceEF
-@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
-@using GFC.Core.Enums
-@using GFC.BlazorServer.Components.Shared.Mobile
+@inject MemberService MemberService
+@inject IGlobalNoteRepository GlobalNoteRepository
+@inject KeyCardLifecycleService KeyCardLifecycleService
 
+...
 
-<PageTitle>Dues & Payments | GFC</PageTitle>
+                            @if (CanRecordPayment(item))
+                            {
+                                <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => OpenPaymentModal(item)">
+                                    Pay
+                                </button>
+                            }
+                            else if (CanSetInactive(item))
+                            {
+                                 <button class="btn btn-danger-soft btn-sm rounded-pill px-3" @onclick="() => ConfirmAndSetInactive(item)">
+                                    Deactivate
+                                </button>
+                            }
+
+...
+
+    private bool CanSetInactive(DuesListItemDto item) =>
+        !item.Satisfied && !IsExempt(item) && item.MonthsOverdue >= 15 && !_isSaving;
+
+    private async Task ConfirmAndSetInactive(DuesListItemDto item)
+    {
+         var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"CONFIRM DEACTIVATION:\n\n" +
+            $"Are you sure you want to deactivate {item.FullName}?\n" +
+            $"They are overdue by {item.MonthsOverdue} months.\n\n" +
+            $"This will:\n1. Mark member as INACTIVE\n2. Deactivate their Key Card immediately");
+            
+         if (!confirmed) return;
+         
+         _isSaving = true;
+         try 
+         {
+             var member = await Task.Run(() => MemberRepository.GetMemberById(item.MemberId));
+             if (member != null) 
+             {
+                 // 1. Set Inactive
+                 member.InactiveDate = DateTime.Today;
+                 await MemberService.UpdateMemberStatusAsync(member, "INACTIVE", "Mobile User", false);
+                 
+                 // 2. Log Note
+                 var currentUser = AuthStateProvider.GetCurrentUser();
+                 await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote {
+                     NoteDate = DateTime.Now,
+                     Category = "STATUS CHANGE",
+                     Text = $"{item.FullName} (ID {item.MemberId}) set inactive on {DateTime.Today:yyyy-MM-dd} for unpaid dues (Mobile Action) by {currentUser?.Username ?? "Unknown"}."
+                 }));
+
+                 // 3. Deactivate Key Card
+                 var activeCard = await Task.Run(() => KeyCardRepo.GetActiveMemberCard(item.MemberId));
+                 if (activeCard != null && activeCard.IsActive)
+                 {
+                     await KeyCardLifecycleService.DeactivateCardAsync(
+                         activeCard.KeyCardId, 
+                         "Member Deactivated", 
+                         "Dues > Mobile Deactivate Action", 
+                         currentUser?.Username ?? "Unknown",
+                         CancellationToken.None);
+                 }
+                 
+                 await JSRuntime.InvokeVoidAsync("alert", $"{item.FullName} has been set to INACTIVE.");
+             }
+             
+             await LoadData();
+         }
+         catch (Exception ex)
+         {
+             await JSRuntime.InvokeVoidAsync("alert", $"Deactivation failed: {ex.Message}");
+         }
+         finally
+         {
+             _isSaving = false;
+         }
+    }
 
 <div class="mobile-dues-container">
     <!-- FIXED TOP SECTION -->
@@ -106,6 +169,14 @@
                                     <span class="badge @(item.Satisfied ? (item.IsWaived ? "bg-info" : "bg-success") : "bg-warning")">
                                         @(item.Satisfied ? (item.IsWaived ? "Waived" : "Paid") : "Unpaid")
                                     </span>
+                                    
+                                    @if (!item.Satisfied && !item.IsWaived && item.MonthsOverdue > 0)
+                                    {
+                                         <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                            @FormatOverdueText(item.MonthsOverdue)
+                                        </span>
+                                    }
+
                                     <span class="badge @GetStatusBadge(item.Status)">
                                         @GetStatusLabel(item.Status)
                                     </span>
@@ -623,4 +694,6 @@
     };
 
     private static string GetStatusLabel(MemberStatus status) => status.ToString();
+    
+    private static string FormatOverdueText(int months) => $"{months} mo";
 }

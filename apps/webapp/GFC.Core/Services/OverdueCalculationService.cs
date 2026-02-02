@@ -80,13 +80,13 @@ public class OverdueCalculationService
             {
                 var acceptanceYear = member.AcceptedDate.Value.Year;
                 var acceptanceMonth = member.AcceptedDate.Value.Month;
-                firstUnpaidYear = acceptanceMonth < 3 ? acceptanceYear : acceptanceYear + 1;
+                firstUnpaidYear = acceptanceMonth < 11 ? acceptanceYear : acceptanceYear + 1;
             }
             else if (member.ApplicationDate.HasValue)
             {
                 var applicationYear = member.ApplicationDate.Value.Year;
                 var applicationMonth = member.ApplicationDate.Value.Month;
-                firstUnpaidYear = applicationMonth < 3 ? applicationYear : applicationYear + 1;
+                firstUnpaidYear = applicationMonth < 11 ? applicationYear : applicationYear + 1;
             }
             else
             {
@@ -196,13 +196,13 @@ public class OverdueCalculationService
                 
                 // If accepted before March, dues start in acceptance year
                 // Otherwise, dues start in the following year
-                firstUnpaidYear = acceptanceMonth < 3 ? acceptanceYear : acceptanceYear + 1;
+                firstUnpaidYear = acceptanceMonth < 11 ? acceptanceYear : acceptanceYear + 1;
             }
             else if (member.ApplicationDate.HasValue)
             {
                 var applicationYear = member.ApplicationDate.Value.Year;
                 var applicationMonth = member.ApplicationDate.Value.Month;
-                firstUnpaidYear = applicationMonth < 3 ? applicationYear : applicationYear + 1;
+                firstUnpaidYear = applicationMonth < 11 ? applicationYear : applicationYear + 1;
             }
             else
             {
