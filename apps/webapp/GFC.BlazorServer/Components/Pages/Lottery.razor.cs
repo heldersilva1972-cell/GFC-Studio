@@ -38,6 +38,8 @@ namespace GFC.BlazorServer.Components.Pages
         private bool? _showReconciled = null;
         private string _viewMode = "shifts";
         private int _selectedYear = DateTime.Now.Year;
+
+        // Summary stats computed from _shifts list
         
         // Summary stats computed from _shifts list
         private decimal TotalSales => _shifts.Sum(s => s.TotalSales);

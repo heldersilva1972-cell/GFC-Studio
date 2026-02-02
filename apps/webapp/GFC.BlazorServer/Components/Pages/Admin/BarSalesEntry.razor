@@ -3,11 +3,13 @@
 @using Microsoft.EntityFrameworkCore
 @using GFC.BlazorServer.Data
 @using GFC.Core.Models
+@using GFC.Core.Interfaces
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject GFC.BlazorServer.Services.BarSalesStateContainer StateCache
 @inject ILogger<BarSalesEntry> Logger
+@inject ILotteryShiftService LotteryService
 @attribute [Authorize]
 
 <PageTitle>Bar Sales Entry | GFC Admin</PageTitle>
@@ -177,10 +179,10 @@
                 <i class="bi bi-graph-up"></i> Sales Graph
             </button>
             <button class="nav-tab-btn @(_activeView == "entry" ? "active" : "")" @onclick="SwitchToEntry">
-                <i class="bi bi-plus-circle"></i> New Entry
+                <i class="bi bi-plus-circle"></i> Bar Sales Entry
             </button>
             <button class="nav-tab-btn @(_activeView == "log" ? "active" : "")" @onclick="SwitchToLog">
-                <i class="bi bi-journal-text"></i> Activity Log
+                <i class="bi bi-journal-text"></i> Bar Sales
             </button>
             <button class="nav-tab-btn @(_activeView == "compliance" ? "active" : "")" @onclick="LoadComplianceView">
                 <i class="bi bi-calendar-check"></i> Compliance
@@ -505,7 +507,7 @@
                     <div class="p-4 border-bottom bg-light bg-opacity-50">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div>
-                                <h4 class="fw-bold mb-1">Activity Log</h4>
+                                <h4 class="fw-bold mb-1">Bar Sales</h4>
                                 <div class="text-muted small">Recent transactions</div>
                             </div>
                             <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="() => LoadData()">
@@ -706,6 +708,25 @@
                                 }
                             </select>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Source Toggle -->
+                <div class="d-flex justify-content-center mb-4">
+                    <div class="btn-group" role="group">
+                        <input type="radio" class="btn-check" name="complianceSource" id="sourceBar" 
+                               value="Bar" checked="@(_complianceSource == "Bar")" 
+                               @onchange="@(e => ChangeComplianceSource("Bar"))">
+                        <label class="btn btn-outline-primary" for="sourceBar">
+                            <i class="bi bi-cup-straw me-2"></i>Bar Sales
+                        </label>
+
+                        <input type="radio" class="btn-check" name="complianceSource" id="sourceLottery" 
+                               value="Lottery" checked="@(_complianceSource == "Lottery")" 
+                               @onchange="@(e => ChangeComplianceSource("Lottery"))">
+                        <label class="btn btn-outline-primary" for="sourceLottery">
+                            <i class="bi bi-ticket-perforated me-2"></i>Lottery Sales
+                        </label>
                     </div>
                 </div>
 
@@ -1314,7 +1335,11 @@
             
             _availableYears = years.OrderByDescending(y => y).ToList();
 
-            if (!_availableYears.Any()) _availableYears.Add(DateTime.Now.Year);
+            if (!_availableYears.Contains(DateTime.Now.Year))
+            {
+                _availableYears.Insert(0, DateTime.Now.Year);
+            }
+
             if (!_selectedComparisonYears.Any()) _selectedComparisonYears = new List<int>(_availableYears);
         }
 
@@ -1391,11 +1416,22 @@
             query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Year >= minYear && (e.AdjustedSaleDate ?? e.SaleDate).Year <= maxYear);
         }
 
+        if (_availableYears == null || !_availableYears.Any())
+        {
+             _availableYears = new List<int> { DateTime.Now.Year };
+        }
+        else if (!_availableYears.Contains(DateTime.Now.Year))
+        {
+             _availableYears.Add(DateTime.Now.Year);
+             _availableYears = _availableYears.OrderByDescending(y => y).ToList();
+        }
+
         if (!string.IsNullOrEmpty(_chartDayFilter))
         {
             var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _chartDayFilter);
             query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
         }
+
 
         if (!string.IsNullOrEmpty(_chartShiftFilter))
         {
@@ -1707,6 +1743,16 @@
 
     private async Task JumpToLog(int month, int day, string? shift = null)
     {
+        // For Lottery, jump to the lottery page with filter
+        if (_complianceSource == "Lottery")
+        {
+             // We can pass date via query parameter if we enhance Lottery.razor, or just nav there
+             // For now, let's navigate to the main lottery page. Ideally, we'd pass ?date={targetDate}
+             Navigation.NavigateTo("/lottery", forceLoad: false);
+             // TODO: Update Lottery.razor to handle query string date if needed.
+             return;
+        }
+
         // 1. Calculate the target date based on selected Compliance Year
         var targetDate = new DateTime(_complianceYear, month, day);
 
@@ -1727,6 +1773,14 @@
     }
 
     // --- NEW TAB LOGIC ---
+    
+    private string _complianceSource = "Bar";
+
+    private async Task ChangeComplianceSource(string source)
+    {
+        _complianceSource = source;
+        await LoadComplianceData();
+    }
 
     private async Task LoadComplianceView()
     {
@@ -1745,50 +1799,92 @@
 
         try 
         {
-            using var db = await DbFactory.CreateDbContextAsync();
-            
-            // SQL RANGE: Optimization for SQL Index usage
-            var startOfYear = new DateTime(_complianceYear, 1, 1);
-            var endOfYear = new DateTime(_complianceYear, 12, 31);
-
-            // Fetch daily counts efficiently
-            var complianceData = await db.BarSaleEntries.AsNoTracking()
-                .Where(e => e.SaleDate >= startOfYear && e.SaleDate <= endOfYear)
-                .GroupBy(e => new { 
-                    Date = (e.AdjustedSaleDate ?? e.SaleDate).Date, 
-                    Shift = e.Shift 
-                })
-                .Select(g => new { 
-                    g.Key.Date, 
-                    g.Key.Shift, 
-                    Count = g.Count(), 
-                    HasVerified = g.Any(x => x.IsAudited) 
-                })
-                .ToListAsync();
-
-            foreach(var entry in complianceData)
+            if (_complianceSource == "Lottery")
             {
-                var day = entry.Date.Day;
-                var month = entry.Date.Month;
+                // LOAD LOTTERY COMPLIANCE
+                var startDate = new DateTime(_complianceYear, 1, 1);
+                var endDate = new DateTime(_complianceYear, 12, 31);
                 
-                // Get or create existing status for this coordinate
-                var key = (month, day);
-                var current = _complianceGrid.ContainsKey(key) ? _complianceGrid[key] : (DayStatus: "Missing", NightStatus: "Missing", DayCount: 0, NightCount: 0, DayAudited: false, NightAudited: false);
+                // Fetch using service
+                var allShifts = await Task.Run(() => LotteryService.GetShiftsByDateRange(startDate, endDate));
 
-                if (entry.Shift == "Day")
+                foreach(var shift in allShifts)
                 {
-                    current.DayStatus = entry.Count > 0 ? "Entered" : "Missing";
-                    current.DayCount = entry.Count;
-                    current.DayAudited = entry.HasVerified;
+                    var date = shift.ShiftDate.Date;
+                    var day = date.Day;
+                    var month = date.Month;
+                    
+                    var key = (month, day);
+                    var current = _complianceGrid.ContainsKey(key) 
+                        ? _complianceGrid[key] 
+                        : (DayStatus: "Missing", NightStatus: "Missing", DayCount: 0, NightCount: 0, DayAudited: false, NightAudited: false);
+                    
+                    bool isNight = shift.ShiftType?.Equals("Night", StringComparison.OrdinalIgnoreCase) == true;
+                    
+                    if (isNight)
+                    {
+                        current.NightCount++;
+                        current.NightStatus = current.NightCount > 0 ? "Entered" : "Missing";
+                        if (shift.IsReconciled) current.NightAudited = true;
+                    }
+                    else
+                    {
+                        current.DayCount++;
+                        current.DayStatus = current.DayCount > 0 ? "Entered" : "Missing";
+                        if (shift.IsReconciled) current.DayAudited = true;
+                    }
+
+                    _complianceGrid[key] = current;
                 }
-                else
-                {
-                    current.NightStatus = entry.Count > 0 ? "Entered" : "Missing";
-                    current.NightCount = entry.Count;
-                    current.NightAudited = entry.HasVerified;
-                }
+            }
+            else 
+            {
+                // LOAD BAR COMPLIANCE (Existing Logic)
+                using var db = await DbFactory.CreateDbContextAsync();
                 
-                _complianceGrid[key] = current;
+                // SQL RANGE: Optimization for SQL Index usage
+                var startOfYear = new DateTime(_complianceYear, 1, 1);
+                var endOfYear = new DateTime(_complianceYear, 12, 31);
+    
+                // Fetch daily counts efficiently
+                var complianceData = await db.BarSaleEntries.AsNoTracking()
+                    .Where(e => e.SaleDate >= startOfYear && e.SaleDate <= endOfYear)
+                    .GroupBy(e => new { 
+                        Date = (e.AdjustedSaleDate ?? e.SaleDate).Date, 
+                        Shift = e.Shift 
+                    })
+                    .Select(g => new { 
+                        g.Key.Date, 
+                        g.Key.Shift, 
+                        Count = g.Count(), 
+                        HasVerified = g.Any(x => x.IsAudited) 
+                    })
+                    .ToListAsync();
+    
+                foreach(var entry in complianceData)
+                {
+                    var day = entry.Date.Day;
+                    var month = entry.Date.Month;
+                    
+                    // Get or create existing status for this coordinate
+                    var key = (month, day);
+                    var current = _complianceGrid.ContainsKey(key) ? _complianceGrid[key] : (DayStatus: "Missing", NightStatus: "Missing", DayCount: 0, NightCount: 0, DayAudited: false, NightAudited: false);
+    
+                    if (entry.Shift == "Day")
+                    {
+                        current.DayStatus = entry.Count > 0 ? "Entered" : "Missing";
+                        current.DayCount = entry.Count;
+                        current.DayAudited = entry.HasVerified;
+                    }
+                    else
+                    {
+                        current.NightStatus = entry.Count > 0 ? "Entered" : "Missing";
+                        current.NightCount = entry.Count;
+                        current.NightAudited = entry.HasVerified;
+                    }
+                    
+                    _complianceGrid[key] = current;
+                }
             }
         }
         catch(Exception ex)
