@@ -15,6 +15,10 @@ namespace GFC.Core.DTOs
         public decimal TotalSales { get; set; }
         public decimal TotalPayouts { get; set; }
         public decimal TotalCancels { get; set; }
+        public decimal Commission { get; set; }
+        public decimal CashBonus { get; set; }
+        public decimal ClaimsBonus { get; set; }
+        public decimal NetDue { get; set; }
         public decimal NetSales { get; set; }
         public decimal ExpectedCash { get; set; }
         public decimal Variance { get; set; }

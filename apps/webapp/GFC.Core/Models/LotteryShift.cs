@@ -20,6 +20,11 @@ namespace GFC.Core.Models
         public decimal TotalPayouts { get; set; }
         public decimal TotalCancels { get; set; }
         
+        public decimal Commission { get; set; }
+        public decimal CashBonus { get; set; }
+        public decimal ClaimsBonus { get; set; }
+        public decimal NetDue { get; set; }
+        
         public decimal? OriginalTotalSales { get; set; }
         
         // Calculated values
