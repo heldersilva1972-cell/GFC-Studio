@@ -15,6 +15,7 @@ namespace GFC.Data.Repositories
                 const string sql = @"
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                           Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
                     FROM LotteryShifts
@@ -41,6 +42,7 @@ namespace GFC.Data.Repositories
                 const string sql = @"
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                           Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
                     FROM LotteryShifts
@@ -73,6 +75,7 @@ namespace GFC.Data.Repositories
                 var sql = @"
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                           Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
                     FROM LotteryShifts
@@ -122,6 +125,7 @@ namespace GFC.Data.Repositories
                 const string sql = @"
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                           Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
                     FROM LotteryShifts
@@ -151,12 +155,14 @@ namespace GFC.Data.Repositories
                     INSERT INTO LotteryShifts (
                         ShiftDate, EmployeeName, ShiftType, MachineId,
                         StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                        Commission, CashBonus, ClaimsBonus, NetDue,
                         Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                         CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
                     )
                     VALUES (
                         @ShiftDate, @EmployeeName, @ShiftType, @MachineId,
                         @StartingCash, @EndingCash, @TotalSales, @TotalPayouts, @TotalCancels,
+                        @Commission, @CashBonus, @ClaimsBonus, @NetDue,
                         @Notes, @Status, @IsReconciled, @ReconciledBy, @ReconciledDate,
                         @CreatedBy, @CreatedDate, @ModifiedBy, @ModifiedDate
                     );
@@ -188,6 +194,10 @@ namespace GFC.Data.Repositories
                         TotalSales = @TotalSales,
                         TotalPayouts = @TotalPayouts,
                         TotalCancels = @TotalCancels,
+                        Commission = @Commission,
+                        CashBonus = @CashBonus,
+                        ClaimsBonus = @ClaimsBonus,
+                        NetDue = @NetDue,
                         Notes = @Notes,
                         Status = @Status,
                         IsReconciled = @IsReconciled,
@@ -234,6 +244,7 @@ namespace GFC.Data.Repositories
                 const string sql = @"
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                           Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
                     FROM LotteryShifts
@@ -286,6 +297,10 @@ namespace GFC.Data.Repositories
                 TotalSales = (decimal)reader["TotalSales"],
                 TotalPayouts = (decimal)reader["TotalPayouts"],
                 TotalCancels = (decimal)reader["TotalCancels"],
+                Commission = reader["Commission"] != DBNull.Value ? (decimal)reader["Commission"] : 0m,
+                CashBonus = reader["CashBonus"] != DBNull.Value ? (decimal)reader["CashBonus"] : 0m,
+                ClaimsBonus = reader["ClaimsBonus"] != DBNull.Value ? (decimal)reader["ClaimsBonus"] : 0m,
+                NetDue = reader["NetDue"] != DBNull.Value ? (decimal)reader["NetDue"] : 0m,
                 Notes = reader["Notes"] as string,
                 Status = reader["Status"] as string,
                 IsReconciled = (bool)reader["IsReconciled"],
@@ -309,6 +324,10 @@ namespace GFC.Data.Repositories
             command.Parameters.AddWithValue("@TotalSales", shift.TotalSales);
             command.Parameters.AddWithValue("@TotalPayouts", shift.TotalPayouts);
             command.Parameters.AddWithValue("@TotalCancels", shift.TotalCancels);
+            command.Parameters.AddWithValue("@Commission", shift.Commission);
+            command.Parameters.AddWithValue("@CashBonus", shift.CashBonus);
+            command.Parameters.AddWithValue("@ClaimsBonus", shift.ClaimsBonus);
+            command.Parameters.AddWithValue("@NetDue", shift.NetDue);
             command.Parameters.AddWithValue("@Notes", (object?)shift.Notes ?? DBNull.Value);
             command.Parameters.AddWithValue("@Status", (object?)shift.Status ?? DBNull.Value);
             command.Parameters.AddWithValue("@IsReconciled", shift.IsReconciled);

@@ -992,27 +992,91 @@
 
                             <div class="card border-0 shadow-sm">
                                 <div class="card-body d-flex align-items-center p-3">
-                                    <!-- DATE -->
-                                    <div class="d-flex flex-column align-items-center pe-4 border-end" style="min-width: 100px;">
-                                        <div class="h5 fw-bold mb-0 text-dark">@entry.ShiftDate.ToString("MMM dd")</div>
-                                        <div class="small text-muted">@entry.ShiftDate.Year</div>
+                                    <!-- LEFT: DATE & NAV -->
+                                    <div class="d-flex align-items-center gap-3 pe-4 border-end" style="min-width: 220px;">
+                                        <button class="btn btn-link link-dark p-0 opacity-50 hover-opacity-100" 
+                                                @onclick="() => AdjustLotteryDate(entry, -1)" 
+                                                disabled="@(_isLotterySaving)">
+                                            <i class="bi bi-chevron-left fs-5"></i>
+                                        </button>
+                                        
+                                        <div class="text-center flex-grow-1">
+                                            <div class="small text-uppercase text-muted fw-bold">@entry.ShiftDate.ToString("yyyy")</div>
+                                            <div class="h4 fw-bold mb-0 text-dark">@entry.ShiftDate.ToString("ddd")</div>
+                                            <div class="text-secondary fw-semibold">@entry.ShiftDate.ToString("MMM dd")</div>
+                                        </div>
+
+                                        <button class="btn btn-link link-dark p-0 opacity-50 hover-opacity-100" 
+                                                @onclick="() => AdjustLotteryDate(entry, 1)" 
+                                                disabled="@(_isLotterySaving)">
+                                            <i class="bi bi-chevron-right fs-5"></i>
+                                        </button>
                                     </div>
 
                                     <!-- INFO -->
                                     <div class="flex-grow-1 px-4">
                                         <div class="d-flex align-items-center gap-2 mb-1">
-                                            <span class="badge rounded-pill bg-@shiftColor bg-opacity-10 text-@shiftColor text-uppercase px-2 py-1">
+                                            <!-- Shift Badge: Clickable ONLY if NOT locked -->
+                                            <button class="badge rounded-pill border-0 bg-@shiftColor bg-opacity-10 text-@shiftColor text-uppercase px-2 py-1"
+                                                    style="@(entry.IsReconciled ? "cursor: default; opacity: 0.8;" : "cursor: pointer;")"
+                                                    @onclick="() => { if(!entry.IsReconciled) ToggleLotteryShift(entry); }"
+                                                    title="@(entry.IsReconciled ? "Verified - Unlock to change" : "Click to toggle shift")"
+                                                    disabled="@(_isLotterySaving)">
                                                 <i class="bi @shiftIcon me-1"></i> @entry.ShiftType
-                                            </span>
+                                                @if (entry.IsReconciled) { <i class="bi bi-lock-fill ms-1" style="font-size: 0.8em;"></i> }
+                                            </button>
+                                            
                                             <span class="text-muted small">@entry.EmployeeName</span>
                                         </div>
-                                        <div class="small text-muted">@entry.Notes</div>
+                                        
+                                        <div class="fw-bold text-dark fs-5">
+                                            @(string.IsNullOrEmpty(entry.Notes) ? "Standard Entry" : entry.Notes)
+                                        </div>
+                                        <div class="small text-muted">
+                                             Recorded: @entry.ShiftDate.ToString("hh:mm tt")
+                                        </div>
                                     </div>
 
-                                    <!-- SALES -->
+                                    <!-- SALES & ACTIONS -->
                                     <div class="text-end ps-4 border-start">
-                                        <div class="h4 fw-bold text-success mb-0">@entry.TotalSales.ToString("C")</div>
-                                        <div class="small text-muted">Total Sales</div>
+                                        @{
+                                            var totalEarnings = entry.Commission + entry.CashBonus + entry.ClaimsBonus;
+                                        }
+                                        <div class="d-flex gap-4 justify-content-end mb-2">
+                                            <div>
+                                                <div class="h4 fw-bold text-success mb-0">@totalEarnings.ToString("C")</div>
+                                                <div class="small text-muted">Earnings</div>
+                                            </div>
+                                            <div>
+                                                <div class="h4 fw-bold text-danger mb-0">@entry.NetDue.ToString("C")</div>
+                                                <div class="small text-muted">Net Due</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="d-flex justify-content-end gap-2">
+                                            <button class="btn btn-sm rounded-pill px-3 fw-bold @(entry.IsReconciled ? "btn-success" : "btn-outline-success")"
+                                                    @onclick="() => ToggleLotteryVerify(entry)"
+                                                    disabled="@(_isLotterySaving)">
+                                                @if (entry.IsReconciled)
+                                                {
+                                                    <span><i class="bi bi-check-lg me-1"></i> Verified</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Verify</span>
+                                                }
+                                            </button>
+                                            
+                                            @if (!entry.IsReconciled)
+                                            {
+                                                <button class="btn btn-sm btn-light border rounded-circle text-muted" 
+                                                        style="width: 32px; height: 32px; padding: 0;"
+                                                        title="Edit - coming soon"
+                                                        disabled>
+                                                    <i class="bi bi-pencil-fill small"></i>
+                                                </button>
+                                            }
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1379,8 +1443,50 @@
             var enteredDate = new DateTime(_selectedEntryYear, _selectedMonth, _selectedDay, _selectedHour, _selectedMinute, 0);
             _lotteryModel.ShiftDate = enteredDate;
             
-            // Add CreatedBy info if available (placeholder for now)
-            await Task.Run(() => LotteryService.CreateShift(_lotteryModel, "Admin"));
+            Logger.LogInformation($"Submitting Lottery Entry (Direct SQL): Commission={_lotteryModel.Commission}, Cash={_lotteryModel.CashBonus}, Claims={_lotteryModel.ClaimsBonus}, NetDue={_lotteryModel.NetDue}");
+
+            // DIRECT SQL INSERT to bypass potential repository caching issues
+            using var db = await DbFactory.CreateDbContextAsync();
+            using var connection = new Microsoft.Data.SqlClient.SqlConnection(db.Database.GetConnectionString());
+            await connection.OpenAsync();
+            
+            var sql = @"
+                INSERT INTO LotteryShifts (
+                    ShiftDate, EmployeeName, ShiftType, MachineId,
+                    StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                    Commission, CashBonus, ClaimsBonus, NetDue,
+                    Notes, Status, IsReconciled, CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+                )
+                VALUES (
+                    @ShiftDate, @EmployeeName, @ShiftType, @MachineId,
+                    @StartingCash, @EndingCash, @TotalSales, @TotalPayouts, @TotalCancels,
+                    @Commission, @CashBonus, @ClaimsBonus, @NetDue,
+                    @Notes, @Status, @IsReconciled, @CreatedBy, @CreatedDate, @ModifiedBy, @ModifiedDate
+                );";
+
+            using var command = new Microsoft.Data.SqlClient.SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@ShiftDate", _lotteryModel.ShiftDate);
+            command.Parameters.AddWithValue("@EmployeeName", _lotteryModel.EmployeeName ?? "");
+            command.Parameters.AddWithValue("@ShiftType", (object)_lotteryModel.ShiftType ?? DBNull.Value);
+            command.Parameters.AddWithValue("@MachineId", (object)_lotteryModel.MachineId ?? DBNull.Value);
+            command.Parameters.AddWithValue("@StartingCash", _lotteryModel.StartingCash);
+            command.Parameters.AddWithValue("@EndingCash", _lotteryModel.EndingCash);
+            command.Parameters.AddWithValue("@TotalSales", _lotteryModel.TotalSales);
+            command.Parameters.AddWithValue("@TotalPayouts", _lotteryModel.TotalPayouts);
+            command.Parameters.AddWithValue("@TotalCancels", _lotteryModel.TotalCancels);
+            command.Parameters.AddWithValue("@Commission", _lotteryModel.Commission);
+            command.Parameters.AddWithValue("@CashBonus", _lotteryModel.CashBonus);
+            command.Parameters.AddWithValue("@ClaimsBonus", _lotteryModel.ClaimsBonus);
+            command.Parameters.AddWithValue("@NetDue", _lotteryModel.NetDue);
+            command.Parameters.AddWithValue("@Notes", (object)_lotteryModel.Notes ?? DBNull.Value);
+            command.Parameters.AddWithValue("@Status", "Submitted");
+            command.Parameters.AddWithValue("@IsReconciled", false);
+            command.Parameters.AddWithValue("@CreatedBy", "Admin");
+            command.Parameters.AddWithValue("@CreatedDate", DateTime.Now);
+            command.Parameters.AddWithValue("@ModifiedBy", DBNull.Value);
+            command.Parameters.AddWithValue("@ModifiedDate", DBNull.Value);
+
+            await command.ExecuteNonQueryAsync();
 
             _showSuccess = true;
             
@@ -1411,6 +1517,113 @@
         finally
         {
             _isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+
+
+    private async Task AdjustLotteryDate(LotteryShift entry, int days)
+    {
+        if (_isLotterySaving) return;
+        _isLotterySaving = true;
+        StateHasChanged();
+
+        try
+        {
+            var newDate = entry.ShiftDate.AddDays(days);
+            
+            using var db = await DbFactory.CreateDbContextAsync();
+            using var connection = new Microsoft.Data.SqlClient.SqlConnection(db.Database.GetConnectionString());
+            await connection.OpenAsync();
+            
+            var sql = "UPDATE LotteryShifts SET ShiftDate = @NewDate WHERE ShiftId = @ShiftId";
+            using var command = new Microsoft.Data.SqlClient.SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@NewDate", newDate);
+            command.Parameters.AddWithValue("@ShiftId", entry.ShiftId);
+            
+            await command.ExecuteNonQueryAsync();
+            
+            // Update UI
+            entry.ShiftDate = newDate;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error adjusting lottery date: {ex.Message}");
+        }
+        finally
+        {
+            _isLotterySaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleLotteryShift(LotteryShift entry)
+    {
+        if (_isLotterySaving) return;
+        _isLotterySaving = true;
+        StateHasChanged();
+
+        try
+        {
+            var newShift = entry.ShiftType == "Day" ? "Night" : "Day";
+            
+            using var db = await DbFactory.CreateDbContextAsync();
+            using var connection = new Microsoft.Data.SqlClient.SqlConnection(db.Database.GetConnectionString());
+            await connection.OpenAsync();
+            
+            var sql = "UPDATE LotteryShifts SET ShiftType = @NewShift WHERE ShiftId = @ShiftId";
+            using var command = new Microsoft.Data.SqlClient.SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@NewShift", newShift);
+            command.Parameters.AddWithValue("@ShiftId", entry.ShiftId);
+            
+            await command.ExecuteNonQueryAsync();
+            
+            // Update UI
+            entry.ShiftType = newShift;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error toggling lottery shift: {ex.Message}");
+        }
+        finally
+        {
+            _isLotterySaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleLotteryVerify(LotteryShift entry)
+    {
+        if (_isLotterySaving) return;
+        _isLotterySaving = true;
+        StateHasChanged();
+
+        try
+        {
+            var newStatus = !entry.IsReconciled;
+            
+            using var db = await DbFactory.CreateDbContextAsync();
+            using var connection = new Microsoft.Data.SqlClient.SqlConnection(db.Database.GetConnectionString());
+            await connection.OpenAsync();
+            
+            var sql = "UPDATE LotteryShifts SET IsReconciled = @Status WHERE ShiftId = @ShiftId";
+            using var command = new Microsoft.Data.SqlClient.SqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@Status", newStatus);
+            command.Parameters.AddWithValue("@ShiftId", entry.ShiftId);
+            
+            await command.ExecuteNonQueryAsync();
+            
+            // Update UI
+            entry.IsReconciled = newStatus;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error verifying lottery entry: {ex.Message}");
+        }
+        finally
+        {
+            _isLotterySaving = false;
             StateHasChanged();
         }
     }
@@ -2154,7 +2367,7 @@
             await connection.OpenAsync();
             
             var sql = @"
-                SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, TotalSales, Notes 
+                SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, TotalSales, Notes, Commission, CashBonus, ClaimsBonus, NetDue
                 FROM LotteryShifts 
                 ORDER BY ShiftDate DESC";
                 
@@ -2170,7 +2383,11 @@
                     EmployeeName = reader.IsDBNull(2) ? "" : reader.GetString(2),
                     ShiftType = reader.IsDBNull(3) ? "Day" : reader.GetString(3),
                     TotalSales = reader.GetDecimal(4),
-                    Notes = reader.IsDBNull(5) ? null : reader.GetString(5)
+                    Notes = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    Commission = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
+                    CashBonus = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
+                    ClaimsBonus = reader.IsDBNull(8) ? 0 : reader.GetDecimal(8),
+                    NetDue = reader.IsDBNull(9) ? 0 : reader.GetDecimal(9)
                 });
             }
         }
