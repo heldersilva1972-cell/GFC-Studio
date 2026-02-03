@@ -188,13 +188,13 @@
                 <i class="bi bi-journal-text"></i> Bar Sales
             </button>
             <button class="nav-tab-btn @(_activeView == "compliance" ? "active" : "")" @onclick="LoadComplianceView">
-                <i class="bi bi-calendar-check"></i> Compliance
+                <i class="bi bi-calendar-check"></i> Data Entry Compliance
             </button>
             <button class="nav-tab-btn @(_activeView == "analysis" ? "active" : "")" @onclick="LoadAnalysisView">
-                <i class="bi bi-calculator"></i> Revenue Analysis
+                <i class="bi bi-calculator"></i> Bar Revenue Analysis
             </button>
             <button class="nav-tab-btn @(_activeView == "lottery" ? "active" : "")" @onclick="LoadLotteryView">
-                <i class="bi bi-ticket-perforated"></i> Lottery
+                <i class="bi bi-ticket-perforated"></i> Lottery Sales
             </button>
         </div>
 
@@ -1704,7 +1704,13 @@
         await _dataLock.WaitAsync();
         try
         {
+            _errorDetails = null; // Clear previous errors
             await LoadDataInternal(recalculateStats);
+        }
+        catch (Exception ex)
+        {
+            _errorDetails = $"Data Load Error: {ex.Message}";
+            Logger.LogError(ex, "Failed to load bar sales data");
         }
         finally
         {
@@ -1722,12 +1728,7 @@
         // Base Query - ALWAYS use AsNoTracking for read-only performance
         var query = db.BarSaleEntries.AsNoTracking().AsQueryable();
 
-        if (!string.IsNullOrEmpty(_selectedDayFilter))
-        {
-            var targetDay = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), _selectedDayFilter);
-            query = query.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
-        }
-
+        // Base Query - Apply SQL-translatable filters first
         if (!string.IsNullOrEmpty(_jumpShiftFilter))
         {
             query = query.Where(e => e.Shift == _jumpShiftFilter);
@@ -1743,16 +1744,38 @@
                 (e.AdjustedSaleDate == null && e.SaleDate >= start && e.SaleDate < end));
         }
 
-        _totalEntries = await query.CountAsync();
+        // FETCH DATA: Execute SQL now to bring data into memory
+        // This is necessary because EF Core cannot translate complex date math (DayOfWeek) reliably on all providers
+        var dbData = await query.ToListAsync();
+
+        // IN-MEMORY FILTERING
+        var filteredData = dbData.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(_selectedDayFilter) && Enum.TryParse<DayOfWeek>(_selectedDayFilter, out var targetDay))
+        {
+            filteredData = filteredData.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).DayOfWeek == targetDay);
+        }
+
+        var finalList = filteredData.ToList();
+        _totalEntries = finalList.Count;
 
         if (recalculateStats || _grandTotalRevenue == 0)
         {
-            if (_grandTotalRevenue == 0 || recalculateStats)
-            {
+             // For stats, we usually want the total of the CURRENT VIEW or ALL TIME?
+             // Usually dashboard totals are "All Time", but usage varies. 
+             // Existing code calculated grand total on the DATABASE (all time). 
+             // If we just fetched all matching rows above, we can just sum them if filters are active.
+             // BUT, _grandTotalRevenue usually implies "lifetime".
+             // Let's keep lifetime stats calculation separate as a DB call if needed, or just sum what we have if no filters.
+             // ACTUALLY, checking previous code: it recalculated based on "db.BarSaleEntries" directly for grand total.
+             // We'll leave the stats calculation block below alone as it accesses 'db' directly, 
+             // BUT we must ensure we aren't using the filtered query if we want global stats.
+             
+             if (_grandTotalRevenue == 0 || recalculateStats)
+             {
                 _grandTotalRevenue = await db.BarSaleEntries.AsNoTracking().SumAsync(x => (decimal?)x.TotalSales) ?? 0;
                 _grandTotalItemsSold = await db.BarSaleEntries.AsNoTracking().SumAsync(x => (int?)x.TotalItemsSold) ?? 0;
                 
-                // Calculate Annual Breakdown
                 var annualStats = await db.BarSaleEntries.AsNoTracking()
                     .GroupBy(x => (x.AdjustedSaleDate ?? x.SaleDate).Year)
                     .Select(g => new { Year = g.Key, Total = g.Sum(x => (decimal?)x.TotalSales) ?? 0 })
@@ -1762,21 +1785,27 @@
 
                 StateCache.GrandTotalRevenue = _grandTotalRevenue;
                 StateCache.GrandTotalItemsSold = _grandTotalItemsSold;
-            }
+             }
         }
 
-        _entries = await query
+        // Apply Ordering and Pagination in Memory
+        _entries = finalList
             .OrderByDescending(e => e.SaleDate)
             .Skip((_currentPage - 1) * _pageSize)
             .Take(_pageSize)
-            .ToListAsync();
+            .ToList();
 
         if (!_availableYears.Any())
         {
-            var years = await db.BarSaleEntries.AsNoTracking()
-                .Select(e => e.SaleDate.Year)
-                .Distinct()
-                .ToListAsync();
+            var years = finalList.Select(e => e.SaleDate.Year).Distinct().ToList();
+             // Consolidate with DB if list is filtered? 
+             // Actually, available years should usually be all years.
+             // Let's just fallback to the existing logic if list is empty, or query DB unique years.
+             // The previous logic queried DB. Let's keep it robust.
+             if (!years.Any()) 
+             {
+                 years = await db.BarSaleEntries.AsNoTracking().Select(e => e.SaleDate.Year).Distinct().ToListAsync();
+             }
             
             _availableYears = years.OrderByDescending(y => y).ToList();
 
