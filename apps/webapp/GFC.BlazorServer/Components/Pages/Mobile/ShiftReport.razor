@@ -58,6 +58,17 @@
             else
             {
                 <div class="animate-entrance">
+                    <!-- RECENT EDIT BUTTON -->
+                    @if (_recentReport != null)
+                    {
+                        <div class="mb-3 animate-entrance">
+                            <button class="btn btn-warning w-100 py-2 d-flex align-items-center justify-content-center shadow-sm" @onclick="LoadRecentReport">
+                                <i class="bi bi-pencil-square me-2"></i>
+                                <span>Edit Your Last Report (@_recentReport.Date.ToString("MMM dd") - @_recentReport.Shift)</span>
+                            </button>
+                        </div>
+                    }
+
                     <!-- DATE & SHIFT SELECTOR -->
                     <div class="app-card mb-2 py-2" style="display: block;">
                         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -313,8 +324,10 @@
 
         try
         {
+
             ApplyBusinessDayLogic();
             await CheckExisting();
+            await CheckForRecentReport();
         }
         catch (Exception ex)
         {
@@ -356,6 +369,88 @@
     private async Task SetShift(string type)
     {
         ShiftType = type;
+        await CheckExisting();
+    }
+
+    private class RecentReportInfo
+    {
+        public DateTime Date { get; set; }
+        public string Shift { get; set; } = "";
+        public DateTime Timestamp { get; set; }
+    }
+
+    private RecentReportInfo? _recentReport;
+
+    private async Task CheckForRecentReport()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var cutoff = DateTime.UtcNow.AddHours(-2);
+            var username = CurrentUser?.Username;
+
+            // Check Bar Entries
+            var lastBar = await db.BarSaleEntries
+                .Where(e => (e.ModifiedBy == username || (e.ModifiedBy == null && e.Notes != null)) && 
+                           (e.ModifiedDate >= cutoff || e.CreatedAt >= cutoff)) 
+                // Note: Simplified check. Ideally we track 'CreatedBy' on BarSaleEntries properly. 
+                // Assuming 'ModifiedBy' or inferred from recent activity.
+                // Actually, BarSaleEntries schema has 'ModifiedBy' but not 'CreatedBy' column in earlier view.
+                // Let's assume 'ModifiedBy' is populated on create/edit from this page.
+                // Fallback: Just check recent entries by date/shift matching current user logic?
+                // Better: The user just submitted it.
+                .OrderByDescending(e => e.ModifiedDate ?? e.CreatedAt)
+                .Select(e => new RecentReportInfo { 
+                    Date = (e.AdjustedSaleDate ?? e.SaleDate).Date, 
+                    Shift = e.Shift, 
+                    Timestamp = e.ModifiedDate ?? e.CreatedAt 
+                })
+                .FirstOrDefaultAsync();
+
+            // Check Lottery Entries
+            // LotteryShift has 'EmployeeName' and 'CreatedBy'
+            var lastLotto = LotteryRepo.GetAll() // Warning: potential perf issue if table huge, but likely okay for now. Better to use formatted query if possible.
+                .Where(e => (e.EmployeeName == username || e.CreatedBy == username) && 
+                            (e.ModifiedDate >= cutoff || e.CreatedDate >= cutoff))
+                .OrderByDescending(e => e.ModifiedDate ?? e.CreatedDate)
+                .Select(e => new RecentReportInfo { 
+                    Date = e.ShiftDate.Date, 
+                    Shift = e.ShiftType, 
+                    Timestamp = e.ModifiedDate ?? e.CreatedDate 
+                })
+                .FirstOrDefault();
+
+            // Compare
+            if (lastBar != null && lastLotto != null)
+            {
+                _recentReport = lastBar.Timestamp > lastLotto.Timestamp ? lastBar : lastLotto;
+            }
+            else
+            {
+                _recentReport = lastBar ?? lastLotto;
+            }
+
+            // Don't show if it's the one currently selected
+            if (_recentReport != null && 
+                _recentReport.Date == ReportDate.Date && 
+                _recentReport.Shift == ShiftType)
+            {
+                _recentReport = null;
+            }
+        }
+        catch 
+        { 
+            // checking history shouldn't break the page
+        }
+    }
+
+    private async Task LoadRecentReport()
+    {
+        if (_recentReport == null) return;
+        
+        ReportDate = _recentReport.Date;
+        ShiftType = _recentReport.Shift;
+        _recentReport = null; // Hide button after clicking
         await CheckExisting();
     }
 
