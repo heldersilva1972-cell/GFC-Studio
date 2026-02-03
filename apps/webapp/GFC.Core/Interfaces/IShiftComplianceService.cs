@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 
 namespace GFC.Core.Interfaces;
 
-public record MissingShiftAlert(DateTime Date, string ShiftType, string Message);
+public record MissingShiftAlert(DateTime Date, string ShiftType, string Message, string? AssignedBartender = null);
 
 public interface IShiftComplianceService
 {

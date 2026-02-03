@@ -45,7 +45,7 @@
                 <p class="text-muted small">Access your shift tools and analytics.</p>
             </div>
 
-            @if (!IsLoading && _missingShifts.Any() && HasAccessTo("Shift Sales Alert"))
+            @if (!IsLoading && _validMissingShifts.Any() && HasAccessTo("Shift Sales Alert"))
             {
                 <div class="alert alert-warning border-0 shadow-sm rounded-4 mb-4 animate-entrance" style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b !important;">
                     <div class="d-flex align-items-center gap-3">
@@ -54,9 +54,9 @@
                         </div>
                         <div style="flex-grow: 1;">
                             <div class="fw-bold text-dark small text-uppercase" style="letter-spacing: 0.5px;">Shift Sales Alert</div>
-                            <div class="text-muted" style="font-size: 0.75rem;">@_missingShifts.Count report(s) are missing from the last 48 hours.</div>
+                            <div class="text-muted" style="font-size: 0.75rem;">@_validMissingShifts.Count report(s) are missing from the last 48 hours.</div>
                         </div>
-                        <button class="btn btn-warning btn-sm rounded-pill fw-bold px-3" @onclick='() => NavigateTo("/mobile/shift-report")'>Fix</button>
+                        <button class="btn btn-warning btn-sm rounded-pill fw-bold px-3" @onclick="OpenMissingShiftsModal">View</button>
                     </div>
                 </div>
             }
@@ -212,10 +212,53 @@
     </main>
 
     <!-- BOTTOM BAR -->
+    <!-- BOTTOM BAR -->
     <div class="fixed-bottom-nav">
         <MobileBottomNav ActiveTab="Home" />
     </div>
 </div>
+
+<!-- MISSING SHIFTS MODAL -->
+@if (_showMissingShiftsModal)
+{
+    <div class="modal-backdrop-custom" @onclick="CloseMissingShiftsModal"></div>
+    <div class="bottom-sheet">
+        <div class="sheet-handle"></div>
+        <div class="p-4">
+            <h5 class="fw-bold mb-3">Missing Shift Reports</h5>
+            <p class="text-muted small mb-3">The following shifts have not been submitted.</p>
+            
+            <div class="list-group list-group-flush mb-3">
+                @foreach (var shift in _validMissingShifts)
+                {
+                    <div class="list-group-item px-0 py-3 d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="result-icon-box @(shift.ShiftType == "Day" ? "bg-warning bg-opacity-10 text-warning" : "bg-primary bg-opacity-10 text-primary")">
+                                <i class="bi @(shift.ShiftType == "Day" ? "bi-sun-fill" : "bi-moon-stars-fill")"></i>
+                            </div>
+                            <div>
+                                <div class="fw-bold">@shift.Date.ToString("ddd, MMM dd") - @shift.ShiftType</div>
+                                <div class="text-muted small">
+                                    <i class="bi bi-person-circle me-1"></i>
+                                    @(string.IsNullOrEmpty(shift.AssignedBartender) ? "Unassigned" : shift.AssignedBartender)
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn-light btn-sm rounded-circle shadow-sm text-muted" 
+                                style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;"
+                                @onclick="() => DismissSingleShift(shift)">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <div class="d-grid">
+                <button class="btn btn-light py-3" @onclick="CloseMissingShiftsModal">Close</button>
+            </div>
+        </div>
+    </div>
+}
 
 <style>
     .mobile-hub-container {
@@ -259,6 +302,45 @@
         background: white;
         z-index: 1000;
     }
+
+    .modal-backdrop-custom {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1040;
+    }
+    .bottom-sheet {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: white;
+        border-radius: 24px 24px 0 0;
+        z-index: 1050;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+        animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .sheet-handle {
+        width: 40px;
+        height: 4px;
+        background: #ddd;
+        border-radius: 2px;
+        margin: 12px auto;
+    }
+    
+    .result-icon-box {
+        width: 40px; 
+        height: 40px; 
+        border-radius: 10px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
+        font-size: 1.1rem;
+    }
+
+    @@keyframes slideUp {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+    }
 </style>
 
 @code {
@@ -266,6 +348,11 @@
     private bool IsLoading { get; set; } = true;
     private HashSet<string> UserRoutes { get; set; } = new();
     private List<MissingShiftAlert> _missingShifts = new();
+    private HashSet<string> _dismissedShiftIds = new();
+    private bool _showMissingShiftsModal = false;
+    
+    private List<MissingShiftAlert> _validMissingShifts => 
+        _missingShifts.Where(s => !_dismissedShiftIds.Contains(GetShiftId(s))).ToList();
     
     private bool IsAdmin { get; set; }
     private bool HasAnyMobileTools => IsAdmin || UserRoutes.Any(r => r.Contains("mobile"));
@@ -295,6 +382,7 @@
             
             if (HasAccessTo("Shift Sales Alert"))
             {
+                await LoadDismissedShifts();
                 _missingShifts = await ShiftComplianceService.GetMissingShiftsAsync();
             }
             
@@ -329,6 +417,7 @@
 
                 if (HasAccessTo("Shift Sales Alert"))
                 {
+                    await LoadDismissedShifts();
                     _missingShifts = await ShiftComplianceService.GetMissingShiftsAsync();
                 }
             }
@@ -378,6 +467,63 @@
         Navigation.NavigateTo("/mobile");
     }
 
+    private void OpenMissingShiftsModal()
+    {
+        _showMissingShiftsModal = true;
+    }
+
+    private void CloseMissingShiftsModal()
+    {
+        _showMissingShiftsModal = false;
+    }
+
+    private string GetShiftId(MissingShiftAlert shift)
+    {
+        return $"{shift.Date:yyyy-MM-dd}_{shift.ShiftType}";
+    }
+
+    private async Task LoadDismissedShifts()
+    {
+        try
+        {
+            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_dismissed_shifts");
+            if (!string.IsNullOrEmpty(json))
+            {
+                var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json);
+                if (list != null)
+                {
+                    _dismissedShiftIds = new HashSet<string>(list);
+                }
+            }
+        }
+        catch { /* ignore JS errors */ }
+    }
+
+    private async Task DismissSingleShift(MissingShiftAlert shift)
+    {
+        var id = GetShiftId(shift);
+        if (!_dismissedShiftIds.Contains(id))
+        {
+            _dismissedShiftIds.Add(id);
+            await SaveDismissedShifts();
+            
+            if (!_validMissingShifts.Any())
+            {
+                _showMissingShiftsModal = false;
+            }
+        }
+    }
+
+    private async Task SaveDismissedShifts()
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(_dismissedShiftIds.ToList());
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_dismissed_shifts", json);
+        }
+        catch { /* ignore JS errors */ }
+    }
+    
     private async Task HandleLogout()
     {
         try
