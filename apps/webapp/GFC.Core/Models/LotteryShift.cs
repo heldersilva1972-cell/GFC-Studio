@@ -44,6 +44,7 @@ namespace GFC.Core.Models
         public DateTime CreatedDate { get; set; }
         public string? ModifiedBy { get; set; }
         public DateTime? ModifiedDate { get; set; }
+        public string? TicketImageUrl { get; set; }
     }
 }
 

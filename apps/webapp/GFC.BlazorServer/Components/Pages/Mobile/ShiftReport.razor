@@ -12,6 +12,7 @@
 @inject IJSRuntime JSRuntime
 @inject IAuditLogger AuditLogger
 @using GFC.BlazorServer.Components.Shared.Mobile
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Environment
 @attribute [Authorize]
 
 <PageTitle>End of shift sales | GFC Staff</PageTitle>
@@ -97,20 +98,75 @@
                         </div>
                     </div>
 
-                    @if (ExistingEntryFound)
+                    @if (ExistingEntryFound && !IsEditingExisting)
                     {
-                        <div class="alert alert-info py-2 px-3 mb-2 border-0 rounded-3 d-flex align-items-center" style="font-size: 0.75rem;">
-                            <i class="bi bi-info-circle-fill me-2"></i>
-                            <span>Existing record found. Changes will be tracked.</span>
+                        <!-- SUMMARY CARD (ReadOnly) -->
+                        <div class="app-card mb-3 py-4 text-center animate-entrance">
+                            <div class="mb-3 mx-auto bg-light rounded-circle d-flex align-items-center justify-content-center" style="width: 64px; height: 64px;">
+                                <i class="bi bi-file-earmark-check-fill text-success fs-2"></i>
+                            </div>
+                            <h5 class="fw-bold mb-1">Report Submitted</h5>
+                            <p class="text-muted small mb-4">A report for this shift has already been recorded.</p>
+                            
+                            <div class="row g-2 mb-4">
+                                <div class="col-6">
+                                    <div class="p-2 bg-light rounded">
+                                        <div class="extra-small text-muted">Bar Sales</div>
+                                        <div class="fw-bold">$@((ExistingBarEntry?.TotalSales ?? 0).ToString("N2"))</div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="p-2 bg-light rounded">
+                                        <div class="extra-small text-muted">Lotto Sales</div>
+                                        <div class="fw-bold">$@((ExistingLottoEntry?.TotalSales ?? 0).ToString("N2"))</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-outline-primary w-100 py-2 d-flex align-items-center justify-content-center" @onclick="StartEditing">
+                                <i class="bi bi-pencil me-2"></i> Edit This Report
+                            </button>
+                            
+                            @if (_recentReport != null)
+                            {
+                                <div class="mt-3 pt-3 border-top">
+                                    <p class="text-muted extra-small mb-2">OTHER RECENT REPORTS</p>
+                                    <button class="btn btn-sm btn-link text-decoration-none" @onclick="LoadRecentReport">
+                                        Edit report for @_recentReport.Date.ToString("MMM dd") (@_recentReport.Shift)
+                                    </button>
+                                </div>
+                            }
                         </div>
                     }
-
-                    <div class="app-card mb-2 py-2" style="display: block;">
-                        <div class="mb-2">
+                    else
+                    {
+                        <!-- EDIT FORM -->
+                        <div class="app-card mb-2 py-2" style="display: block;">
+                            <div class="mb-2">
                             <label class="modern-label small">Bar Sales</label>
                             <div class="d-flex align-items-center gap-2">
                                 <span class="fs-4 fw-bold text-muted opacity-50">$</span>
                                 <input type="number" step="0.01" inputmode="decimal" class="modern-big-input-compact" placeholder="0.00" @bind-value="BarSales" onfocus="this.select()" />
+                            </div>
+                        </div>
+
+                        <!-- TICKET UPLOAD -->
+                        <div class="mb-3">
+                            <label class="modern-label small">Lottery Ticket (Optional)</label>
+                            <div class="d-flex align-items-center gap-2 p-2 bg-white rounded border">
+                                @if (!string.IsNullOrEmpty(TicketImageUrl))
+                                {
+                                     <div style="width: 40px; height: 40px; background-image: url('@TicketImageUrl'); background-size: cover; background-position: center; border-radius: 6px; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" @onclick='() => JSRuntime.InvokeVoidAsync("window.open", TicketImageUrl, "_blank")'></div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex align-items-center justify-content-center text-muted bg-light rounded" style="width: 40px; height: 40px; flex-shrink: 0;">
+                                        <i class="bi bi-camera-fill"></i>
+                                    </div>
+                                }
+                                <div style="flex-grow: 1; overflow: hidden;">
+                                    <InputFile OnChange="HandleFileSelected" class="form-control form-control-sm border-0" accept="image/*" capture="environment" />
+                                </div>
                             </div>
                         </div>
 
@@ -181,6 +237,7 @@
                             <p class="mb-0 text-muted" style="font-size: 0.65rem; opacity: 0.8;">Data entered will not be saved.</p>
                         </div>
                     </div>
+                }
                 </div>
             }
         </div>
@@ -279,6 +336,8 @@
     private decimal? LottoCommission { get; set; }
     private decimal? LottoCashBonus { get; set; }
     private decimal? LottoClaimsBonus { get; set; }
+    private string? TicketImageUrl { get; set; }
+    
     private string ShiftType { get; set; } = "Day";
     private DateTime ReportDate { get; set; } = DateTime.Today;
     private string? Notes { get; set; }
@@ -288,6 +347,7 @@
     private bool Submitted { get; set; } = false;
     private bool ShowDatePicker { get; set; } = false;
     private bool ExistingEntryFound { get; set; } = false;
+    private bool IsEditingExisting { get; set; } = false;
     
     // Original values for auditing
     private BarSaleEntry? ExistingBarEntry { get; set; }
@@ -439,6 +499,7 @@
         ShiftType = _recentReport.Shift;
         _recentReport = null; // Hide button after clicking
         await CheckExisting();
+        StartEditing(); // Auto-start editing for recent reports
     }
 
     private async Task CheckExisting()
@@ -462,34 +523,12 @@
             if (ExistingBarEntry != null || ExistingLottoEntry != null)
             {
                 ExistingEntryFound = true;
-                BarSales = ExistingBarEntry?.TotalSales > 0 ? ExistingBarEntry.TotalSales : null;
-                LottoSales = ExistingLottoEntry?.TotalSales > 0 ? ExistingLottoEntry.TotalSales : null;
-                
-                // Load bonus fields
-                if (ExistingLottoEntry != null)
-                {
-                    LottoCommission = ExistingLottoEntry.Commission > 0 ? ExistingLottoEntry.Commission : null;
-                    LottoCashBonus = ExistingLottoEntry.CashBonus > 0 ? ExistingLottoEntry.CashBonus : null;
-                    LottoClaimsBonus = ExistingLottoEntry.ClaimsBonus > 0 ? ExistingLottoEntry.ClaimsBonus : null;
-                }
-                else
-                {
-                    LottoCommission = null;
-                    LottoCashBonus = null;
-                    LottoClaimsBonus = null;
-                }
-
-                Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
+                // DO NOT populate fields yet. Wait for user to click "Edit".
             }
             else
             {
-                // Clear fields if no existing entry
-                BarSales = null;
-                LottoSales = null;
-                LottoCommission = null;
-                LottoCashBonus = null;
-                LottoClaimsBonus = null;
-                Notes = null;
+                // Clear fields if no existing entry (Ready for new input)
+                ResetFields();
             }
         }
         catch (Exception ex)
@@ -497,6 +536,44 @@
             Console.WriteLine($"Error checking existing entry: {ex.Message}");
         }
     }
+
+    private void ResetFields()
+    {
+        BarSales = null;
+        LottoSales = null;
+        LottoCommission = null;
+        LottoCashBonus = null;
+        LottoClaimsBonus = null;
+        TicketImageUrl = null;
+        Notes = null;
+        IsEditingExisting = false;
+    }
+
+    private void StartEditing()
+    {
+        IsEditingExisting = true;
+        
+        BarSales = ExistingBarEntry?.TotalSales > 0 ? ExistingBarEntry.TotalSales : null;
+        LottoSales = ExistingLottoEntry?.TotalSales > 0 ? ExistingLottoEntry.TotalSales : null;
+        
+        if (ExistingLottoEntry != null)
+        {
+            LottoCommission = ExistingLottoEntry.Commission > 0 ? ExistingLottoEntry.Commission : null;
+            LottoCashBonus = ExistingLottoEntry.CashBonus > 0 ? ExistingLottoEntry.CashBonus : null;
+            LottoClaimsBonus = ExistingLottoEntry.ClaimsBonus > 0 ? ExistingLottoEntry.ClaimsBonus : null;
+            TicketImageUrl = ExistingLottoEntry.TicketImageUrl;
+        }
+        else
+        {
+            LottoCommission = null;
+            LottoCashBonus = null;
+            LottoClaimsBonus = null;
+            TicketImageUrl = null;
+        }
+
+        Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
+    }
+
 
     private void PrepareNewSubmission()
     {
@@ -508,10 +585,18 @@
 
     private async Task HandleSubmit()
     {
-        if ((BarSales ?? 0) <= 0 && (LottoSales ?? 0) <= 0)
+        // Validate Bar Sales is present
+        if (BarSales == null)
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Please enter sales amount for Bar or Lottery.");
+            await JSRuntime.InvokeVoidAsync("alert", "Bar Sales is required. Please enter '0' if there were no sales.");
             return;
+        }
+
+        // Validate at least something interesting is happening (sanity check)
+        if ((BarSales ?? 0) <= 0 && (LottoSales ?? 0) <= 0 && (LottoCommission ?? 0) <= 0)
+        {
+             // Optional: Warn if everything is zero?
+             // For now, just relying on BarSales check is enough for the user request.
         }
 
         IsSubmitting = true;
@@ -580,9 +665,11 @@
                 ExistingLottoEntry.CashBonus = LottoCashBonus ?? 0;
                 ExistingLottoEntry.ClaimsBonus = LottoClaimsBonus ?? 0;
                 ExistingLottoEntry.Notes = Notes;
+                if (TicketImageUrl != null) ExistingLottoEntry.TicketImageUrl = TicketImageUrl;
+                
                 LotteryRepo.Update(ExistingLottoEntry);
             }
-            else if ((LottoSales ?? 0) > 0 || (LottoCommission ?? 0) > 0 || (LottoCashBonus ?? 0) > 0 || (LottoClaimsBonus ?? 0) > 0)
+            else if ((LottoSales ?? 0) > 0 || (LottoCommission ?? 0) > 0 || (LottoCashBonus ?? 0) > 0 || (LottoClaimsBonus ?? 0) > 0 || TicketImageUrl != null)
             {
                 // NEW
                 var lottoShift = new LotteryShift
@@ -596,6 +683,7 @@
                     ClaimsBonus = LottoClaimsBonus ?? 0,
                     OriginalTotalSales = LottoSales ?? 0,
                     Notes = Notes,
+                    TicketImageUrl = TicketImageUrl,
                     CreatedBy = CurrentUser?.Username,
                     CreatedDate = DateTime.UtcNow,
                     Status = "Submitted"
@@ -607,9 +695,7 @@
             StateHasChanged();
             
             // Clear form values immediately to prevents stale data on return
-            BarSales = null;
-            LottoSales = null;
-            Notes = null;
+            ResetFields();
             ExistingEntryFound = false;
             ExistingBarEntry = null;
             ExistingLottoEntry = null;
@@ -625,6 +711,43 @@
         finally
         {
             IsSubmitting = false;
+        }
+    }
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        try 
+        {
+            var file = e.File;
+            if (file == null) return;
+
+            // Limit size to 10MB
+            if (file.Size > 10 * 1024 * 1024) 
+            {
+               await JSRuntime.InvokeVoidAsync("alert", "File is too large.");
+               return;
+            }
+
+            var folderPath = Path.Combine(Environment.WebRootPath, "uploads", "lottery");
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+            
+            // Cleanup old filename if needed or use GUID
+            var fileName = $"{ReportDate:yyyy-MM-dd}_{ShiftType}_{Guid.NewGuid()}{Path.GetExtension(file.Name)}";
+            var fullPath = Path.Combine(folderPath, fileName);
+            
+            using var stream = file.OpenReadStream(10 * 1024 * 1024);
+            using var fileStream = new FileStream(fullPath, FileMode.Create);
+            await stream.CopyToAsync(fileStream);
+            
+            TicketImageUrl = $"/uploads/lottery/{fileName}";
+            StateHasChanged();
+        }
+        catch(Exception ex)
+        {
+             Console.WriteLine($"Upload failed: {ex.Message}");
+             await JSRuntime.InvokeVoidAsync("alert", "Upload failed: " + ex.Message);
         }
     }
 }
