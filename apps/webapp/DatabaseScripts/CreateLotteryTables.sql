@@ -17,6 +17,11 @@ BEGIN
         [TotalSales] DECIMAL(18,2) NOT NULL DEFAULT 0,
         [TotalPayouts] DECIMAL(18,2) NOT NULL DEFAULT 0,
         [TotalCancels] DECIMAL(18,2) NOT NULL DEFAULT 0,
+        [Commission] DECIMAL(18,2) NOT NULL DEFAULT 0,
+        [CashBonus] DECIMAL(18,2) NOT NULL DEFAULT 0,
+        [ClaimsBonus] DECIMAL(18,2) NOT NULL DEFAULT 0,
+        [NetDue] DECIMAL(18,2) NOT NULL DEFAULT 0,
+        [OriginalTotalSales] DECIMAL(18,2) NULL,
         [Notes] NVARCHAR(1000) NULL,
         [Status] NVARCHAR(50) NULL,
         [IsReconciled] BIT NOT NULL DEFAULT 0,
@@ -25,7 +30,8 @@ BEGIN
         [CreatedBy] NVARCHAR(100) NULL,
         [CreatedDate] DATETIME NOT NULL DEFAULT GETUTCDATE(),
         [ModifiedBy] NVARCHAR(100) NULL,
-        [ModifiedDate] DATETIME NULL
+        [ModifiedDate] DATETIME NULL,
+        [TicketImageUrl] NVARCHAR(500) NULL
     );
     
     CREATE INDEX [IX_LotteryShifts_ShiftDate] ON [dbo].[LotteryShifts]([ShiftDate] DESC);

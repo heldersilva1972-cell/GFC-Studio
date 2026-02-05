@@ -17,7 +17,7 @@ namespace GFC.Data.Repositories
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
                     WHERE ShiftId = @ShiftId";
                 using var command = new SqlCommand(sql, connection);
@@ -44,7 +44,7 @@ namespace GFC.Data.Repositories
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
                     WHERE ShiftDate >= @StartDate AND ShiftDate < DATEADD(day, 1, @EndDate)
                     ORDER BY ShiftDate DESC, EmployeeName";
@@ -77,7 +77,7 @@ namespace GFC.Data.Repositories
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
                     WHERE EmployeeName = @EmployeeName";
                 
@@ -127,7 +127,7 @@ namespace GFC.Data.Repositories
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
                     ORDER BY ShiftDate DESC, EmployeeName";
                 using var command = new SqlCommand(sql, connection);
@@ -157,14 +157,14 @@ namespace GFC.Data.Repositories
                         StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                         Commission, CashBonus, ClaimsBonus, NetDue,
                         Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                        CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+                        CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     )
                     VALUES (
                         @ShiftDate, @EmployeeName, @ShiftType, @MachineId,
                         @StartingCash, @EndingCash, @TotalSales, @TotalPayouts, @TotalCancels,
                         @Commission, @CashBonus, @ClaimsBonus, @NetDue,
                         @Notes, @Status, @IsReconciled, @ReconciledBy, @ReconciledDate,
-                        @CreatedBy, @CreatedDate, @ModifiedBy, @ModifiedDate
+                        @CreatedBy, @CreatedDate, @ModifiedBy, @ModifiedDate, @TicketImageUrl
                     );
                     SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 using var command = new SqlCommand(sql, connection);
@@ -204,7 +204,8 @@ namespace GFC.Data.Repositories
                         ReconciledBy = @ReconciledBy,
                         ReconciledDate = @ReconciledDate,
                         ModifiedBy = @ModifiedBy,
-                        ModifiedDate = @ModifiedDate
+                        ModifiedDate = @ModifiedDate,
+                        TicketImageUrl = @TicketImageUrl
                     WHERE ShiftId = @ShiftId";
                 using var command = new SqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@ShiftId", shift.ShiftId);
@@ -246,7 +247,7 @@ namespace GFC.Data.Repositories
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate
+                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
                     WHERE IsReconciled = 0
                     ORDER BY ShiftDate DESC";
@@ -309,7 +310,8 @@ namespace GFC.Data.Repositories
                 CreatedBy = reader["CreatedBy"] as string,
                 CreatedDate = (DateTime)reader["CreatedDate"],
                 ModifiedBy = reader["ModifiedBy"] as string,
-                ModifiedDate = reader["ModifiedDate"] as DateTime?
+                ModifiedDate = reader["ModifiedDate"] as DateTime?,
+                TicketImageUrl = reader["TicketImageUrl"] as string
             };
         }
 
@@ -337,6 +339,7 @@ namespace GFC.Data.Repositories
             command.Parameters.AddWithValue("@CreatedDate", shift.CreatedDate);
             command.Parameters.AddWithValue("@ModifiedBy", (object?)shift.ModifiedBy ?? DBNull.Value);
             command.Parameters.AddWithValue("@ModifiedDate", (object?)shift.ModifiedDate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@TicketImageUrl", (object?)shift.TicketImageUrl ?? DBNull.Value);
         }
     }
 }
