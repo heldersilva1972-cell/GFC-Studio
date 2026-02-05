@@ -215,6 +215,12 @@ namespace GFC.BlazorServer.Services
                     return;
                 }
 
+                // [SECURITY] SSRF Prevention
+                if (!await IsSafeUrlAsync(url, onLog))
+                {
+                     return;
+                }
+
                 var fileContent = await _httpClient.GetByteArrayAsync(url);
                 var fileName = $"{Guid.NewGuid()}{extension}";
                 var relativePath = Path.Combine("imported_media", fileName);
@@ -252,6 +258,70 @@ namespace GFC.BlazorServer.Services
         private class ScrapeResult
         {
             public string html { get; set; }
+        }
+
+        // [SECURITY] SSRF Validation Helpers
+        private async Task<bool> IsSafeUrlAsync(Uri uri, Action<string> onLog)
+        {
+            if (uri.Scheme != "http" && uri.Scheme != "https") 
+            {
+                onLog($"Skipping unsafe scheme: {uri.Scheme}");
+                return false;
+            }
+
+            if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                onLog($"Skipping loopback host: {uri.Host}");
+                return false;
+            }
+
+            try 
+            {
+                var ips = await System.Net.Dns.GetHostAddressesAsync(uri.Host);
+                foreach (var ip in ips)
+                {
+                    if (IsPrivateIp(ip))
+                    {
+                        onLog($"Skipping private IP address: {ip}");
+                        return false;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // DNS failure invalidates the URL mostly
+                onLog($"DNS resolution failed for: {uri.Host}");
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool IsPrivateIp(System.Net.IPAddress ip)
+        {
+            if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+            
+            if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                // Link local or Site local
+                return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal;
+            }
+
+            var bytes = ip.GetAddressBytes();
+            
+            // 10.0.0.0/8
+            if (bytes[0] == 10) return true;
+            
+            // 172.16.0.0/12
+            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+            
+            // 192.168.0.0/16
+            if (bytes[0] == 192 && bytes[1] == 168) return true;
+            
+            // 169.254.0.0/16
+            if (bytes[0] == 169 && bytes[1] == 254) return true;
+            
+            return false;
         }
     }
 }

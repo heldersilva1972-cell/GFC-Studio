@@ -126,6 +126,7 @@ public class GfcDbContext : DbContext
     public DbSet<LiquorTransaction> LiquorTransactions => Set<LiquorTransaction>();
     public DbSet<LiquorNotificationRule> LiquorNotificationRules => Set<LiquorNotificationRule>();
     public DbSet<UserPageUsage> UserPageUsage => Set<UserPageUsage>();
+    public DbSet<LotteryWeeklyStat> LotteryWeeklyStats => Set<LotteryWeeklyStat>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -72,8 +72,12 @@ public class BylawService : IBylawService
         var doc = await db.BylawDocuments.FindAsync(documentId);
         if (doc == null) throw new KeyNotFoundException("Bylaw document not found");
 
+        // [SECURITY] Sanitize HTML to prevent Stored XSS
+        var sanitizer = new Ganss.Xss.HtmlSanitizer();
+        var sanitizedContent = sanitizer.Sanitize(content);
+
         // Update Document
-        doc.Content = content;
+        doc.Content = sanitizedContent;
         doc.LastUpdatedAt = DateTime.UtcNow;
         doc.LastUpdatedBy = updatedBy;
         doc.CurrentVersion++;
@@ -82,7 +86,7 @@ public class BylawService : IBylawService
         var revision = new BylawRevision
         {
             DocumentId = doc.Id,
-            Content = content,
+            Content = sanitizedContent,
             Version = doc.CurrentVersion,
             RevisionDate = doc.LastUpdatedAt,
             RevisionBy = updatedBy,

@@ -634,6 +634,16 @@
                 var entry = await db.BarSaleEntries.FindAsync(ExistingBarEntry.Id);
                 if (entry != null)
                 {
+                    // [SECURITY] Enforce 2-Hour Edit Window & Ownership
+                    var cutoff = DateTime.UtcNow.AddHours(-2);
+                    var isOwner = (entry.CreatedBy == CurrentUser?.Username) || (entry.CreatedBy == null && entry.ModifiedBy == CurrentUser?.Username);
+                    
+                    if (entry.CreatedAt < cutoff || !isOwner)
+                    {
+                         await JSRuntime.InvokeVoidAsync("alert", "Security Error: Report is locked or access denied.");
+                         return;
+                    }
+
                     // Tracking change
                     if (entry.TotalSales != (BarSales ?? 0))
                     {
@@ -666,12 +676,26 @@
                 };
                 db.BarSaleEntries.Add(barEntry);
                 await db.SaveChangesAsync();
+                
+                AuditLogger.Log("Bar Sales Created", CurrentUser?.UserId, null, 
+                    $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Amount: ${BarSales:N2}");
             }
 
             // 2. Lottery Sales
             if (ExistingLottoEntry != null)
             {
                 // UPDATE
+                // [SECURITY] Enforce 2-Hour Window
+                var cutoff = DateTime.UtcNow.AddHours(-2);
+                var isOwner = (ExistingLottoEntry.CreatedBy == CurrentUser?.Username) || (ExistingLottoEntry.EmployeeName == CurrentUser?.Username);
+                
+                // Use CreatedDate or ModifiedDate for window check roughly, but strictly it's usually creation time for the "shift"
+                if ((ExistingLottoEntry.CreatedDate < cutoff && ExistingLottoEntry.ModifiedDate < cutoff) || !isOwner)
+                {
+                     await JSRuntime.InvokeVoidAsync("alert", "Security Error: Report is locked or access denied.");
+                     return;
+                }
+
                 if (ExistingLottoEntry.TotalSales != (LottoSales ?? 0))
                 {
                     var oldVal = ExistingLottoEntry.TotalSales;
@@ -689,11 +713,7 @@
                 ExistingLottoEntry.ClaimsBonus = LottoClaimsBonus ?? 0;
                 ExistingLottoEntry.Notes = Notes;
                 
-                // [FIX] Cleanup old file if it's being removed or replaced
-                if (!string.IsNullOrEmpty(ExistingLottoEntry.TicketImageUrl) && ExistingLottoEntry.TicketImageUrl != TicketImageUrl)
-                {
-                    DeleteImageFile(ExistingLottoEntry.TicketImageUrl);
-                }
+
 
                 ExistingLottoEntry.TicketImageUrl = TicketImageUrl;
                 
@@ -719,6 +739,9 @@
                     Status = "Submitted"
                 };
                 LotteryRepo.Create(lottoShift);
+                
+                AuditLogger.Log("Lottery Sales Created", CurrentUser?.UserId, null, 
+                    $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Amount: ${LottoSales:N2}");
             }
 
             Submitted = true;
@@ -745,162 +768,5 @@
     }
     // --- CAMERA & UPLOAD LOGIC ---
 
-    private async Task StartLiveCamera()
-    {
-        try 
-        {
-            _isLiveCameraMode = true;
-            _error = null;
-            StateHasChanged();
-            
-            await Task.Delay(300); // UI Render delay
-            await JSRuntime.InvokeVoidAsync("LiquorScanner.startLiveCamera", "lottery-live-feed");
-        }
-        catch (Exception ex)
-        {
-            _isLiveCameraMode = false;
-            _error = "Camera not available: " + ex.Message;
-        }
-    }
 
-    private async Task StopLiveCamera()
-    {
-        _isLiveCameraMode = false;
-        try { await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras"); } catch {}
-        StateHasChanged();
-    }
-
-    private async Task CaptureLivePhoto()
-    {
-        if (_isUploading) return;
-        _isUploading = true;
-        
-        try
-        {
-            var dataUrl = await JSRuntime.InvokeAsync<string>("LiquorScanner.takeSnapshot");
-            
-            if (!string.IsNullOrEmpty(dataUrl))
-            {
-                // Stop camera immediately for better UX
-                _isLiveCameraMode = false;
-                await StopLiveCamera();
-                StateHasChanged();
-
-                // Process Base64
-                var base64Data = dataUrl.Split(',')[1];
-                var bytes = Convert.FromBase64String(base64Data);
-                using var stream = new MemoryStream(bytes);
-                
-                await ProcessAndUploadImage(stream, "LiveCapture.jpg");
-            }
-        }
-        catch (Exception ex)
-        {
-            _error = "Capture failed: " + ex.Message;
-        }
-        finally
-        {
-            _isUploading = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task HandleFileSelected(InputFileChangeEventArgs e)
-    {
-        var file = e.File;
-        if (file == null) return;
-
-        _isUploading = true;
-        _error = null;
-        StateHasChanged();
-
-        try 
-        {
-            // Limit to 15MB
-            if (file.Size > 15 * 1024 * 1024) 
-            {
-               await JSRuntime.InvokeVoidAsync("alert", "File is too large (Max 15MB).");
-               return;
-            }
-
-            using var stream = file.OpenReadStream(15 * 1024 * 1024);
-            using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms);
-            ms.Position = 0;
-            
-            await ProcessAndUploadImage(ms, file.Name);
-        }
-        catch(Exception ex)
-        {
-             _error = "Upload failed: " + ex.Message;
-        }
-        finally
-        {
-            _isUploading = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task ProcessAndUploadImage(Stream inputData, string fileName)
-    {
-        try
-        {
-            // 1. Resize/Compress using ImageSharp
-            using var image = await SixLabors.ImageSharp.Image.LoadAsync(inputData);
-            
-            // Reasonable limit for lottery tickets
-            int maxWidth = 1200;
-            int maxHeight = 1600; 
-            
-            if (image.Width > maxWidth || image.Height > maxHeight)
-            {
-                image.Mutate(x => x.Resize(new ResizeOptions
-                {
-                    Mode = ResizeMode.Max,
-                    Size = new SixLabors.ImageSharp.Size(maxWidth, maxHeight)
-                }));
-            }
-
-            // 2. Determine Path
-            var rootPath = Environment.WebRootPath;
-            if (string.IsNullOrEmpty(rootPath)) rootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var folderPath = Path.Combine(rootPath, "uploads", "lottery");
-            if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
-
-            var dbFileName = $"{ReportDate:yyyy-MM-dd}_{ShiftType}_{Guid.NewGuid()}.jpg";
-            var fullPath = Path.Combine(folderPath, dbFileName);
-
-            // 3. Save
-            using var fileStream = new FileStream(fullPath, FileMode.Create);
-            await image.SaveAsync(fileStream, new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 80 });
-
-            TicketImageUrl = $"/uploads/lottery/{dbFileName}";
-        }
-        catch (Exception ex)
-        {
-            throw new Exception("Processing error: " + ex.Message);
-        }
-    }
-
-    private void DeleteImageFile(string url)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(url)) return;
-            
-            // Convert URL to local path
-            var rootPath = Environment.WebRootPath;
-            if (string.IsNullOrEmpty(rootPath)) rootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            
-            // Extract filename from URL (assumes /uploads/lottery/filename.jpg)
-            var fileName = Path.GetFileName(url);
-            var fullPath = Path.Combine(rootPath, "uploads", "lottery", fileName);
-            
-            if (File.Exists(fullPath))
-            {
-                File.Delete(fullPath);
-            }
-        }
-        catch { /* ignore cleanup errors */ }
-    }
 }

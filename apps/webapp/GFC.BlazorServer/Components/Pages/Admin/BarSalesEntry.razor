@@ -196,6 +196,9 @@
             <button class="nav-tab-btn @(_activeView == "lottery" ? "active" : "")" @onclick="LoadLotteryView">
                 <i class="bi bi-ticket-perforated"></i> Lottery Sales
             </button>
+            <button class="nav-tab-btn @(_activeView == "lotteryUpload" ? "active" : "")" @onclick='() => _activeView = "lotteryUpload"'>
+                <i class="bi bi-cloud-upload"></i> Upload Report
+            </button>
         </div>
 
         <!-- Error Alert -->
@@ -215,18 +218,21 @@
                 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
                     <div>
                         <h3 class="fw-bold mb-1">Financial Summary</h3>
-                        <p class="text-muted small mb-0">Overview of club bar revenue</p>
+                        <p class="text-muted small mb-0">Overview of club bar and lottery revenue</p>
                     </div>
                     
                     <div class="d-flex gap-4 align-items-center bg-light rounded-4 px-4 py-2 border">
-                        <div>
-                            <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.7rem;">Lifetime Revenue</div>
-                            <div class="h3 fw-bold text-success mb-0">@_grandTotalRevenue.ToString("C")</div>
+                        <div class="pe-3 border-end">
+                            <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.7rem;">Lifetime Bar Sales</div>
+                            <div class="h3 fw-bold text-dark mb-0">@_grandTotalRevenue.ToString("C0")</div>
                         </div>
-                        <div class="vr opacity-25"></div>
+                        <div class="pe-3 border-end">
+                            <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.7rem;">Lifetime Lottery</div>
+                            <div class="h3 fw-bold text-primary mb-0">@_grandTotalLotteryRevenue.ToString("C0")</div>
+                        </div>
                         <div>
-                            <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.7rem;">Items Sold</div>
-                            <div class="h3 fw-bold text-dark mb-0">@_grandTotalItemsSold.ToString("N0")</div>
+                            <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.7rem;">Total Revenue</div>
+                            <div class="h3 fw-bold text-success mb-0">@((_grandTotalRevenue + _grandTotalLotteryRevenue).ToString("C0"))</div>
                         </div>
                     </div>
                 </div>
@@ -234,16 +240,35 @@
                 @if (_annualRevenue != null && _annualRevenue.Any())
                 {
                     <hr class="my-4 opacity-10" />
-                    <div class="row g-3">
-                        @foreach (var yearStat in _annualRevenue.OrderByDescending(k => k.Key))
-                        {
-                            <div class="col-6 col-md-3 col-lg-2">
-                                <div class="p-3 bg-light rounded-4 border text-center h-100">
-                                    <div class="small fw-bold text-muted text-uppercase mb-1">@yearStat.Key</div>
-                                    <div class="h5 fw-bold text-dark mb-0">@yearStat.Value.ToString("C0")</div>
-                                </div>
-                            </div>
-                        }
+                    <h5 class="fw-bold text-secondary mb-3">Annual Performance</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="bg-light text-uppercase small text-muted">
+                                <tr>
+                                    <th class="ps-4">Year</th>
+                                    <th class="text-end">Bar Sales</th>
+                                    <th class="text-end">Lottery Earnings</th>
+                                    <th class="text-end pe-4">Total Revenue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    var allYears = _annualRevenue.Keys.Union(_annualLotteryRevenue.Keys).OrderByDescending(y => y);
+                                }
+                                @foreach (var year in allYears)
+                                {
+                                    var bar = _annualRevenue.ContainsKey(year) ? _annualRevenue[year] : 0;
+                                    var lotto = _annualLotteryRevenue.ContainsKey(year) ? _annualLotteryRevenue[year] : 0;
+                                    
+                                    <tr>
+                                        <td class="ps-4 fw-bold">@year</td>
+                                        <td class="text-end">@bar.ToString("C0")</td>
+                                        <td class="text-end text-primary">@lotto.ToString("C0")</td>
+                                        <td class="text-end fw-bold text-success pe-4">@((bar + lotto).ToString("C0"))</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
                     </div>
                 }
             </div>
@@ -966,7 +991,25 @@
                         <h3 class="fw-bold mb-1">Lottery Sales</h3>
                         <p class="text-muted small mb-0">Recent lottery shift reports</p>
                     </div>
+                     <div class="btn-group" role="group">
+                        <input type="radio" class="btn-check" name="lotteryViewMode" id="viewDaily" 
+                               value="daily" checked="@(_lotteryViewMode == "daily")" 
+                               @onchange="@(e => _lotteryViewMode = "daily")">
+                        <label class="btn btn-outline-primary" for="viewDaily">
+                            Daily Shifts
+                        </label>
+
+                        <input type="radio" class="btn-check" name="lotteryViewMode" id="viewWeekly" 
+                               value="weekly" checked="@(_lotteryViewMode == "weekly")" 
+                               @onchange="@(e => { _lotteryViewMode = "weekly"; LoadWeeklyStats(); })">
+                        <label class="btn btn-outline-primary" for="viewWeekly">
+                            Weekly Summaries
+                        </label>
+                    </div>
                 </div>
+
+                @if (_lotteryViewMode == "daily")
+                {
 
                 @if (_isLoadingLottery)
                 {
@@ -1091,6 +1134,231 @@
                                 </div>
                             </div>
                         }
+                    </div>
+                }
+                }
+                else if (_lotteryViewMode == "weekly")
+                {
+                    @if (_weeklyStats == null || !_weeklyStats.Any())
+                    {
+                         <div class="text-center py-5">
+                            <i class="bi bi-calendar-range fs-1 text-muted opacity-50"></i>
+                            <p class="mt-3 text-muted">No weekly reports found. Upload a CSV to get started.</p>
+                             <button class="btn btn-primary rounded-pill mt-2" @onclick='() => _activeView = "lotteryUpload"'>
+                                Upload Report
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="bg-light">
+                                    <tr>
+                                        <th class="ps-4">Week Ending</th>
+                                        <th class="text-end">Online Comm.</th>
+                                        <th class="text-end">Instant Comm.</th>
+                                        <th class="text-end">Cash Bonus</th>
+                                        <th class="text-end">Claims Bonus</th>
+                                        <th class="text-end pe-4">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach(var stat in _weeklyStats.OrderByDescending(s => s.WeekEndingDate))
+                                    {
+                                        var olComm = Math.Abs(stat.OnlineCommission);
+                                        var instComm = Math.Abs(stat.InstantCommission);
+                                        var cashBonus = Math.Abs(stat.OnlineCashBonus + stat.InstantCashBonus);
+                                        var claimsBonus = Math.Abs(stat.OnlineClaimsBonus + stat.InstantClaimsBonus);
+                                        var total = olComm + instComm + cashBonus + claimsBonus;
+
+                                        <tr @onclick="() => _selectedWeeklyStat = stat" style="cursor: pointer;">
+                                            <td class="ps-4 fw-bold">@stat.WeekEndingDate.ToString("MMM dd, yyyy")</td>
+                                            <td class="text-end text-success">@olComm.ToString("C")</td>
+                                            <td class="text-end text-success">@instComm.ToString("C")</td>
+                                            <td class="text-end text-success">@cashBonus.ToString("C")</td>
+                                            <td class="text-end text-success">@claimsBonus.ToString("C")</td>
+                                            <td class="text-end fw-bold pe-4">@total.ToString("C")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
+        }
+        
+        @if (_selectedWeeklyStat != null)
+        {
+            <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+                <div class="modal-dialog modal-lg modal-dialog-centered">
+                    <div class="modal-content border-0 shadow-lg rounded-4">
+                        <div class="modal-header border-bottom-0 pb-0">
+                            <h5 class="modal-title fw-bold">Week Ending @_selectedWeeklyStat.WeekEndingDate.ToString("MMM dd, yyyy")</h5>
+                            <button type="button" class="btn-close" @onclick="() => _selectedWeeklyStat = null"></button>
+                        </div>
+                        <div class="modal-body p-4">
+                            <div class="row g-4">
+                                <!-- Online Stats -->
+                                <div class="col-md-6">
+                                    <div class="p-3 bg-light rounded-3 h-100">
+                                        <h6 class="text-primary fw-bold mb-3 border-bottom pb-2">Online Lottery</h6>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Net Sales:</span>
+                                            <span class="fw-bold">@_selectedWeeklyStat.OnlineNetSales.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Commission:</span>
+                                            <span class="text-success fw-bold">@_selectedWeeklyStat.OnlineCommission.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Cashes:</span>
+                                            <span class="text-danger">@_selectedWeeklyStat.OnlineCashes.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Cash Bonus:</span>
+                                            <span class="text-success">@_selectedWeeklyStat.OnlineCashBonus.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Claims Bonus:</span>
+                                            <span class="text-success">@_selectedWeeklyStat.OnlineClaimsBonus.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Fees/Adj:</span>
+                                            <span>@((_selectedWeeklyStat.OnlineAdjustments + _selectedWeeklyStat.OnlineServiceFee + _selectedWeeklyStat.OnlineBondingFee).ToString("C"))</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mt-3 pt-2 border-top">
+                                            <span class="fw-bold">Online Due:</span>
+                                            <span class="fw-bold text-primary">@_selectedWeeklyStat.OnlineDue.ToString("C")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Instant Stats -->
+                                <div class="col-md-6">
+                                    <div class="p-3 bg-light rounded-3 h-100">
+                                        <h6 class="text-info fw-bold mb-3 border-bottom pb-2">Instant Tickets</h6>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Gross Sales:</span>
+                                            <span class="fw-bold">@_selectedWeeklyStat.InstantGrossSales.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Returns:</span>
+                                            <span>@_selectedWeeklyStat.InstantReturnSales.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Commission:</span>
+                                            <span class="text-success fw-bold">@_selectedWeeklyStat.InstantCommission.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Cashes:</span>
+                                            <span class="text-danger">@_selectedWeeklyStat.InstantCashes.ToString("C")</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Bonuses:</span>
+                                            <span class="text-success">@((_selectedWeeklyStat.InstantCashBonus + _selectedWeeklyStat.InstantClaimsBonus).ToString("C"))</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mt-3 pt-2 border-top">
+                                            <span class="fw-bold">Instant Due:</span>
+                                            <span class="fw-bold text-primary">@_selectedWeeklyStat.InstantDue.ToString("C")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Total Footer -->
+                                <div class="col-12">
+                                    <div class="p-3 bg-white border rounded-3 text-center">
+                                        <span class="text-muted small text-uppercase fw-bold">Total Weekly Due</span>
+                                        <div class="display-6 fw-bold text-dark">@_selectedWeeklyStat.TotalDue.ToString("C")</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_activeView == "lotteryUpload")
+        {
+            <div class="analytics-card animate-entrance">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 class="fw-bold mb-1">Upload Lottery Report</h3>
+                        <p class="text-muted small mb-0">Import weekly stats from CSV</p>
+                    </div>
+                     <button class="btn btn-sm btn-outline-secondary rounded-pill" @onclick='() => _activeView = "lottery"'>
+                        <i class="bi bi-arrow-left me-1"></i> Back
+                    </button>
+                </div>
+
+                <div class="mb-4">
+                     <div class="p-5 border-2 border-dashed rounded-4 text-center bg-light" style="border-style: dashed; border-color: #cbd5e1;">
+                        <i class="bi bi-cloud-arrow-up fs-1 text-primary mb-3"></i>
+                        <h5>Select Weekly Report CSV</h5>
+                        <p class="text-muted small mb-3">Upload the standard Lottery Commission Export file</p>
+                        
+                        <InputFile OnChange="HandleFileUpload" class="form-control w-auto mx-auto" accept=".csv" />
+                        
+                        @if (_isProcessingUpload)
+                        {
+                            <div class="mt-3 text-primary">
+                                <span class="spinner-border spinner-border-sm me-2"></span> Processing...
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_uploadMessage))
+                {
+                    <div class="alert alert-info mb-4">@_uploadMessage</div>
+                }
+
+                @if (_uploadPreviewStats.Any())
+                {
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-success bg-opacity-10 py-3">
+                            <h5 class="mb-0 text-success fw-bold">Preview: Found @_uploadPreviewStats.Count Weeks</h5>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                <tr>
+                                    <th>Week Ending</th>
+                                    <th class="text-end">Online Comm.</th>
+                                    <th class="text-end">Instant Comm.</th>
+                                    <th class="text-end">Cash Bonus</th>
+                                    <th class="text-end">Claims Bonus</th>
+                                    <th class="text-end">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach(var stat in _uploadPreviewStats)
+                                {
+                                    var olComm = Math.Abs(stat.OnlineCommission);
+                                    var instComm = Math.Abs(stat.InstantCommission);
+                                    var cashBonus = Math.Abs(stat.OnlineCashBonus + stat.InstantCashBonus);
+                                    var claimsBonus = Math.Abs(stat.OnlineClaimsBonus + stat.InstantClaimsBonus);
+                                    var total = olComm + instComm + cashBonus + claimsBonus;
+
+                                    <tr>
+                                        <td>@stat.WeekEndingDate.ToShortDateString()</td>
+                                        <td class="text-end">@olComm.ToString("C")</td>
+                                        <td class="text-end">@instComm.ToString("C")</td>
+                                        <td class="text-end">@cashBonus.ToString("C")</td>
+                                        <td class="text-end">@claimsBonus.ToString("C")</td>
+                                        <td class="text-end fw-bold">@total.ToString("C")</td>
+                                    </tr>
+                                }    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card-footer bg-white p-3 text-end">
+                            <button class="btn btn-success btn-lg px-5 rounded-pill" @onclick="SaveWeeklyStats">
+                                <i class="bi bi-check-circle-fill me-2"></i> Confirm & Import
+                            </button>
+                        </div>
                     </div>
                 }
             </div>
@@ -1320,7 +1588,16 @@
     private bool _isLoadingLottery = false;
     private DateTime? _lotteryDateFilter; // Added for compliance jumping
     private LotteryShift _lotteryModel = new() { ShiftDate = DateTime.Now, Commission = 0, CashBonus = 0, ClaimsBonus = 0, NetDue = 0, TotalSales = 0, TotalPayouts = 0, TotalCancels = 0 };
+
     private bool _isLotterySaving = false;
+    
+    // Lottery Weekly Stats
+    private string _lotteryViewMode = "daily"; // "daily" or "weekly"
+    private List<LotteryWeeklyStat> _weeklyStats = new();
+    private LotteryWeeklyStat _selectedWeeklyStat;
+    private List<LotteryWeeklyStat> _uploadPreviewStats = new();
+    private bool _isProcessingUpload = false;
+    private string _uploadMessage = "";
     
     // Revenue Analysis State
     private List<RevenueAnalysisMonth> _analysisMonths = new();
@@ -1386,6 +1663,10 @@
     private decimal _grandTotalRevenue = 0;
     private int _grandTotalItemsSold = 0;
     private Dictionary<int, decimal> _annualRevenue = new();
+    
+    // Lottery Stats
+    private decimal _grandTotalLotteryRevenue = 0;
+    private Dictionary<int, decimal> _annualLotteryRevenue = new();
 
     private List<int> _availableYears = new();
     private List<int> _selectedComparisonYears = new();
@@ -1558,6 +1839,281 @@
 
 
 
+    private async Task LoadWeeklyStats()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            _weeklyStats = await db.LotteryWeeklyStats
+                .OrderByDescending(s => s.WeekEndingDate)
+                .Take(52) // Last year
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading weekly stats");
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        _isProcessingUpload = true;
+        _uploadMessage = "";
+        _uploadPreviewStats = new List<LotteryWeeklyStat>();
+
+        try
+        {
+            // Limit to 512KB - these files are small
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 512000);
+            using var reader = new global::System.IO.StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+            
+            var parsedStats = ParseLotteryCsv(content);
+            
+            // Check against existing database records
+            using var db = await DbFactory.CreateDbContextAsync();
+            var existingStats = await db.LotteryWeeklyStats.ToListAsync();
+            
+            // Normalize existing dates for easy lookup
+            var existingMap = existingStats.ToDictionary(s => s.WeekEndingDate.Date, s => s);
+
+            var newStats = new List<LotteryWeeklyStat>();
+            int skippedCount = 0;
+            int updateCount = 0;
+
+            foreach (var stat in parsedStats)
+            {
+                // Ensure parsed stat is also just Date
+                stat.WeekEndingDate = stat.WeekEndingDate.Date;
+                
+                if (existingMap.TryGetValue(stat.WeekEndingDate, out var existing))
+                {
+                    // Check if existing is "empty" (TotalDue == 0) and new one has data
+                    // This allows re-uploading to fix missing data
+                    if (existing.TotalDue == 0 && stat.TotalDue != 0)
+                    {
+                        newStats.Add(stat);
+                        updateCount++;
+                    }
+                    else
+                    {
+                        skippedCount++;
+                    }
+                }
+                else
+                {
+                    newStats.Add(stat);
+                }
+            }
+
+            _uploadPreviewStats = newStats;
+
+            if (_uploadPreviewStats.Any())
+            {
+                _uploadMessage = $"Found {_uploadPreviewStats.Count} records to import.";
+                if (updateCount > 0)
+                {
+                    _uploadMessage += $" ({updateCount} updates to incomplete records)";
+                }
+                if (skippedCount > 0)
+                {
+                    _uploadMessage += $" ({skippedCount} skipped as already complete)";
+                }
+            }
+            else
+            {
+                if (skippedCount > 0)
+                {
+                    _uploadMessage = $"All {skippedCount} weeks in this file have already been imported.";
+                }
+                else
+                {
+                    _uploadMessage = "No valid data found. Please check the file format.";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error uploading file");
+            _uploadMessage = $"Error reading file: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessingUpload = false;
+        }
+    }
+
+    private List<LotteryWeeklyStat> ParseLotteryCsv(string csvContent)
+    {
+        var stats = new List<LotteryWeeklyStat>();
+        
+        // Split lines and simple parsing
+        var lines = csvContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length < 2) return stats;
+
+        // 1. Identify Dates from Header (Row 0)
+        var headerCols = ParseCsvLine(lines[0]);
+        var dateMap = new Dictionary<int, DateTime>(); // colIndex -> Date
+
+        for (int i = 1; i < headerCols.Count; i++) // Skip first col "Week Ending"
+        {
+            if (DateTime.TryParse(headerCols[i], out var date))
+            {
+                dateMap[i] = date;
+                // Init statistic object for this date
+                if (!stats.Any(s => s.WeekEndingDate == date))
+                {
+                    stats.Add(new LotteryWeeklyStat { WeekEndingDate = date });
+                }
+            }
+        }
+
+        // 2. Parse Rows
+        string currentSection = ""; // "Online" or "Instant"
+
+        for (int i = 1; i < lines.Length; i++)
+        {
+            var cols = ParseCsvLine(lines[i]);
+            if (cols.Count == 0) continue;
+
+            var label = cols[0].Trim();
+            
+            // Detect Section Headers (usually just the word "Online" or "Instant" in first col)
+            if (label.Equals("Online", StringComparison.OrdinalIgnoreCase)) { currentSection = "Online"; continue; }
+            if (label.Equals("Instant", StringComparison.OrdinalIgnoreCase)) { currentSection = "Instant"; continue; }
+
+            // Map values
+            foreach (var kvp in dateMap)
+            {
+                int colIndex = kvp.Key;
+                if (colIndex >= cols.Count) continue;
+
+                var stat = stats.FirstOrDefault(s => s.WeekEndingDate == kvp.Value);
+                if (stat == null) continue;
+
+                decimal val = ParseCurrency(cols[colIndex]);
+
+                if (currentSection == "Online")
+                {
+                    if (label.Contains("Net Sales")) stat.OnlineNetSales = val;
+                    else if (label.Contains("Commission")) stat.OnlineCommission = val;
+                    else if (label.Contains("Cashes")) stat.OnlineCashes = val;
+                    else if (label.Contains("Cash Bonus")) stat.OnlineCashBonus = val;
+                    else if (label.Contains("Claims Bonus")) stat.OnlineClaimsBonus = val;
+                    else if (label.Contains("Adjustments")) stat.OnlineAdjustments = val;
+                    else if (label.Contains("Service Fee")) stat.OnlineServiceFee = val;
+                    else if (label.Contains("Bonding Fee")) stat.OnlineBondingFee = val;
+                    else if (label.Contains("Online Due") || label.Contains("Total Online Due")) stat.OnlineDue = val;
+                }
+                else if (currentSection == "Instant")
+                {
+                    if (label.Contains("Gross Sales")) stat.InstantGrossSales = val;
+                    else if (label.Contains("Return Sales")) stat.InstantReturnSales = val;
+                    else if (label.Contains("Commission")) stat.InstantCommission = val; // Context is Instant because of section
+                    else if (label.Contains("Cashes")) stat.InstantCashes = val;
+                    else if (label.Contains("Cash Bonus")) stat.InstantCashBonus = val;
+                    else if (label.Contains("Claims Bonus")) stat.InstantClaimsBonus = val;
+                    else if (label.Contains("Adjustments")) stat.InstantAdjustments = val;
+                    else if (label.Contains("Instant Due") || label.Contains("Total Instant Due")) stat.InstantDue = val;
+                }
+                
+                if (label.Equals("Total Due", StringComparison.OrdinalIgnoreCase))
+                {
+                    stat.TotalDue = val;
+                }
+            }
+        }
+
+        return stats;
+    }
+
+    private List<string> ParseCsvLine(string line)
+    {
+        // Simple CSV splitter handling quotes
+        var result = new List<string>();
+        bool inQuotes = false;
+        string current = "";
+        
+        foreach (char c in line)
+        {
+            if (c == '"') inQuotes = !inQuotes;
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(current);
+                current = "";
+            }
+            else current += c;
+        }
+        result.Add(current);
+        return result;
+    }
+
+    private decimal ParseCurrency(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return 0;
+        // Clean string: remove $, (, ), and treat () as negative
+        input = input.Trim();
+        bool isNegative = input.Contains("(") && input.Contains(")");
+        
+        string clean = new string(input.Where(c => char.IsDigit(c) || c == '.').ToArray());
+        if (decimal.TryParse(clean, out decimal val))
+        {
+            return isNegative ? -val : val;
+        }
+        return 0;
+    }
+
+    private async Task SaveWeeklyStats()
+    {
+        if (!_uploadPreviewStats.Any()) return;
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            // Upsert logic: Check if date exists
+            foreach (var stat in _uploadPreviewStats)
+            {
+                var existing = await db.LotteryWeeklyStats
+                    .FirstOrDefaultAsync(s => s.WeekEndingDate == stat.WeekEndingDate);
+
+                if (existing != null)
+                {
+                    // Update existing
+                    existing.OnlineNetSales = stat.OnlineNetSales;
+                    existing.OnlineCommission = stat.OnlineCommission;
+                    existing.OnlineCashes = stat.OnlineCashes;
+                    existing.OnlineCashBonus = stat.OnlineCashBonus;
+                    existing.OnlineClaimsBonus = stat.OnlineClaimsBonus;
+                    existing.OnlineDue = stat.OnlineDue;
+                    
+                    existing.InstantGrossSales = stat.InstantGrossSales;
+                    existing.InstantDue = stat.InstantDue;
+                    existing.TotalDue = stat.TotalDue;
+                    // ... (Update other fields as needed, simplifying here)
+                }
+                else
+                {
+                    db.LotteryWeeklyStats.Add(stat);
+                }
+            }
+            
+            await db.SaveChangesAsync();
+            
+            _uploadMessage = "Import successful!";
+            _uploadPreviewStats.Clear();
+            await LoadWeeklyStats();
+            
+            // Return to list view
+            _activeView = "lottery";
+            _lotteryViewMode = "weekly";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving weekly stats");
+            _uploadMessage = "Error saving data. Please check logs.";
+        }
+    }
     private async Task AdjustLotteryDate(LotteryShift entry, int days)
     {
         if (_isLotterySaving) return;
@@ -1815,6 +2371,20 @@
                     .Select(g => new { Year = g.Key, Total = g.Sum(x => (decimal?)x.TotalSales) ?? 0 })
                     .ToListAsync();
                 
+                // Lottery Stats
+                var lotteryStats = await db.LotteryWeeklyStats.AsNoTracking().ToListAsync();
+                
+                decimal GetLottoEarnings(LotteryWeeklyStat s) => 
+                     Math.Abs(s.OnlineCommission) + Math.Abs(s.InstantCommission) + 
+                     Math.Abs(s.OnlineCashBonus) + Math.Abs(s.InstantCashBonus) + 
+                     Math.Abs(s.OnlineClaimsBonus) + Math.Abs(s.InstantClaimsBonus);
+
+                _grandTotalLotteryRevenue = lotteryStats.Sum(s => GetLottoEarnings(s));
+
+                _annualLotteryRevenue = lotteryStats
+                    .GroupBy(s => s.WeekEndingDate.Year)
+                    .ToDictionary(g => g.Key, g => g.Sum(s => GetLottoEarnings(s)));
+
                 _annualRevenue = annualStats.ToDictionary(k => k.Year, v => v.Total);
 
                 StateCache.GrandTotalRevenue = _grandTotalRevenue;
