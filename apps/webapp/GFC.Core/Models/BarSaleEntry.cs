@@ -33,6 +33,8 @@ namespace GFC.Core.Models
 
         public DateTime? ModifiedDate { get; set; }
 
+        public string? CreatedBy { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

@@ -73,7 +73,7 @@
                         <div class="mb-3 animate-entrance">
                             <button class="btn btn-warning w-100 py-2 d-flex align-items-center justify-content-center shadow-sm" @onclick="LoadRecentReport">
                                 <i class="bi bi-pencil-square me-2"></i>
-                                <span>Edit Your Last Report (@_recentReport.Date.ToString("MMM dd") - @_recentReport.Shift)</span>
+                                <span>@(_recentReport.Date.Date == ReportDate.Date && _recentReport.Shift == ShiftType ? "Edit This Report" : $"Edit Last Report ({_recentReport.Date:MMM dd} - {_recentReport.Shift})")</span>
                             </button>
                         </div>
                     }
@@ -157,21 +157,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Actions -->
-                                <div class="d-flex gap-2">
-                                     <button class="btn btn-dark w-100 py-3 rounded-pill fw-bold shadow-sm" @onclick="StartEditing">
-                                        <i class="bi bi-pencil-square me-2"></i> Modify Report
-                                    </button>
-                                </div>
-
-                                @if (_recentReport != null)
-                                {
-                                    <div class="mt-3 text-center">
-                                        <button class="btn btn-link btn-sm text-decoration-none text-muted" @onclick="LoadRecentReport">
-                                            Wrong date? Fix @_recentReport.Date.ToString("MMM dd") report
-                                        </button>
-                                    </div>
-                                }
                             </div>
                         </div>
                     }
@@ -581,20 +566,16 @@
             var username = CurrentUser?.Username;
 
             // Check Bar Entries
+            // Check Bar Entries
+            // Rule: User must have created it, or modified it (legacy), AND it must be within 2 hours
             var lastBar = await db.BarSaleEntries
-                .Where(e => (e.ModifiedBy == username || (e.ModifiedBy == null && e.Notes != null)) && 
-                           (e.ModifiedDate >= cutoff || e.CreatedAt >= cutoff)) 
-                // Note: Simplified check. Ideally we track 'CreatedBy' on BarSaleEntries properly. 
-                // Assuming 'ModifiedBy' or inferred from recent activity.
-                // Actually, BarSaleEntries schema has 'ModifiedBy' but not 'CreatedBy' column in earlier view.
-                // Let's assume 'ModifiedBy' is populated on create/edit from this page.
-                // Fallback: Just check recent entries by date/shift matching current user logic?
-                // Better: The user just submitted it.
-                .OrderByDescending(e => e.ModifiedDate ?? e.CreatedAt)
+                .Where(e => (e.CreatedBy == username || (e.CreatedBy == null && e.ModifiedBy == username)) && 
+                           (e.CreatedAt >= cutoff)) 
+                .OrderByDescending(e => e.CreatedAt)
                 .Select(e => new RecentReportInfo { 
                     Date = (e.AdjustedSaleDate ?? e.SaleDate).Date, 
                     Shift = e.Shift, 
-                    Timestamp = e.ModifiedDate ?? e.CreatedAt 
+                    Timestamp = e.CreatedAt 
                 })
                 .FirstOrDefaultAsync();
 
@@ -612,6 +593,7 @@
                 .FirstOrDefault();
 
             // Compare
+            // 2-Hour Lock logic
             if (lastBar != null && lastLotto != null)
             {
                 _recentReport = lastBar.Timestamp > lastLotto.Timestamp ? lastBar : lastLotto;
@@ -621,13 +603,8 @@
                 _recentReport = lastBar ?? lastLotto;
             }
 
-            // Don't show if it's the one currently selected
-            if (_recentReport != null && 
-                _recentReport.Date == ReportDate.Date && 
-                _recentReport.Shift == ShiftType)
-            {
-                _recentReport = null;
-            }
+            // Note: We deliberately ALLOW showing the current report here if it was just submitted,
+            // so the user can use this button to "Unlock" it.
         }
         catch 
         { 
@@ -783,6 +760,7 @@
                     TotalSales = BarSales ?? 0,
                     Shift = ShiftType,
                     Notes = Notes,
+                    CreatedBy = CurrentUser?.Username,
                     CreatedAt = DateTime.UtcNow
                 };
                 db.BarSaleEntries.Add(barEntry);
