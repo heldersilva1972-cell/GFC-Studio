@@ -908,7 +908,14 @@
                                value="Lottery" checked="@(_complianceSource == "Lottery")" 
                                @onchange="@(e => ChangeComplianceSource("Lottery"))">
                         <label class="btn btn-outline-primary" for="sourceLottery">
-                            <i class="bi bi-ticket-perforated me-2"></i>Lottery Sales
+                            <i class="bi bi-ticket-perforated me-2"></i>Daily Shifts
+                        </label>
+                        
+                        <input type="radio" class="btn-check" name="complianceSource" id="sourceWeekly" 
+                               value="LotteryWeekly" checked="@(_complianceSource == "LotteryWeekly")" 
+                               @onchange="@(e => ChangeComplianceSource("LotteryWeekly"))">
+                        <label class="btn btn-outline-primary" for="sourceWeekly">
+                            <i class="bi bi-calendar-check me-2"></i>Weekly Uploads
                         </label>
                     </div>
                 </div>
@@ -949,27 +956,41 @@
                                                
                                                <td class="p-1">
                                                    <div class="d-flex flex-column gap-1 align-items-center">
+                                                       @{
+                                                           bool isWeekly = _complianceSource == "LotteryWeekly";
+                                                           bool isRelevantDay = !isWeekly || new DateTime(_complianceYear, localMonth, localDay).DayOfWeek == DayOfWeek.Saturday;
+                                                           bool hasData = status.DayCount > 0;
+                                                       }
+
                                                        <!-- DAY SHIFT DOT -->
-                                                        @{
-                                                            string dayColor = "bg-secondary bg-opacity-10 border"; // Missing
-                                                            if (status.DayCount == 1) dayColor = status.DayAudited ? "bg-verified-bright" : "bg-warning";
+                                                       @if (!isWeekly || isRelevantDay || hasData)
+                                                       {
+                                                            string dayColor = "bg-secondary bg-opacity-10 border"; 
+                                                            if (status.DayCount == 1) dayColor = status.DayAudited ? "bg-success" : "bg-warning";
                                                             else if (status.DayCount > 1) dayColor = "bg-danger";
-                                                        }
-                                                       <div title="Day Shift: @(status.DayCount > 0 ? (status.DayAudited ? "Verified" : "Unverified") : "Missing")" 
-                                                            class="rounded-circle @dayColor" 
-                                                            style="width: 10px; height: 10px; cursor: @(status.DayCount > 0 ? "pointer" : "default")"
-                                                            @onclick='() => { if(status.DayCount > 0) JumpToLog(localMonth, localDay, "Day"); }'></div>
+                                                            
+                                                           <div title="@(isWeekly ? "Weekly Report" : "Day Shift"): @(status.DayCount > 0 ? (status.DayAudited ? "Verified" : "Unverified") : "Missing")" 
+                                                                class="rounded-circle @dayColor" 
+                                                                style="width: 10px; height: 10px; cursor: @(status.DayCount > 0 ? "pointer" : "default")"
+                                                                @onclick='() => { if(status.DayCount > 0) JumpToLog(localMonth, localDay, "Day"); }'></div>
+                                                       }
+                                                       else if (isWeekly)
+                                                       {
+                                                           <div style="width: 10px; height: 10px;"></div>
+                                                       }
 
                                                        <!-- NIGHT SHIFT DOT -->
-                                                        @{
-                                                            string nightColor = "bg-secondary bg-opacity-10 border"; // Missing
+                                                       @if (!isWeekly)
+                                                       {
+                                                            string nightColor = "bg-secondary bg-opacity-10 border"; 
                                                             if (status.NightCount == 1) nightColor = status.NightAudited ? "bg-verified-bright" : "bg-warning";
                                                             else if (status.NightCount > 1) nightColor = "bg-danger";
-                                                        }
-                                                       <div title="Night Shift: @(status.NightCount > 0 ? (status.NightAudited ? "Verified" : "Unverified") : "Missing")"
-                                                            class="rounded-circle @nightColor" 
-                                                            style="width: 10px; height: 10px; cursor: @(status.NightCount > 0 ? "pointer" : "default")"
-                                                            @onclick='() => { if(status.NightCount > 0) JumpToLog(localMonth, localDay, "Night"); }'></div>
+                                                            
+                                                           <div title="Night Shift: @(status.NightCount > 0 ? (status.NightAudited ? "Verified" : "Unverified") : "Missing")"
+                                                                class="rounded-circle @nightColor" 
+                                                                style="width: 10px; height: 10px; cursor: @(status.NightCount > 0 ? "pointer" : "default")"
+                                                                @onclick='() => { if(status.NightCount > 0) JumpToLog(localMonth, localDay, "Night"); }'></div>
+                                                       }
                                                    </div>
                                                </td>
                                            }
@@ -994,19 +1015,32 @@
                      <div class="btn-group" role="group">
                         <input type="radio" class="btn-check" name="lotteryViewMode" id="viewDaily" 
                                value="daily" checked="@(_lotteryViewMode == "daily")" 
-                               @onchange="@(e => _lotteryViewMode = "daily")">
+                               @onchange="@(async e => { _lotteryViewMode = "daily"; await LoadLotteryData(); })">
                         <label class="btn btn-outline-primary" for="viewDaily">
                             Daily Shifts
                         </label>
 
                         <input type="radio" class="btn-check" name="lotteryViewMode" id="viewWeekly" 
                                value="weekly" checked="@(_lotteryViewMode == "weekly")" 
-                               @onchange="@(e => { _lotteryViewMode = "weekly"; LoadWeeklyStats(); })">
+                               @onchange="@(async e => { _lotteryViewMode = "weekly"; await LoadWeeklyStats(); })">
                         <label class="btn btn-outline-primary" for="viewWeekly">
                             Weekly Summaries
                         </label>
                     </div>
                 </div>
+
+                @if (_lotteryDateFilter.HasValue)
+                {
+                    <div class="alert alert-info d-flex justify-content-between align-items-center mb-4 shadow-sm">
+                        <span>
+                            <i class="bi bi-funnel-fill me-2"></i>
+                            Viewing results for <b>@_lotteryDateFilter.Value.ToString("MMMM dd, yyyy")</b>
+                        </span>
+                        <button class="btn btn-sm btn-outline-dark bg-white" @onclick="LoadLotteryView">
+                            <i class="bi bi-x-lg me-1"></i> Clear Filter
+                        </button>
+                    </div>
+                }
 
                 @if (_lotteryViewMode == "daily")
                 {
@@ -1841,10 +1875,22 @@
 
     private async Task LoadWeeklyStats()
     {
+        await _dataLock.WaitAsync();
+        StateHasChanged();
+        
         try
         {
             using var db = await DbFactory.CreateDbContextAsync();
-            _weeklyStats = await db.LotteryWeeklyStats
+            var query = db.LotteryWeeklyStats.AsQueryable();
+
+            if (_lotteryDateFilter.HasValue)
+            {
+                // Ensure we match the exact date (TimeSafe)
+                var filterDate = _lotteryDateFilter.Value.Date;
+                query = query.Where(s => s.WeekEndingDate == filterDate);
+            }
+
+            _weeklyStats = await query
                 .OrderByDescending(s => s.WeekEndingDate)
                 .Take(52) // Last year
                 .ToListAsync();
@@ -1852,6 +1898,11 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading weekly stats");
+        }
+        finally
+        {
+            _dataLock.Release();
+            StateHasChanged();
         }
     }
 
@@ -2104,6 +2155,9 @@
             _uploadPreviewStats.Clear();
             await LoadWeeklyStats();
             
+            // Force recalculation of global financial stats to include new lottery data
+            await LoadData(recalculateStats: true);
+
             // Return to list view
             _activeView = "lottery";
             _lotteryViewMode = "weekly";
@@ -2410,6 +2464,10 @@
              {
                  years = await db.BarSaleEntries.AsNoTracking().Select(e => e.SaleDate.Year).Distinct().ToListAsync();
              }
+
+             // Add Lottery Years
+             var lotteryYears = await db.LotteryWeeklyStats.AsNoTracking().Select(s => s.WeekEndingDate.Year).Distinct().ToListAsync();
+             years = years.Union(lotteryYears).Distinct().ToList();
             
             _availableYears = years.OrderByDescending(y => y).ToList();
 
@@ -2822,15 +2880,33 @@
     private async Task JumpToLog(int month, int day, string? shift = null)
     {
         // For Lottery, jump to the lottery page with filter
-        // For Lottery, jump to the lottery page with filter
         if (_complianceSource == "Lottery")
         {
             var targetLotteryDate = new DateTime(_complianceYear, month, day);
             _activeView = "lottery";
+            _lotteryViewMode = "daily";
             _lotteryDateFilter = targetLotteryDate;
             await LoadLotteryData();
             StateHasChanged();
             return;
+        }
+
+        if (_complianceSource == "LotteryWeekly")
+        {
+             var targetWeeklyDate = new DateTime(_complianceYear, month, day);
+             _activeView = "lottery";
+             _lotteryViewMode = "weekly";
+             
+             // Set filter to the specific date
+             _lotteryDateFilter = targetWeeklyDate;
+             
+             await LoadWeeklyStats();
+             
+             // Do not open modal, just show list
+             _selectedWeeklyStat = null;
+             
+             StateHasChanged();
+             return;
         }
 
         // 1. Calculate the target date based on selected Compliance Year
@@ -2917,6 +2993,19 @@
                     _complianceGrid[key] = current;
                 }
             }
+            else if (_complianceSource == "LotteryWeekly")
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var stats = await db.LotteryWeeklyStats
+                    .Where(s => s.WeekEndingDate.Year == _complianceYear)
+                    .Select(s => s.WeekEndingDate)
+                    .ToListAsync();
+
+                foreach(var date in stats)
+                {
+                    _complianceGrid[(date.Month, date.Day)] = (DayStatus: "Verified", NightStatus: "", DayCount: 1, NightCount: 0, DayAudited: true, NightAudited: false);
+                }
+            }
             else 
             {
                 // LOAD BAR COMPLIANCE (Existing Logic)
@@ -2983,7 +3072,15 @@
     {
         _activeView = "lottery";
         _lotteryDateFilter = null; // Reset filter when manually clicking tab
-        await LoadLotteryData();
+        
+        if (_lotteryViewMode == "weekly")
+        {
+            await LoadWeeklyStats();
+        }
+        else
+        {
+            await LoadLotteryData();
+        }
     }
 
     private async Task LoadLotteryData()

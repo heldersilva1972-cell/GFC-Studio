@@ -59,17 +59,8 @@ namespace GFC.BlazorServer.Services
             var rentalYears = await db.HallRentals.Select(e => e.EventDate.Year).Distinct().ToListAsync();
             var duesYears = await db.DuesPayments.Select(e => e.Year).Distinct().ToListAsync();
             
-            // Lottery years (via ADO since not in EF)
-            var lotteryYears = new List<int>();
-            try
-            {
-                using var connection = new SqlConnection(db.Database.GetConnectionString());
-                await connection.OpenAsync();
-                using var command = new SqlCommand("SELECT DISTINCT YEAR(ShiftDate) FROM LotteryShifts", connection);
-                using var reader = await command.ExecuteReaderAsync();
-                while (await reader.ReadAsync()) lotteryYears.Add(reader.GetInt32(0));
-            }
-            catch { /* Table might not exist */ }
+            // Lottery years from new weekly stats
+            var lotteryYears = await db.LotteryWeeklyStats.Select(s => s.WeekEndingDate.Year).Distinct().ToListAsync();
 
             return barYears.Union(rentalYears).Union(duesYears).Union(lotteryYears)
                 .OrderByDescending(y => y)
@@ -128,25 +119,25 @@ namespace GFC.BlazorServer.Services
 
             if (request.IncomeTypes.Contains("Lottery"))
             {
-                try
+                var lotusPoints = await db.LotteryWeeklyStats
+                    .Where(s => request.Years.Contains(s.WeekEndingDate.Year))
+                    .Select(s => new 
+                    { 
+                        Date = s.WeekEndingDate, 
+                        Amount = Math.Abs(s.OnlineCommission) + Math.Abs(s.InstantCommission) + 
+                                 Math.Abs(s.OnlineCashBonus) + Math.Abs(s.InstantCashBonus) + 
+                                 Math.Abs(s.OnlineClaimsBonus) + Math.Abs(s.InstantClaimsBonus),
+                        Year = s.WeekEndingDate.Year 
+                    })
+                    .ToListAsync();
+
+                allPoints.AddRange(lotusPoints.Select(p => new FinancialDataPoint
                 {
-                    using var connection = new SqlConnection(db.Database.GetConnectionString());
-                    await connection.OpenAsync();
-                    using var command = new SqlCommand("SELECT ShiftDate, TotalSales FROM LotteryShifts WHERE YEAR(ShiftDate) IN (" + string.Join(",", request.Years) + ")", connection);
-                    using var reader = await command.ExecuteReaderAsync();
-                    while (await reader.ReadAsync())
-                    {
-                        var date = reader.GetDateTime(0);
-                        allPoints.Add(new FinancialDataPoint
-                        {
-                            Date = date,
-                            Amount = reader.GetDecimal(1),
-                            IncomeType = "Lottery",
-                            Year = date.Year
-                        });
-                    }
-                }
-                catch { /* Table might not exist */ }
+                    Date = p.Date,
+                    Amount = p.Amount,
+                    IncomeType = "Lottery",
+                    Year = p.Year
+                }));
             }
 
             // Apply filters
