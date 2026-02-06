@@ -393,7 +393,9 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
             app.UseHsts();
         }
 
-        app.UseHttpsRedirection();
+        // [HTTPS FIX] Disabled - Cloudflare Tunnel handles HTTPS termination
+        // Forcing HTTPS redirect breaks local LAN access and PWA installation
+        // app.UseHttpsRedirection();
         
         // Configure static files with proper MIME types for PWA
         var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();

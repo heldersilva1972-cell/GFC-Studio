@@ -22,12 +22,18 @@
             console.log('[PWA Early Catch] Prompt captured.');
         });
 
+        // Detect successful installation
+        window.addEventListener('appinstalled', () => {
+            console.log('[PWA] App successfully installed');
+            window._pwaBeforeInstallPrompt = null;
+            window._pwaInstalling = false; // Clear installation flag
+        });
+
         // Adapter for MainLayout PWA buttons
         window.GFC = {
             canInstall: () => {
-                if (typeof pwaInstaller === 'undefined') return false;
-                const res = pwaInstaller.checkInstallability();
-                return res.canInstall;
+                // Check if we have the captured install prompt
+                return window._pwaBeforeInstallPrompt !== null && window._pwaBeforeInstallPrompt !== undefined;
             },
             isPwaInstalled: () => {
                 return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -36,9 +42,54 @@
                 return /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
             },
             triggerInstall: async () => {
+                // 0. Check if service worker is ready (critical for Android 16)
+                if (!window._serviceWorkerReady) {
+                    console.warn('[GFC] Service Worker not ready yet. Waiting...');
+                    // Wait up to 5 seconds for service worker to activate
+                    for (let i = 0; i < 50; i++) {
+                        if (window._serviceWorkerReady) break;
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                    if (!window._serviceWorkerReady) {
+                        console.error('[GFC] Service Worker failed to activate. Installation may fail.');
+                    }
+                }
+                
+                // 1. Try the captured event first (this is the correct way)
+                const deferredPrompt = window._pwaBeforeInstallPrompt;
+                if (deferredPrompt) {
+                    try {
+                        deferredPrompt.prompt();
+                        const { outcome } = await deferredPrompt.userChoice;
+                        console.log(`[GFC] Install outcome: ${outcome}`);
+                        window._pwaBeforeInstallPrompt = null; // Clear it after use
+                        
+                        if (outcome === 'accepted') {
+                            // Set flag to prevent reload during WebAPK generation (Android 16)
+                            window._pwaInstalling = true;
+                            console.log('[GFC] Installation accepted. Preventing reloads for 60s...');
+                            
+                            // Safety timeout in case appinstalled event doesn't fire
+                            setTimeout(() => {
+                                window._pwaInstalling = false;
+                                console.log('[GFC] Installation timeout cleared');
+                            }, 60000);
+                        }
+                        
+                        return outcome === 'accepted';
+                    } catch (error) {
+                        console.error('[GFC] Install error:', error);
+                        window._pwaInstalling = false;
+                        return false;
+                    }
+                }
+                
+                // 2. Fallback to external installer if the prompt wasn't caught
                 if (typeof pwaInstaller !== 'undefined') {
                     return await pwaInstaller.install();
                 }
+                
+                console.warn('[GFC] No install prompt available');
                 return false;
             }
         };
@@ -56,7 +107,7 @@
     <link rel="stylesheet" href="css/dashboard-modern.css" />
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     <link rel="icon" type="image/png" href="favicon.png" />
-    <link rel="manifest" href="manifest.json?v=5" />
+    <link rel="manifest" href="/manifest.json?v=8" />
     
     <!-- PWA Meta Tags for iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -131,7 +182,6 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/js/gfc-select-helpers.js"></script>
-    <script src="/js/pwa-installer.js"></script>
 
     <script src="/js/passkeys.js"></script>
     <script src="js/notifications.js"></script>
@@ -160,6 +210,9 @@
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         let backgroundTime = Date.now();
         let lastHeartbeat = Date.now();
+        
+        // Track PWA installation state to prevent reload interruption
+        window._pwaInstalling = false;
         
         Blazor.start({
             reconnectionHandler: {
@@ -202,7 +255,9 @@
         window.addEventListener('online', () => {
             console.log("[GFC] Network signal detected. Triggering instant sync.");
             Blazor.reconnect().then(res => {
-                if (!res && isMobile) location.reload(); // If circuit gone, restart app
+                if (!res && isMobile && !window._pwaInstalling) {
+                    location.reload(); // If circuit gone, restart app (unless installing PWA)
+                }
             });
         });
 
@@ -217,7 +272,7 @@
                     console.log("[GFC] Detected mobile suspension. Syncing...");
                     if (navigator.onLine) {
                         Blazor.reconnect().then(res => {
-                            if (!res) location.reload(); // Circuit died while sleeping
+                            if (!res && !window._pwaInstalling) location.reload(); // Circuit died while sleeping
                         });
                     }
                 }
@@ -230,7 +285,7 @@
                 
                 // If away for more than 10 minutes, the server definitely killed the circuit.
                 // Rebranding the "refresh" as a sync to the user.
-                if (idleSeconds > 600) { 
+                if (idleSeconds > 600 && !window._pwaInstalling) { 
                    console.log("[GFC] Long inactivity. Refreshing circuit.");
                    location.reload();
                    return;
@@ -241,12 +296,12 @@
                     if (navigator.onLine) {
                         try {
                             const reconnected = await Blazor.reconnect();
-                            if (!reconnected) {
+                            if (!reconnected && !window._pwaInstalling) {
                                 console.log("[GFC] Circuit expired. Reloading.");
                                 location.reload();
                             }
                         } catch (e) {
-                            location.reload();
+                            if (!window._pwaInstalling) location.reload();
                         }
                     }
                 }
@@ -430,18 +485,41 @@
         };
 
         // Register Service Worker for PWA support
-        // Wait for Blazor to be ready to avoid conflicts
+        // Track service worker state for installation readiness
+        window._serviceWorkerReady = false;
+        
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
-                navigator.serviceWorker.register('/service-worker.js?v=8')
-                    .then(function(registration) {
-                        console.log('[PWA] Service Worker registered successfully:', registration.scope);
-                    })
-                    .catch(function(error) {
-                        console.log('[PWA] Service Worker registration failed:', error);
-                    });
+            window.addEventListener('load', async function() {
+                try {
+                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=8');
+                    console.log('[PWA] Service Worker registered:', registration.scope);
+                    
+                    // Wait for service worker to become active
+                    if (registration.active) {
+                        window._serviceWorkerReady = true;
+                        console.log('[PWA] Service Worker is active and ready');
+                    } else {
+                        // Wait for activation
+                        const sw = registration.installing || registration.waiting;
+                        if (sw) {
+                            sw.addEventListener('statechange', function() {
+                                if (this.state === 'activated') {
+                                    window._serviceWorkerReady = true;
+                                    console.log('[PWA] Service Worker activated');
+                                }
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error('[PWA] Service Worker registration failed:', error);
+                }
             });
         }
+        
+        // Helper function to check if PWA is ready for installation
+        window.GFC.isPWAReady = () => {
+            return window._serviceWorkerReady && window._pwaBeforeInstallPrompt !== null;
+        };
     </script>
 </body>
 </html>

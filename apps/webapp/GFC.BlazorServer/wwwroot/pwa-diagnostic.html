@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA Installation Diagnostic</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#121212">
+
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .test-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .test-card h3 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .status.pass {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status.warn {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .detail {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-left: 3px solid #007bff;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔍 PWA Installation Diagnostic</h1>
+    <p>This page will help diagnose why the PWA isn't installing correctly.</p>
+
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+
+        function addTest(title, status, details) {
+            const card = document.createElement('div');
+            card.className = 'test-card';
+
+            const statusClass = status === 'PASS' ? 'pass' : status === 'FAIL' ? 'fail' : 'warn';
+
+            card.innerHTML = `
+                <h3>${title} <span class="status ${statusClass}">${status}</span></h3>
+                ${details ? `<div class="detail">${details}</div>` : ''}
+            `;
+
+            results.appendChild(card);
+        }
+
+        async function runDiagnostics() {
+            results.innerHTML = '<p>Running diagnostics...</p>';
+
+            // Test 1: HTTPS Check
+            const isHttps = window.location.protocol === 'https:';
+            addTest(
+                '1. HTTPS Protocol',
+                isHttps ? 'PASS' : 'FAIL',
+                `Current URL: ${window.location.href}\n\n${isHttps ? '✓ Site is being served over HTTPS' : '✗ PWAs require HTTPS! You are on HTTP.'}`
+            );
+
+            // Test 2: Service Worker Support
+            const hasServiceWorker = 'serviceWorker' in navigator;
+            addTest(
+                '2. Service Worker Support',
+                hasServiceWorker ? 'PASS' : 'FAIL',
+                hasServiceWorker ? '✓ Browser supports Service Workers' : '✗ Browser does not support Service Workers'
+            );
+
+            // Test 3: Service Worker Registration
+            if (hasServiceWorker) {
+                try {
+                    const registration = await navigator.serviceWorker.getRegistration();
+                    if (registration) {
+                        const swState = registration.active ? 'Active' : registration.installing ? 'Installing' : registration.waiting ? 'Waiting' : 'Unknown';
+                        addTest(
+                            '3. Service Worker Registration',
+                            registration.active ? 'PASS' : 'WARN',
+                            `Scope: ${registration.scope}\nState: ${swState}\nScript URL: ${registration.active?.scriptURL || 'N/A'}`
+                        );
+                    } else {
+                        addTest(
+                            '3. Service Worker Registration',
+                            'FAIL',
+                            '✗ No service worker is registered. Check console for registration errors.'
+                        );
+                    }
+                } catch (error) {
+                    addTest(
+                        '3. Service Worker Registration',
+                        'FAIL',
+                        `Error checking registration: ${error.message}`
+                    );
+                }
+            }
+
+            // Test 4: Manifest Check
+            try {
+                const manifestLink = document.querySelector('link[rel="manifest"]');
+                if (manifestLink) {
+                    const manifestUrl = manifestLink.href;
+                    const response = await fetch(manifestUrl);
+                    const manifest = await response.json();
+
+                    addTest(
+                        '4. Web App Manifest',
+                        response.ok ? 'PASS' : 'FAIL',
+                        `Manifest URL: ${manifestUrl}\n\nManifest Content:\n${JSON.stringify(manifest, null, 2)}`
+                    );
+                } else {
+                    addTest(
+                        '4. Web App Manifest',
+                        'FAIL',
+                        '✗ No manifest link found in HTML'
+                    );
+                }
+            } catch (error) {
+                addTest(
+                    '4. Web App Manifest',
+                    'FAIL',
+                    `Error loading manifest: ${error.message}`
+                );
+            }
+
+            // Test 5: Icon Availability
+            try {
+                const iconTests = [
+                    '/images/pwa-icon-192.png',
+                    '/images/pwa-icon-512.png'
+                ];
+
+                const iconResults = await Promise.all(
+                    iconTests.map(async (url) => {
+                        try {
+                            const response = await fetch(url, { method: 'HEAD' });
+                            return `${url}: ${response.ok ? '✓ Found' : '✗ Not Found (' + response.status + ')'}`;
+                        } catch (error) {
+                            return `${url}: ✗ Error - ${error.message}`;
+                        }
+                    })
+                );
+
+                const allFound = iconResults.every(r => r.includes('✓'));
+                addTest(
+                    '5. PWA Icons',
+                    allFound ? 'PASS' : 'FAIL',
+                    iconResults.join('\n')
+                );
+            } catch (error) {
+                addTest(
+                    '5. PWA Icons',
+                    'FAIL',
+                    `Error checking icons: ${error.message}`
+                );
+            }
+
+            // Test 6: Install Prompt Availability
+            const hasBeforeInstallPrompt = window._pwaBeforeInstallPrompt !== null && window._pwaBeforeInstallPrompt !== undefined;
+            addTest(
+                '6. Install Prompt',
+                hasBeforeInstallPrompt ? 'PASS' : 'WARN',
+                hasBeforeInstallPrompt
+                    ? '✓ beforeinstallprompt event was captured. PWA can be installed!'
+                    : '⚠ No install prompt detected yet. This could mean:\n  - PWA is already installed\n  - Browser doesn\'t support installation\n  - Installation criteria not met\n  - Page needs to be reloaded'
+            );
+
+            // Test 7: Display Mode
+            const displayMode = window.matchMedia('(display-mode: standalone)').matches ? 'Standalone (Installed)' :
+                window.matchMedia('(display-mode: fullscreen)').matches ? 'Fullscreen' :
+                    window.matchMedia('(display-mode: minimal-ui)').matches ? 'Minimal UI' :
+                        'Browser Tab';
+
+            addTest(
+                '7. Display Mode',
+                displayMode.includes('Standalone') ? 'PASS' : 'INFO',
+                `Current mode: ${displayMode}\n\n${displayMode.includes('Standalone') ? '✓ App is installed and running as PWA' : 'ℹ App is running in browser'}`
+            );
+
+            // Test 8: Browser Info
+            const userAgent = navigator.userAgent;
+            const isChrome = /Chrome/.test(userAgent) && !/Edg/.test(userAgent);
+            const isEdge = /Edg/.test(userAgent);
+            const isSafari = /Safari/.test(userAgent) && !/Chrome/.test(userAgent);
+            const isFirefox = /Firefox/.test(userAgent);
+
+            let browserName = 'Unknown';
+            if (isChrome) browserName = 'Chrome';
+            else if (isEdge) browserName = 'Edge';
+            else if (isSafari) browserName = 'Safari';
+            else if (isFirefox) browserName = 'Firefox';
+
+            addTest(
+                '8. Browser Information',
+                'INFO',
+                `Browser: ${browserName}\nUser Agent: ${userAgent}\n\nNote: Safari on iOS requires manual installation via Share → Add to Home Screen`
+            );
+
+            // Add install button if possible
+            if (hasBeforeInstallPrompt) {
+                const installCard = document.createElement('div');
+                installCard.className = 'test-card';
+                installCard.innerHTML = `
+                    <h3>✅ Ready to Install!</h3>
+                    <p>All checks passed. Click below to install the PWA:</p>
+                    <button id="installBtn">Install GFC App</button>
+                `;
+                results.appendChild(installCard);
+
+                document.getElementById('installBtn').addEventListener('click', async () => {
+                    try {
+                        window._pwaBeforeInstallPrompt.prompt();
+                        const { outcome } = await window._pwaBeforeInstallPrompt.userChoice;
+                        if (outcome === 'accepted') {
+                            alert('App installed successfully!');
+                        } else {
+                            alert('Installation cancelled');
+                        }
+                    } catch (error) {
+                        alert('Installation failed: ' + error.message);
+                    }
+                });
+            }
+        }
+
+        // Run diagnostics when page loads
+        runDiagnostics();
+    </script>
+</body>
+
+</html>

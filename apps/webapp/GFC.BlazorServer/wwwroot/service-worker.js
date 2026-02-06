@@ -2,21 +2,46 @@
 // Minimal implementation required for PWA installability
 // Does NOT cache aggressively to avoid breaking Blazor Server SignalR
 
-const CACHE_NAME = 'gfc-pwa-v7';
+const CACHE_NAME = 'gfc-pwa-v8';
 const STATIC_ASSETS = [
     '/',
-    '/manifest.json',
+    '/manifest.json'
+];
+
+// Optional assets that won't block installation if they fail
+const OPTIONAL_ASSETS = [
     '/images/pwa-icon-192.png',
     '/images/pwa-icon-512.png'
 ];
 
 // Install event - cache critical static assets only
 self.addEventListener('install', (event) => {
-    console.log('[Service Worker v7] Installing...');
+    console.log('[Service Worker v8] Installing...');
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            console.log('[Service Worker] Caching static assets');
-            return cache.addAll(STATIC_ASSETS);
+        caches.open(CACHE_NAME).then(async (cache) => {
+            console.log('[Service Worker] Caching critical assets');
+
+            // Cache critical assets first
+            try {
+                await cache.addAll(STATIC_ASSETS);
+                console.log('[Service Worker] Critical assets cached successfully');
+            } catch (error) {
+                console.error('[Service Worker] Failed to cache critical assets:', error);
+                throw error; // This will prevent installation
+            }
+
+            // Try to cache optional assets, but don't fail if they're missing
+            for (const asset of OPTIONAL_ASSETS) {
+                try {
+                    const response = await fetch(asset);
+                    if (response.ok) {
+                        await cache.put(asset, response);
+                        console.log('[Service Worker] Cached optional asset:', asset);
+                    }
+                } catch (error) {
+                    console.warn('[Service Worker] Could not cache optional asset:', asset, error);
+                }
+            }
         })
     );
     self.skipWaiting();
@@ -24,7 +49,7 @@ self.addEventListener('install', (event) => {
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-    console.log('[Service Worker v7] Activating...');
+    console.log('[Service Worker v8] Activating...');
     event.waitUntil(
         caches.keys().then((cacheNames) => {
             return Promise.all(
@@ -73,7 +98,7 @@ self.addEventListener('fetch', (event) => {
 
 // Push notification handler
 self.addEventListener('push', (event) => {
-    console.log('[Service Worker v7] Push Received.');
+    console.log('[Service Worker v8] Push Received.');
     let data = { title: 'GFC Alert', body: 'System notification received.' };
 
     if (event.data) {
@@ -103,7 +128,7 @@ self.addEventListener('push', (event) => {
 
 // Notification click handler
 self.addEventListener('notificationclick', (event) => {
-    console.log('[Service Worker v7] Notification click Received.');
+    console.log('[Service Worker v8] Notification click Received.');
 
     event.notification.close();
 

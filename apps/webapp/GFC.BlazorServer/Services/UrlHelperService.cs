@@ -18,15 +18,18 @@ public class UrlHelperService : IUrlHelperService
     public async Task<string> GetBaseUrlAsync()
     {
         var settings = await _systemSettingsService.GetAsync();
-        var currentUri = new Uri(_navigationManager.BaseUri);
-        var scheme = currentUri.Scheme;
+        
+        // [PWA FIX] Always use HTTPS for generated links, regardless of how admin is accessing
+        // This ensures PWA installation works correctly on mobile devices
+        const string scheme = "https";
 
         if (!string.IsNullOrEmpty(settings?.PrimaryDomain))
         {
             return $"{scheme}://{settings.PrimaryDomain}";
         }
         
-        // Fallback to the current site base URI instead of a hardcoded domain
-        return _navigationManager.BaseUri.TrimEnd('/');
+        // Fallback: extract host from current URI but force HTTPS
+        var currentUri = new Uri(_navigationManager.BaseUri);
+        return $"{scheme}://{currentUri.Host}";
     }
 }

@@ -119,12 +119,56 @@ window.pwaInstaller = (function () {
 
     // Trigger the install prompt
     async function install() {
+        // Run diagnostics first
+        const diagnostics = await runDiagnostics();
+
+        if (!diagnostics.allPassed) {
+            console.error('[PWA Installer] Installation requirements not met:', diagnostics);
+
+            // Show user-friendly error message
+            const issues = [];
+            if (!diagnostics.isHttps) issues.push('Site must be served over HTTPS');
+            if (!diagnostics.hasServiceWorker) issues.push('Service Worker not registered');
+            if (!diagnostics.hasManifest) issues.push('Web App Manifest not found');
+            if (!diagnostics.hasIcons) issues.push('Required icons not found');
+
+            alert('Cannot install app:\n\n' + issues.join('\n') + '\n\nPlease contact support.');
+            return false;
+        }
+
         if (!deferredPrompt) {
-            console.log('[PWA Installer] No install prompt available');
+            console.log('[PWA Installer] No install prompt available - showing manual instructions');
+
+            const platform = detectPlatform();
+            const instructions = getManualInstructions(platform);
+
+            if (instructions) {
+                // Create a modal with instructions
+                const modal = document.createElement('div');
+                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+                modal.innerHTML = `
+                    <div style="background:white;padding:30px;border-radius:16px;max-width:400px;text-align:center;">
+                        <h3 style="margin-top:0;color:#333;">Install GFC App</h3>
+                        <div style="text-align:left;color:#666;line-height:1.8;margin:20px 0;">
+                            ${instructions}
+                        </div>
+                        <button onclick="this.closest('div').parentElement.remove()" 
+                                style="background:#0d6efd;color:white;border:none;padding:12px 24px;border-radius:8px;font-weight:600;cursor:pointer;">
+                            Got it
+                        </button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            } else {
+                alert('Installation not available on this browser. Please use Chrome, Edge, or Safari.');
+            }
+
             return false;
         }
 
         try {
+            console.log('[PWA Installer] Showing install prompt...');
+
             // Show the install prompt
             deferredPrompt.prompt();
 
@@ -141,8 +185,59 @@ window.pwaInstaller = (function () {
             }
         } catch (error) {
             console.error('[PWA Installer] Error triggering install:', error);
+            alert('Installation failed: ' + error.message);
             return false;
         }
+    }
+
+    // Run diagnostic checks
+    async function runDiagnostics() {
+        const results = {
+            isHttps: false,
+            hasServiceWorker: false,
+            hasManifest: false,
+            hasIcons: false,
+            allPassed: false
+        };
+
+        // Check HTTPS (localhost is exempt)
+        results.isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
+
+        // Check Service Worker
+        if ('serviceWorker' in navigator) {
+            try {
+                const registration = await navigator.serviceWorker.getRegistration();
+                results.hasServiceWorker = !!registration;
+            } catch (e) {
+                console.error('[PWA Diagnostics] Service Worker check failed:', e);
+            }
+        }
+
+        // Check Manifest
+        try {
+            const manifestLink = document.querySelector('link[rel="manifest"]');
+            if (manifestLink) {
+                const response = await fetch(manifestLink.href);
+                if (response.ok) {
+                    const manifest = await response.json();
+                    results.hasManifest = true;
+
+                    // Check if icons exist
+                    if (manifest.icons && manifest.icons.length > 0) {
+                        // Try to fetch at least one icon
+                        const iconResponse = await fetch(manifest.icons[0].src);
+                        results.hasIcons = iconResponse.ok;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('[PWA Diagnostics] Manifest check failed:', e);
+        }
+
+        results.allPassed = results.isHttps && results.hasServiceWorker && results.hasManifest && results.hasIcons;
+
+        console.log('[PWA Diagnostics]', results);
+        return results;
     }
 
     // Public API
