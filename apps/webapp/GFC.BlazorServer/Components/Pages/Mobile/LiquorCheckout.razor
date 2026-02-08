@@ -1,0 +1,461 @@
+@page "/mobile/liquor/checkout"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@using GFC.BlazorServer.Components.Shared.Mobile
+@implements IAsyncDisposable
+
+<PageTitle>Liquor Operations | GFC Staff</PageTitle>
+
+<div class="ops-wrapper @(_isReceivingMode ? "mode-in" : "mode-out")">
+    <div class="ops-top-group bg-white border-bottom shadow-sm">
+        <!-- TOP HEADER -->
+        <header class="ops-header px-3 py-3 d-flex justify-content-center">
+            <h1 class="h6 mb-0 fw-black text-uppercase ls-1">Liquor Operations</h1>
+        </header>
+
+        <!-- ACTION MODE SWITCHER (Replaces Slider) -->
+        <div class="mode-tiles-container px-3 py-2">
+            <div class="mode-tile out @(!_isReceivingMode ? "active" : "")" @onclick="() => SetReceivingMode(false)">
+                <div class="tile-icon"><i class="bi bi-box-arrow-right"></i></div>
+                <div class="tile-label">Bottle Out</div>
+            </div>
+            <div class="mode-tile in @(_isReceivingMode ? "active" : "")" @onclick="() => SetReceivingMode(true)">
+                <div class="tile-icon"><i class="bi bi-box-seam"></i></div>
+                <div class="tile-label">Stock In</div>
+            </div>
+        </div>
+
+        <!-- HERO SCANNER (Noticeable) -->
+        <div class="scanner-hero @(_isScannerActive ? "active" : "")">
+            @if (!_isScannerActive)
+            {
+                <div class="scan-cta" @onclick="StartScanner">
+                    <div class="scan-pulse"></div>
+                    <div class="scan-content">
+                        <i class="bi bi-upc-scan"></i>
+                        <span>Scan Barcode</span>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="scanner-active-frame animate-entrance">
+                    <div id="checkout-scanner" class="scanner-viewport"></div>
+                    <div class="scanner-overlay">
+                        <div class="focus-brackets"></div>
+                    </div>
+                    <button class="btn-stop-scan" @onclick="StopScanner">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- PRODUCT LIST -->
+
+    <!-- PRODUCT LIST -->
+    <main class="ops-scroll-area">
+        @if (_loading)
+        {
+            <div class="p-5 text-center"><div class="spinner-border text-primary"></div></div>
+        }
+        else
+        {
+            <div class="ops-list p-3">
+                @foreach (var item in _items.OrderBy(i => i.Name))
+                {
+                    bool hasPending = _isReceivingMode && _pendingRestock.ContainsKey(item.Id) && _pendingRestock[item.Id] > 0;
+                    <div class="ops-card @(hasPending ? "is-pending" : "")" @onclick="() => HandleItemClick(item)">
+                        <div class="card-img" @onclick:stopPropagation="true" @onclick='() => _zoomedImageUrl = item.ImageUrl'>
+                            @if (!string.IsNullOrEmpty(item.ImageUrl)) { 
+                                <img src="@item.ImageUrl" /> 
+                            }
+                            else { <div class="no-img"><i class="bi bi-bottle"></i></div> }
+                        </div>
+                        <div class="card-info">
+                            <h3 class="card-name">@item.Name</h3>
+                            <div class="card-meta">
+                                <span class="badge @(_stockClass(item.CurrentStock))">@item.CurrentStock left</span>
+                                <span class="size">@item.BottleSize</span>
+                            </div>
+                        </div>
+
+                        <!-- MODE SPECIFIC ACTIONS -->
+                        @if (_isReceivingMode)
+                        {
+                            <div class="card-receivers" @onclick:stopPropagation>
+                                <button class="btn-step" @onclick="() => AdjustPending(item.Id, -1)"><i class="bi bi-dash"></i></button>
+                                <span class="step-val">@(_pendingRestock.ContainsKey(item.Id) ? _pendingRestock[item.Id] : 0)</span>
+                                <button class="btn-step active" @onclick="() => AdjustPending(item.Id, 1)"><i class="bi bi-plus"></i></button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="card-check-out shadow-sm">
+                                <span class="action-label">OUT</span>
+                                <i class="bi bi-dash-lg"></i>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </main>
+
+    <!-- RECEIVE SHIPMENT FOOTER (Matches Inventory Manager logic) -->
+    @if (_isReceivingMode)
+    {
+        var total = _pendingRestock.Values.Sum();
+        @if (total > 0)
+        {
+            <div class="shipment-footer animate-slide-up">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small fw-bold text-white-50">Pending Shipment:</span>
+                    <span class="badge bg-white text-success px-3 py-2 fw-black">+@total bottles</span>
+                </div>
+                <button class="btn btn-light w-100 py-3 fw-black text-success shadow-lg" @onclick="CommitShipment">
+                    CONFIRM SHIPMENT
+                </button>
+            </div>
+        }
+    }
+
+    <!-- BOTTOM NAV -->
+    <div class="fixed-bottom">
+        <MobileBottomNav ActiveTab="Bartender liquor checkout" />
+    </div>
+</div>
+
+<!-- DEDUCT CONFIRMATION MODAL -->
+@if (_selectedItem != null && !_isReceivingMode && !_showSuccess)
+{
+    <div class="modal-dimmer" @onclick="() => _selectedItem = null">
+        <div class="confirm-sheet animate-slide-up" @onclick:stopPropagation>
+            <div class="sheet-top"></div>
+            <div class="p-4 text-center">
+                <div class="confirm-icon mb-3"><i class="bi bi-dash-lg"></i></div>
+                <h2 class="h4 fw-black">Deduct 1 Bottle?</h2>
+                <p class="text-muted">Recording removal of <strong>@_selectedItem.Name</strong></p>
+                <div class="d-grid gap-2 mt-4">
+                    <button class="btn btn-primary py-3 fw-black rounded-4 shadow" @onclick="ConfirmDeduct">CONFIRM REMOVAL</button>
+                    <button class="btn btn-link text-muted fw-bold" @onclick="() => _selectedItem = null">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- SUCCESS TOAST -->
+@if (_showSuccess)
+{
+    <div class="success-overlay animate-fade-in">
+        <div class="success-card animate-bounce">
+            <div class="pulse-ring"><i class="bi bi-check-lg"></i></div>
+            <span class="fw-black mt-2">STOCK UPDATED</span>
+        </div>
+    </div>
+}
+
+<style>
+    .ops-wrapper {
+        position: fixed; inset: 0; display: flex; flex-direction: column; background: #f8fafc; font-family: 'Inter', sans-serif;
+    }
+
+    /* HEADER GROUP */
+    .ops-top-group { z-index: 1000; position: relative; }
+    .ops-header { display: flex; align-items: center; justify-content: space-between; background: transparent; }
+    .btn-back-trans { border: none; background: transparent; font-size: 1.2rem; color: #1e293b; width: 44px; height: 44px; }
+    .ls-1 { letter-spacing: 1px; }
+
+    /* MODE TILES */
+    .mode-tiles-container { display: flex; gap: 12px; }
+    .mode-tile {
+        flex: 1; height: 70px; border-radius: 20px; background: white; border: 2px solid #e2e8f0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        transition: all 0.2s; cursor: pointer;
+    }
+    .mode-tile.active.out { background: #1e293b; border-color: #1e293b; color: white; }
+    .mode-tile.active.in { background: #059669; border-color: #059669; color: white; }
+    .tile-icon { font-size: 1.25rem; opacity: 0.6; }
+    .tile-label { font-size: 0.75rem; font-weight: 800; text-uppercase; margin-top: 4px; }
+
+    /* SCANNER HERO */
+    .scanner-hero { margin: 8px 16px; position: relative; }
+    .scan-cta {
+        height: 100px; border-radius: 24px; background: #fff; border: 2px dashed #cbd5e1;
+        display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; overflow: hidden;
+    }
+    .scan-content { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #64748b; font-weight: 800; }
+    .scan-content i { font-size: 1.8rem; }
+    .scan-pulse { position: absolute; inset: 0; background: #3b82f6; opacity: 0.05; animation: pulse 2.5s infinite; }
+    @@keyframes pulse { 0% { opacity: 0.05; scale: 0.95; } 50% { opacity: 0.15; scale: 1.05; } 100% { opacity: 0.05; scale: 0.95; } }
+
+    .scanner-viewport { width: 100%; height: 260px; background: #000; border-radius: 24px; overflow: hidden; }
+    .scanner-hero.active { height: 260px; }
+    .scanner-active-frame { position: relative; }
+    .focus-brackets {
+        position: absolute; inset: 40px; border: 2px solid rgba(255,255,255,0.3); border-radius: 20px;
+        box-shadow: 0 0 0 1000px rgba(0,0,0,0.4); pointer-events: none;
+    }
+    .btn-stop-scan {
+        position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border-radius: 50%;
+        background: rgba(0,0,0,0.5); color: white; border: none; font-size: 0.8rem;
+    }
+
+    /* PRODUCT LIST */
+    .cat-pill {
+        white-space: nowrap; padding: 6px 16px; border-radius: 12px; background: #f1f5f9;
+        border: 1px solid #e2e8f0; font-size: 0.8rem; font-weight: 700; color: #64748b; margin-right: 8px;
+    }
+    .cat-pill.active { background: #1e293b; color: white; border-color: #1e293b; }
+    .mode-in .cat-pill.active { background: #059669; border-color: #059669; }
+
+    .ops-scroll-area { flex: 1; overflow-y: auto; padding-bottom: 200px; -webkit-overflow-scrolling: touch; }
+    .ops-card {
+        background: white; border-radius: 20px; padding: 12px; display: flex; align-items: center; gap: 16px;
+        margin-bottom: 12px; border: 1px solid #f1f5f9; box-shadow: 0 1px 3px rgba(0,0,0,0.02); transition: all 0.2s;
+    }
+    .ops-card.is-pending { border-color: #059669; background: #f0fdf4; }
+    .card-img { width: 60px; height: 60px; background: #f8fafc; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .card-img img { width: 100%; height: 100%; object-fit: contain; }
+    .no-img { font-size: 1.5rem; color: #cbd5e1; }
+
+    .card-info { flex: 1; min-width: 0; }
+    .card-name { font-size: 1.15rem; font-weight: 850; color: #0f172a; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-meta { display: flex; align-items: center; gap: 8px; }
+    .card-meta .badge { font-size: 0.65rem; padding: 3px 8px; }
+    .card-meta .size { font-size: 0.75rem; font-weight: 600; color: #64748b; }
+
+    /* ACTION AREAS */
+    .card-check-out { 
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #fef2f2;
+        color: #ef4444; 
+        width: 58px;
+        height: 58px;
+        border-radius: 16px;
+        border: 1px solid #fee2e2;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card-check-out .action-label {
+        font-size: 0.65rem;
+        font-weight: 900;
+        margin-bottom: -4px;
+        letter-spacing: 0.5px;
+    }
+    .card-check-out i {
+        font-size: 1.25rem;
+        font-weight: 900;
+    }
+    .ops-card:active .card-check-out {
+        transform: scale(0.92);
+        background: #fee2e2;
+    }
+    .card-receivers { display: flex; align-items: center; gap: 8px; background: #f1f5f9; padding: 4px; border-radius: 12px; }
+    .btn-step {
+        width: 32px; height: 32px; border-radius: 8px; border: none; background: white; color: #475569;
+        display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
+    }
+    .btn-step.active { background: #059669; color: white; }
+    .step-val { font-weight: 800; width: 24px; text-align: center; }
+
+    /* FOOTER */
+    .shipment-footer {
+        position: fixed; bottom: 85px; left: 16px; right: 16px; background: #059669;
+        padding: 16px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); z-index: 50;
+    }
+
+    /* MODAL */
+    .modal-dimmer { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: flex-end; }
+    .confirm-sheet { width: 100%; background: white; border-radius: 32px 32px 0 0; }
+    .sheet-top { width: 40px; height: 5px; background: #e2e8f0; border-radius: 10px; margin: 12px auto; }
+    .confirm-icon { width: 64px; height: 64px; background: #fee2e2; color: #ef4444; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto; }
+
+    /* SUCCESS */
+    .success-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.8); backdrop-filter: blur(10px); z-index: 4000; display: flex; align-items: center; justify-content: center; }
+    .success-card { text-align: center; }
+    .pulse-ring { width: 80px; height: 80px; background: #10b981; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 3rem; margin: 0 auto; box-shadow: 0 0 0 rgba(16, 185, 129, 0.4); animation: pulse-green 1s infinite; }
+    @@keyframes pulse-green { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 70% { box-shadow: 0 0 0 20px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+
+    @@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    @@keyframes bounceFade { 0% { transform: scale(0.5); opacity:0; } 50% { transform: scale(1.1); } 100% { transform: scale(1); opacity:1; } }
+    .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
+    .animate-bounce { animation: bounceFade 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+    .animate-fade-in { animation: fadeIn 0.3s ease both; }
+
+    /* IMAGE ZOOM */
+    .zoom-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+        backdrop-filter: blur(10px); z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px;
+        cursor: pointer;
+    }
+    .zoom-content { width: 100%; max-width: 450px; text-align: center; }
+    .zoom-content img { width: 100% !important; height: auto !important; border-radius: 24px; box-shadow: 0 25px 60px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }
+    .zoom-close { color: white; margin-top: 20px; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.5px; text-transform: uppercase; opacity: 0.7; }
+    
+    .animate-zoom { animation: zoomIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+    @@keyframes zoomIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+</style>
+
+@if (!string.IsNullOrEmpty(_zoomedImageUrl))
+{
+    <div class="zoom-overlay animate-fade-in" @onclick="() => _zoomedImageUrl = null">
+        <div class="zoom-content animate-zoom">
+            <img src="@_zoomedImageUrl" />
+            <div class="zoom-close"><i class="bi bi-x-circle-fill"></i> Tap anywhere to close</div>
+        </div>
+    </div>
+}
+
+@code {
+    private string? _zoomedImageUrl;
+    private List<LiquorItem> _items = new();
+    private List<string> _categories = new();
+    private Dictionary<int, int> _pendingRestock = new();
+    private string? _selectedCategory;
+    private bool _loading = true;
+    private bool _isScannerActive = false;
+    private bool _isProcessing = false;
+    private bool _showSuccess = false;
+    private bool _isReceivingMode = false;
+    private LiquorItem? _selectedItem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        try {
+            _items = (await LiquorService.GetAllItemsAsync()).ToList();
+            _categories = _items.Select(i => i.Category).Where(c => !string.IsNullOrEmpty(c)).Distinct().OrderBy(c => c).ToList();
+        } catch { }
+        _loading = false;
+    }
+
+    private IEnumerable<LiquorItem> FilteredItems => _items;
+
+    private void SetReceivingMode(bool receiving)
+    {
+        _isReceivingMode = receiving;
+        _selectedItem = null;
+        _pendingRestock.Clear();
+    }
+
+    private void HandleItemClick(LiquorItem item)
+    {
+        if (_isReceivingMode)
+        {
+            AdjustPending(item.Id, 1);
+        }
+        else
+        {
+            _selectedItem = item;
+        }
+    }
+
+    private void AdjustPending(int id, int delta)
+    {
+        if (!_pendingRestock.ContainsKey(id)) _pendingRestock[id] = 0;
+        _pendingRestock[id] += delta;
+        if (_pendingRestock[id] < 0) _pendingRestock[id] = 0;
+        if (_pendingRestock[id] == 0) _pendingRestock.Remove(id);
+    }
+
+    private async Task StartScanner()
+    {
+        _isScannerActive = true;
+        StateHasChanged();
+        await Task.Delay(300); 
+        await JSRuntime.InvokeVoidAsync("LiquorScanner.start", "checkout-scanner", DotNetObjectReference.Create(this), "OnScanSuccess");
+    }
+
+    private async Task StopScanner()
+    {
+        _isScannerActive = false;
+        await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnScanSuccess(string decodedText)
+    {
+        var item = _items.FirstOrDefault(i => i.UpcCode == decodedText);
+        if (item != null)
+        {
+            if (_isReceivingMode) { AdjustPending(item.Id, 1); }
+            else { _selectedItem = item; await StopScanner(); }
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConfirmDeduct()
+    {
+        if (_selectedItem == null || _isProcessing) return;
+        _isProcessing = true;
+        try {
+            var user = AuthStateProvider.GetCurrentUser();
+            await LiquorService.CheckoutBottleAsync(_selectedItem.Id, user?.UserId ?? 0);
+            
+            // UI Update
+            var itemInList = _items.FirstOrDefault(i => i.Id == _selectedItem.Id);
+            if (itemInList != null) itemInList.CurrentStock--;
+            
+            await ShowSuccessAndReset();
+            _selectedItem = null;
+        } catch { 
+            _isProcessing = false; 
+        }
+    }
+
+    private async Task CommitShipment()
+    {
+        if (_isProcessing || !_pendingRestock.Any()) return;
+        _isProcessing = true;
+        try {
+            var user = AuthStateProvider.GetCurrentUser();
+            foreach (var kvp in _pendingRestock)
+            {
+                await LiquorService.RestockItemAsync(kvp.Key, user?.UserId ?? 0, kvp.Value);
+                var item = _items.FirstOrDefault(i => i.Id == kvp.Key);
+                if (item != null) item.CurrentStock += kvp.Value;
+            }
+            await ShowSuccessAndReset();
+            _pendingRestock.Clear();
+        } catch { 
+            _isProcessing = false; 
+        }
+    }
+
+    private async Task ShowSuccessAndReset()
+    {
+        _isProcessing = false;
+        _showSuccess = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _showSuccess = false;
+        StateHasChanged();
+    }
+
+    private string _stockClass(int stock) => stock <= 2 ? "bg-danger" : "bg-success-subtle text-success";
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras"); } catch { }
+    }
+}
+
