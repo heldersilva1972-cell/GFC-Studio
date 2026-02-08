@@ -44,6 +44,7 @@ public class ReimbursementRequest
     public string? RejectReason { get; set; }
     public int? PaidByMemberId { get; set; }
     public DateTime? PaidDateUtc { get; set; }
+    public DateTime? LastReminderSentUtc { get; set; }
 
     // Navigation properties
     public ICollection<ReimbursementItem> Items { get; set; } = new List<ReimbursementItem>();

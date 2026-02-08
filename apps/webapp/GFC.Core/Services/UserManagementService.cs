@@ -552,6 +552,10 @@ public class UserManagementService : IUserManagementService
         if (string.IsNullOrEmpty(normalized) || normalized == "dashboard" || normalized == "home")
             return true;
             
+        // [FIX] Implicit access to sub-features if parent is allowed
+        if (normalized == "reimbursements/new" && routes.Contains("reimbursements"))
+            return true;
+            
         // 5. High-speed memory lookup
         return routes.Contains(normalized);
     }
@@ -561,6 +565,13 @@ public class UserManagementService : IUserManagementService
         _pagePermissionRepository.SetUserPermissions(userId, pageIds, grantedBy);
         // Invalidate specific user cache
         _permissionCache.TryRemove(userId, out _);
+        _userPermissionsCache.TryRemove(userId, out _);
+    }
+
+    public void UpdateUserPushPreference(int userId, int pageId, bool receivePush)
+    {
+        _pagePermissionRepository.UpdatePushPreference(userId, pageId, receivePush);
+        // Invalidate cache
         _userPermissionsCache.TryRemove(userId, out _);
     }
 

@@ -373,6 +373,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
 
         builder.Services.AddHostedService<DirectorAccessExpiryWorker>();
         builder.Services.AddHostedService<ControllerStatusMonitorService>();
+        builder.Services.AddHostedService<ReimbursementReminderWorker>();
 
         var app = builder.Build();
 

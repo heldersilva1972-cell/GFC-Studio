@@ -12,17 +12,20 @@ public class ReimbursementService
     private readonly ILogger<ReimbursementService> _logger;
     private readonly ReceiptStorageService _receiptStorage;
     private readonly IMemberRepository _memberRepository;
+    private readonly INotificationService _notificationService;
 
     public ReimbursementService(
         IDbContextFactory<GfcDbContext> contextFactory,
         ILogger<ReimbursementService> logger,
         ReceiptStorageService receiptStorage,
-        IMemberRepository memberRepository)
+        IMemberRepository memberRepository,
+        INotificationService notificationService)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _receiptStorage = receiptStorage ?? throw new ArgumentNullException(nameof(receiptStorage));
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
+        _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
     }
 
     public async Task<ReimbursementRequest> CreateDraftAsync(int memberId, CancellationToken cancellationToken = default)
@@ -53,7 +56,7 @@ public class ReimbursementService
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);
 
-        if (itemDto.Amount <= 0)
+        if (!itemDto.Amount.HasValue || itemDto.Amount.Value <= 0)
         {
             throw new ArgumentException("Amount must be greater than 0.", nameof(itemDto));
         }
@@ -90,7 +93,7 @@ public class ReimbursementService
         {
             RequestId = requestId,
             ExpenseDate = itemDto.ExpenseDate,
-            Amount = itemDto.Amount,
+            Amount = itemDto.Amount.Value,
             CategoryId = itemDto.CategoryId,
             Vendor = itemDto.Vendor,
             Notes = itemDto.Notes
@@ -224,7 +227,7 @@ public class ReimbursementService
         // Send notification
         if (request != null)
         {
-            await ReimbursementNotificationService.SendOnSubmittedAsync(request, _memberRepository, dbContext, _logger, cancellationToken);
+            await ReimbursementNotificationService.SendOnSubmittedAsync(request, _memberRepository, dbContext, _notificationService, _logger, cancellationToken);
         }
 
         _logger.LogInformation("Submitted reimbursement request {RequestId}", requestId);
@@ -266,7 +269,7 @@ public class ReimbursementService
         // Send notification
         if (request != null)
         {
-            await ReimbursementNotificationService.SendOnApprovedAsync(request, _memberRepository, _logger, cancellationToken);
+            await ReimbursementNotificationService.SendOnApprovedAsync(request, _memberRepository, _notificationService, _logger, cancellationToken);
         }
 
         _logger.LogInformation("Approved reimbursement request {RequestId} by member {ApproverId}", requestId, approverId);
@@ -315,7 +318,7 @@ public class ReimbursementService
         // Send notification
         if (request != null)
         {
-            await ReimbursementNotificationService.SendOnRejectedAsync(request, _memberRepository, _logger, cancellationToken);
+            await ReimbursementNotificationService.SendOnRejectedAsync(request, _memberRepository, _notificationService, _logger, cancellationToken);
         }
 
         _logger.LogInformation("Rejected reimbursement request {RequestId} by member {ApproverId}", requestId, approverId);
@@ -357,7 +360,7 @@ public class ReimbursementService
         // Send notification
         if (request != null)
         {
-            await ReimbursementNotificationService.SendOnPaidAsync(request, _memberRepository, _logger, cancellationToken);
+            await ReimbursementNotificationService.SendOnPaidAsync(request, _memberRepository, _notificationService, _logger, cancellationToken);
         }
 
         _logger.LogInformation("Marked reimbursement request {RequestId} as paid by member {ApproverId}", requestId, approverId);
@@ -439,6 +442,27 @@ BEGIN
         [IsActive] BIT NOT NULL
     );
 END
+
+-- Seed categories and update existing ones to remove descriptions
+UPDATE [dbo].[ReimbursementCategories] SET [Name] = N'Supplies' WHERE [Name] = N'Supplies (General house items)';
+UPDATE [dbo].[ReimbursementCategories] SET [Name] = N'Bar / Kitchen' WHERE [Name] = N'Bar / Kitchen (Food, garnishes, napkins)';
+UPDATE [dbo].[ReimbursementCategories] SET [Name] = N'Repairs & Maintenance' WHERE [Name] = N'Repairs & Maintenance (Building or equipment fixes)';
+UPDATE [dbo].[ReimbursementCategories] SET [Name] = N'Events' WHERE [Name] = N'Events (Specific costs for a club party or event)';
+UPDATE [dbo].[ReimbursementCategories] SET [Name] = N'Office' WHERE [Name] = N'Office (Postage, paper, ink)';
+UPDATE [dbo].[ReimbursementCategories] SET [Name] = N'Other' WHERE [Name] = N'Other (Miscellaneous)';
+
+IF NOT EXISTS (SELECT 1 FROM [dbo].[ReimbursementCategories] WHERE [Name] = N'Supplies')
+    INSERT INTO [dbo].[ReimbursementCategories] (Name, IsActive) VALUES (N'Supplies', 1);
+IF NOT EXISTS (SELECT 1 FROM [dbo].[ReimbursementCategories] WHERE [Name] = N'Bar / Kitchen')
+    INSERT INTO [dbo].[ReimbursementCategories] (Name, IsActive) VALUES (N'Bar / Kitchen', 1);
+IF NOT EXISTS (SELECT 1 FROM [dbo].[ReimbursementCategories] WHERE [Name] = N'Repairs & Maintenance')
+    INSERT INTO [dbo].[ReimbursementCategories] (Name, IsActive) VALUES (N'Repairs & Maintenance', 1);
+IF NOT EXISTS (SELECT 1 FROM [dbo].[ReimbursementCategories] WHERE [Name] = N'Events')
+    INSERT INTO [dbo].[ReimbursementCategories] (Name, IsActive) VALUES (N'Events', 1);
+IF NOT EXISTS (SELECT 1 FROM [dbo].[ReimbursementCategories] WHERE [Name] = N'Office')
+    INSERT INTO [dbo].[ReimbursementCategories] (Name, IsActive) VALUES (N'Office', 1);
+IF NOT EXISTS (SELECT 1 FROM [dbo].[ReimbursementCategories] WHERE [Name] = N'Other')
+    INSERT INTO [dbo].[ReimbursementCategories] (Name, IsActive) VALUES (N'Other', 1);
 
 IF OBJECT_ID(N'[dbo].[ReceiptFiles]', N'U') IS NULL
 BEGIN
@@ -670,7 +694,7 @@ public class ReimbursementItemDto
 
     [Required(ErrorMessage = "Amount is required.")]
     [Range(0.01, 999999.99, ErrorMessage = "Amount must be greater than 0.")]
-    public decimal Amount { get; set; }
+    public decimal? Amount { get; set; }
 
     [Required(ErrorMessage = "Category is required.")]
     [Range(1, int.MaxValue, ErrorMessage = "Please select a category.")]

@@ -19,6 +19,7 @@ public static class ReimbursementNotificationService
         ReimbursementRequest request,
         IMemberRepository memberRepository,
         GfcDbContext dbContext,
+        INotificationService notificationService,
         ILogger logger,
         CancellationToken cancellationToken = default)
     {
@@ -59,13 +60,24 @@ public static class ReimbursementNotificationService
                 }
             }
 
-            // Send email to all recipients
-            foreach (var recipientEmail in recipients)
+            // [PUSH] Notify managers with ReceivePush enabled
+            var managerIds = await dbContext.UserPagePermissions
+                .Where(p => p.ReceivePush && p.CanAccess)
+                .Where(p => p.Page.PageRoute.Contains("reimbursement") && p.Page.PageRoute.Contains("manager"))
+                .Select(p => p.UserId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            foreach (var managerId in managerIds)
             {
-                await SendEmailAsync(recipientEmail, $"New Reimbursement Request #{request.Id}", body, logger);
+                await notificationService.SendPushNotificationAsync(
+                    managerId, 
+                    "New Reimbursement", 
+                    $"A new request for {request.TotalAmount:C2} has been submitted by {requestor.FirstName}.",
+                    "/mobile/reimbursements/manager");
             }
 
-            logger.LogInformation("Sent submission notification for reimbursement request {RequestId} to {RecipientCount} recipients", request.Id, recipients.Count);
+            logger.LogInformation("Sent submission notifications for request {RequestId} to {ManagerCount} managers via Push", request.Id, managerIds.Count);
         }
         catch (Exception ex)
         {
@@ -76,6 +88,7 @@ public static class ReimbursementNotificationService
     public static async Task SendOnApprovedAsync(
         ReimbursementRequest request,
         IMemberRepository memberRepository,
+        INotificationService notificationService,
         ILogger logger,
         CancellationToken cancellationToken = default)
     {
@@ -93,8 +106,13 @@ public static class ReimbursementNotificationService
                 .Replace("{TotalAmount}", request.TotalAmount.ToString("C2"))
                 .Replace("{ApprovedDate}", request.ApprovedDateUtc?.ToString("MMM d, yyyy") ?? "N/A");
 
-            await SendEmailAsync(requestor.Email, "Reimbursement Request Approved", body, logger);
-            logger.LogInformation("Sent approval notification for reimbursement request {RequestId}", request.Id);
+            await notificationService.SendPushNotificationAsync(
+                request.RequestorMemberId, 
+                "Reimbursement Approved", 
+                $"Your request for {request.TotalAmount:C2} has been approved and moved to payout queue.",
+                "/mobile/reimbursements");
+
+            logger.LogInformation("Sent approval push for request {RequestId}", request.Id);
         }
         catch (Exception ex)
         {
@@ -105,6 +123,7 @@ public static class ReimbursementNotificationService
     public static async Task SendOnRejectedAsync(
         ReimbursementRequest request,
         IMemberRepository memberRepository,
+        INotificationService notificationService,
         ILogger logger,
         CancellationToken cancellationToken = default)
     {
@@ -123,8 +142,13 @@ public static class ReimbursementNotificationService
                 .Replace("{RejectReason}", request.RejectReason ?? "No reason provided")
                 .Replace("{RejectedDate}", request.RejectedDateUtc?.ToString("MMM d, yyyy") ?? "N/A");
 
-            await SendEmailAsync(requestor.Email, "Reimbursement Request Rejected", body, logger);
-            logger.LogInformation("Sent rejection notification for reimbursement request {RequestId}", request.Id);
+            await notificationService.SendPushNotificationAsync(
+                request.RequestorMemberId, 
+                "Reimbursement Denied", 
+                $"Your request for {request.TotalAmount:C2} was denied: {request.RejectReason}",
+                "/mobile/reimbursements");
+
+            logger.LogInformation("Sent rejection push for request {RequestId}", request.Id);
         }
         catch (Exception ex)
         {
@@ -135,6 +159,7 @@ public static class ReimbursementNotificationService
     public static async Task SendOnPaidAsync(
         ReimbursementRequest request,
         IMemberRepository memberRepository,
+        INotificationService notificationService,
         ILogger logger,
         CancellationToken cancellationToken = default)
     {
@@ -152,8 +177,13 @@ public static class ReimbursementNotificationService
                 .Replace("{TotalAmount}", request.TotalAmount.ToString("C2"))
                 .Replace("{PaidDate}", request.PaidDateUtc?.ToString("MMM d, yyyy") ?? "N/A");
 
-            await SendEmailAsync(requestor.Email, "Reimbursement Request Paid", body, logger);
-            logger.LogInformation("Sent paid notification for reimbursement request {RequestId}", request.Id);
+            await notificationService.SendPushNotificationAsync(
+                request.RequestorMemberId, 
+                "Reimbursement Paid!", 
+                $"Success! Your reimbursement of {request.TotalAmount:C2} has been paid.",
+                "/mobile/reimbursements");
+
+            logger.LogInformation("Sent payment push for request {RequestId}", request.Id);
         }
         catch (Exception ex)
         {

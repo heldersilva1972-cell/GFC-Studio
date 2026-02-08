@@ -137,15 +137,32 @@
                                 {
                                     <div class="col-md-6 col-lg-4">
                                         <div class="card h-100 permission-card @(SelectedPageIds.Contains(appPage.PageId) ? "granted" : "")"
-                                             @onclick="() => TogglePage(appPage)">
-                                            <div class="card-body p-3 d-flex align-items-center justify-content-between">
-                                                <div class="d-flex align-items-center gap-3">
-                                                    <div class="p-2 rounded-circle bg-opacity-10 d-flex align-items-center justify-content-center @(SelectedPageIds.Contains(appPage.PageId) ? "bg-success text-success" : "bg-secondary text-secondary")" style="width: 40px; height: 40px;">
-                                                        <i class="bi @GetPageIcon(appPage) fs-5"></i>
+                                             style="cursor: pointer;">
+                                            <div class="card-body p-3">
+                                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                                    <div class="d-flex align-items-center gap-3" @onclick="() => TogglePage(appPage)">
+                                                        <div class="p-2 rounded-circle bg-opacity-10 d-flex align-items-center justify-content-center @(SelectedPageIds.Contains(appPage.PageId) ? "bg-success text-success" : "bg-secondary text-secondary")" style="width: 40px; height: 40px;">
+                                                            <i class="bi @GetPageIcon(appPage) fs-5"></i>
+                                                        </div>
+                                                        <h6 class="card-title fw-bold mb-0">@GetCleanPageName(appPage)</h6>
                                                     </div>
-                                                    <h6 class="card-title fw-bold mb-0">@GetCleanPageName(appPage)</h6>
+                                                    <div class="modern-switch @(SelectedPageIds.Contains(appPage.PageId) ? "checked" : "")" @onclick="() => TogglePage(appPage)"></div>
                                                 </div>
-                                                <div class="modern-switch @(SelectedPageIds.Contains(appPage.PageId) ? "checked" : "")"></div>
+                                                
+                                                @if (SelectedPageIds.Contains(appPage.PageId) && SupportsPush(appPage))
+                                                {
+                                                    <div class="d-flex align-items-center justify-content-between pt-2 border-top mt-2 animate-fade-in">
+                                                        <div class="d-flex align-items-center gap-2 text-muted small">
+                                                            <i class="bi bi-bell-fill @(PushEnabledPageIds.Contains(appPage.PageId) ? "text-warning" : "")"></i>
+                                                            <span>Push Notifications</span>
+                                                        </div>
+                                                        <div class="form-check form-switch mb-0">
+                                                            <input class="form-check-input" type="checkbox" role="switch" 
+                                                                   checked="@PushEnabledPageIds.Contains(appPage.PageId)"
+                                                                   @onchange="(e) => TogglePush(appPage.PageId, e)">
+                                                        </div>
+                                                    </div>
+                                                }
                                             </div>
                                         </div>
                                     </div>
@@ -205,9 +222,11 @@
     private Dictionary<string, List<AppPage>> PagesByCategory { get; set; } = new();
     private HashSet<int> SelectedPageIds { get; set; } = new();
     private HashSet<int> OriginalSelectedPageIds { get; set; } = new();
+    private HashSet<int> PushEnabledPageIds { get; set; } = new();
+    private HashSet<int> OriginalPushEnabledPageIds { get; set; } = new();
     private HashSet<string> CollapsedCategories { get; set; } = new();
 
-    private bool HasChanges => !SelectedPageIds.SetEquals(OriginalSelectedPageIds);
+    private bool HasChanges => !SelectedPageIds.SetEquals(OriginalSelectedPageIds) || !PushEnabledPageIds.SetEquals(OriginalPushEnabledPageIds);
 
     protected override async Task OnInitializedAsync()
     {
@@ -233,6 +252,9 @@
                 var userPermissions = await Task.Run(() => UserService.GetUserPagePermissions(UserId));
                 SelectedPageIds = userPermissions.Select(p => p.PageId).ToHashSet();
                 OriginalSelectedPageIds = new HashSet<int>(SelectedPageIds);
+                
+                PushEnabledPageIds = userPermissions.Where(p => p.ReceivePush).Select(p => p.PageId).ToHashSet();
+                OriginalPushEnabledPageIds = new HashSet<int>(PushEnabledPageIds);
             }
         }
         catch (Exception ex)
@@ -272,11 +294,31 @@
         if (SelectedPageIds.Contains(page.PageId))
         {
             SelectedPageIds.Remove(page.PageId);
+            PushEnabledPageIds.Remove(page.PageId); // Auto-disable push if access is revoked
         }
         else
         {
             SelectedPageIds.Add(page.PageId);
         }
+    }
+
+    private void TogglePush(int pageId, ChangeEventArgs e)
+    {
+        bool isChecked = (bool)(e.Value ?? false);
+        if (isChecked)
+            PushEnabledPageIds.Add(pageId);
+        else
+            PushEnabledPageIds.Remove(pageId);
+    }
+
+    private bool SupportsPush(AppPage page)
+    {
+        var route = page.PageRoute?.ToLower() ?? "";
+        return route.Contains("reimbursement") || 
+               route.Contains("member-signup") || 
+               route.Contains("dues") || 
+               route.Contains("alert") || 
+               route.Contains("controller");
     }
 
     private void SelectAll()
@@ -426,8 +468,21 @@
         {
             if (string.IsNullOrEmpty(ErrorMessage))
             {
+                // [NEW] Persist push preferences
+                foreach (var pageId in SelectedPageIds)
+                {
+                    bool isPushEnabled = PushEnabledPageIds.Contains(pageId);
+                    bool originallyEnabled = OriginalPushEnabledPageIds.Contains(pageId);
+                    
+                    if (isPushEnabled != originallyEnabled)
+                    {
+                        await Task.Run(() => UserService.UpdateUserPushPreference(UserId, pageId, isPushEnabled));
+                    }
+                }
+
                 Saving = false;
                 OriginalSelectedPageIds = new HashSet<int>(SelectedPageIds);
+                OriginalPushEnabledPageIds = new HashSet<int>(PushEnabledPageIds);
             }
         }
     }

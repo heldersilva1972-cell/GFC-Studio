@@ -1,0 +1,710 @@
+@page "/mobile/reimbursements"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Components.Shared.Mobile
+@using System.Security.Claims
+@using System.ComponentModel.DataAnnotations
+@using System.IO
+@attribute [Authorize]
+@inject ReimbursementService ReimbursementService
+@inject ReceiptStorageService ReceiptStorageService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IMemberRepository MemberRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<ReimbursementSubmission> Logger
+@inject GFC.Core.Interfaces.IMediaAssetService MediaService
+
+<PageTitle>Submit Reimbursement | GFC Portal</PageTitle>
+
+<div class="mobile-reimbursement-container">
+    <!-- FIXED TOP SECTION -->
+    <div class="header-nav-stack">
+        <header class="app-header px-4 py-3">
+            <div>
+                <h1 class="h5 mb-0 fw-black">Submit Reimbursement</h1>
+                <p class="small text-muted mb-0">Submit and track expenses</p>
+            </div>
+        </header>
+
+        <!-- TABS -->
+        <div class="custom-tabs mx-4 my-2">
+            <button class='tab-item @(_activeTab == "All" ? "active" : "")' @onclick='() => SetTab("All")'>
+                <span>All</span>
+            </button>
+            <button class='tab-item @(_activeTab == "Submitted" ? "active" : "")' @onclick='() => SetTab("Submitted")'>
+                <span>Pending</span>
+            </button>
+            <button class='tab-item @(_activeTab == "Paid" ? "active" : "")' @onclick='() => SetTab("Paid")'>
+                <span>Paid</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <main class="hub-scroll-area px-4 pt-3">
+        @if (_loading)
+        {
+            <div class="d-flex flex-column align-items-center justify-content-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="mt-3 text-muted small fw-bold">Syncing with club treasury...</p>
+            </div>
+        }
+        else
+        {
+            <!-- STATS CARD -->
+            <div class="stats-glass-card mb-4 animate-entrance">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <span class="label text-uppercase mb-1">Outstanding</span>
+                        <h2 class="value mb-0">@_outstandingBalance.ToString("C2")</h2>
+                    </div>
+                    <div class="badge-box">
+                        <span class="badge rounded-pill bg-white bg-opacity-20 text-white">@_pendingCount ACTIVE</span>
+                    </div>
+                </div>
+            </div>
+
+            @if (!_filteredRequests.Any())
+            {
+                <div class="empty-state text-center py-5 animate-entrance">
+                    <div class="icon-circle mb-3">
+                        <i class="bi bi-wallet2"></i>
+                    </div>
+                    <p class="fw-bold text-muted">No requests found</p>
+                    <button class="btn btn-link text-primary text-decoration-none small" @onclick="StartNewRequest">Create your first request</button>
+                </div>
+            }
+            else
+            {
+                <div class="requests-grid animate-entrance stagger-1">
+                    @foreach (var request in _filteredRequests)
+                    {
+                        <div class="claim-card" @onclick="() => ViewDetails(request.Id)">
+                            <div class="claim-body">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div>
+                                        <h3 class="claim-id">Request #@request.Id</h3>
+                                        <span class="claim-date">@request.RequestDate.ToString("MMM dd, yyyy")</span>
+                                    </div>
+                                    <span class="status-badge @request.Status.ToLower()">@request.Status</span>
+                                </div>
+                                
+                                <div class="d-flex justify-content-between align-items-end mt-3">
+                                    <div class="claim-amount">
+                                        <span class="amount">@request.TotalAmount.ToString("C2")</span>
+                                        <span class="items">@request.Items.Count Items</span>
+                                    </div>
+                                    
+                                    @if (request.Status == "Submitted")
+                                    {
+                                        <div class="aging-box @GetAgingColorClass(request.CreatedUtc)">
+                                            @GetAgingText(request.CreatedUtc)
+                                        </div>
+                                    }
+                                    <i class="bi bi-chevron-right text-muted ms-2 opacity-50"></i>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </main>
+
+    <!-- FAB -->
+    <button class="btn-fab shadow-lg animate-entrance" @onclick="StartNewRequest">
+        <i class="bi bi-plus-lg"></i>
+    </button>
+
+    <!-- BOTTOM TAB BAR -->
+    <div class="fixed-bottom-nav">
+        <MobileBottomNav ActiveTab="Submit Reimbursement" />
+    </div>
+</div>
+
+@* WIZARD MODAL *@
+@if (_showWizard)
+{
+    <div class="premium-modal-overlay">
+        <div class="premium-modal-content animate-slide-up">
+            
+            <div class="modal-header-modern">
+                <h2 class="h5 fw-black m-0">@(_step == 1 ? "New Request" : "Add Expense")</h2>
+                <button class="btn-close-modal" @onclick="CloseWizard">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+                <div class="premium-wizard-container">
+                    <EditForm Model="_newItem" OnValidSubmit="AddItem" OnInvalidSubmit="HandleInvalidSubmit">
+                        <DataAnnotationsValidator />
+                        
+                        @if (_step == 1)
+                        {
+                            <div class="px-2 animate-entrance">
+                                <div class="form-group mb-4">
+                                    <label class="small fw-black text-muted text-uppercase ls-1 mb-2">CATEGORY</label>
+                                    <InputSelect class="form-select premium-field p-3 fw-bold" @bind-Value="_newItem.CategoryId">
+                                        <option value="0">Select Category...</option>
+                                        @foreach (var cat in _categories)
+                                        {
+                                            <option value="@cat.Id">@cat.Name</option>
+                                        }
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => _newItem.CategoryId)" class="text-danger small fw-bold mt-1" />
+                                </div>
+                                
+                                <button type="button" class="btn btn-app-primary w-100 py-3 shadow-lg fw-black" @onclick="NextStep">
+                                    NEXT: ADD DETAILS <i class="bi bi-arrow-right ms-2"></i>
+                                </button>
+                            </div>
+                        }
+                        else if (_step == 2)
+                        {
+                            <div class="px-2 animate-entrance">
+                                <!-- CAMERA VIEWPORT -->
+                                @if (_isLiveCameraMode)
+                                {
+                                    <div class="camera-stream-box mb-4 rounded-4 overflow-hidden border-2 border-primary border">
+                                        <div id="live-camera-feed" style="aspect-ratio: 1; background: #000;"></div>
+                                        <div class="camera-actions p-3 bg-dark d-flex gap-2">
+                                            <button type="button" class="btn btn-app-primary rounded-pill flex-grow-1 fw-black" @onclick="CaptureLivePhoto">
+                                                <i class="bi bi-camera-fill me-2"></i> CAPTURE
+                                            </button>
+                                            <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" @onclick="StopLiveCamera">CANCEL</button>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <!-- COMPACT PHOTO HEADER -->
+                                    <div class="d-flex gap-3 mb-4 align-items-center">
+                                        <div class="receipt-thumb-box shadow-sm" @onclick="StartLiveCamera">
+                                            @if (!string.IsNullOrEmpty(_receiptPreview))
+                                            {
+                                                <img src="@_receiptPreview" class="img-fluid" />
+                                                <div class="edit-overlay"><i class="bi bi-camera"></i></div>
+                                            }
+                                            else
+                                            {
+                                                <div class="empty-thumb">
+                                                    <i class="bi bi-camera-fill mb-1"></i>
+                                                    <span>RECEIPT</span>
+                                                </div>
+                                            }
+
+                                            @if (_isUploadingImage)
+                                            {
+                                                <div class="upload-spin">
+                                                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <label class="small fw-black text-muted text-uppercase ls-1 mb-1">AMOUNT</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-transparent border-0 fw-black fs-3 p-0 pe-2">$</span>
+                                                <InputNumber class="form-control premium-amount-field" @bind-Value="_newItem.Amount" placeholder="0.00" onfocus="this.select()" />
+                                            </div>
+                                            <ValidationMessage For="@(() => _newItem.Amount)" class="text-danger small fw-bold mt-1" />
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group mb-3">
+                                        <label class="small fw-black text-muted text-uppercase ls-1 mb-2">NOTES</label>
+                                        <InputTextArea class="form-control premium-field p-3" rows="2" 
+                                                  placeholder="What was this for? (Optional)"
+                                                  @bind-Value="_newItem.Notes"></InputTextArea>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-app-primary w-100 py-3 shadow-lg fw-black mt-3" disabled="@_saving">
+                                        @if (_saving)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                            <span>SUBMITTING...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>CONFIRM & SUBMIT</span>
+                                        }
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </EditForm>
+                </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* PREMIUM MOBILE LAYOUT */
+    .mobile-reimbursement-container {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        background: #f8fafc;
+        font-family: 'Inter', sans-serif;
+    }
+
+    .header-nav-stack {
+        background: #fff;
+        z-index: 100;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        padding-bottom: 8px;
+    }
+
+    .hub-scroll-area {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 120px;
+    }
+
+    .fw-black { font-weight: 900 !important; }
+    .ls-1 { letter-spacing: 0.5px; }
+
+    .btn-fab {
+        position: fixed;
+        right: 24px;
+        bottom: 100px;
+        width: 60px;
+        height: 60px;
+        border-radius: 20px;
+        background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%);
+        color: #fff;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+        z-index: 900;
+        box-shadow: 0 10px 25px rgba(56, 189, 248, 0.4);
+        transition: all 0.3s;
+    }
+    .btn-fab:active { transform: scale(0.9); }
+
+    .btn-app-primary {
+        background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%);
+        color: white;
+        border: none;
+        box-shadow: 0 8px 15px rgba(56, 189, 248, 0.3);
+    }
+    .btn-app-primary:hover, .btn-app-primary:focus {
+        background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+        color: white;
+    }
+
+    /* Tabs styling */
+    .custom-tabs {
+        background: #f1f5f9;
+        padding: 5px;
+        border-radius: 14px;
+        display: flex;
+        gap: 5px;
+    }
+
+    .tab-item {
+        flex: 1;
+        border: none;
+        background: transparent;
+        padding: 10px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #64748b;
+        transition: all 0.2s;
+    }
+
+    .tab-item.active {
+        background: #fff;
+        color: #000;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    }
+
+    /* Stats Card */
+    .stats-glass-card {
+        background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+        padding: 24px;
+        border-radius: 24px;
+        color: white;
+        box-shadow: 0 12px 30px rgba(14, 165, 233, 0.25);
+    }
+    .stats-glass-card .label { font-size: 0.65rem; font-weight: 900; opacity: 0.8; letter-spacing: 1px; display: block; }
+    .stats-glass-card .value { font-size: 2.25rem; font-weight: 900; letter-spacing: -1px; }
+
+    /* Claim Cards */
+    .claim-card {
+        background: white;
+        border-radius: 20px;
+        padding: 16px;
+        margin-bottom: 12px;
+        border: 1px solid #f1f5f9;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+    }
+
+    .claim-id { font-size: 0.95rem; font-weight: 800; margin: 0; color: #0f172a; }
+    .claim-date { font-size: 0.75rem; color: #94a3b8; font-weight: 600; }
+
+    .status-badge {
+        font-size: 0.65rem;
+        font-weight: 900;
+        padding: 4px 10px;
+        border-radius: 20px;
+        text-transform: uppercase;
+    }
+    .status-badge.submitted { background: #fef3c7; color: #92400e; }
+    .status-badge.paid { background: #dcfce7; color: #166534; }
+    .status-badge.rejected { background: #fee2e2; color: #991b1b; }
+
+    .claim-amount .amount { font-size: 1.25rem; font-weight: 900; color: var(--app-primary); display: block; line-height: 1; }
+    .claim-amount .items { font-size: 0.7rem; color: #94a3b8; font-weight: 700; }
+
+    .aging-box { font-size: 0.7rem; font-weight: 800; margin-bottom: 2px; }
+
+    /* PREMIUM MODAL */
+    .premium-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(8px);
+        z-index: 2000;
+        display: flex;
+        align-items: center; /* Center vertically to feel higher */
+        justify-content: center;
+        padding: 20px;
+    }
+
+    .premium-modal-content {
+        background: white;
+        width: 100%;
+        max-width: 450px;
+        border-radius: 32px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+
+    .modal-handle {
+        width: 40px;
+        height: 5px;
+        background: #e2e8f0;
+        border-radius: 10px;
+        margin: 12px auto;
+    }
+
+    .modal-header-modern {
+        padding: 0 24px 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .btn-close-modal {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: #f1f5f9;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+    }
+
+    .modal-body-scrollable {
+        padding: 0 24px 24px;
+        overflow-y: auto;
+    }
+
+    .premium-field {
+        background: #f8fafc;
+        border: 2px solid #f1f5f9;
+        border-radius: 16px;
+        font-weight: 600;
+        transition: all 0.2s;
+    }
+    .premium-field:focus {
+        border-color: #0ea5e9;
+        background: white;
+        box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.1);
+    }
+
+    .premium-amount-field {
+        border: none;
+        background: transparent;
+        font-size: 2.5rem;
+        font-weight: 900;
+        padding: 0;
+        color: #0f172a;
+        width: 100%;
+    }
+    .premium-amount-field:focus { outline: none; }
+
+    /* Photo Logic */
+    .receipt-thumb-box {
+        width: 90px;
+        height: 90px;
+        border-radius: 20px;
+        background: #f1f5f9;
+        border: 2px dashed #cbd5e1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .receipt-thumb-box .empty-thumb {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        color: #94a3b8;
+        font-size: 0.6rem;
+        font-weight: 800;
+    }
+    .receipt-thumb-box .empty-thumb i { font-size: 2rem; }
+    .receipt-thumb-box img { width: 100%; height: 100%; object-fit: cover; }
+    
+    .edit-overlay {
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        background: rgba(0,0,0,0.4);
+        color: white;
+        font-size: 0.8rem;
+        padding: 2px;
+        text-align: center;
+    }
+
+    .btn-app-primary {
+        background: #0f172a;
+        color: white;
+        border-radius: 16px;
+        border: none;
+        transition: all 0.2s;
+    }
+    .btn-app-primary:active { transform: scale(0.98); opacity: 0.9; }
+
+    .animate-entrance { animation: fadeIn 0.4s ease-out both; }
+    .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+    @@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _saving = false;
+    private string _activeTab = "All";
+    private int _step = 1;
+    private bool _showWizard = false;
+    
+    private List<ReimbursementRequest> _allRequests = new();
+    private List<ReimbursementRequest> _filteredRequests = new();
+    private List<ReimbursementCategory> _categories = new();
+    private decimal _outstandingBalance = 0;
+    private int _pendingCount = 0;
+    
+    private ReimbursementRequest _request = new();
+    private ReimbursementItemDto _newItem = new();
+    private string? _receiptPreview;
+    private int? _memberId;
+
+    // CAMERA LOGIC
+    private bool _isLiveCameraMode = false;
+    private bool _isUploadingImage = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            _memberId = user?.MemberId;
+            
+            if (_memberId.HasValue)
+            {
+                _allRequests = await ReimbursementService.GetRequestsAsync(memberId: _memberId.Value);
+                _categories = await ReimbursementService.GetCategoriesAsync();
+                
+                _outstandingBalance = _allRequests.Where(r => r.Status == "Submitted" || r.Status == "Approved").Sum(r => r.TotalAmount);
+                _pendingCount = _allRequests.Count(r => r.Status == "Submitted");
+                
+                ApplyFilter();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load mobile reimbursements");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SetTab(string tab)
+    {
+        _activeTab = tab;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        if (_activeTab == "All")
+            _filteredRequests = _allRequests;
+        else
+            _filteredRequests = _allRequests.Where(r => r.Status == _activeTab).ToList();
+    }
+
+    private void StartNewRequest()
+    {
+        _request = new ReimbursementRequest { RequestDate = DateTime.Today };
+        _newItem = new ReimbursementItemDto { ExpenseDate = DateTime.Today, Amount = null };
+        _receiptPreview = null;
+        _step = 1;
+        _showWizard = true;
+    }
+
+    private void CloseWizard()
+    {
+        _showWizard = false;
+        _isLiveCameraMode = false;
+        _ = JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+    }
+
+    private async Task StartLiveCamera()
+    {
+        try {
+            _isLiveCameraMode = true;
+            StateHasChanged();
+            await Task.Delay(300); 
+            await JSRuntime.InvokeVoidAsync("LiquorScanner.startLiveCamera", "live-camera-feed");
+        }
+        catch (Exception ex) {
+            Logger.LogError(ex, "Failed to start camera");
+            _isLiveCameraMode = false;
+            await JSRuntime.InvokeVoidAsync("alert", "Camera Startup Failed. Please check permissions.");
+        }
+    }
+
+    private async Task StopLiveCamera()
+    {
+        _isLiveCameraMode = false;
+        await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+    }
+
+    private async Task CaptureLivePhoto()
+    {
+        if (_isUploadingImage) return;
+        _isUploadingImage = true;
+
+        try {
+            var dataUrl = await JSRuntime.InvokeAsync<string>("LiquorScanner.takeSnapshot");
+            if (!string.IsNullOrEmpty(dataUrl)) {
+                _receiptPreview = dataUrl;
+                _isLiveCameraMode = false;
+            }
+        } catch (Exception ex) {
+            await JSRuntime.InvokeVoidAsync("alert", "Capture Failed: " + ex.Message);
+        } finally {
+            _isUploadingImage = false;
+        }
+    }
+
+    private async Task NextStep()
+    {
+        if (_newItem.CategoryId <= 0)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please select a category first.");
+            return;
+        }
+        _step = 2;
+    }
+
+    private async Task AddItem()
+    {
+        if (_memberId == null || _newItem.Amount == null || _newItem.Amount <= 0 || _newItem.CategoryId <= 0) return;
+        
+        _saving = true;
+        try
+        {
+            var draft = await ReimbursementService.CreateDraftAsync(_memberId.Value);
+            
+            // If the user provided item notes, we'll also use them as request notes for visibility in the hub
+            if (!string.IsNullOrWhiteSpace(_newItem.Notes))
+                await ReimbursementService.UpdateDraftAsync(draft.Id, new ReimbursementRequestDto { Notes = _newItem.Notes });
+
+            var item = await ReimbursementService.AddItemAsync(draft.Id, _newItem);
+
+            if (!string.IsNullOrEmpty(_receiptPreview))
+            {
+                var base64Data = _receiptPreview.Split(',')[1];
+                var bytes = Convert.FromBase64String(base64Data);
+                
+                using var stream = new MemoryStream(bytes);
+                var asset = await MediaService.CreateMediaAssetAsync(stream, $"receipt_{DateTime.UtcNow.Ticks}.jpg", "Reimbursements", "System");
+                
+                if (asset != null)
+                {
+                    await ReimbursementService.AddReceiptAsync(item.Id, asset.StoredFileName, $"uploads/{asset.StoredFileName}", _memberId.Value);
+                }
+            }
+
+            await ReimbursementService.SubmitAsync(draft.Id);
+            
+            _showWizard = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to submit from mobile");
+            await JSRuntime.InvokeVoidAsync("alert", "Submission failed: " + ex.Message);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task HandleInvalidSubmit()
+    {
+        await JSRuntime.InvokeVoidAsync("alert", "Please enter a valid amount and select a category.");
+    }
+
+    private void ViewDetails(int id)
+    {
+        // For mobile, maybe just a simple popup?
+    }
+
+    private string GetAgingText(DateTime created)
+    {
+        var days = (DateTime.UtcNow - created).Days;
+        if (days == 0) return "Just now";
+        return $"{days}d pending";
+    }
+
+    private string GetAgingColorClass(DateTime created)
+    {
+        var days = (DateTime.UtcNow - created).Days;
+        if (days >= 14) return "text-danger";
+        if (days >= 7) return "text-warning";
+        return "text-success";
+    }
+}

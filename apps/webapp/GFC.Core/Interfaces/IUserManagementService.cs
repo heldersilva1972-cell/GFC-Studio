@@ -27,6 +27,7 @@ public interface IUserManagementService
     List<UserPagePermission> GetUserPagePermissions(int userId);
     bool UserHasPageAccess(int userId, string pageRoute);
     void SetUserPagePermissions(int userId, List<int> pageIds, string grantedBy);
+    void UpdateUserPushPreference(int userId, int pageId, bool receivePush);
     void GrantAllPagePermissions(int userId, string grantedBy);
     void CopyUserPermissions(int sourceUserId, int targetUserId, string grantedBy);
     

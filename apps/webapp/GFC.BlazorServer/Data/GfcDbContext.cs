@@ -58,6 +58,7 @@ public class GfcDbContext : DbContext
     public DbSet<GFC.Core.Models.VpnProfile> VpnProfiles => Set<GFC.Core.Models.VpnProfile>();
     public DbSet<GFC.Core.Models.AppPage> AppPages => Set<GFC.Core.Models.AppPage>();
     public DbSet<GFC.Core.Models.PagePermission> PagePermissions => Set<GFC.Core.Models.PagePermission>();
+    public DbSet<UserPagePermission> UserPagePermissions => Set<UserPagePermission>();
     public DbSet<GFC.Core.Models.CameraEvent> CameraEvents => Set<GFC.Core.Models.CameraEvent>();
     public DbSet<GFC.Core.Models.Recording> Recordings => Set<GFC.Core.Models.Recording>();
     public DbSet<GFC.Core.Models.CameraPermission> CameraPermissions => Set<GFC.Core.Models.CameraPermission>();
@@ -407,10 +408,12 @@ public class GfcDbContext : DbContext
             
             // Seed categories
             entity.HasData(
-                new ReimbursementCategory { Id = 1, Name = "Costco", IsActive = true },
-                new ReimbursementCategory { Id = 2, Name = "BJ's", IsActive = true },
-                new ReimbursementCategory { Id = 3, Name = "Supplies", IsActive = true },
-                new ReimbursementCategory { Id = 4, Name = "Misc", IsActive = true }
+                new ReimbursementCategory { Id = 1, Name = "Supplies (General house items)", IsActive = true },
+                new ReimbursementCategory { Id = 2, Name = "Bar / Kitchen (Food, garnishes, napkins)", IsActive = true },
+                new ReimbursementCategory { Id = 3, Name = "Repairs & Maintenance (Building or equipment fixes)", IsActive = true },
+                new ReimbursementCategory { Id = 4, Name = "Events (Specific costs for a club party or event)", IsActive = true },
+                new ReimbursementCategory { Id = 5, Name = "Office (Postage, paper, ink)", IsActive = true },
+                new ReimbursementCategory { Id = 6, Name = "Other (Miscellaneous)", IsActive = true }
             );
         });
 
@@ -779,6 +782,12 @@ public class GfcDbContext : DbContext
             entity.ToTable("LiquorNotificationRules");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.UserId);
+        });
+
+        modelBuilder.Entity<UserPagePermission>(entity =>
+        {
+            entity.ToTable("UserPagePermissions");
+            entity.HasKey(e => e.PermissionId);
         });
     }
 

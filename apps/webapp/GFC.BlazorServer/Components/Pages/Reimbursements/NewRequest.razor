@@ -283,26 +283,43 @@ else
         try
         {
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = AuthStateProvider.GetCurrentUser();
-            
-            if (user?.MemberId == null)
+            var user = authState.User;
+            var currentUser = AuthStateProvider.GetCurrentUser();
+
+            if (currentUser != null)
+            {
+                _requestorMemberId = currentUser.MemberId;
+            }
+            else if (user.Identity?.IsAuthenticated == true)
+            {
+                var idClaim = user.FindFirst("MemberId")?.Value;
+                if (int.TryParse(idClaim, out var id)) _requestorMemberId = id;
+            }
+
+            if (_requestorMemberId == null)
             {
                 _errorMessage = "You must be associated with a member to create reimbursement requests.";
                 _loading = false;
                 return;
             }
 
-            _requestorMemberId = user.MemberId.Value;
+            _categories = await ReimbursementService.GetCategoriesAsync();
             var member = MemberRepository.GetMemberById(_requestorMemberId.Value);
             _requestorName = member != null ? $"{member.FirstName} {member.LastName}" : "Unknown";
+            
+            // Initialize local object instead of database draft to avoid cluttering DB with empty reports
+            _request = new ReimbursementRequest
+            {
+                RequestorMemberId = _requestorMemberId.Value,
+                RequestDate = DateTime.Today,
+                Status = "Initial",
+                TotalAmount = 0,
+                CreatedUtc = DateTime.UtcNow,
+                UpdatedUtc = DateTime.UtcNow,
+                Items = new List<ReimbursementItem>()
+            };
 
-            _categories = await ReimbursementService.GetCategoriesAsync();
-
-            // Check camera support
-            _cameraSupported = await JSRuntime.InvokeAsync<bool>("eval", "!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)");
-
-            // Create new draft request
-            _request = await ReimbursementService.CreateDraftAsync(_requestorMemberId.Value);
+            _newItem.ExpenseDate = DateTime.Today;
         }
         catch (Exception ex)
         {
@@ -312,6 +329,19 @@ else
         finally
         {
             _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _cameraSupported = await JSRuntime.InvokeAsync<bool>("eval", "!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)");
+                StateHasChanged();
+            }
+            catch { /* Ignore pre-rendering JS interop errors */ }
         }
     }
 
@@ -332,21 +362,44 @@ else
 
     private async Task AddItem()
     {
-        if (_request.Id == 0)
+        _operationMessage = null;
+
+        if (_newItem.Amount <= 0)
         {
+            _operationMessage = "Amount must be greater than 0.";
             _operationError = true;
-            _operationMessage = "Request not initialized. Please refresh the page.";
             return;
         }
 
-        _saving = true;
-        _operationMessage = null;
+        if (_newItem.CategoryId <= 0)
+        {
+            _operationMessage = "Please select a category.";
+            _operationError = true;
+            return;
+        }
 
         try
         {
-            var item = await ReimbursementService.AddItemAsync(_request.Id, _newItem);
-            await ReloadRequest();
-            CloseAddItemModal();
+            // Create the draft in the database ONLY when the user actually begins adding data
+            if (_request.Id == 0)
+            {
+                var draft = await ReimbursementService.CreateDraftAsync(_requestorMemberId.Value);
+                _request.Id = draft.Id;
+                _request.Status = "Draft";
+                
+                // If notes were entered before adding first item, update them
+                if (!string.IsNullOrWhiteSpace(_request.Notes))
+                {
+                    await ReimbursementService.UpdateDraftAsync(_request.Id, new ReimbursementRequestDto { Notes = _request.Notes });
+                }
+            }
+
+            await ReimbursementService.AddItemAsync(_request.Id, _newItem);
+            
+            // Reload to get calculated totals and item list
+            _request = await ReimbursementService.GetRequestAsync(_request.Id) ?? _request;
+            
+            _newItem = new ReimbursementItemDto { ExpenseDate = DateTime.Today };
             _operationError = false;
             _operationMessage = "Item added successfully.";
         }
@@ -354,7 +407,7 @@ else
         {
             Logger.LogError(ex, "Failed to add item");
             _operationError = true;
-            _operationMessage = ex.Message;
+            _operationMessage = "Failed to add the item: " + ex.Message;
         }
         finally
         {

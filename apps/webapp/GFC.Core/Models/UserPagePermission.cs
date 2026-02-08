@@ -30,4 +30,6 @@ public class UserPagePermission
 
     [MaxLength(100)]
     public string GrantedBy { get; set; }
+
+    public bool ReceivePush { get; set; } = false;
 }

@@ -21,5 +21,8 @@ namespace GFC.Core.Models
 
         [ForeignKey("PageId")]
         public virtual AppPage Page { get; set; }
+
+        [Required]
+        public bool ReceivePush { get; set; } = false;
     }
 }

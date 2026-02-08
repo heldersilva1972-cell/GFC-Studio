@@ -256,8 +256,8 @@ public class PagePermissionRepository : IPagePermissionRepository
               WHEN MATCHED THEN
                   UPDATE SET CanAccess = 1, GrantedDate = GETDATE(), GrantedBy = @GrantedBy
               WHEN NOT MATCHED THEN
-                  INSERT (UserId, PageId, CanAccess, GrantedDate, GrantedBy)
-                  VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy);";
+                  INSERT (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush)
+                  VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, 0);";
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@UserId", userId);
         command.Parameters.AddWithValue("@PageId", pageId);
@@ -296,12 +296,13 @@ public class PagePermissionRepository : IPagePermissionRepository
             // Add new permissions
             foreach (var pageId in pageIds)
             {
-                const string insertSql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy)
-                      VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy)";
+                const string insertSql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush)
+                      VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, @ReceivePush)";
                 using var insertCommand = new SqlCommand(insertSql, connection, transaction);
                 insertCommand.Parameters.AddWithValue("@UserId", userId);
                 insertCommand.Parameters.AddWithValue("@PageId", pageId);
                 insertCommand.Parameters.AddWithValue("@GrantedBy", grantedBy);
+                insertCommand.Parameters.AddWithValue("@ReceivePush", 0); // Default to false for bulk set if not specified
                 insertCommand.ExecuteNonQuery();
             }
 
@@ -324,7 +325,20 @@ public class PagePermissionRepository : IPagePermissionRepository
         command.Parameters.AddWithValue("@UserId", userId);
         command.ExecuteNonQuery();
     }
-
+    
+    public void UpdatePushPreference(int userId, int pageId, bool receivePush)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+        
+        const string sql = "UPDATE UserPagePermissions SET ReceivePush = @ReceivePush WHERE UserId = @UserId AND PageId = @PageId";
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@UserId", userId);
+        command.Parameters.AddWithValue("@PageId", pageId);
+        command.Parameters.AddWithValue("@ReceivePush", receivePush);
+        command.ExecuteNonQuery();
+    }
+    
     // Bulk operations
     public void GrantAllPermissions(int userId, string grantedBy)
     {
@@ -477,7 +491,8 @@ public class PagePermissionRepository : IPagePermissionRepository
             PageId = reader["PageId"] != DBNull.Value ? (int)reader["PageId"] : 0,
             CanAccess = reader["CanAccess"] != DBNull.Value && (bool)reader["CanAccess"],
             GrantedDate = reader["GrantedDate"] != DBNull.Value ? (DateTime)reader["GrantedDate"] : DateTime.MinValue,
-            GrantedBy = reader["GrantedBy"] as string
+            GrantedBy = reader["GrantedBy"] as string,
+            ReceivePush = reader["ReceivePush"] != DBNull.Value && (bool)reader["ReceivePush"]
         };
 
         // If we have page columns, map the Page object too
