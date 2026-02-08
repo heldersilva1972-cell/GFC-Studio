@@ -376,9 +376,9 @@ public class ReimbursementService
             throw new InvalidOperationException($"Reimbursement request {requestId} not found.");
         }
 
-        if (request.Status != "Approved")
+        if (request.Status != "Approved" && request.Status != "Submitted")
         {
-            throw new InvalidOperationException("Only Approved requests can be marked as paid.");
+            throw new InvalidOperationException("Only Approved or Submitted requests can be marked as paid.");
         }
 
         var oldStatus = request.Status;

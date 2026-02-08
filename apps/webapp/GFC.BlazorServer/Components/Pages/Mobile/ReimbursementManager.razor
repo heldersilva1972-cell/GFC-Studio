@@ -28,8 +28,8 @@
             <button class='tab-item @(_activeTab == "Pending" ? "active" : "")' @onclick='() => SetTab("Pending")'>
                 <span>Pending</span>
             </button>
-            <button class='tab-item @(_activeTab == "Approved" ? "active" : "")' @onclick='() => SetTab("Approved")'>
-                <span>Approved</span>
+            <button class='tab-item @(_activeTab == "Paid" ? "active" : "")' @onclick='() => SetTab("Paid")'>
+                <span>Paid</span>
             </button>
             <button class='tab-item @(_activeTab == "Aged" ? "active" : "")' @onclick='() => SetTab("Aged")'>
                 <span class="text-danger">Past Due</span>
@@ -61,10 +61,10 @@
                 </div>
                 <div class="col-6">
                     <div class="mini-stat-card secondary">
-                        <span class="label">WAITING PAY</span>
+                        <span class="label">PAID TOTAL</span>
                         <div class="d-flex align-items-end gap-2">
-                            <h4 class="value mb-0">@_approvedTotal.ToString("C0")</h4>
-                            <span class="count">@_approvedRequests.Count</span>
+                            <h4 class="value mb-0">@_paidTotal.ToString("C0")</h4>
+                            <span class="count">@_paidRequests.Count</span>
                         </div>
                     </div>
                 </div>
@@ -87,6 +87,18 @@
                     {
                         <div class="manager-claim-card @(IsAged(request.CreatedUtc) ? "aged-warning" : "")" @onclick="() => SelectRequest(request)">
                             <div class="claim-header d-flex align-items-center gap-3 mb-3">
+                                @if (request.Items.Any() && request.Items.First().ReceiptFiles.Any())
+                                {
+                                    <div class="receipt-thumbnail small shadow-sm" @onclick:stopPropagation="true" @onclick="() => ViewReceipt(request.Items.First().ReceiptFiles.First().RelativePath)">
+                                        <img src="@request.Items.First().ReceiptFiles.First().RelativePath" alt="Receipt" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="receipt-thumbnail small placeholder shadow-sm">
+                                        <i class="bi bi-image text-muted opacity-25"></i>
+                                    </div>
+                                }
                                 <div class="flex-grow-1">
                                     <h3 class="user-name">@GetMemberName(request.RequestorMemberId)</h3>
                                     <span class="request-meta">Request #@request.Id • @request.RequestDate.ToString("MMM dd")</span>
@@ -109,17 +121,10 @@
                                     <i class="bi bi-clock-history me-1"></i> @GetAgingText(request.CreatedUtc)
                                 </span>
                                 <div class="d-flex gap-2">
-                                    @if (request.Status == "Submitted")
-                                    {
-                                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold" @onclick:stopPropagation="true" @onclick="() => QuickApprove(request)">Approve</button>
-                                    }
-                                    @if (request.Status == "Approved")
+                                    @if (request.Status == "Submitted" || request.Status == "Approved")
                                     {
                                         <button class="btn btn-sm btn-success rounded-pill px-3 fw-bold" @onclick:stopPropagation="true" @onclick="() => QuickMarkPaid(request)">Mark Paid</button>
                                     }
-                                    <button class="btn btn-sm btn-light rounded-circle shadow-sm" @onclick:stopPropagation="true" @onclick="() => SelectRequest(request)">
-                                        <i class="bi bi-three-dots"></i>
-                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -188,18 +193,12 @@
                 }
 
                 <div class="action-grid mt-4 d-grid gap-3">
-                    @if (_selectedRequest.Status == "Submitted")
+                    @if (_selectedRequest.Status == "Submitted" || _selectedRequest.Status == "Approved")
                     {
                     <button class="btn btn-app-primary py-3 fw-black rounded-4 shadow" @onclick="() => QuickMarkPaid(_selectedRequest)">
                         <i class="bi bi-check-circle me-2"></i> MARK AS PAID
                     </button>
                     }
-                    else if (_selectedRequest.Status == "Approved")
-                    {
-                    <button class="btn btn-app-primary py-3 fw-black rounded-4 shadow" @onclick="() => QuickMarkPaid(_selectedRequest)">
-                        <i class="bi bi-check-circle me-2"></i> MARK AS PAID
-                    </button>
-                }
                 
                 <button class="btn btn-light py-3 fw-bold rounded-4 border" @onclick="() => _selectedRequest = null">
                     CANCEL
@@ -309,6 +308,7 @@
     .status-indicator { font-size: 0.6rem; font-weight: 900; text-transform: uppercase; margin-top: 4px; }
     .status-indicator.submitted { color: #d97706; }
     .status-indicator.approved { color: #059669; }
+    .status-indicator.paid { color: #2563eb; }
 
     .claim-notes {
         background: #f8fafc;
@@ -430,6 +430,15 @@
         object-fit: cover;
     }
 
+    .receipt-thumbnail.small {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        flex-shrink: 0;
+    }
+
+    .receipt-thumbnail.placeholder { border: 1px dashed #e2e8f0; display: flex; align-items: center; justify-content: center; }
+
     .item-row.clickable {
         cursor: pointer;
         transition: all 0.2s;
@@ -455,11 +464,11 @@
     private string? _viewingReceiptUrl;
     private Dictionary<int, string> _memberNames = new();
 
-    private decimal _pendingTotal => _allRequests.Where(r => r.Status == "Submitted").Sum(r => r.TotalAmount);
-    private decimal _approvedTotal => _allRequests.Where(r => r.Status == "Approved").Sum(r => r.TotalAmount);
+    private decimal _pendingTotal => _allRequests.Where(r => r.Status == "Submitted" || r.Status == "Approved").Sum(r => r.TotalAmount);
+    private decimal _paidTotal => _allRequests.Where(r => r.Status == "Paid").Sum(r => r.TotalAmount);
     
-    private List<ReimbursementRequest> _pendingRequests => _allRequests.Where(r => r.Status == "Submitted").ToList();
-    private List<ReimbursementRequest> _approvedRequests => _allRequests.Where(r => r.Status == "Approved").ToList();
+    private List<ReimbursementRequest> _pendingRequests => _allRequests.Where(r => r.Status == "Submitted" || r.Status == "Approved").ToList();
+    private List<ReimbursementRequest> _paidRequests => _allRequests.Where(r => r.Status == "Paid").ToList();
 
     protected override async Task OnInitializedAsync()
     {
@@ -502,7 +511,7 @@
     {
         _displayRequests = _activeTab switch {
             "Pending" => _pendingRequests,
-            "Approved" => _approvedRequests,
+            "Paid" => _paidRequests,
             "Aged" => _allRequests.Where(r => r.Status == "Submitted" && IsAged(r.CreatedUtc)).ToList(),
             _ => _pendingRequests
         };
@@ -510,19 +519,7 @@
 
     private void SelectRequest(ReimbursementRequest request) => _selectedRequest = request;
 
-    private async Task QuickApprove(ReimbursementRequest request)
-    {
-        var user = AuthStateProvider.GetCurrentUser();
-        if (user == null) return;
-        
-        try {
-            await ReimbursementService.ApproveAsync(request.Id, user.UserId);
-            _selectedRequest = null;
-            await LoadData();
-        } catch (Exception ex) {
-            await JSRuntime.InvokeVoidAsync("alert", "Error: " + ex.Message);
-        }
-    }
+    // Unified single-step payment logic
 
     private async Task QuickMarkPaid(ReimbursementRequest request)
     {

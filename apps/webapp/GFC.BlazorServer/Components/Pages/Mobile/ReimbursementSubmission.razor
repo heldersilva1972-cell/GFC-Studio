@@ -25,9 +25,14 @@
     <!-- FIXED TOP SECTION -->
     <div class="header-nav-stack">
         <header class="app-header px-4 py-3">
-            <div>
-                <h1 class="h5 mb-0 fw-black">Submit Reimbursement</h1>
-                <p class="small text-muted mb-0">Submit and track expenses</p>
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="h5 mb-0 fw-black">Submit Reimbursement</h1>
+                    <p class="small text-muted mb-0">Submit and track expenses</p>
+                </div>
+                <button class="btn btn-app-primary btn-sm rounded-pill px-3 py-2 fw-black shadow-sm" @onclick="StartNewRequest">
+                    <i class="bi bi-plus-lg me-1"></i> NEW
+                </button>
             </div>
         </header>
 
@@ -90,7 +95,7 @@
                                      <div class="d-flex gap-3">
                                          @if (request.Items.Any() && request.Items.First().ReceiptFiles.Any())
                                          {
-                                             <div class="receipt-thumbnail shadow-sm">
+                                             <div class="receipt-thumbnail shadow-sm clickable" @onclick:stopPropagation="true" @onclick="() => ViewReceipt(request.Items.First().ReceiptFiles.First().RelativePath)">
                                                  <img src="@request.Items.First().ReceiptFiles.First().RelativePath" />
                                              </div>
                                          }
@@ -140,16 +145,26 @@
         }
     </main>
 
-    <!-- FAB -->
-    <button class="btn-fab shadow-lg animate-entrance" @onclick="StartNewRequest">
-        <i class="bi bi-plus-lg"></i>
-    </button>
+    <!-- FAB REMOVED - MOVED TO TOP -->
 
     <!-- BOTTOM TAB BAR -->
     <div class="fixed-bottom-nav">
         <MobileBottomNav ActiveTab="Submit Reimbursement" />
     </div>
 </div>
+
+@if (!string.IsNullOrEmpty(_viewingReceiptUrl))
+{
+    <div class="receipt-viewer-overlay" @onclick="() => _viewingReceiptUrl = null">
+        <button class="receipt-close-btn" @onclick="() => _viewingReceiptUrl = null">
+            <i class="bi bi-x-lg"></i>
+        </button>
+        <div class="viewer-content animate-zoom" @onclick:stopPropagation="true">
+            <img src="@_viewingReceiptUrl" @onclick="() => _viewingReceiptUrl = null" style="cursor: pointer;" />
+        </div>
+        <p class="receipt-close-hint"><i class="bi bi-hand-index me-2"></i> Tap anywhere to close</p>
+    </div>
+}
 
 @* WIZARD MODAL *@
 @if (_showWizard)
@@ -168,7 +183,56 @@
                     <EditForm Model="_newItem" OnValidSubmit="AddItem" OnInvalidSubmit="HandleInvalidSubmit">
                         <DataAnnotationsValidator />
                         
-                        @if (_step == 1)
+                        @if (_step == 4)
+                        {
+                            <div class="px-2 animate-entrance">
+                                <div class="form-group mb-3">
+                                    <label class="small fw-black text-dark text-uppercase ls-1 mb-2">CATEGORY</label>
+                                    <InputSelect class="form-select premium-field p-3 fw-bold" @bind-Value="_newItem.CategoryId">
+                                        @foreach (var cat in _categories)
+                                        {
+                                            <option value="@cat.Id">@cat.Name</option>
+                                        }
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => _newItem.CategoryId)" class="text-danger small fw-bold mt-1" />
+                                </div>
+
+                                <div class="form-group mb-3">
+                                    <label class="small fw-black text-muted text-uppercase ls-1 mb-2">AMOUNT</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-transparent border-0 fw-black fs-3 p-0 pe-2 text-dark">$</span>
+                                        <InputNumber class="form-control premium-amount-field" @bind-Value="_newItem.Amount" placeholder="0.00" />
+                                    </div>
+                                    <ValidationMessage For="@(() => _newItem.Amount)" class="text-danger small fw-bold mt-1" />
+                                </div>
+
+                                <div class="form-group mb-3">
+                                    <label class="small fw-black text-muted text-uppercase ls-1 mb-2">EXPENSE DATE</label>
+                                    <InputDate class="form-control premium-field p-3 fw-bold" @bind-Value="_newItem.ExpenseDate" />
+                                    <ValidationMessage For="@(() => _newItem.ExpenseDate)" class="text-danger small fw-bold mt-1" />
+                                </div>
+
+                                <div class="form-group mb-4">
+                                    <label class="small fw-black text-muted text-uppercase ls-1 mb-2">NOTES</label>
+                                    <InputTextArea class="form-control premium-field p-3" rows="3" 
+                                              placeholder="What was this for?"
+                                              @bind-Value="_newItem.Notes"></InputTextArea>
+                                </div>
+
+                                <button type="submit" class="btn btn-app-primary w-100 py-3 shadow-lg fw-black" disabled="@_saving">
+                                    @if (_saving)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span>SAVING...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>SAVE CHANGES</span>
+                                    }
+                                </button>
+                            </div>
+                        }
+                        else if (_step == 1)
                         {
                             <div class="px-2">
                                 <div class="form-group mb-4">
@@ -634,6 +698,51 @@
 
     @@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     @@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+    /* Receipt Viewer Overlay */
+    .receipt-viewer-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 3000;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;
+    }
+    .viewer-content img { 
+        max-width: 100%; 
+        max-height: 80vh; 
+        border-radius: 12px; 
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    .receipt-close-btn {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: white;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: #0f172a;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 3001;
+        cursor: pointer;
+    }
+
+    .receipt-close-hint {
+        position: fixed;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: white;
+        font-size: 0.9rem;
+        font-weight: 700;
+        background: rgba(0,0,0,0.6);
+        padding: 12px 24px;
+        border-radius: 50px;
+        backdrop-filter: blur(10px);
+    }
 </style>
 
 @code {
@@ -652,6 +761,7 @@
     private ReimbursementRequest _request = new();
     private ReimbursementItemDto _newItem = new();
     private string? _receiptPreview;
+    private string? _viewingReceiptUrl;
     private int? _memberId;
 
     // MULTI-ITEM DRAFT TRACKING
@@ -704,8 +814,8 @@
                 
                 Logger.LogInformation("Loaded {CategoryCount} categories and {RequestCount} requests for mobile.", _categories.Count, _allRequests.Count);
                 
-                _outstandingBalance = _allRequests.Where(r => r.Status == "Submitted").Sum(r => r.TotalAmount);
-                _pendingCount = _allRequests.Count(r => r.Status == "Submitted");
+                _outstandingBalance = _allRequests.Where(r => r.Status == "Submitted" || r.Status == "Approved").Sum(r => r.TotalAmount);
+                _pendingCount = _allRequests.Count(r => r.Status == "Submitted" || r.Status == "Approved");
                 
                 ApplyFilter();
             }
@@ -736,6 +846,10 @@
         {
             // Show requests that are marked as Paid OR have a PaidDateUtc set
             _filteredRequests = _allRequests.Where(r => r.Status == "Paid" || r.PaidDateUtc != null).ToList();
+        }
+        else if (_activeTab == "Submitted")
+        {
+            _filteredRequests = _allRequests.Where(r => r.Status == "Submitted" || r.Status == "Approved").ToList();
         }
         else
         {
@@ -781,7 +895,7 @@
             };
         }
         _receiptPreview = null;
-        _step = 1;
+        _step = 4;
         _showWizard = true;
     }
 
@@ -990,5 +1104,10 @@
     private string GetCategoryName(int categoryId)
     {
         return _categories.FirstOrDefault(c => c.Id == categoryId)?.Name ?? "Unknown";
+    }
+
+    private void ViewReceipt(string path)
+    {
+        _viewingReceiptUrl = path.StartsWith("/") ? path : "/" + path;
     }
 }
