@@ -32,7 +32,7 @@
                 <span>Approved</span>
             </button>
             <button class='tab-item @(_activeTab == "Aged" ? "active" : "")' @onclick='() => SetTab("Aged")'>
-                <span class="text-danger">Aged</span>
+                <span class="text-danger">Past Due</span>
             </button>
         </div>
     </div>
@@ -87,9 +87,6 @@
                     {
                         <div class="manager-claim-card @(IsAged(request.CreatedUtc) ? "aged-warning" : "")" @onclick="() => SelectRequest(request)">
                             <div class="claim-header d-flex align-items-center gap-3 mb-3">
-                                <div class="user-avatar shadow-sm">
-                                    <i class="bi bi-person"></i>
-                                </div>
                                 <div class="flex-grow-1">
                                     <h3 class="user-name">@GetMemberName(request.RequestorMemberId)</h3>
                                     <span class="request-meta">Request #@request.Id • @request.RequestDate.ToString("MMM dd")</span>
@@ -163,18 +160,28 @@
                 <h6 class="text-uppercase small fw-black text-muted ls-1 mb-3">Line Items</h6>
                 @foreach (var item in _selectedRequest.Items)
                 {
-                    <div class="item-row p-3 rounded-4 bg-light mb-2 d-flex justify-content-between align-items-center">
-                        <div>
-                            <span class="d-block fw-bold">@item.Category?.Name</span>
-                            <span class="small text-muted">@item.ExpenseDate.ToString("MMM dd")</span>
+                    <div class="item-row p-3 rounded-4 bg-light mb-2 d-flex justify-content-between align-items-center @(item.ReceiptFiles.Any() ? "clickable" : "")" @onclick="() => { if (item.ReceiptFiles.Any()) ViewReceipt(item.ReceiptFiles.First().RelativePath); }">
+                        <div class="d-flex align-items-center gap-3 flex-grow-1">
+                            @if (item.ReceiptFiles.Any())
+                            {
+                                <div class="receipt-thumbnail">
+                                    <img src="@item.ReceiptFiles.First().RelativePath" alt="Receipt" />
+                                </div>
+                            }
+                            <div>
+                                <span class="d-block fw-bold">@item.Category?.Name</span>
+                                <span class="small text-muted">@item.ExpenseDate.ToString("MMM dd")</span>
+                                @if (!string.IsNullOrEmpty(item.Notes))
+                                {
+                                    <div class="small text-muted mt-1"><i class="bi bi-chat-dots me-1"></i>@item.Notes</div>
+                                }
+                            </div>
                         </div>
-                        <div class="d-flex align-items-center gap-3">
+                        <div class="d-flex align-items-center gap-2">
                             <span class="fw-black">@item.Amount.ToString("C2")</span>
                             @if (item.ReceiptFiles.Any())
                             {
-                                <button class="btn btn-receipt-view" @onclick="() => ViewReceipt(item.ReceiptFiles.First().RelativePath)">
-                                    <i class="bi bi-image"></i>
-                                </button>
+                                <i class="bi bi-chevron-right text-muted"></i>
                             }
                         </div>
                     </div>
@@ -183,17 +190,14 @@
                 <div class="action-grid mt-4 d-grid gap-3">
                     @if (_selectedRequest.Status == "Submitted")
                     {
-                    <button class="btn btn-app-primary py-3 fw-black rounded-4 shadow" @onclick="() => QuickApprove(_selectedRequest)">
-                        APPROVE REQUEST
-                    </button>
-                    <button class="btn btn-outline-danger py-3 fw-bold rounded-4" @onclick="PromptReject">
-                        REJECT REQUEST
+                    <button class="btn btn-app-primary py-3 fw-black rounded-4 shadow" @onclick="() => QuickMarkPaid(_selectedRequest)">
+                        <i class="bi bi-check-circle me-2"></i> MARK AS PAID
                     </button>
                     }
                     else if (_selectedRequest.Status == "Approved")
                     {
                     <button class="btn btn-app-primary py-3 fw-black rounded-4 shadow" @onclick="() => QuickMarkPaid(_selectedRequest)">
-                        CONFIRM PAYMENT SENT
+                        <i class="bi bi-check-circle me-2"></i> MARK AS PAID
                     </button>
                 }
                 
@@ -209,10 +213,13 @@
 @if (!string.IsNullOrEmpty(_viewingReceiptUrl))
 {
     <div class="receipt-viewer-overlay" @onclick="() => _viewingReceiptUrl = null">
-        <div class="viewer-content animate-zoom">
-            <img src="@_viewingReceiptUrl" />
-            <p class="text-white mt-3 small fw-bold"><i class="bi bi-x-circle me-2"></i> Tap to close</p>
+        <button class="receipt-close-btn" @onclick="() => _viewingReceiptUrl = null">
+            <i class="bi bi-x-lg"></i>
+        </button>
+        <div class="viewer-content animate-zoom" @onclick:stopPropagation="true">
+            <img src="@_viewingReceiptUrl" @onclick="() => _viewingReceiptUrl = null" style="cursor: pointer;" />
         </div>
+        <p class="receipt-close-hint"><i class="bi bi-hand-index me-2"></i> Tap anywhere to close</p>
     </div>
 }
 
@@ -365,10 +372,73 @@
 
     /* Receipt Viewer */
     .receipt-viewer-overlay {
-        position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 3000;
+        position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 3000;
         display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;
     }
-    .viewer-content img { max-width: 100%; max-height: 80vh; border-radius: 12px; }
+    .viewer-content img { 
+        max-width: 100%; 
+        max-height: 80vh; 
+        border-radius: 12px; 
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    .receipt-close-btn {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: white;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: #0f172a;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 3001;
+        cursor: pointer;
+    }
+
+    .receipt-close-hint {
+        position: fixed;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: white;
+        font-size: 0.9rem;
+        font-weight: 700;
+        background: rgba(0,0,0,0.6);
+        padding: 12px 24px;
+        border-radius: 50px;
+        backdrop-filter: blur(10px);
+    }
+
+    .receipt-thumbnail {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 2px solid #e2e8f0;
+        flex-shrink: 0;
+    }
+
+    .receipt-thumbnail img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .item-row.clickable {
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .item-row.clickable:hover {
+        background: #e0f2fe !important;
+        transform: translateX(4px);
+    }
 
     .animate-entrance { animation: fadeIn 0.4s ease-out both; }
     .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }

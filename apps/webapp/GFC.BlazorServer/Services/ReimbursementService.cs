@@ -232,6 +232,45 @@ public class ReimbursementService
 
         _logger.LogInformation("Submitted reimbursement request {RequestId}", requestId);
     }
+    public async Task UpdateRequestAsync(int requestId, int memberId, ReimbursementRequestDto dto, CancellationToken cancellationToken = default)
+    {
+        await EnsureReimbursementSchemaAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var request = await dbContext.ReimbursementRequests
+            .Include(r => r.Items)
+            .FirstOrDefaultAsync(r => r.Id == requestId && r.RequestorMemberId == memberId, cancellationToken);
+            
+        if (request == null) throw new InvalidOperationException("Request not found or access denied.");
+        if (request.Status != "Submitted") throw new InvalidOperationException("Only submitted requests can be edited.");
+
+        request.Notes = dto.Notes;
+        request.UpdatedUtc = DateTime.UtcNow;
+        request.EditedFlag = true;
+        
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UpdateItemAsync(int itemId, int memberId, ReimbursementItemDto dto, CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var item = await dbContext.ReimbursementItems
+            .Include(i => i.Request)
+            .FirstOrDefaultAsync(i => i.Id == itemId, cancellationToken);
+            
+        if (item == null || item.Request.RequestorMemberId != memberId) throw new InvalidOperationException("Item not found.");
+        if (item.Request.Status != "Submitted") throw new InvalidOperationException("Request cannot be edited.");
+
+        item.Amount = dto.Amount ?? 0;
+        item.CategoryId = dto.CategoryId;
+        item.Notes = dto.Notes;
+        item.ExpenseDate = dto.ExpenseDate;
+        
+        item.Request.UpdatedUtc = DateTime.UtcNow;
+        item.Request.EditedFlag = true;
+        
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 
     public async Task ApproveAsync(int requestId, int approverId, CancellationToken cancellationToken = default)
     {
@@ -500,6 +539,12 @@ BEGIN
     INSERT INTO [dbo].[ReimbursementSettings] (ReceiptRequired, NotificationRecipients)
     VALUES (0, NULL);
 END
+
+-- Fallback: Ensure categories are NEVER empty
+IF NOT EXISTS (SELECT 1 FROM [dbo].[ReimbursementCategories])
+BEGIN
+    INSERT INTO [dbo].[ReimbursementCategories] (Name, IsActive) VALUES (N'Supplies', 1), (N'Bar / Kitchen', 1), (N'Repairs & Maintenance', 1), (N'Events', 1), (N'Office', 1), (N'Other', 1);
+END
 ";
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         await dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
@@ -685,10 +730,32 @@ END
 
         _logger.LogInformation("Deleted item {ItemId} from request {RequestId}", itemId, item.RequestId);
     }
+    public async Task<List<ReimbursementCategory>> ForceSeedCategoriesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureReimbursementSchemaAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        
+        var count = await dbContext.ReimbursementCategories.CountAsync(cancellationToken);
+        if (count == 0 || !await dbContext.ReimbursementCategories.AnyAsync(c => c.Name == "Supplies", cancellationToken))
+        {
+            var cats = new[] { "Supplies", "Bar / Kitchen", "Repairs & Maintenance", "Events", "Office", "Other" };
+            foreach (var c in cats)
+            {
+                if (!await dbContext.ReimbursementCategories.AnyAsync(x => x.Name == c, cancellationToken))
+                {
+                    dbContext.ReimbursementCategories.Add(new ReimbursementCategory { Name = c, IsActive = true });
+                }
+            }
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        
+        return await dbContext.ReimbursementCategories.Where(c => c.IsActive).OrderBy(x => x.Name).ToListAsync(cancellationToken);
+    }
 }
 
 public class ReimbursementItemDto
 {
+    public int Id { get; set; }
     [Required(ErrorMessage = "Expense date is required.")]
     public DateTime ExpenseDate { get; set; }
 
