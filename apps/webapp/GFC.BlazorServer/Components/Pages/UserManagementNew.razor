@@ -1114,39 +1114,89 @@
             return;
         }
 
+        if (!_customNotification.SendPush && !_customNotification.SendEmail)
+        {
+            _sendNotificationError = "Please select at least one delivery channel (Push or Email).";
+            return;
+        }
+
         _sendNotificationError = "";
         _sendingCustomNotification = true;
+        
+        var pushSuccess = false;
+        var emailSuccess = false;
+        var errors = new List<string>();
         
         try
         {
             // 1. Send Push if selected
             if (_customNotification.SendPush)
             {
-                await NotificationService.SendPushNotificationAsync(
-                    _selectedUser.UserId, 
-                    _customNotification.Title, 
-                    _customNotification.Message
-                );
+                try
+                {
+                    await NotificationService.SendPushNotificationAsync(
+                        _selectedUser.UserId, 
+                        _customNotification.Title, 
+                        _customNotification.Message
+                    );
+                    pushSuccess = true;
+                }
+                catch (Exception pushEx)
+                {
+                    errors.Add($"Push: {pushEx.Message}");
+                }
             }
 
             // 2. Send Email if selected and available
             if (_customNotification.SendEmail && !string.IsNullOrEmpty(_selectedUser.Email))
             {
-                await NotificationService.SendEmailAsync(
-                    _selectedUser.Email,
-                    _customNotification.Title,
-                    _customNotification.Message
-                );
+                try
+                {
+                    await NotificationService.SendEmailAsync(
+                        _selectedUser.Email,
+                        _customNotification.Title,
+                        _customNotification.Message
+                    );
+                    emailSuccess = true;
+                }
+                catch (Exception emailEx)
+                {
+                    errors.Add($"Email: {emailEx.Message}");
+                }
             }
 
-            _sendNotificationSuccess = true;
-            StateHasChanged();
+            // Determine overall result
+            if (errors.Any())
+            {
+                if (pushSuccess || emailSuccess)
+                {
+                    // Partial success
+                    var successChannels = new List<string>();
+                    if (pushSuccess) successChannels.Add("Push");
+                    if (emailSuccess) successChannels.Add("Email");
+                    
+                    _sendNotificationError = $"⚠️ Partially sent via {string.Join(" and ", successChannels)}. Failed: {string.Join("; ", errors)}";
+                    _sendNotificationSuccess = false;
+                }
+                else
+                {
+                    // Complete failure
+                    _sendNotificationError = $"❌ Failed to send: {string.Join("; ", errors)}";
+                    _sendNotificationSuccess = false;
+                }
+            }
+            else
+            {
+                // Complete success
+                _sendNotificationSuccess = true;
+            }
             
-            // Auto close after success? Maybe let them click close.
+            StateHasChanged();
         }
         catch (Exception ex)
         {
-            _sendNotificationError = $"Failed to deliver notification: {ex.Message}";
+            _sendNotificationError = $"Unexpected error: {ex.Message}";
+            _sendNotificationSuccess = false;
         }
         finally
         {

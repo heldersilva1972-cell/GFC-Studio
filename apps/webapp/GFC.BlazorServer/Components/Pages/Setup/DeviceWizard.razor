@@ -770,47 +770,76 @@
             var user = AuthStateProvider.GetCurrentUser();
             if (user == null) 
             {
+                Logger.LogWarning("EnableNotifications: No user found in auth state");
                 NextStep();
                 return;
             }
 
+            // Request permission from the browser
             var permission = await JS.InvokeAsync<string>("GFC_Notifications.requestPermission");
+            Logger.LogInformation("Notification permission result: {Permission} for user {UserId}", permission, user.UserId);
+            
             if (permission == "granted")
             {
                 var settings = await SystemSettingsService.GetAsync();
                 if (!string.IsNullOrEmpty(settings.VapidPublicKey))
                 {
-                    var subJson = await JS.InvokeAsync<string>("GFC_Notifications.subscribe", settings.VapidPublicKey);
-                    using var doc = System.Text.Json.JsonDocument.Parse(subJson);
-                    var payload = doc.RootElement;
-                    
-                    await NotificationService.SubscribeToPushAsync(
-                        user.UserId, 
-                        payload.GetProperty("endpoint").GetString()!,
-                        payload.GetProperty("keys").GetProperty("p256dh").GetString()!,
-                        payload.GetProperty("keys").GetProperty("auth").GetString()!,
-                        "GFC Device Wizard"
-                    );
-                    
-                    _isSubscribed = true;
-                    _isProcessing = false;
-                    StateHasChanged(); 
+                    try
+                    {
+                        var subJson = await JS.InvokeAsync<string>("GFC_Notifications.subscribe", settings.VapidPublicKey);
+                        using var doc = System.Text.Json.JsonDocument.Parse(subJson);
+                        var payload = doc.RootElement;
+                        
+                        await NotificationService.SubscribeToPushAsync(
+                            user.UserId, 
+                            payload.GetProperty("endpoint").GetString()!,
+                            payload.GetProperty("keys").GetProperty("p256dh").GetString()!,
+                            payload.GetProperty("keys").GetProperty("auth").GetString()!,
+                            "GFC Device Wizard"
+                        );
+                        
+                        _isSubscribed = true;
+                        Logger.LogInformation("Push notification subscription successful for user {UserId}", user.UserId);
+                    }
+                    catch (Exception subEx)
+                    {
+                        Logger.LogError(subEx, "Failed to subscribe to push notifications for user {UserId}", user.UserId);
+                        // Permission was granted but subscription failed - still advance
+                        NextStep();
+                    }
                 }
                 else
                 {
+                    Logger.LogWarning("No VAPID key configured - skipping push notification setup");
                     // No VAPID key configured, skip notifications
                     NextStep();
                 }
             }
+            else if (permission == "denied")
+            {
+                Logger.LogWarning("User {UserId} denied notification permission", user.UserId);
+                // User explicitly denied - advance anyway
+                NextStep();
+            }
+            else if (permission == "default")
+            {
+                Logger.LogWarning("Notification permission prompt was not shown (status: default) for user {UserId}", user.UserId);
+                // Prompt wasn't shown (already denied in browser settings, not supported, etc.)
+                // Don't advance - let them try again or skip manually
+                _isProcessing = false;
+                StateHasChanged();
+            }
             else
             {
-                // User denied permission
+                Logger.LogWarning("Unknown notification permission status: {Permission} for user {UserId}", permission, user.UserId);
+                // Unknown status - advance anyway
                 NextStep();
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Notification setup error");
+            Logger.LogError(ex, "Notification setup error for user");
+            // Error occurred - advance anyway so they're not stuck
             NextStep();
         }
         finally
