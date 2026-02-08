@@ -1,7 +1,27 @@
 window.GFC_Notifications = {
     requestPermission: async function () {
-        const permission = await Notification.requestPermission();
-        return permission;
+        if (!('Notification' in window)) {
+            console.error('Push notifications are not supported in this browser.');
+            return 'not_supported';
+        }
+
+        if (window.isSecureContext === false) {
+            console.error('Push notifications require a secure context (HTTPS or localhost).');
+            return 'insecure_context';
+        }
+
+        try {
+            // Check current status before requesting
+            if (Notification.permission === 'granted' || Notification.permission === 'denied') {
+                return Notification.permission;
+            }
+
+            const permission = await Notification.requestPermission();
+            return permission;
+        } catch (error) {
+            console.error('Error requesting notification permission:', error);
+            return 'error';
+        }
     },
 
     getSubscription: async function () {

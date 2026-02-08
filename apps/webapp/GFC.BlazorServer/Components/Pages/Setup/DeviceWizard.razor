@@ -160,6 +160,19 @@
                         Stay informed about system access, security alerts, and important updates.
                     </p>
 
+                    @if (!string.IsNullOrEmpty(_notifError))
+                    {
+                        <div class="alert alert-warning border-0 shadow-sm rounded-4 py-3 mb-4 text-start animate__animated animate__shakeX">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-exclamation-triangle-fill fs-4 me-3 text-warning"></i>
+                                <div>
+                                    <div class="fw-bold mb-1">Issue Detected</div>
+                                    <div class="small">@_notifError</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
                     @if (_isSubscribed)
                     {
                         <div class="alert alert-success rounded-pill py-3 mb-4">
@@ -444,6 +457,7 @@
     private bool _canInstall = false;
     private string? _platformInstructions;
     private bool _isSubscribed = false;
+    private string? _notifError;
 
     private string CurrentStepTitle => CurrentStep switch {
         1 => "Access Passcode",
@@ -763,10 +777,15 @@
     private async Task EnableNotifications()
     {
         _isProcessing = true;
+        _notifError = null;
         StateHasChanged();
 
         try
         {
+            // IMPORTANT: Request permission at the very start to keep user gesture context
+            var permission = await JS.InvokeAsync<string>("GFC_Notifications.requestPermission");
+            Logger.LogInformation("Notification permission result: {Permission}", permission);
+            
             var user = AuthStateProvider.GetCurrentUser();
             if (user == null) 
             {
@@ -775,10 +794,6 @@
                 return;
             }
 
-            // Request permission from the browser
-            var permission = await JS.InvokeAsync<string>("GFC_Notifications.requestPermission");
-            Logger.LogInformation("Notification permission result: {Permission} for user {UserId}", permission, user.UserId);
-            
             if (permission == "granted")
             {
                 var settings = await SystemSettingsService.GetAsync();
@@ -804,43 +819,42 @@
                     catch (Exception subEx)
                     {
                         Logger.LogError(subEx, "Failed to subscribe to push notifications for user {UserId}", user.UserId);
-                        // Permission was granted but subscription failed - still advance
-                        NextStep();
+                        _notifError = "Permission granted, but registration failed. Please ensure your device has internet access and try again.";
                     }
                 }
                 else
                 {
                     Logger.LogWarning("No VAPID key configured - skipping push notification setup");
-                    // No VAPID key configured, skip notifications
                     NextStep();
                 }
             }
             else if (permission == "denied")
             {
                 Logger.LogWarning("User {UserId} denied notification permission", user.UserId);
-                // User explicitly denied - advance anyway
-                NextStep();
+                _notifError = "Notifications are blocked by your browser for this site. Please reset permissions in your address bar.";
+            }
+            else if (permission == "insecure_context")
+            {
+                _notifError = "Push notifications require a secure connection (HTTPS). Chrome and Safari block them on insecure IPs.";
+            }
+            else if (permission == "not_supported")
+            {
+                _notifError = "This browser doesn't support push notifications. Try using Chrome, Edge, or Safari.";
             }
             else if (permission == "default")
             {
                 Logger.LogWarning("Notification permission prompt was not shown (status: default) for user {UserId}", user.UserId);
-                // Prompt wasn't shown (already denied in browser settings, not supported, etc.)
-                // Don't advance - let them try again or skip manually
-                _isProcessing = false;
-                StateHasChanged();
+                _notifError = "The browser suppressed the notification prompt. Try clicking the button again, or check your settings.";
             }
             else
             {
-                Logger.LogWarning("Unknown notification permission status: {Permission} for user {UserId}", permission, user.UserId);
-                // Unknown status - advance anyway
-                NextStep();
+                _notifError = $"An error occurred (Status: {permission}). Please try again.";
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Notification setup error for user");
-            // Error occurred - advance anyway so they're not stuck
-            NextStep();
+            Logger.LogError(ex, "Notification setup error");
+            _notifError = "A system error occurred. You can skip this step and try again later from your profile.";
         }
         finally
         {
