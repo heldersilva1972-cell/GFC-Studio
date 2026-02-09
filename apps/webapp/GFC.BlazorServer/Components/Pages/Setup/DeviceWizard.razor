@@ -776,15 +776,18 @@
 
     private async Task EnableNotifications()
     {
-        _isProcessing = true;
-        _notifError = null;
-        StateHasChanged();
-
         try
         {
-            // IMPORTANT: Request permission at the very start to keep user gesture context
+            // [CRITICAL] Request permission FIRST. 
+            // Most browsers require this to be called synchronously within a User Gesture context.
+            // Moving this to the very start ensures the permission dialog is triggered correctly.
             var permission = await JS.InvokeAsync<string>("GFC_Notifications.requestPermission");
             Logger.LogInformation("Notification permission result: {Permission}", permission);
+
+            // Now update local state
+            _isProcessing = true;
+            _notifError = null;
+            StateHasChanged();
             
             var user = AuthStateProvider.GetCurrentUser();
             if (user == null) 
@@ -824,8 +827,9 @@
                 }
                 else
                 {
-                    Logger.LogWarning("No VAPID key configured - skipping push notification setup");
-                    NextStep();
+                    Logger.LogWarning("No VAPID key configured - showing error instead of skipping");
+                    _notifError = "Push notification server (VAPID) is not configured in System Settings. Please contact an administrator.";
+                    // DO NOT call NextStep() here, let the user see the error or skip manually
                 }
             }
             else if (permission == "denied")
