@@ -39,10 +39,10 @@ window.GFC_Notifications = {
 
         try {
             const registration = await navigator.serviceWorker.ready;
-            
+
             // Optimization: check for existing subscription first
             let subscription = await registration.pushManager.getSubscription();
-            
+
             if (subscription) {
                 // Return existing subscription if it's already there
                 return JSON.stringify(subscription);
@@ -50,7 +50,7 @@ window.GFC_Notifications = {
 
             // Create new subscription
             const convertedVapidKey = this.urlBase64ToUint8Array(vapidPublicKey);
-            
+
             subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: convertedVapidKey
@@ -74,7 +74,7 @@ window.GFC_Notifications = {
         try {
             const registration = await navigator.serviceWorker.ready;
             const subscription = await registration.pushManager.getSubscription();
-            
+
             if (subscription) {
                 const successful = await subscription.unsubscribe();
                 console.log('[Push] Unsubscribed:', successful);
@@ -93,7 +93,7 @@ window.GFC_Notifications = {
      */
     getSubscription: async function () {
         if (!('serviceWorker' in navigator)) return false;
-        
+
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
         return !!subscription;
