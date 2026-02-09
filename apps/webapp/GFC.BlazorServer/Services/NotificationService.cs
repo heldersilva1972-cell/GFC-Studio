@@ -246,7 +246,6 @@ namespace GFC.BlazorServer.Services
             var uniqueSubscriptions = subscriptions
                 .GroupBy(s => s.Endpoint)
                 .Select(g => g.First())
-                .Take(1) 
                 .ToList();
 
             var vapidSubject = !string.IsNullOrEmpty(settings.VapidSubject) ? settings.VapidSubject : "mailto:admin@gfc.com";

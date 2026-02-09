@@ -12,12 +12,12 @@ namespace GFC.BlazorServer.Services
     public class LiquorService : ILiquorService
     {
         private readonly IDbContextFactory<GfcDbContext> _dbFactory;
-        private readonly INotificationService _notificationService;
+        private readonly IServiceScopeFactory _scopeFactory;
 
-        public LiquorService(IDbContextFactory<GfcDbContext> dbFactory, INotificationService notificationService)
+        public LiquorService(IDbContextFactory<GfcDbContext> dbFactory, IServiceScopeFactory scopeFactory)
         {
             _dbFactory = dbFactory;
-            _notificationService = notificationService;
+            _scopeFactory = scopeFactory;
         }
 
         public async Task<IEnumerable<LiquorItem>> GetAllItemsAsync()
@@ -131,7 +131,9 @@ namespace GFC.BlazorServer.Services
             {
                 try
                 {
-                    await CheckAndNotifyAsync(itemId);
+                    using var scope = _scopeFactory.CreateScope();
+                    var scopedLiquorService = (LiquorService)scope.ServiceProvider.GetRequiredService<ILiquorService>();
+                    await scopedLiquorService.CheckAndNotifyAsync(itemId);
                 }
                 catch (Exception ex)
                 {
@@ -169,7 +171,9 @@ namespace GFC.BlazorServer.Services
             {
                 try
                 {
-                    await CheckAndNotifyAsync(itemId);
+                    using var scope = _scopeFactory.CreateScope();
+                    var scopedLiquorService = (LiquorService)scope.ServiceProvider.GetRequiredService<ILiquorService>();
+                    await scopedLiquorService.CheckAndNotifyAsync(itemId);
                 }
                 catch (Exception ex)
                 {
@@ -221,7 +225,9 @@ namespace GFC.BlazorServer.Services
                 {
                     try
                     {
-                        await CheckAndNotifyAsync(itemId);
+                        using var scope = _scopeFactory.CreateScope();
+                        var scopedLiquorService = (LiquorService)scope.ServiceProvider.GetRequiredService<ILiquorService>();
+                        await scopedLiquorService.CheckAndNotifyAsync(itemId);
                     }
                     catch (Exception ex)
                     {
@@ -271,7 +277,7 @@ namespace GFC.BlazorServer.Services
             return await db.LiquorNotificationRules.ToListAsync();
         }
 
-        private async Task CheckAndNotifyAsync(int itemId)
+        public async Task CheckAndNotifyAsync(int itemId)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var item = await db.LiquorItems.FindAsync(itemId);
@@ -304,20 +310,28 @@ namespace GFC.BlazorServer.Services
                 .Select(g => g.First())
                 .ToList();
 
+            // Create one scope for all notifications in this run
+            using var notificationScope = _scopeFactory.CreateScope();
+            var notificationService = notificationScope.ServiceProvider.GetRequiredService<INotificationService>();
+
             foreach (var sub in uniqueSubscribers)
             {
                 if (isCritical && !sub.NotifyOnEmpty) continue;
                 if (!isCritical && !sub.NotifyOnLowStock) continue;
 
                 var user = await db.AppUsers.FindAsync(sub.UserId);
-                if (user == null) continue;
+                if (user == null || !user.IsActive) 
+                {
+                    Console.WriteLine($"[LiquorService] Skipping user {sub.UserId} (Not found or Inactive)");
+                    continue;
+                }
 
                 // 1. Email (Prioritize reliability)
                 if (sub.ReceiveEmail && !string.IsNullOrEmpty(user.Email))
                 {
                     try 
                     {
-                        await _notificationService.SendEmailAsync(user.Email, title, body);
+                        await notificationService.SendEmailAsync(user.Email, title, body);
                     }
                     catch (Exception ex)
                     {
@@ -330,7 +344,7 @@ namespace GFC.BlazorServer.Services
                 {
                     try
                     {
-                        await _notificationService.SendPushNotificationAsync(user.UserId, title, body, "/mobile/liquor/manage");
+                        await notificationService.SendPushNotificationAsync(user.UserId, title, body, "/mobile/liquor/manage");
                     }
                     catch (Exception ex)
                     {
@@ -352,7 +366,7 @@ namespace GFC.BlazorServer.Services
                             Channel = "SMS",
                             Status = "Pending"
                         };
-                        await _notificationService.DispatchNotificationAsync(smsNotification);
+                        await notificationService.DispatchNotificationAsync(smsNotification);
                     }
                     catch (Exception ex)
                     {
