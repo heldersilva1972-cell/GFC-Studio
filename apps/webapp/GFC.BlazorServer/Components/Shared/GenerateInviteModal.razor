@@ -146,6 +146,7 @@
     [Parameter] public EventCallback<InviteLinkGenerated> OnLinkGenerated { get; set; }
     
     [Inject] private IVpnConfigurationService? VpnService { get; set; }
+    [Inject] private IDeviceInviteService? DeviceInviteService { get; set; }
     [Inject] private ILogger<GenerateInviteModal>? Logger { get; set; }
     [Inject] private NavigationManager? Navigation { get; set; }
     [Inject] private GFC.Core.Interfaces.IUrlHelperService? UrlHelper { get; set; }
@@ -184,20 +185,23 @@
             
             _selectedUserEmail = selectedUser.Email ?? selectedUser.Username;
             
-            // Generate ONBOARDING token (Validated by Activate.razor)
+            // Generate DeviceInvite token
             var durationHours = _expirationHours;
             
-            var token = await VpnService.CreateOnboardingTokenAsync(
+            if (DeviceInviteService == null) throw new Exception("Invite service not available");
+
+            var token = await DeviceInviteService.CreateInviteTokenAsync(
                 _selectedUserId, 
+                _deviceName ?? "New Device",
                 durationHours
             );
             
-            // Build full invite URL using path-based token (more robust for QR scanners)
+            // Build full invite URL using query-based token + native flag
             var baseUrl = UrlHelper != null 
                 ? await UrlHelper.GetBaseUrlAsync() 
                 : Navigation?.BaseUri.TrimEnd('/') ?? "";
                 
-            _generatedLink = $"{baseUrl}/setup/activate/{token}";
+            _generatedLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={token}&native=true";
             
             // Calculate expiration time
             var expiresAt = DateTime.UtcNow.AddHours(_expirationHours);

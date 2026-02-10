@@ -9,12 +9,33 @@
 <head>
     <meta charset="utf-8" />
     <script>
+        // [MODEL B: APK-FIRST] Explicit Environment Declaration
+        // STOP guessing. If loaded with ?native=true or ?apk=true, force and persist.
         (function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const isExplicitNative = urlParams.has('native') || urlParams.has('apk') || 
+                                     !!window.Android || document.cookie.includes('gfc_native=true');
+            
+            if (isExplicitNative) {
+                window.__GFC_NATIVE_APP__ = true;
+                // Persistent session marker
+                document.cookie = "gfc_native=true; path=/; SameSite=Lax";
+                console.log('[GFC] Model B: Native Environment Active');
+
+                // [APK-FIRST] Force block browser-level permission prompt
+                if (window.Notification && window.Notification.requestPermission) {
+                    window.Notification.requestPermission = function() {
+                        console.warn('[GFC] Native Mode: Browser Notification prompt BLOCKED to prevent duplicates.');
+                        return Promise.resolve('denied'); 
+                    };
+                }
+            }
+
             const savedTheme = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-theme', savedTheme);
         })();
 
-        // Early catch for PWA install prompt to ensure it's not missed
+        // Early catch for PWA install prompt
         window._pwaBeforeInstallPrompt = null;
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
@@ -22,75 +43,40 @@
             console.log('[PWA Early Catch] Prompt captured.');
         });
 
-        // Detect successful installation
         window.addEventListener('appinstalled', () => {
             console.log('[PWA] App successfully installed');
             window._pwaBeforeInstallPrompt = null;
-            window._pwaInstalling = false; // Clear installation flag
+            window._pwaInstalling = false;
         });
 
         // Adapter for MainLayout PWA buttons
         window.GFC = {
-            canInstall: () => {
-                // Check if we have the captured install prompt
-                return window._pwaBeforeInstallPrompt !== null && window._pwaBeforeInstallPrompt !== undefined;
-            },
-            isPwaInstalled: () => {
-                return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-            },
-            isIOS: () => {
-                return /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
-            },
+            canInstall: () => !!window._pwaBeforeInstallPrompt,
+            isPwaInstalled: () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true,
+            isIOS: () => /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()),
             triggerInstall: async () => {
-                // 0. Check if service worker is ready (critical for Android 16)
                 if (!window._serviceWorkerReady) {
-                    console.warn('[GFC] Service Worker not ready yet. Waiting...');
-                    // Wait up to 5 seconds for service worker to activate
-                    for (let i = 0; i < 50; i++) {
-                        if (window._serviceWorkerReady) break;
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                    }
-                    if (!window._serviceWorkerReady) {
-                        console.error('[GFC] Service Worker failed to activate. Installation may fail.');
-                    }
+                    for (let i = 0; i < 50 && !window._serviceWorkerReady; i++) await new Promise(r => setTimeout(r, 100));
                 }
-                
-                // 1. Try the captured event first (this is the correct way)
-                const deferredPrompt = window._pwaBeforeInstallPrompt;
-                if (deferredPrompt) {
-                    try {
-                        deferredPrompt.prompt();
-                        const { outcome } = await deferredPrompt.userChoice;
-                        console.log(`[GFC] Install outcome: ${outcome}`);
-                        window._pwaBeforeInstallPrompt = null; // Clear it after use
-                        
-                        if (outcome === 'accepted') {
-                            // Set flag to prevent reload during WebAPK generation (Android 16)
-                            window._pwaInstalling = true;
-                            console.log('[GFC] Installation accepted. Preventing reloads for 60s...');
-                            
-                            // Safety timeout in case appinstalled event doesn't fire
-                            setTimeout(() => {
-                                window._pwaInstalling = false;
-                                console.log('[GFC] Installation timeout cleared');
-                            }, 60000);
-                        }
-                        
-                        return outcome === 'accepted';
-                    } catch (error) {
-                        console.error('[GFC] Install error:', error);
-                        window._pwaInstalling = false;
-                        return false;
+                const prompt = window._pwaBeforeInstallPrompt;
+                if (!prompt) return false;
+                try {
+                    prompt.prompt();
+                    const { outcome } = await prompt.userChoice;
+                    window._pwaBeforeInstallPrompt = null;
+                    if (outcome === 'accepted') {
+                        window._pwaInstalling = true;
+                        setTimeout(() => window._pwaInstalling = false, 60000);
                     }
+                    return outcome === 'accepted';
+                } catch (e) {
+                    window._pwaInstalling = false;
+                    return false;
                 }
-                
-                // 2. Fallback to external installer if the prompt wasn't caught
-                if (typeof pwaInstaller !== 'undefined') {
-                    return await pwaInstaller.install();
-                }
-                
-                console.warn('[GFC] No install prompt available');
-                return false;
+            },
+            requestNotificationPermission: async function() {
+                if (!('Notification' in window)) return 'not_supported';
+                try { return await Notification.requestPermission(); } catch (e) { return 'denied'; }
             }
         };
     </script>
@@ -184,7 +170,7 @@
     <script src="/js/gfc-select-helpers.js"></script>
 
     <script src="/js/passkeys.js"></script>
-    <script src="js/notifications.js"></script>
+    <script src="/js/notifications.js?v=2"></script>
     <script src="/js/download.js"></script>
     <script src="/js/fileUtils.js"></script>
     <script src="/js/camera-player.js"></script>
@@ -198,12 +184,12 @@
     <script src="/js/studio-dnd.js"></script>
     <script src="/js/studio.js" asp-append-version="true"></script>
     <script src="/js/studioInterop.js" asp-append-version="true"></script>
-    <script src="js/animationInterop.js"></script>
-    <script src="js/animationScrubbing.js"></script>
-    <script src="js/timeline-interop.js"></script>
-    <script src="js/animation-orchestrator.js"></script>
+    <script src="/js/animationInterop.js"></script>
+    <script src="/js/animationScrubbing.js"></script>
+    <script src="/js/timeline-interop.js"></script>
+    <script src="/js/animation-orchestrator.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/session-monitor.js"></script>
+    <script src="/js/session-monitor.js"></script>
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
     <script src="_framework/blazor.server.js" autostart="false"></script>
     <script>
@@ -491,7 +477,7 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', async function() {
                 try {
-                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=8');
+                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=11');
                     console.log('[PWA] Service Worker registered:', registration.scope);
                     
                     // Wait for service worker to become active
@@ -521,6 +507,56 @@
             return window._serviceWorkerReady && window._pwaBeforeInstallPrompt !== null;
         };
     </script>
+    <script>
+        (function() {
+            window.__gfcNotifDebug = function (msg) {
+                console.log("[GFC-DEBUG] " + msg);
+                let el = document.getElementById('gfc-notif-debug');
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = 'gfc-notif-debug';
+                    el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:999999999;background:rgba(0,0,0,0.95);color:#0f0;font:bold 12px monospace;padding:10px;border-radius:10px;max-height:45vh;overflow-y:auto;box-shadow:0 0 30px rgba(0,0,0,0.8);border:2px solid #0f0;pointer-events:auto;';
+                    
+                    const h = document.createElement('div');
+                    h.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:8px;border-bottom:1px solid #0f0;padding-bottom:5px;';
+                    h.innerHTML = '<b>NOTIF DIAGNOSTICS</b>';
+                    
+                    const c = document.createElement('button');
+                    c.innerHTML = 'HIDE';
+                    c.style.cssText = 'background:#0f0;color:#000;border:none;padding:2px 10px;border-radius:4px;font-weight:bold;';
+                    c.onclick = () => el.remove();
+                    h.appendChild(c);
+                    
+                    el.appendChild(h);
+                    const b = document.createElement('div');
+                    b.id = 'gfc-notif-debug-body';
+                    el.appendChild(b);
+                    document.body.appendChild(el);
+                }
+                const b = document.getElementById('gfc-notif-debug-body');
+                if (b) {
+                    const l = document.createElement('div');
+                    l.style.marginBottom = '4px';
+                    l.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                    b.insertBefore(l, b.firstChild);
+                }
+            };
+
+            // Global interception
+            if (window.Notification && window.Notification.requestPermission) {
+                const orig = window.Notification.requestPermission.bind(window.Notification);
+                window.Notification.requestPermission = async function () {
+                    const apk = !!window.__GFC_NATIVE_APP__ || !!window.Android;
+                    if (apk) {
+                        window.__gfcNotifDebug?.('!!! BLOCKED BROWSER PROMPT !!!');
+                        return 'default';
+                    }
+                    window.__gfcNotifDebug?.('ALLOWED Browser Prompt');
+                    return orig();
+                };
+            }
+            window.__gfcNotifDebug?.('Diagnostic Tools Initialized.');
+        })();
+    </script>
 </body>
 </html>
-

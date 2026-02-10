@@ -8,12 +8,11 @@
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject IPasskeyService PasskeyService
 @inject INotificationService NotificationService
+@implements IDisposable
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject IUserManagementService UserService
 @inject IUserConnectionService UserConnectionService
 @inject ILogger<DeviceWizard> Logger
-
-<PageTitle>Complete Device Setup - GFC</PageTitle>
 
 <div class="wizard-container">
     <div class="wizard-card" style="max-width: @(CurrentStep == 5 ? "600px" : "480px")">
@@ -175,8 +174,14 @@
 
                     @if (_isSubscribed)
                     {
-                        <div class="alert alert-success rounded-pill py-3 mb-4">
-                            <i class="bi bi-check-circle-fill me-2"></i>Notifications Enabled
+                        <div class="alert alert-success border-0 shadow-sm rounded-4 py-3 mb-4 animate__animated animate__fadeInUp">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-check-circle-fill fs-3 me-3 text-success"></i>
+                                <div>
+                                    <div class="fw-bold">Notifications Linked!</div>
+                                    <div class="small">A "Welcome" test notification was just sent to this device.</div>
+                                </div>
+                            </div>
                         </div>
                         <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow" @onclick="NextStep">
                             <i class="bi bi-arrow-right-circle-fill me-2"></i>Almost Done
@@ -184,7 +189,12 @@
                     }
                     else
                     {
-                        <button class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3" @onclick="EnableNotifications" disabled="@_isProcessing">
+                        <div class="alert alert-info border-0 shadow-sm rounded-4 py-2 mb-3 small text-start">
+                            <i class="bi bi-info-circle-fill me-2"></i>
+                            If you already granted permissions previously, clicking below will link this device automatically.
+                        </div>
+
+                        <button id="btn-enable-notif" data-gfc-notif-btn data-vapid="@_vapidKey" type="button" class="btn btn-primary btn-lg w-100 rounded-pill py-3 fw-bold shadow mb-3">
                             @if (_isProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
                             <i class="bi bi-bell-fill me-2"></i>Enable Notifications
                         </button>
@@ -458,6 +468,119 @@
     private string? _platformInstructions;
     private bool _isSubscribed = false;
     private string? _notifError;
+    private string? _vapidKey;
+    private DotNetObjectReference<DeviceWizard>? _objRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckPwaInstallability();
+            
+            // Initialize DotNet reference
+            _objRef = DotNetObjectReference.Create(this);
+        }
+
+        // CRITICAL: Bind native click listener for Step 4
+        if (CurrentStep == 4 && !_isSubscribed)
+        {
+            try
+            {
+                var settings = await SystemSettingsService.GetAsync();
+                if (!string.IsNullOrEmpty(settings.VapidPublicKey))
+                {
+                    await JS.InvokeVoidAsync("GFC_Notifications.bindNativePrompt", "btn-enable-notif", settings.VapidPublicKey, _objRef);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning("Binding error: {Message}", ex.Message);
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnSubscriptionSuccess(string subscriptionJson)
+    {
+        try
+        {
+            var user = AuthStateProvider.GetCurrentUser();
+            if (user == null) return;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(subscriptionJson);
+            var root = doc.RootElement;
+            
+            await NotificationService.SubscribeToPushAsync(
+                user.UserId, 
+                root.GetProperty("endpoint").GetString()!,
+                root.GetProperty("keys").GetProperty("p256dh").GetString()!,
+                root.GetProperty("keys").GetProperty("auth").GetString()!,
+                $"App: {GetPlatformName()}"
+            );
+            
+            _isSubscribed = true;
+            Logger.LogInformation("Push notification subscription successful for user {UserId}", user.UserId);
+            
+            // Send welcome push
+            try { await NotificationService.SendPushNotificationAsync(user.UserId, "Welcome to GFC", "Notifications are active!", "/"); } catch {}
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _notifError = "Subscription failed: " + ex.Message;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public void OnPermissionResult(string permission)
+    {
+        if (permission == "denied")
+        {
+             if (UserConnectionService.IsMobile)
+            {
+                _notifError = "Notifications are blocked by your device settings. Go to Settings > Apps > GFC > Notifications and enable 'Allow notifications'.";
+            }
+            else
+            {
+                _notifError = "Notifications are blocked by your browser for this site. Please click the lock icon in the address bar to reset permissions.";
+            }
+        }
+        else if (permission == "default")
+        {
+             if (UserConnectionService.IsMobile)
+            {
+                 _notifError = "The system popup didn't appear. Go to your phone Settings > Apps > GFC App > Notifications and ensure they are ON.";
+            }
+            else
+            {
+                _notifError = "The browser suppressed the notification prompt. Please click the lock icon in the address bar to allow notifications.";
+            }
+        }
+        else if (permission == "not_supported")
+        {
+            _notifError = "Notifications are not supported by this browser.";
+        }
+        else if (permission == "insecure_context")
+        {
+            _notifError = "HTTPS is required for push notifications.";
+        }
+        
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnSubscriptionError(string message)
+    {
+        _notifError = "Subscription error: " + message;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _objRef?.Dispose();
+    }
 
     private string CurrentStepTitle => CurrentStep switch {
         1 => "Access Passcode",
@@ -470,13 +593,17 @@
     private string CurrentStepSubtitle => CurrentStep switch {
         1 => "Set your 6-digit login PIN",
         2 => "Link device biometrics for speed",
-        3 => UserConnectionService.IsMobile ? "Install GFC to your home screen" : "Bookmark GFC for instant access",
+        3 => UserConnectionService.IsMobile ? "Install GFC App to your device" : "Bookmark GFC for instant access",
         4 => "Stay updated with real-time push",
         _ => ""
     };
 
     protected override async Task OnInitializedAsync()
     {
+        // Pre-fetch VAPID key for native binding
+        var settings = await SystemSettingsService.GetAsync();
+        _vapidKey = settings.VapidPublicKey;
+
         // 1. Give the circuit a tiny moment (Reduced from 500ms to 100ms for responsiveness)
         await Task.Delay(100);
 
@@ -559,13 +686,7 @@
         }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            await CheckPwaInstallability();
-        }
-    }
+
 
     private async Task NextStep() 
     {
@@ -632,6 +753,8 @@
         else
         {
             CurrentStep++;
+            _isProcessing = false; // Reset any previous step processing
+            StateHasChanged();
         }
         
         StateHasChanged();
@@ -774,98 +897,7 @@
         NextStep();
     }
 
-    private async Task EnableNotifications()
-    {
-        try
-        {
-            // [CRITICAL] Request permission FIRST. 
-            // Most browsers require this to be called synchronously within a User Gesture context.
-            // Moving this to the very start ensures the permission dialog is triggered correctly.
-            var permission = await JS.InvokeAsync<string>("GFC_Notifications.requestPermission");
-            Logger.LogInformation("Notification permission result: {Permission}", permission);
 
-            // Now update local state
-            _isProcessing = true;
-            _notifError = null;
-            StateHasChanged();
-            
-            var user = AuthStateProvider.GetCurrentUser();
-            if (user == null) 
-            {
-                Logger.LogWarning("EnableNotifications: No user found in auth state");
-                NextStep();
-                return;
-            }
-
-            if (permission == "granted")
-            {
-                var settings = await SystemSettingsService.GetAsync();
-                if (!string.IsNullOrEmpty(settings.VapidPublicKey))
-                {
-                    try
-                    {
-                        var subJson = await JS.InvokeAsync<string>("GFC_Notifications.subscribe", settings.VapidPublicKey);
-                        using var doc = System.Text.Json.JsonDocument.Parse(subJson);
-                        var payload = doc.RootElement;
-                        
-                        await NotificationService.SubscribeToPushAsync(
-                            user.UserId, 
-                            payload.GetProperty("endpoint").GetString()!,
-                            payload.GetProperty("keys").GetProperty("p256dh").GetString()!,
-                            payload.GetProperty("keys").GetProperty("auth").GetString()!,
-                            "GFC Device Wizard"
-                        );
-                        
-                        _isSubscribed = true;
-                        Logger.LogInformation("Push notification subscription successful for user {UserId}", user.UserId);
-                    }
-                    catch (Exception subEx)
-                    {
-                        Logger.LogError(subEx, "Failed to subscribe to push notifications for user {UserId}", user.UserId);
-                        _notifError = "Permission granted, but registration failed. Please ensure your device has internet access and try again.";
-                    }
-                }
-                else
-                {
-                    Logger.LogWarning("No VAPID key configured - showing error instead of skipping");
-                    _notifError = "Push notification server (VAPID) is not configured in System Settings. Please contact an administrator.";
-                    // DO NOT call NextStep() here, let the user see the error or skip manually
-                }
-            }
-            else if (permission == "denied")
-            {
-                Logger.LogWarning("User {UserId} denied notification permission", user.UserId);
-                _notifError = "Notifications are blocked by your browser for this site. Please reset permissions in your address bar.";
-            }
-            else if (permission == "insecure_context")
-            {
-                _notifError = "Push notifications require a secure connection (HTTPS). Chrome and Safari block them on insecure IPs.";
-            }
-            else if (permission == "not_supported")
-            {
-                _notifError = "This browser doesn't support push notifications. Try using Chrome, Edge, or Safari.";
-            }
-            else if (permission == "default")
-            {
-                Logger.LogWarning("Notification permission prompt was not shown (status: default) for user {UserId}", user.UserId);
-                _notifError = "The browser suppressed the notification prompt. Try clicking the button again, or check your settings.";
-            }
-            else
-            {
-                _notifError = $"An error occurred (Status: {permission}). Please try again.";
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Notification setup error");
-            _notifError = "A system error occurred. You can skip this step and try again later from your profile.";
-        }
-        finally
-        {
-            _isProcessing = false;
-            StateHasChanged();
-        }
-    }
 
     private string GetPlatformName()
     {

@@ -8,6 +8,7 @@
 @inject ISystemSettingsService SettingsService
 @inject INotificationService NotificationService
 @inject IBlazorSystemSettingsService BlazorSettingsService
+@implements IDisposable
 
 <PageTitle>Device Setup - GFC System</PageTitle>
 
@@ -55,8 +56,8 @@
                                 <i class="bi bi-phone-fill fs-4"></i>
                             </div>
                             <div>
-                                <h6 class="fw-bold mb-0">Add to Home Screen?</h6>
-                                <p class="small text-muted mb-0">Get one-tap access and notifications.</p>
+                                <h6 class="fw-bold mb-0">Install App?</h6>
+                                <p class="small text-muted mb-0">Install to your device for easy access.</p>
                             </div>
                         </div>
 
@@ -65,7 +66,7 @@
                                 @if (_canInstall)
                                 {
                                     <button class="btn btn-outline-primary w-100 py-2 fw-bold bg-white" @onclick="TriggerInstall">
-                                        <i class="bi bi-plus-circle me-2"></i> Yes, Add App
+                                        <i class="bi bi-download me-2"></i> Install App
                                     </button>
                                 }
                                 else if (!string.IsNullOrEmpty(_platformInstructions))
@@ -76,13 +77,22 @@
                                 }
                             </div>
                             <div class="col-sm-6">
-                                <button class="btn @(_isSubscribed ? "btn-success" : "btn-info text-white") w-100 py-2 fw-bold" 
-                                        @onclick="TogglePushNotifications" 
-                                        disabled="@_isPushProcessing">
-                                    @if (_isPushProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                                    <i class="bi @(_isSubscribed ? "bi-bell-fill" : "bi-bell") me-2"></i>
-                                    @(_isSubscribed ? "Alerts Active" : "Get Notifications")
-                                </button>
+                                @if (!_isNativeMode)
+                                {
+                                    <div class="alert alert-warning x-small p-2 mb-0 d-flex align-items-center">
+                                        <i class="bi bi-phone-vibrate me-2"></i>
+                                        <span>Use the <b>GFC App</b> to enable alerts.</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <button id="btn-toggle-push" data-gfc-notif-btn data-vapid="@_vapidKey" class="btn @(_isSubscribed ? "btn-success" : "btn-info text-white") w-100 py-2 fw-bold" 
+                                            type="button">
+                                        @if (_isPushProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                        <i class="bi @(_isSubscribed ? "bi-bell-fill" : "bi-bell") me-2"></i>
+                                        @(_isSubscribed ? "Alerts Active" : "Get Notifications")
+                                    </button>
+                                }
                             </div>
                         </div>
 
@@ -92,6 +102,13 @@
                                 @((MarkupString)_platformInstructions)
                             </div>
                             <p class="x-small text-muted text-center mb-0 mt-2"><i class="bi bi-info-circle me-1"></i> iPhone users must add manually via the share menu.</p>
+                        }
+
+                        @if (!_isNativeMode)
+                        {
+                            <div class="text-center mt-3">
+                                <a href="intent://#Intent;scheme=gfc;package=com.heldersilva.gfc;end" class="btn btn-link btn-sm text-primary p-0">Open GFC App <i class="bi bi-box-arrow-up-right ms-1"></i></a>
+                            </div>
                         }
 
                         <button class="btn btn-link btn-sm w-100 text-muted text-decoration-none mt-3" @onclick="GoToLogin">Maybe later</button>
@@ -176,23 +193,94 @@
     [SupplyParameterFromQuery]
     public string? Token { get; set; }
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "station")]
+    public bool IsStation { get; set; }
+
     private bool _isProcessing = true;
     private string? _error;
     private bool _success;
     private bool _canInstall = false;
     private string? _platformInstructions;
     private bool _showInstructions = false;
+    private bool _isNativeMode = false;
     private bool _isSubscribed = false;
     private bool _isPushProcessing = false;
+    private string? _vapidKey;
     private int _onboardedUserId;
+
+    private DotNetObjectReference<SetupDevice>? _objRef;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            _isNativeMode = await JSRuntime.InvokeAsync<bool>("eval", "!!window.__GFC_NATIVE_APP__ || !!window.Android");
             await ProcessToken();
             await CheckPwaInstallability();
+            _objRef = DotNetObjectReference.Create(this);
+            StateHasChanged();
         }
+
+        // CRITICAL: Bind the native listener every render if we have a user and aren't subscribed
+        if (_onboardedUserId > 0 && !_isSubscribed && _isNativeMode)
+        {
+            try 
+            {
+                var settings = await BlazorSettingsService.GetAsync();
+                if (!string.IsNullOrEmpty(settings.VapidPublicKey))
+                {
+                    await JSRuntime.InvokeVoidAsync("GFC_Notifications.bindNativePrompt", "btn-toggle-push", settings.VapidPublicKey, _objRef);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Binding error: {ex.Message}");
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnSubscriptionSuccess(string subscriptionJson)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(subscriptionJson);
+            var root = doc.RootElement;
+            var endpoint = root.GetProperty("endpoint").GetString() ?? "";
+            var p256dh = root.GetProperty("keys").GetProperty("p256dh").GetString() ?? "";
+            var auth = root.GetProperty("keys").GetProperty("auth").GetString() ?? "";
+
+            await NotificationService.SubscribeToPushAsync(_onboardedUserId, endpoint, p256dh, auth, "Browser Client (Onboarding)");
+            _isSubscribed = true;
+            
+            // Send welcome push
+            try { await NotificationService.SendPushNotificationAsync(_onboardedUserId, "GFC Notifications", "System alerts are now active on this device!", "/"); } catch {}
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Subscription save error: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public void OnPermissionResult(string permission)
+    {
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnSubscriptionError(string message)
+    {
+        Console.WriteLine($"Push subscription error: {message}");
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _objRef?.Dispose();
     }
 
     private async Task CheckPwaInstallability() 
@@ -226,53 +314,28 @@
         catch { }
     }
 
-    public class PwaCheckResult {
-        public bool CanInstall { get; set; }
-        public string? Instructions { get; set; }
-    }
-
     private async Task TogglePushNotifications()
     {
+        // This is primarily for unsubscribing now, as subscription is handled by the native JS binder
         if (_onboardedUserId <= 0) return;
         
-        _isPushProcessing = true;
-        try
+        if (_isSubscribed)
         {
-            if (!_isSubscribed)
+            _isPushProcessing = true;
+            try
             {
-                var permission = await JSRuntime.InvokeAsync<string>("GFC_Notifications.requestPermission");
-                if (permission == "granted")
-                {
-                    var settings = await BlazorSettingsService.GetAsync();
-                    if (!string.IsNullOrEmpty(settings.VapidPublicKey))
-                    {
-                        var subscriptionJson = await JSRuntime.InvokeAsync<string>("GFC_Notifications.subscribe", settings.VapidPublicKey);
-                        using var doc = System.Text.Json.JsonDocument.Parse(subscriptionJson);
-                        var root = doc.RootElement;
-                        var endpoint = root.GetProperty("endpoint").GetString() ?? "";
-                        var p256dh = root.GetProperty("keys").GetProperty("p256dh").GetString() ?? "";
-                        var auth = root.GetProperty("keys").GetProperty("auth").GetString() ?? "";
-
-                        await NotificationService.SubscribeToPushAsync(_onboardedUserId, endpoint, p256dh, auth, "Browser Client (Onboarding)");
-                        _isSubscribed = true;
-                    }
-                }
-            }
-            else
-            {
-                // Simple toggle off if they click again
                 await JSRuntime.InvokeVoidAsync("GFC_Notifications.unsubscribe");
                 _isSubscribed = false;
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Push subscription error: {ex.Message}");
-        }
-        finally
-        {
-            _isPushProcessing = false;
-            StateHasChanged();
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Unsubscribe error: {ex.Message}");
+            }
+            finally
+            {
+                _isPushProcessing = false;
+                StateHasChanged();
+            }
         }
     }
 
@@ -303,7 +366,19 @@
             
             var duration = await SettingsService.GetTrustedDeviceDurationDaysAsync();
 
-            var trustToken = await DeviceTrustService.CreateDeviceTokenAsync(invite.UserId, userAgent, ipAddress, duration);
+            string trustToken;
+            if (IsStation)
+            {
+                trustToken = await DeviceTrustService.CreateStationTokenAsync(invite.UserId, userAgent, ipAddress, 365);
+                // Save Station Identity cookie to disable auto-logins
+                await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_StationIdentity", trustToken, 365);
+            }
+            else
+            {
+                trustToken = await DeviceTrustService.CreateDeviceTokenAsync(invite.UserId, userAgent, ipAddress, duration);
+                // Clear any old station identity
+                await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_StationIdentity", "", -1);
+            }
 
             // Save to LocalStorage and Cookies
             await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", trustToken);
@@ -313,6 +388,11 @@
             await DeviceInviteService.MarkTokenAsUsedAsync(Token);
 
             _onboardedUserId = invite.UserId;
+            
+            // Pre-fetch VAPID key
+            var settings = await BlazorSettingsService.GetAsync();
+            _vapidKey = settings.VapidPublicKey;
+            
             _success = true;
         }
         catch (Exception ex)

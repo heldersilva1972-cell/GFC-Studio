@@ -2,10 +2,15 @@
 // Minimal implementation required for PWA installability
 // Does NOT cache aggressively to avoid breaking Blazor Server SignalR
 
-const CACHE_NAME = 'gfc-pwa-v8';
+const CACHE_NAME = 'gfc-pwa-v11';
 const STATIC_ASSETS = [
     '/',
-    '/manifest.json'
+    '/manifest.json',
+    '/offline.html',
+    '/css/mobile-modern.css',
+    '/css/dashboard-modern.css',
+    '/app.css',
+    '/bootstrap/bootstrap.min.css'
 ];
 
 // Optional assets that won't block installation if they fail
@@ -27,20 +32,7 @@ self.addEventListener('install', (event) => {
                 console.log('[Service Worker] Critical assets cached successfully');
             } catch (error) {
                 console.error('[Service Worker] Failed to cache critical assets:', error);
-                throw error; // This will prevent installation
-            }
-
-            // Try to cache optional assets, but don't fail if they're missing
-            for (const asset of OPTIONAL_ASSETS) {
-                try {
-                    const response = await fetch(asset);
-                    if (response.ok) {
-                        await cache.put(asset, response);
-                        console.log('[Service Worker] Cached optional asset:', asset);
-                    }
-                } catch (error) {
-                    console.warn('[Service Worker] Could not cache optional asset:', asset, error);
-                }
+                // Don't throw - we still want to try to install even if some assets fail
             }
         })
     );
@@ -72,28 +64,38 @@ self.addEventListener('fetch', (event) => {
     // ONLY intercept internal static assets we want to cache
     // Everything else (navigation, SignalR, API, External scripts) passes through to the browser
     const isStaticAsset = STATIC_ASSETS.some(asset => url.pathname === asset || url.pathname.startsWith('/images/'));
+    const isNavigation = event.request.mode === 'navigate';
 
-    if (!isStaticAsset || url.origin !== self.location.origin) {
-        return; // Pass through to browser/network
+    // 1. Handle Navigation Requests (HTML) - Network First, Offline Fallback
+    if (isNavigation) {
+        event.respondWith(
+            fetch(event.request)
+                .catch(() => {
+                    return caches.match('/offline.html');
+                })
+        );
+        return;
     }
 
-    // For static assets, try network but fall back to cache
-    event.respondWith(
-        fetch(event.request)
-            .then((response) => {
-                if (response && response.status === 200) {
-                    const responseClone = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => {
-                        cache.put(event.request, responseClone);
+    // 2. Handle Static Assets - Cache First, Network Fallback
+    if (isStaticAsset && url.origin === self.location.origin) {
+        event.respondWith(
+            caches.match(event.request)
+                .then((cachedResponse) => {
+                    if (cachedResponse) {
+                        return cachedResponse;
+                    }
+                    return fetch(event.request).then((response) => {
+                        // Don't cache here dynamically to avoid bloating cache with unwanted assets
+                        return response;
                     });
-                }
-                return response;
-            })
-            .catch(async () => {
-                const cachedResponse = await caches.match(event.request);
-                return cachedResponse || new Response('Asset not found', { status: 404 });
-            })
-    );
+                })
+        );
+        return;
+    }
+
+    // 3. Default: Network Only for everything else (SignalR, API, etc.)
+    return;
 });
 
 // Push notification handler
