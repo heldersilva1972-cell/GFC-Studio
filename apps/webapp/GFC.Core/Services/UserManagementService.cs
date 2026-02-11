@@ -552,9 +552,7 @@ public class UserManagementService : IUserManagementService
         if (string.IsNullOrEmpty(normalized) || normalized == "dashboard" || normalized == "home")
             return true;
             
-        // [FIX] Implicit access to sub-features if parent is allowed
-        if (normalized == "reimbursements/new" && routes.Contains("reimbursements"))
-            return true;
+
             
         // 5. High-speed memory lookup
         return routes.Contains(normalized);

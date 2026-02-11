@@ -128,6 +128,7 @@ public class GfcDbContext : DbContext
     public DbSet<LiquorNotificationRule> LiquorNotificationRules => Set<LiquorNotificationRule>();
     public DbSet<UserPageUsage> UserPageUsage => Set<UserPageUsage>();
     public DbSet<LotteryWeeklyStat> LotteryWeeklyStats => Set<LotteryWeeklyStat>();
+    public DbSet<LotteryShift> LotteryShifts => Set<LotteryShift>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -788,6 +789,45 @@ public class GfcDbContext : DbContext
         {
             entity.ToTable("UserPagePermissions");
             entity.HasKey(e => e.PermissionId);
+        });
+
+        modelBuilder.Entity<LotteryShift>(entity =>
+        {
+            entity.ToTable("LotteryShifts");
+            entity.HasKey(e => e.ShiftId);
+            entity.Property(e => e.TotalSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalPayouts).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalCancels).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Commission).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.CashBonus).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.ClaimsBonus).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.NetDue).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.StartingCash).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.EndingCash).HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<LotteryWeeklyStat>(entity =>
+        {
+            entity.ToTable("LotteryWeeklyStats");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.OnlineNetSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineCommission).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineCashes).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineCashBonus).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineClaimsBonus).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineAdjustments).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineServiceFee).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineBondingFee).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.OnlineDue).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantGrossSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantReturnSales).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantCommission).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantCashes).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantCashBonus).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantClaimsBonus).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantAdjustments).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.InstantDue).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.TotalDue).HasColumnType("decimal(18,2)");
         });
     }
 
