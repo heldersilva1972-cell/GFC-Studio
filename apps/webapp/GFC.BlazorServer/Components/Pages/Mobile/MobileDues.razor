@@ -185,7 +185,7 @@
                     <label class="form-label fw-bold">Amount</label>
                     <div class="input-group">
                         <span class="input-group-text">$</span>
-                        <input type="number" class="form-control fw-bold" @bind="_paymentForm.Amount" />
+                        <input type="number" step="0.01" inputmode="decimal" class="form-control fw-bold" @bind="_paymentForm.Amount" placeholder="0.00" />
                     </div>
                 </div>
                 <div class="col-5">
@@ -447,7 +447,7 @@
 
     private class PaymentFormModel 
     {
-        public decimal Amount { get; set; }
+        public decimal? Amount { get; set; }
         public DateTime PaidDate { get; set; } = DateTime.Today;
         public string PaymentType { get; set; } = "CASH";
         public string? CheckNumber { get; set; }
@@ -535,7 +535,7 @@
         _paymentTarget = item;
         _paymentForm = new PaymentFormModel
         {
-            // Amount = 0m, // No default amount
+            Amount = null,
             Year = _currentYear,
             PaymentType = "CASH",
             PaidDate = DateTime.Today
@@ -558,6 +558,12 @@
     private async Task PromptSubmitPayment()
     {
         if (_paymentTarget == null) return;
+
+        if (_paymentForm.Amount == null || _paymentForm.Amount <= 0)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please enter a valid amount greater than 0.");
+            return;
+        }
 
         // MIRRORING Dues.razor logic for checks
         var existingPayment = await Task.Run(() => DuesRepo.GetDuesForMemberYear(_paymentTarget.MemberId, _paymentForm.Year));
@@ -606,7 +612,7 @@
             await DuesServiceEF.RecordPaymentAsync(
                 _paymentTarget.MemberId,
                 _paymentForm.Year,
-                _paymentForm.Amount,
+                _paymentForm.Amount.Value,
                 _paymentForm.PaidDate,
                 finalNotes,
                 _paymentForm.PaymentType,
@@ -626,7 +632,7 @@
 
             // 3. Setup success modal (Mirroring Dues.razor line 1689)
             _lastPaymentMember = _paymentTarget.FullName;
-            _lastPaymentAmount = _paymentForm.Amount;
+            _lastPaymentAmount = _paymentForm.Amount ?? 0;
             _lastPaymentMemberId = _paymentTarget.MemberId;
             
             var card = await Task.Run(() => KeyCardRepo.GetActiveMemberCard(_paymentTarget.MemberId));

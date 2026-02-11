@@ -1,4 +1,5 @@
 @page "/reimbursements/new"
+@page "/reimbursements/view/{Id:int}"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using GFC.Core.Interfaces
@@ -15,7 +16,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<NewRequest> Logger
 
-<h1 class="page-title">New Reimbursement Request</h1>
+<h1 class="page-title">@(Id.HasValue ? $"Reimbursement Request #{Id.Value}" : "New Reimbursement Request")</h1>
 
 @if (_loading)
 {
@@ -51,6 +52,14 @@ else
             <label class="form-label">Notes</label>
             <textarea class="form-control" rows="3" @bind="_request.Notes" disabled="@(_request.Status != "Draft")"></textarea>
         </div>
+
+        @if (!string.IsNullOrWhiteSpace(_request.RejectReason))
+        {
+            <div class="alert alert-danger mt-3">
+                <strong>Rejection Reason:</strong>
+                <p class="mb-0">@_request.RejectReason</p>
+            </div>
+        }
     </div>
 
     <div class="data-card mt-3">
@@ -87,20 +96,25 @@ else
                                 <td>
                                     @if (item.ReceiptFiles.Count > 0)
                                     {
-                                        <div class="d-flex flex-wrap gap-1">
+                                        <div class="d-flex flex-wrap gap-2">
                                             @foreach (var receipt in item.ReceiptFiles)
                                             {
-                                                <a href="/@receipt.RelativePath" target="_blank" class="badge bg-info text-decoration-none" title="@receipt.FileName">
-                                                    @if (IsImageFile(receipt.FileName))
-                                                    {
-                                                        <i class="bi bi-image"></i>
-                                                    }
-                                                    else
-                                                    {
-                                                        <i class="bi bi-file-earmark"></i>
-                                                    }
-                                                    @receipt.FileName
-                                                </a>
+                                                @if (IsImageFile(receipt.FileName))
+                                                {
+                                                    <div class="receipt-thumbnail-desktop shadow-sm clickable" @onclick="() => ViewReceipt(receipt.RelativePath)">
+                                                        <img src="@receipt.RelativePath" alt="Receipt" />
+                                                        <div class="thumbnail-overlay">
+                                                            <i class="bi bi-zoom-in"></i>
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <a href="/@receipt.RelativePath" target="_blank" class="badge bg-info text-decoration-none d-flex align-items-center gap-1 p-2" title="@receipt.FileName">
+                                                        <i class="bi bi-file-earmark-pdf"></i>
+                                                        PDF
+                                                    </a>
+                                                }
                                             }
                                         </div>
                                     }
@@ -110,12 +124,17 @@ else
                                     }
                                 </td>
                                 <td>
-                                    @if (_request.Status == "Draft")
-                                    {
-                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteItem(item.Id)" disabled="@_saving">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    }
+                                    <div class="d-flex gap-2">
+                                        @if (_request.Status == "Draft")
+                                        {
+                                            <button class="btn btn-sm btn-outline-info" @onclick="() => ShowReceiptModal(item.Id)" title="Attach Receipt" disabled="@_saving">
+                                                <i class="bi bi-paperclip"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteItem(item.Id)" title="Delete Item" disabled="@_saving">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                    </div>
                                 </td>
                             </tr>
                         }
@@ -165,7 +184,46 @@ else
     </div>
 }
 
-@* Add Item Modal *@
+@* Attach Receipt Modal *@
+@if (_showReceiptModal && _selectedItemId.HasValue)
+{
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Attach Receipt</h4>
+            <button class="btn btn-link text-muted p-0" type="button" @onclick="CloseReceiptModal">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Upload File</label>
+            <InputFile class="form-control" OnChange="HandleFileSelected" accept="image/*,.pdf" />
+        </div>
+        @if (_cameraSupported)
+        {
+            <div class="mb-3">
+                <label class="form-label">Or Capture Photo</label>
+                <button class="btn btn-outline-primary" @onclick="CapturePhoto" disabled="@_capturing">
+                    <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_capturing)"></span>
+                    <i class="bi bi-camera"></i> Take Photo
+                </button>
+            </div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_receiptPreview))
+        {
+            <div class="mb-3">
+                <img src="@_receiptPreview" alt="Receipt preview" class="img-thumbnail" style="max-width: 300px;" />
+            </div>
+        }
+        <div class="modal-card__actions">
+            <button class="btn btn-primary" @onclick="UploadReceipt" disabled="@(_saving || string.IsNullOrWhiteSpace(_receiptPreview))">
+                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
+                Upload Receipt
+            </button>
+            <button class="btn btn-outline" type="button" @onclick="CloseReceiptModal" disabled="@_saving">Cancel</button>
+        </div>
+    </div>
+}
 @if (_showAddItemModal)
 {
     <div class="modal-backdrop"></div>
@@ -218,48 +276,118 @@ else
     </div>
 }
 
-@* Attach Receipt Modal *@
-@if (_showReceiptModal && _selectedItemId.HasValue)
+@if (!string.IsNullOrEmpty(_viewingReceiptUrl))
 {
-    <div class="modal-backdrop"></div>
-    <div class="modal-card">
-        <div class="modal-card__header d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0">Attach Receipt</h4>
-            <button class="btn btn-link text-muted p-0" type="button" @onclick="CloseReceiptModal">
-                <i class="bi bi-x-lg"></i>
-            </button>
+    <div class="receipt-viewer-overlay" @onclick="() => _viewingReceiptUrl = null">
+        <button class="receipt-close-btn" @onclick="() => _viewingReceiptUrl = null">
+            <i class="bi bi-x-lg"></i>
+        </button>
+        <div class="viewer-content animate-zoom" @onclick:stopPropagation="true">
+            <img src="@_viewingReceiptUrl" @onclick="() => _viewingReceiptUrl = null" style="cursor: pointer;" />
         </div>
-        <div class="mb-3">
-            <label class="form-label">Upload File</label>
-            <InputFile class="form-control" OnChange="HandleFileSelected" accept="image/*,.pdf" />
-        </div>
-        @if (_cameraSupported)
-        {
-            <div class="mb-3">
-                <label class="form-label">Or Capture Photo</label>
-                <button class="btn btn-outline-primary" @onclick="CapturePhoto" disabled="@_capturing">
-                    <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_capturing)"></span>
-                    <i class="bi bi-camera"></i> Take Photo
-                </button>
-            </div>
-        }
-        @if (!string.IsNullOrWhiteSpace(_receiptPreview))
-        {
-            <div class="mb-3">
-                <img src="@_receiptPreview" alt="Receipt preview" class="img-thumbnail" style="max-width: 300px;" />
-            </div>
-        }
-        <div class="modal-card__actions">
-            <button class="btn btn-primary" @onclick="UploadReceipt" disabled="@(_saving || string.IsNullOrWhiteSpace(_receiptPreview))">
-                <span class="spinner-border spinner-border-sm me-1" role="status" hidden="@(!_saving)"></span>
-                Upload Receipt
-            </button>
-            <button class="btn btn-outline" type="button" @onclick="CloseReceiptModal" disabled="@_saving">Cancel</button>
-        </div>
+        <p class="receipt-close-hint"><i class="bi bi-hand-index me-2"></i> Tap anywhere to close</p>
     </div>
 }
 
+<style>
+    .receipt-thumbnail-desktop {
+        width: 60px;
+        height: 60px;
+        border-radius: 8px;
+        overflow: hidden;
+        position: relative;
+        cursor: pointer;
+        border: 2px solid #e2e8f0;
+        transition: all 0.2s;
+    }
+    .receipt-thumbnail-desktop:hover {
+        transform: scale(1.05);
+        border-color: #0ea5e9;
+    }
+    .receipt-thumbnail-desktop img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .thumbnail-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+    .receipt-thumbnail-desktop:hover .thumbnail-overlay {
+        opacity: 1;
+    }
+
+    /* Receipt Viewer Overlay - Shared from Mobile but adjusted for Desktop */
+    .receipt-viewer-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 3000;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px;
+        backdrop-filter: blur(8px);
+    }
+    .viewer-content {
+        max-width: 90vw;
+        max-height: 85vh;
+        display: flex;
+        justify-content: center;
+    }
+    .viewer-content img { 
+        max-width: 100%; 
+        max-height: 85vh; 
+        border-radius: 12px; 
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        object-fit: contain;
+    }
+
+    .receipt-close-btn {
+        position: fixed;
+        top: 30px;
+        right: 30px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: white;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: #0f172a;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 3001;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .receipt-close-btn:hover {
+        transform: rotate(90deg) scale(1.1);
+        background: #f1f5f9;
+    }
+
+    .receipt-close-hint {
+        position: fixed;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: rgba(255,255,255,0.8);
+        font-size: 0.95rem;
+        font-weight: 600;
+        background: rgba(0,0,0,0.4);
+        padding: 12px 24px;
+        border-radius: 50px;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .animate-zoom { animation: zoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+    @@keyframes zoomIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+</style>
+
 @code {
+    [Parameter] public int? Id { get; set; }
     private ReimbursementRequest _request = new();
     private List<ReimbursementCategory> _categories = new();
     private bool _loading = true;
@@ -275,6 +403,7 @@ else
     private ReimbursementItemDto _newItem = new();
     private IBrowserFile? _selectedFile;
     private string? _receiptPreview;
+    private string? _viewingReceiptUrl;
     private bool _cameraSupported = false;
     private bool _capturing = false;
 
@@ -285,6 +414,7 @@ else
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
             var currentUser = AuthStateProvider.GetCurrentUser();
+            var isAdmin = authState.User.IsInRole(AppRoles.Admin) || currentUser?.IsAdmin == true;
 
             if (currentUser != null)
             {
@@ -296,28 +426,54 @@ else
                 if (int.TryParse(idClaim, out var id)) _requestorMemberId = id;
             }
 
-            if (_requestorMemberId == null)
+            if (_requestorMemberId == null && !isAdmin)
             {
-                _errorMessage = "You must be associated with a member to create reimbursement requests.";
+                _errorMessage = "You must be associated with a member to access reimbursement requests.";
                 _loading = false;
                 return;
             }
 
             _categories = await ReimbursementService.GetCategoriesAsync();
-            var member = MemberRepository.GetMemberById(_requestorMemberId.Value);
-            _requestorName = member != null ? $"{member.FirstName} {member.LastName}" : "Unknown";
-            
-            // Initialize local object instead of database draft to avoid cluttering DB with empty reports
-            _request = new ReimbursementRequest
+
+            if (Id.HasValue)
             {
-                RequestorMemberId = _requestorMemberId.Value,
-                RequestDate = DateTime.Today,
-                Status = "Initial",
-                TotalAmount = 0,
-                CreatedUtc = DateTime.UtcNow,
-                UpdatedUtc = DateTime.UtcNow,
-                Items = new List<ReimbursementItem>()
-            };
+                var request = await ReimbursementService.GetRequestAsync(Id.Value);
+                if (request == null)
+                {
+                    _errorMessage = "Reimbursement request not found.";
+                    _loading = false;
+                    return;
+                }
+
+                // Permission check: Owner or Admin
+                if (!isAdmin && request.RequestorMemberId != _requestorMemberId)
+                {
+                    _errorMessage = "You do not have permission to view this request.";
+                    _loading = false;
+                    return;
+                }
+
+                _request = request;
+                var member = MemberRepository.GetMemberById(_request.RequestorMemberId);
+                _requestorName = member != null ? $"{member.FirstName} {member.LastName}" : $"Member #{_request.RequestorMemberId}";
+            }
+            else
+            {
+                var member = MemberRepository.GetMemberById(_requestorMemberId!.Value);
+                _requestorName = member != null ? $"{member.FirstName} {member.LastName}" : "Unknown";
+                
+                // Initialize local object instead of database draft to avoid cluttering DB with empty reports
+                _request = new ReimbursementRequest
+                {
+                    RequestorMemberId = _requestorMemberId.Value,
+                    RequestDate = DateTime.Today,
+                    Status = "Initial",
+                    TotalAmount = 0,
+                    CreatedUtc = DateTime.UtcNow,
+                    UpdatedUtc = DateTime.UtcNow,
+                    Items = new List<ReimbursementItem>()
+                };
+            }
 
             _newItem.ExpenseDate = DateTime.Today;
         }
@@ -665,6 +821,11 @@ else
     {
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
         return extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".gif" || extension == ".bmp";
+    }
+
+    private void ViewReceipt(string path)
+    {
+        _viewingReceiptUrl = path.StartsWith("/") ? path : "/" + path;
     }
 
     private class CameraCaptureResult

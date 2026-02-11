@@ -14,9 +14,20 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div></div>
-    <a href="/reimbursements/new" class="btn btn-primary">
-        <i class="bi bi-plus-circle"></i> New Request
-    </a>
+    <div class="d-flex align-items-center gap-3">
+        <div class="d-flex align-items-center gap-2">
+            <label class="form-label mb-0 small fw-bold text-muted">Year:</label>
+            <select class="form-select form-select-sm" style="width: 100px;" @onchange="OnYearChanged">
+                @for (int y = DateTime.Now.Year; y >= DateTime.Now.Year - 3; y--)
+                {
+                    <option value="@y" selected="@(_selectedYear == y)">@y</option>
+                }
+            </select>
+        </div>
+        <a href="/reimbursements/new" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> New Request
+        </a>
+    </div>
 </div>
 
 @if (_loading)
@@ -78,9 +89,15 @@ else
 @code {
     private bool _loading = true;
     private string? _errorMessage;
+    private int _selectedYear = DateTime.Now.Year;
     private List<ReimbursementRequest> _requests = new();
 
     protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
     {
         try
         {
@@ -95,14 +112,17 @@ else
                 return;
             }
 
+            var startDate = new DateTime(_selectedYear, 1, 1);
+            var endDate = new DateTime(_selectedYear, 12, 31, 23, 59, 59);
+
             // Admins can see all requests, regular users see only their own
             if (isAdmin)
             {
-                _requests = await ReimbursementService.GetRequestsAsync();
+                _requests = await ReimbursementService.GetRequestsAsync(startDate: startDate, endDate: endDate);
             }
             else
             {
-                _requests = await ReimbursementService.GetRequestsAsync(memberId: user.MemberId.Value);
+                _requests = await ReimbursementService.GetRequestsAsync(memberId: user.MemberId.Value, startDate: startDate, endDate: endDate);
             }
         }
         catch (Exception ex)
@@ -113,6 +133,16 @@ else
         finally
         {
             _loading = false;
+        }
+    }
+
+    private async Task OnYearChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int year))
+        {
+            _selectedYear = year;
+            _loading = true;
+            await LoadData();
         }
     }
 

@@ -101,8 +101,8 @@ public class ReimbursementService
 
         dbContext.ReimbursementItems.Add(item);
         
-        // Update total amount
-        request.TotalAmount = request.Items.Sum(i => i.Amount) + item.Amount;
+        // Update total amount - sum all items including the newly added one
+        request.TotalAmount = request.Items.Sum(i => i.Amount);
         request.UpdatedUtc = DateTime.UtcNow;
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -256,6 +256,7 @@ public class ReimbursementService
         await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var item = await dbContext.ReimbursementItems
             .Include(i => i.Request)
+                .ThenInclude(r => r.Items)
             .FirstOrDefaultAsync(i => i.Id == itemId, cancellationToken);
             
         if (item == null || item.Request.RequestorMemberId != memberId) throw new InvalidOperationException("Item not found.");
@@ -266,6 +267,8 @@ public class ReimbursementService
         item.Notes = dto.Notes;
         item.ExpenseDate = dto.ExpenseDate;
         
+        // Recalculate request total
+        item.Request.TotalAmount = item.Request.Items.Sum(i => i.Amount);
         item.Request.UpdatedUtc = DateTime.UtcNow;
         item.Request.EditedFlag = true;
         
@@ -730,6 +733,50 @@ END
 
         _logger.LogInformation("Deleted item {ItemId} from request {RequestId}", itemId, item.RequestId);
     }
+
+    public async Task DeleteRequestAsync(int requestId, int memberId, CancellationToken cancellationToken = default)
+    {
+        await EnsureReimbursementSchemaAsync(cancellationToken);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var request = await dbContext.ReimbursementRequests
+            .Include(r => r.Items)
+                .ThenInclude(i => i.ReceiptFiles)
+            .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
+
+        if (request == null) throw new InvalidOperationException("Request not found.");
+        
+        // Safety check: Only owner or admin (though we only have memberId here)
+        if (request.RequestorMemberId != memberId) throw new InvalidOperationException("Access denied.");
+        
+        if (request.Status == "Paid") throw new InvalidOperationException("Cannot delete a paid request.");
+
+        // Delete all receipt files for all items
+        foreach (var item in request.Items)
+        {
+            foreach (var receipt in item.ReceiptFiles)
+            {
+                try
+                {
+                    if (_receiptStorage.FileExists(receipt.RelativePath))
+                    {
+                        var filePath = _receiptStorage.GetFilePath(receipt.RelativePath);
+                        File.Delete(filePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete receipt file {RelativePath} during request deletion", receipt.RelativePath);
+                }
+            }
+        }
+
+        dbContext.ReimbursementRequests.Remove(request);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Deleted reimbursement request {RequestId} by member {MemberId}", requestId, memberId);
+    }
+
     public async Task<List<ReimbursementCategory>> ForceSeedCategoriesAsync(CancellationToken cancellationToken = default)
     {
         await EnsureReimbursementSchemaAsync(cancellationToken);

@@ -30,9 +30,17 @@
                     <h1 class="h5 mb-0 fw-black">Submit Reimbursement</h1>
                     <p class="small text-muted mb-0">Submit and track expenses</p>
                 </div>
-                <button class="btn btn-app-primary btn-sm rounded-pill px-3 py-2 fw-black shadow-sm" @onclick="StartNewRequest">
-                    <i class="bi bi-plus-lg me-1"></i> NEW
-                </button>
+                <div class="d-flex align-items-center gap-2">
+                    <select class="form-select form-select-sm rounded-pill border-0 shadow-sm px-3" style="width: auto; background-color: #f1f5f9; font-weight: 800;" @onchange="OnYearChanged">
+                        @for (int y = DateTime.Now.Year; y >= DateTime.Now.Year - 3; y--)
+                        {
+                            <option value="@y" selected="@(_selectedYear == y)">@y</option>
+                        }
+                    </select>
+                    <button class="btn btn-app-primary btn-sm rounded-pill px-3 py-2 fw-black shadow-sm" @onclick="StartNewRequest">
+                        <i class="bi bi-plus-lg me-1"></i> NEW
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -111,7 +119,15 @@
                                          </div>
                                      </div>
                                      <div class="d-flex flex-column align-items-end gap-2">
-                                         <span class="status-badge @request.Status.ToLower()">@request.Status</span>
+                                         <div class="d-flex align-items-center gap-2">
+                                             <span class="status-badge @request.Status.ToLower()">@request.Status</span>
+                                             @if (request.Status != "Paid")
+                                             {
+                                                 <button class="btn btn-link text-danger p-0 ms-1" style="font-size: 1.1rem;" @onclick:stopPropagation="true" @onclick="() => DeleteRequest(request.Id)">
+                                                     <i class="bi bi-trash3"></i>
+                                                 </button>
+                                             }
+                                         </div>
                                          @if (request.Status == "Submitted")
                                          {
                                              <button class="btn btn-edit-mini" @onclick:stopPropagation="true" @onclick="() => EditRequest(request)">
@@ -259,13 +275,30 @@
                                 @if (_isLiveCameraMode)
                                 {
                                     <div class="camera-stream-box mb-4 rounded-4 overflow-hidden border-2 border-primary border">
-                                        <div id="live-camera-feed" style="aspect-ratio: 1; background: #000;"></div>
-                                        <div class="camera-actions p-3 bg-dark d-flex gap-2">
-                                            <button type="button" class="btn rounded-pill flex-grow-1 fw-black" style="background: linear-gradient(135deg, #67e8f9 0%, #22d3ee 100%) !important; color: #0c4a6e !important; border: none !important; font-size: 1rem !important;" @onclick="CaptureLivePhoto">
-                                                <i class="bi bi-camera-fill me-2"></i> CAPTURE
-                                            </button>
-                                            <button type="button" class="btn rounded-pill px-4 fw-bold" style="background: #ffffff !important; color: #000000 !important; border: none !important;" @onclick="StopLiveCamera">CANCEL</button>
-                                        </div>
+                                        @if (!string.IsNullOrEmpty(_capturedPreview))
+                                        {
+                                            <div class="preview-container position-relative">
+                                                <img src="@_capturedPreview" class="w-100" style="aspect-ratio: 1; object-fit: cover;" />
+                                                <div class="preview-actions p-3 bg-dark d-flex gap-2">
+                                                    <button type="button" class="btn btn-light rounded-pill flex-grow-1 fw-black" @onclick="RetakePhoto">
+                                                        <i class="bi bi-arrow-counterclockwise me-2"></i> RETAKE
+                                                    </button>
+                                                    <button type="button" class="btn btn-app-primary rounded-pill flex-grow-1 fw-black" @onclick="AcceptPhoto">
+                                                        <i class="bi bi-check2-circle me-2"></i> ACCEPT
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div id="live-camera-feed" style="aspect-ratio: 1; background: #000;"></div>
+                                            <div class="camera-actions p-3 bg-dark d-flex gap-2">
+                                                <button type="button" class="btn rounded-pill flex-grow-1 fw-black" style="background: linear-gradient(135deg, #67e8f9 0%, #22d3ee 100%) !important; color: #0c4a6e !important; border: none !important; font-size: 1rem !important;" @onclick="CaptureLivePhoto">
+                                                    <i class="bi bi-camera-fill me-2"></i> CAPTURE
+                                                </button>
+                                                <button type="button" class="btn rounded-pill px-4 fw-bold" style="background: #ffffff !important; color: #000000 !important; border: none !important;" @onclick="StopLiveCamera">CANCEL</button>
+                                            </div>
+                                        }
                                     </div>
                                 }
                                 else
@@ -748,7 +781,8 @@
 @code {
     private bool _loading = true;
     private bool _saving = false;
-    private string _activeTab = "All";
+    private string _activeTab = "Submitted";
+    private int _selectedYear = DateTime.Now.Year;
     private int _step = 1;
     private bool _showWizard = false;
     
@@ -761,6 +795,7 @@
     private ReimbursementRequest _request = new();
     private ReimbursementItemDto _newItem = new();
     private string? _receiptPreview;
+    private string? _capturedPreview;
     private string? _viewingReceiptUrl;
     private int? _memberId;
 
@@ -810,7 +845,9 @@
 
             if (_memberId.HasValue)
             {
-                _allRequests = await ReimbursementService.GetRequestsAsync(memberId: _memberId.Value);
+                var startDate = new DateTime(_selectedYear, 1, 1);
+                var endDate = new DateTime(_selectedYear, 12, 31, 23, 59, 59);
+                _allRequests = await ReimbursementService.GetRequestsAsync(memberId: _memberId.Value, startDate: startDate, endDate: endDate);
                 
                 Logger.LogInformation("Loaded {CategoryCount} categories and {RequestCount} requests for mobile.", _categories.Count, _allRequests.Count);
                 
@@ -834,6 +871,15 @@
     {
         _activeTab = tab;
         ApplyFilter();
+    }
+
+    private async Task OnYearChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int year))
+        {
+            _selectedYear = year;
+            await LoadData();
+        }
     }
 
     private void ApplyFilter()
@@ -951,13 +997,43 @@
         try {
             var dataUrl = await JSRuntime.InvokeAsync<string>("LiquorScanner.takeSnapshot");
             if (!string.IsNullOrEmpty(dataUrl)) {
-                _receiptPreview = dataUrl;
-                _isLiveCameraMode = false;
+                _capturedPreview = dataUrl;
+                await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
             }
         } catch (Exception ex) {
             await JSRuntime.InvokeVoidAsync("alert", "Capture Failed: " + ex.Message);
         } finally {
             _isUploadingImage = false;
+        }
+    }
+
+    private void AcceptPhoto()
+    {
+        _receiptPreview = _capturedPreview;
+        _capturedPreview = null;
+        _isLiveCameraMode = false;
+    }
+
+    private async Task RetakePhoto()
+    {
+        _capturedPreview = null;
+        await StartLiveCamera();
+    }
+
+    private async Task DeleteRequest(int id)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this reimbursement request? This cannot be undone."))
+            return;
+
+        try
+        {
+            if (_memberId == null) return;
+            await ReimbursementService.DeleteRequestAsync(id, _memberId.Value);
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Delete failed: " + ex.Message);
         }
     }
 
