@@ -54,30 +54,42 @@ window.GFC_Notifications = {
      * Binds a native click listener to a button to guarantee User Activation (Gesture).
      * Back to DIRECT binding for performance and reliability.
      */
-    bindNativePrompt: function (buttonId, vapidKey, dotNetRef) {
+    /**
+     * UNIFIED BINDING: Binds a click listener to the subscription button.
+     * This ensures "User Gesture" validity for both Browser Permission Prompts and Native Bridge calls.
+     * (Kept name 'bindNativePrompt' for cache compatibility with C# calls)
+     */
+    bindNativePrompt: function (buttonId, vapidKey, dotNetRef, retryLimit = 5) {
         const btn = document.getElementById(buttonId);
-        if (!btn) return;
 
-        // Store globals for callback access
+        if (!btn) {
+            if (retryLimit > 0) {
+                // console.log(`[GFC] Button ${buttonId} not found, retrying... (${retryLimit} left)`);
+                setTimeout(() => this.bindNativePrompt(buttonId, vapidKey, dotNetRef, retryLimit - 1), 250);
+            } else {
+                console.warn(`[GFC] Failed to find button ${buttonId} after retries.`);
+            }
+            return;
+        }
+
+        // Store globals for callback access if needed
         window._gfcVapidKey = vapidKey;
         window._gfcDotNetRef = dotNetRef;
 
-        // 1. Kill any existing listener to prevent stacking
+        // 1. Kill any existing listener to prevent stacking/duplication
         btn.onclick = null;
 
+        // 2. Attach the ONE TRUE HANDLER
         btn.onclick = async function (e) {
-            // 1. Hard Execution Gate
+            // Execution Gate to prevent double-clicks
             const now = Date.now();
-            if (window.__GFC_GATE__ && (now - window.__GFC_GATE__ < 5000)) return;
+            if (window.__GFC_GATE__ && (now - window.__GFC_GATE__ < 2000)) return;
             window.__GFC_GATE__ = now;
 
             e.preventDefault();
             e.stopImmediatePropagation();
 
-            window.__gfcNotifDebug?.(
-                `CLICK: nativeFlag=${!!window.__GFC_NATIVE_APP__} androidBridge=${!!window.Android}`
-            );
-
+            // UI Feedback
             const originalContent = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Wait...';
@@ -86,6 +98,8 @@ window.GFC_Notifications = {
 
             try {
                 const isNativeAPK = !!window.__GFC_NATIVE_APP__;
+
+                // --- PATH A: Native Android Bridge ---
                 if (isNativeAPK && window.Android) {
                     let status = window.Android.getNotificationStatus();
                     if (typeof status === 'string') status = JSON.parse(status);
@@ -99,7 +113,6 @@ window.GFC_Notifications = {
 
                         console.log('[GFC] Handoff to Bridge...');
                         bridgeHandoff = true;
-                        window.__gfcNotifDebug?.('CALL: Android.requestNotificationPermission()');
                         window.Android.requestNotificationPermission();
 
                         // Safety timeout to re-enable button if prompt is active
@@ -111,13 +124,26 @@ window.GFC_Notifications = {
                     }
                 }
 
-                // Normal subscription path
+                // --- PATH B: Standard Browser / PWA ---
+                // We are initiating this FROM A CLICK, so requestPermission() is allowed.
+                if (!isNativeAPK && window.Notification && Notification.permission === 'default') {
+                    console.log('[GFC] Browser Permission Request...');
+                    const result = await Notification.requestPermission();
+                    if (result !== 'granted') {
+                        throw new Error('Notification permission was ' + result);
+                    }
+                }
+
+                // Proceed to Subscribe (Service Worker)
                 const subJson = await window.GFC_Notifications.subscribe(vapidKey);
                 if (dotNetRef) await dotNetRef.invokeMethodAsync('OnSubscriptionSuccess', subJson);
+
             } catch (err) {
                 console.error('[GFC] Flow Error:', err);
+                if (dotNetRef) await dotNetRef.invokeMethodAsync('OnSubscriptionError', err.message || "Unknown error");
             } finally {
-                // [FIXED] Explicitly track handoff - do NOT read Notification.permission here
+                // If we handed off to the bridge, the Native Callback will handle the UI reset.
+                // Otherwise (Browser flow), we reset it here.
                 const isWaitingOnBridge = bridgeHandoff === true;
                 if (!isWaitingOnBridge) {
                     btn.disabled = false;
@@ -132,34 +158,41 @@ window.GFC_Notifications = {
      * Subscribes the user to push notifications via the Service Worker
      */
     subscribe: async function (vapidPublicKey) {
-        // [FIX] Use multiple guards to ensure browser prompt NEVER fires in APK mode
+        if (!vapidPublicKey) throw new Error('VAPID security key is missing. Please check System Settings.');
+
         const isNativeAPK = !!window.__GFC_NATIVE_APP__;
         const hasAndroidBridge = !!window.Android;
 
-        if (!isNativeAPK && !hasAndroidBridge && window.Notification && Notification.permission !== 'granted') {
-            console.log('[GFC] Browser-only permission sync...');
-            window.__gfcNotifDebug?.('CALL: Notification.requestPermission() (BROWSER)');
-            await Notification.requestPermission();
+        // 1. FORCED PERMISSION CHECK (Browser-only)
+        // If we are in a browser and don't have permission, we MUST call this directly on the click thread
+        if (!isNativeAPK && !hasAndroidBridge && window.Notification && Notification.permission === 'default') {
+            console.log('[GFC] Requesting browser notification permission...');
+            const result = await Notification.requestPermission();
+            if (result !== 'granted') {
+                throw new Error('Notification permission was ' + result);
+            }
         }
 
         if (!('serviceWorker' in navigator)) {
-            throw new Error('Service Worker not supported');
+            throw new Error('This browser does not support background notifications (Service Workers).');
         }
 
         try {
-            // Wait for SW with a timeout - prevents "doing nothing" if SW fails
-            console.log('[Push] Waiting for service worker ready...');
-            const registration = await Promise.race([
-                navigator.serviceWorker.ready,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for Service Worker. Please refresh.')), 6000))
-            ]);
+            // 2. GET REGISTRATION
+            // Use getRegistration() as a fallback if ready hangs
+            let registration = await navigator.serviceWorker.ready;
 
-            // Force fresh subscription
-            const existing = await registration.pushManager.getSubscription();
-            if (existing) {
-                console.log('[Push] Resetting stale subscription...');
-                await existing.unsubscribe();
+            if (!registration) {
+                registration = await navigator.serviceWorker.getRegistration();
             }
+
+            if (!registration) {
+                throw new Error('Service Worker not registered. Try refreshing the page.');
+            }
+
+            // 3. CLEANUP & SUBSCRIBE
+            const existing = await registration.pushManager.getSubscription();
+            if (existing) await existing.unsubscribe();
 
             const convertedVapidKey = this.urlBase64ToUint8Array(vapidPublicKey);
 
@@ -168,7 +201,6 @@ window.GFC_Notifications = {
                 applicationServerKey: convertedVapidKey
             });
 
-            console.log('[Push] Fresh subscription created.');
             return JSON.stringify(subscription);
         } catch (error) {
             console.error('[Push] Subscribe failed:', error);

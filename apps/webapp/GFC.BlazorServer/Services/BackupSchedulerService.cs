@@ -91,31 +91,25 @@ public class BackupSchedulerService : BackgroundService
     {
         try
         {
-            var now = DateTime.UtcNow;
+            var now = DateTime.Now;
             var scheduledTime = now.Date.Add(config.DailyBackupTime);
             
-            // If scheduled time has passed today, check if we've already backed up today
-            if (now >= scheduledTime)
+            // 1. Check if we've already backed up recently (within the last 12 hours).
+            if (config.LastBackupTime.HasValue)
             {
-                // Check if we've already backed up today
-                if (config.LastBackupTime.HasValue)
+                // Compare using local time
+                var lastBackup = config.LastBackupTime.Value;
+                if (now - lastBackup < TimeSpan.FromHours(12))
                 {
-                    var lastBackupDate = config.LastBackupTime.Value.Date;
-                    var today = now.Date;
-                    
-                    // If we already backed up today, don't run again
-                    if (lastBackupDate == today)
-                    {
-                        return false;
-                    }
+                    return false;
                 }
-                
-                // Check if we're within the backup window (scheduled time + 1 hour)
-                var backupWindowEnd = scheduledTime.AddHours(1);
-                if (now <= backupWindowEnd)
-                {
-                    return true;
-                }
+            }
+            
+            // 2. Check if we are within the backup window (scheduled time up to 1 hour after)
+            var backupWindowEnd = scheduledTime.AddHours(1);
+            if (now >= scheduledTime && now <= backupWindowEnd)
+            {
+                return true;
             }
             
             return false;

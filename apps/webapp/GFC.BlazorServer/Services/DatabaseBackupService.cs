@@ -52,8 +52,8 @@ public class DatabaseBackupService : IDatabaseBackupService
                 }
             }
 
-            // Generate backup file name with timestamp
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+            // Generate backup file name with timestamp (Local)
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var backupFileName = $"{config.DatabaseName}_{timestamp}.bak";
             var backupFilePath = Path.Combine(config.BackupFolder, backupFileName);
 
@@ -97,8 +97,8 @@ public class DatabaseBackupService : IDatabaseBackupService
 
             _logger.LogInformation("Database backup and verification completed successfully: {BackupPath}", backupFilePath);
 
-            // Update last backup time in config
-            config.LastBackupTime = DateTime.UtcNow;
+            // Update last backup time in config (Local)
+            config.LastBackupTime = DateTime.Now;
             _configService.Save(config);
 
             // Cleanup old backups
@@ -127,7 +127,7 @@ public class DatabaseBackupService : IDatabaseBackupService
                     return false;
                 }
 
-                var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
+                var cutoffDate = DateTime.Now.AddDays(-retentionDays);
                 var directory = new DirectoryInfo(config.BackupFolder);
                 var oldBackups = directory.GetFiles("*.bak")
                     .Where(f => f.LastWriteTimeUtc < cutoffDate)
