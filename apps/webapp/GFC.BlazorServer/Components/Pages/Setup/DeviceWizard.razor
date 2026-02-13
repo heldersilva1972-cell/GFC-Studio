@@ -124,26 +124,74 @@
                 else if (CurrentStep == 3)
                 {
                     <div class="step-view text-center animate-fade-in">
-                        <div class="premium-orb bg-pink-soft text-pink mb-4 mx-auto">
-                            <i class="bi @(UserConnectionService.IsMobile ? "bi-phone-vibrate" : "bi-laptop")"></i>
-                        </div>
-                        <h4 class="fw-bold mb-3">@(UserConnectionService.IsMobile ? "Application Hub" : "Interface Config")</h4>
-                        <p class="text-muted small mb-4 px-3">
-                            @(UserConnectionService.IsMobile 
-                                ? "Finalizing the GFC application installation for standalone operation..."
-                                : "Optimizing your workstation for high-speed system interaction..."
-                            )
-                        </p>
+                        @if (_isIOS && !_isStandalone)
+                        {
+                            <div class="premium-orb bg-pink-soft text-pink mb-4 mx-auto">
+                                <i class="bi bi-apple"></i>
+                            </div>
+                            <h4 class="fw-bold mb-3">Install App</h4>
+                            <p class="text-muted small mb-4 px-3">
+                                iPhone requires one manual step to enable push notifications.
+                            </p>
 
-                        <div class="info-bubble text-start mb-4">
-                            <i class="bi bi-info-circle-fill me-2"></i>
-                            Please allow any requested browser permissions to ensure seamless operation.
-                        </div>
+                            <div class="ios-instructions text-start p-4 bg-white rounded-4 border border-light shadow-sm mb-4">
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="step-badge me-3">1</div>
+                                    <p class="mb-0 small fw-bold">Tap the <i class="bi bi-share text-primary"></i> <strong>Share</strong> icon in the Safari toolbar.</p>
+                                </div>
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="step-badge me-3">2</div>
+                                    <p class="mb-0 small fw-bold">Scroll down and tap <strong>"Add to Home Screen"</strong>.</p>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <div class="step-badge me-3">3</div>
+                                    <p class="mb-0 small fw-bold">Open the <strong>GFC App</strong> from your home screen to finish.</p>
+                                </div>
+                            </div>
 
-                        <div class="loading-state py-2">
-                            <div class="spinner-premium"></div>
-                            <p class="text-muted small mt-3">Configuring Environment...</p>
-                        </div>
+                            <button class="btn btn-primary-premium w-100 py-3 fw-bold shadow-premium" @onclick="NextStep">
+                                Already Installed? Continue <i class="bi bi-chevron-right ms-2"></i>
+                            </button>
+
+                            <style>
+                                .step-badge {
+                                    width: 28px;
+                                    height: 28px;
+                                    background: #4f46e5;
+                                    color: white;
+                                    border-radius: 50%;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    font-weight: 800;
+                                    font-size: 0.8rem;
+                                    flex-shrink: 0;
+                                }
+                            </style>
+                        }
+                        else
+                        {
+                            <div class="premium-orb bg-pink-soft text-pink mb-4 mx-auto">
+                                <i class="bi @(UserConnectionService.IsMobile ? "bi-phone-vibrate" : "bi-laptop")"></i>
+                            </div>
+                            <h4 class="fw-bold mb-3">@(UserConnectionService.IsMobile ? "Application Hub" : "Interface Config")</h4>
+                            <p class="text-muted small mb-4 px-3">
+                                @(UserConnectionService.IsMobile 
+                                    ? "Finalizing the GFC application installation for standalone operation..."
+                                    : "Optimizing your workstation for high-speed system interaction..."
+                                )
+                            </p>
+
+                            <div class="info-bubble text-start mb-4">
+                                <i class="bi bi-info-circle-fill me-2"></i>
+                                Please allow any requested browser permissions to ensure seamless operation.
+                            </div>
+
+                            <div class="loading-state py-2">
+                                <div class="spinner-premium"></div>
+                                <p class="text-muted small mt-3">Configuring Environment...</p>
+                            </div>
+                        }
                     </div>
                 }
                 else if (CurrentStep == 4)
@@ -542,7 +590,10 @@
     private string? _passcode;
     private string? _passcodeError;
     private bool _canInstall = false;
+    private bool _isIOS = false;
+    private bool _isStandalone = false;
     private string? _platformInstructions;
+    private bool _hasManuallyAdvanced = false;
     private bool _isSubscribed = false;
     private string? _notifError;
     private string? _vapidKey;
@@ -855,10 +906,14 @@
             CurrentStep = 3;
             StateHasChanged();
             
+            // On iOS (Browser), we show instructions instead of auto-installing
+            if (_isIOS && !_isStandalone)
+            {
+                return; 
+            }
+
             currentCheckTask = Task.Run(async () =>
             {
-                // Health Check already runs on load, but we can re-run or just proceed
-                
                 // 2. Trigger Install
                 try 
                 {
@@ -1036,10 +1091,10 @@
         try 
         {
             _canInstall = await JS.InvokeAsync<bool>("GFC.canInstall");
+            _isStandalone = await JS.InvokeAsync<bool>("GFC.isPwaInstalled");
+            _isIOS = await JS.InvokeAsync<bool>("GFC.isIOS");
             
-            // Check if iOS for manual instructions
-            var isIOS = await JS.InvokeAsync<bool>("GFC.isIOS");
-            if (isIOS)
+            if (_isIOS)
             {
                 _platformInstructions = "Tap the <strong>Share</strong> button at the bottom, then select <strong>Add to Home Screen</strong>.";
             }
