@@ -49,13 +49,19 @@ public class BackupSchedulerService : BackgroundService
                         {
                             _logger.LogInformation("Scheduled backup completed successfully.");
                             
-                            // Record the successful backup to update health status
+                            // Record the successful backup to update health status and scheduler state
                             try
                             {
+                                // 1. Update disk config (to prevent scheduler re-runs)
+                                config.LastBackupTime = DateTime.Now;
+                                _configService.Save(config);
+
+                                // 2. Update database health status
                                 using var scope = _serviceProvider.CreateScope();
                                 var dataProtectionService = scope.ServiceProvider.GetRequiredService<GFC.BlazorServer.Services.DataProtection.IDataProtectionService>();
                                 await dataProtectionService.LogBackupCompletesAsync(0); // System user
-                                _logger.LogInformation("Backup timestamp recorded in SystemSettings.");
+                                
+                                _logger.LogInformation("Backup timestamps recorded successfully (Disk & DB).");
                             }
                             catch (Exception ex)
                             {
@@ -95,11 +101,19 @@ public class BackupSchedulerService : BackgroundService
             var scheduledTime = now.Date.Add(config.DailyBackupTime);
             
             // 1. Check if we've already backed up recently (within the last 12 hours).
-            if (config.LastBackupTime.HasValue)
+            // We check BOTH the config file and the actual physical file system as a safety net.
+            var lastBackup = config.LastBackupTime;
+            var lastPhysicalBackup = _configService.GetLastBackupTimestamp(config);
+            
+            // Use whichever is newer
+            if (lastPhysicalBackup.HasValue && (!lastBackup.HasValue || lastPhysicalBackup > lastBackup))
             {
-                // Compare using local time
-                var lastBackup = config.LastBackupTime.Value;
-                if (now - lastBackup < TimeSpan.FromHours(12))
+                lastBackup = lastPhysicalBackup;
+            }
+
+            if (lastBackup.HasValue)
+            {
+                if (now - lastBackup.Value < TimeSpan.FromHours(12))
                 {
                     return false;
                 }
