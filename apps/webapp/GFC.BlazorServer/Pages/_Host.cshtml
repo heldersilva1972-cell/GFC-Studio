@@ -10,27 +10,8 @@
     <meta charset="utf-8" />
     <script>
         // [MODEL B: APK-FIRST] Explicit Environment Declaration
-        // STOP guessing. If loaded with ?native=true or ?apk=true, force and persist.
+        // Pure PWA Mode (Option A)
         (function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const isExplicitNative = urlParams.has('native') || urlParams.has('apk') || 
-                                     !!window.Android || document.cookie.includes('gfc_native=true');
-            
-            if (isExplicitNative) {
-                window.__GFC_NATIVE_APP__ = true;
-                // Persistent session marker
-                document.cookie = "gfc_native=true; path=/; SameSite=Lax";
-                console.log('[GFC] Model B: Native Environment Active');
-
-                // [APK-FIRST] Force block browser-level permission prompt
-                if (window.Notification && window.Notification.requestPermission) {
-                    window.Notification.requestPermission = function() {
-                        console.warn('[GFC] Native Mode: Browser Notification prompt BLOCKED to prevent duplicates.');
-                        return Promise.resolve('denied'); 
-                    };
-                }
-            }
-
             const savedTheme = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-theme', savedTheme);
         })();
@@ -74,9 +55,84 @@
                     return false;
                 }
             },
+            setVapidKey: function(key) {
+                window._gfcVapidKey = key;
+            },
             requestNotificationPermission: async function() {
                 if (!('Notification' in window)) return 'not_supported';
                 try { return await Notification.requestPermission(); } catch (e) { return 'denied'; }
+            },
+            runPwaHealthCheck: async function() {
+                 const urls = [
+                     '/manifest.json?v=8',
+                     '/service-worker.js?v=11',
+                     '/images/pwa-icon-192.png'
+                 ];
+                 
+                 const results = [];
+                 
+                 // 1. Network Fetch Checks
+                 for (const u of urls) {
+                     try {
+                         const res = await fetch(u, { cache: 'no-store' });
+                         results.push({ 
+                             name: u.split('?')[0], 
+                             status: res.status 
+                         });
+                     } catch (e) {
+                         results.push({ name: u, status: 0 }); // 0 = Network Error
+                     }
+                 }
+                 
+                 // 2. Service Worker Controller
+                 results.push({ 
+                     name: 'SW Controller', 
+                     status: navigator.serviceWorker.controller ? 200 : 404 
+                 });
+
+                 // 3. Notification State
+                 let permStatus = 500;
+                 if (!('Notification' in window)) {
+                     permStatus = 501; // Not Supported
+                 } else if (Notification.permission === 'granted') {
+                     permStatus = 200;
+                 } else if (Notification.permission === 'denied') {
+                     permStatus = 403; // Blocked
+                 } else {
+                     permStatus = 100; // Default/Promptable (Using 100 as Info)
+                 }
+                 results.push({ name: 'Notif Permission', status: permStatus });
+
+                 // 4. Secure Context Check
+                 results.push({
+                    name: 'Secure Context',
+                    status: window.isSecureContext ? 200 : 401
+                 });
+
+                 // 5. VAPID Key Check
+                 const vapid = window._gfcVapidKey || '';
+                 results.push({
+                    name: 'VAPID Present',
+                    status: (vapid && vapid.length > 30) ? 200 : 404
+                 });
+
+                 // 6. Live Status Info
+                 results.push({
+                     name: 'Browser Permission',
+                     status: ('Notification' in window) ? 
+                             (Notification.permission === 'granted' ? 200 : (Notification.permission === 'denied' ? 403 : 100)) 
+                             : 404
+                 });
+
+                 // 7. Last Error (if exists)
+                 if (window._gfcLastNotifError) {
+                     results.push({
+                        name: 'Last Error (H)',
+                        status: 500
+                     });
+                 }
+                 
+                 return results;
             }
         };
     </script>

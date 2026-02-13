@@ -140,7 +140,7 @@
                             Please allow any requested browser permissions to ensure seamless operation.
                         </div>
 
-                        <div class="loading-state py-4">
+                        <div class="loading-state py-2">
                             <div class="spinner-premium"></div>
                             <p class="text-muted small mt-3">Configuring Environment...</p>
                         </div>
@@ -225,11 +225,112 @@
                     </div>
                 }
             </div>
+
         </div>
     </div>
+
+    <!-- FIXED BOTTOM HEALTH STRIP -->
+    <div class="pwa-health-strip animate-slide-up">
+        <div class="strip-header d-flex justify-content-between align-items-center px-4 py-2" @onclick="ToggleDebugDetails" style="background: @(_pwaHealthStatus == "OK" ? "#1a1a1a" : "#2d1b1b")">
+            <div class="d-flex align-items-center gap-3">
+                <span class="badge @(_pwaHealthStatus == "OK" ? "bg-success" : (_pwaHealthStatus == "SCANNING" ? "bg-secondary" : "bg-danger shadow-pulse")) rounded-pill px-3 fw-bold">
+                    @_pwaHealthStatus
+                </span>
+                <span class="small text-white fw-bold ls-1 opacity-75">SYSTEM DIAGNOSTICS</span>
+            </div>
+            <div class="text-white">
+                <i class="bi bi-chevron-@( _showDebugDetails ? "down" : "up")"></i>
+            </div>
+        </div>
+
+        @if (_showDebugDetails)
+        {
+            <div class="strip-content p-3 bg-black border-top border-secondary">
+                <div class="container-fluid px-0">
+                    @if (!string.IsNullOrEmpty(_healthCheckError))
+                    {
+                        <div class="alert alert-danger border-0 bg-danger bg-opacity-10 d-flex flex-column gap-2 mb-3 p-3 text-white">
+                             <div class="d-flex align-items-center">
+                                <i class="bi bi-exclamation-octagon-fill fs-4 me-2"></i>
+                                <strong class="small text-uppercase">Diagnostic Error</strong>
+                             </div>
+                             <div class="small font-monospace p-2 bg-dark rounded border border-danger border-opacity-25">@_healthCheckError</div>
+                             <button class="btn btn-danger btn-sm w-100 mt-1 fw-bold" @onclick="RunHealthCheck">
+                                 <i class="bi bi-arrow-clockwise me-1"></i>Re-scan Systems
+                             </button>
+                        </div>
+                    }
+                    
+                    @if (_pwaChecks != null)
+                    {
+                        <div class="row g-2">
+                            @foreach (var check in _pwaChecks.Where(c => !c.Name.Contains("Native")))
+                            {
+                                <div class="col-6 col-md-3">
+                                    <div class="p-2 rounded bg-dark d-flex justify-content-between align-items-center border border-secondary shadow-sm" style="background-color: #212529 !important; border: 1px solid #444 !important;">
+                                        <span class="small text-truncate w-75 pe-2" style="color: #ffffff !important; font-weight: 700; opacity: 1 !important;">@check.Name</span>
+                                        <span class="fw-black fs-6 @(check.Status == 200 ? "text-success" : (check.Status == 100 ? "text-info" : "text-danger"))">
+                                            @check.Status
+                                        </span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        <div class="mt-3 text-center">
+                             <button class="btn btn-sm btn-outline-secondary text-white px-3 border-secondary" @onclick="RunHealthCheck">
+                                 <i class="bi bi-lightning-charge-fill me-1"></i>Force Refresh
+                             </button>
+                        </div>
+                    }
+                    else if (string.IsNullOrEmpty(_healthCheckError))
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <div class="spinner-border text-primary fs-4 me-2"></div>
+                            <div class="mt-2 small text-uppercase fw-bold ls-1">Running system-wide audit...</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
 </div>
 
 <style>
+    /* ... existing styles ... */
+    
+    /* HEALTH STRIP STYLES */
+    .pwa-health-strip {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        background: #1a1a1a;
+        z-index: 10001; /* Above reconnect modal */
+        box-shadow: 0 -8px 30px rgba(0,0,0,0.8);
+        border-top: 1px solid #444;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    .shadow-pulse {
+        animation: badgePulse 2s infinite;
+    }
+
+    @@keyframes badgePulse {
+        0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.4); }
+        70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+    }
+    
+    .strip-header {
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        height: 64px;
+    }
+    .strip-header:hover { background: #333 !important; }
+    
+    .opacity-90 { opacity: 0.9; }
+    .fw-black { font-weight: 900; }
+    .ls-1 { letter-spacing: 0.05rem; }
+
     :root {
         --wiz-primary: #4f46e5;
         --wiz-indigo: #6366f1;
@@ -447,6 +548,20 @@
     private string? _vapidKey;
     private DotNetObjectReference<DeviceWizard>? _objRef;
 
+    // Health Check Props
+    private class PwaCheck { 
+        public string Name { get; set; } = ""; 
+        public int Status { get; set; } 
+    }
+    private List<PwaCheck>? _pwaChecks;
+    private string _pwaHealthStatus = "SCANNING";
+    private string? _healthCheckError;
+
+    private Task? currentCheckTask;
+
+    private bool _showDebugDetails = false;
+    private void ToggleDebugDetails() => _showDebugDetails = !_showDebugDetails;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -455,6 +570,15 @@
             
             // Initialize DotNet reference
             _objRef = DotNetObjectReference.Create(this);
+
+            // Set VAPID for diagnostics
+            if (!string.IsNullOrEmpty(_vapidKey))
+            {
+                await JS.InvokeVoidAsync("GFC.setVapidKey", _vapidKey);
+            }
+
+            // Run Health Check immediately on load
+            _ = RunHealthCheck();
         }
 
         // CRITICAL: Bind native click listener for Step 4
@@ -505,6 +629,14 @@
         catch (Exception ex)
         {
             _notifError = "Subscription failed: " + ex.Message;
+            
+            // Add detailed info to health check log
+            _healthCheckError = $"Push Registration Error: {ex.Message}";
+            _showDebugDetails = true; // Auto-show the panel
+            
+            if (ex.Message.Contains("403")) _healthCheckError += " (Check VAPID/Permission)";
+            if (ex.Message.Contains("429")) _healthCheckError += " (Rate Limited)";
+            
             StateHasChanged();
         }
     }
@@ -664,6 +796,57 @@
 
 
 
+    
+    // [FIX] Separate Health Check from step transitions
+    private async Task RunHealthCheck()
+    {
+        await Task.Delay(500); // UI Render
+        _healthCheckError = null;
+        _pwaHealthStatus = "SCANNING";
+        StateHasChanged();
+
+        try
+        {
+            var checkResults = await JS.InvokeAsync<List<PwaCheck>>("GFC.runPwaHealthCheck");
+            await InvokeAsync(() => {
+                _pwaChecks = checkResults;
+                if (checkResults.Any(c => c.Status != 200 && c.Status != 100))
+                {
+                    _pwaHealthStatus = "ISSUES FOUND";
+                    _showDebugDetails = true; // Auto-open if issues found
+
+                    // Fetch the detailed error message if it was captured
+                    var lastErrCheck = checkResults.FirstOrDefault(c => c.Name == "Last Error (H)");
+                    if (lastErrCheck != null)
+                    {
+                        Task.Run(async () => {
+                            var detailedError = await JS.InvokeAsync<string>("eval", "window._gfcLastNotifError");
+                            await InvokeAsync(() => {
+                                _healthCheckError = "Push Error: " + detailedError;
+                                StateHasChanged();
+                            });
+                        });
+                    }
+                }
+                else
+                {
+                    _pwaHealthStatus = "OK";
+                }
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("PWA Health Check returned error: {Message}", ex.Message);
+            await InvokeAsync(() => {
+                    _pwaHealthStatus = "CHECK FAILED";
+                    _healthCheckError = ex.Message;
+                    _showDebugDetails = true;
+                    StateHasChanged();
+            });
+        }
+    }
+
     private async Task NextStep() 
     {
         // [FIX] Auto-trigger PWA install when entering Step 3
@@ -672,21 +855,20 @@
             CurrentStep = 3;
             StateHasChanged();
             
-            // Attempt silent PWA installation
-            _ = Task.Run(async () =>
+            currentCheckTask = Task.Run(async () =>
             {
-                await Task.Delay(500); // Small delay to let UI render
+                // Health Check already runs on load, but we can re-run or just proceed
+                
+                // 2. Trigger Install
                 try 
-                { 
+                {
+                    await Task.Delay(500);
                     await JS.InvokeAsync<bool>("GFC.triggerInstall"); 
                 } 
-                catch 
-                { 
-                    // Installation failed or not supported - that's okay
-                }
+                catch { }
                 
-                // Auto-advance after 3 seconds regardless of install success
-                await Task.Delay(3000);
+                // Auto-advance
+                await Task.Delay(4000); 
                 await InvokeAsync(() =>
                 {
                     if (CurrentStep == 3) // Only advance if still on step 3

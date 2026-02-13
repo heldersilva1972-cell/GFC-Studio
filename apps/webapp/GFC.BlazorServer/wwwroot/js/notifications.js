@@ -9,13 +9,6 @@ window.GFC_Notifications = {
      * @returns {Promise<string>} 'granted', 'denied', or 'default'
      */
     requestPermission: async function () {
-        const isNativeAPK = !!window.__GFC_NATIVE_APP__;
-
-        if (isNativeAPK) {
-            console.log('[Notifications] APK mode: browser permission prompt disabled.');
-            return 'default';
-        }
-
         console.log('[Notifications] Requesting permission...');
 
         if (!('Notification' in window)) {
@@ -74,9 +67,7 @@ window.GFC_Notifications = {
             e.preventDefault();
             e.stopImmediatePropagation();
 
-            window.__gfcNotifDebug?.(
-                `CLICK: nativeFlag=${!!window.__GFC_NATIVE_APP__} androidBridge=${!!window.Android}`
-            );
+            window.__gfcNotifDebug?.(`CLICK: Processing subscription...`);
 
             const originalContent = btn.innerHTML;
             btn.disabled = true;
@@ -85,37 +76,16 @@ window.GFC_Notifications = {
             let bridgeHandoff = false;
 
             try {
-                const isNativeAPK = !!window.__GFC_NATIVE_APP__;
-                if (isNativeAPK && window.Android) {
-                    let status = window.Android.getNotificationStatus();
-                    if (typeof status === 'string') status = JSON.parse(status);
-
-                    if (status && status.sdkInt >= 33 && !status.runtimeGranted) {
-                        if (status.canPrompt === false) {
-                            window.Android.openNotificationSettings();
-                            window.__GFC_GATE__ = 0;
-                            return;
-                        }
-
-                        console.log('[GFC] Handoff to Bridge...');
-                        bridgeHandoff = true;
-                        window.__gfcNotifDebug?.('CALL: Android.requestNotificationPermission()');
-                        window.Android.requestNotificationPermission();
-
-                        // Safety timeout to re-enable button if prompt is active
-                        setTimeout(() => {
-                            if (btn) { btn.disabled = false; btn.innerHTML = originalContent; }
-                            window.__GFC_GATE__ = 0;
-                        }, 5000);
-                        return;
-                    }
-                }
-
                 // Normal subscription path
                 const subJson = await window.GFC_Notifications.subscribe(vapidKey);
                 if (dotNetRef) await dotNetRef.invokeMethodAsync('OnSubscriptionSuccess', subJson);
             } catch (err) {
                 console.error('[GFC] Flow Error:', err);
+                let msg = err.message || 'Unknown error';
+                if (msg.includes('Push Server Error')) {
+                    msg = "Push Server Error: The browser cannot connect to the push notification service. Check your internet/VPN or try disabling AdBlock.";
+                }
+                if (dotNetRef) await dotNetRef.invokeMethodAsync('OnSubscriptionError', msg);
             } finally {
                 // [FIXED] Explicitly track handoff - do NOT read Notification.permission here
                 const isWaitingOnBridge = bridgeHandoff === true;
@@ -132,14 +102,29 @@ window.GFC_Notifications = {
      * Subscribes the user to push notifications via the Service Worker
      */
     subscribe: async function (vapidPublicKey) {
-        // [FIX] Use multiple guards to ensure browser prompt NEVER fires in APK mode
-        const isNativeAPK = !!window.__GFC_NATIVE_APP__;
-        const hasAndroidBridge = !!window.Android;
+        // [OPTION A] Pure PWA Mode: Always allow browser prompts
+        const currentPerm = Notification.permission;
+        if (window.Notification && currentPerm !== 'granted') {
+            console.log('[GFC] Current permission:', currentPerm);
 
-        if (!isNativeAPK && !hasAndroidBridge && window.Notification && Notification.permission !== 'granted') {
-            console.log('[GFC] Browser-only permission sync...');
+            // If denied, don't even try to prompt, it will fail silently
+            if (currentPerm === 'denied') {
+                throw new Error('Notification permission is DENIED at the browser level. Please reset permissions in your address bar.');
+            }
+
+            console.log('[GFC] Requesting browser notification permission...');
             window.__gfcNotifDebug?.('CALL: Notification.requestPermission() (BROWSER)');
-            await Notification.requestPermission();
+
+            // Race the permission prompt with a timeout to avoid hanging the button on "Wait..."
+            const result = await Promise.race([
+                Notification.requestPermission(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Notification prompt timed out or was ignored.')), 10000))
+            ]);
+
+            console.log('[GFC] Permission result:', result);
+            if (result !== 'granted') {
+                throw new Error(`Permission ${result}. Subscriptions require "granted" status.`);
+            }
         }
 
         if (!('serviceWorker' in navigator)) {
@@ -172,6 +157,7 @@ window.GFC_Notifications = {
             return JSON.stringify(subscription);
         } catch (error) {
             console.error('[Push] Subscribe failed:', error);
+            window._gfcLastNotifError = error.message || error.toString();
             throw error;
         }
     },
@@ -218,6 +204,7 @@ window.GFC_Notifications = {
      */
     urlBase64ToUint8Array: function (base64String) {
         if (!base64String) return new Uint8Array(0);
+        base64String = base64String.trim();
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
         const base64 = (base64String + padding)
             .replace(/\-/g, '+')
@@ -230,30 +217,6 @@ window.GFC_Notifications = {
             outputArray[i] = rawData.charCodeAt(i);
         }
         return outputArray;
-    },
-
-    /**
-     * NATIVE APK CALLBACK: Called by Android after requestNotificationPermission
-     * This allows a "One-Click" flow where permission grant automatically triggers registration.
-     */
-    onNativePermissionResult: async function (granted) {
-        window.__gfcNotifDebug?.(`CALLBACK: onNativePermissionResult(granted=${granted})`);
-        console.log('[GFC-Notif] Native Callback. Granted:', granted);
-        const dotNetRef = window._gfcDotNetRef;
-        const vapidKey = window._gfcVapidKey;
-
-        if (granted && vapidKey) {
-            try {
-                // [FIX] APK mode: NEVER call Notification.requestPermission()
-                const subJson = await window.GFC_Notifications.subscribe(vapidKey);
-                if (dotNetRef) await dotNetRef.invokeMethodAsync('OnSubscriptionSuccess', subJson);
-            } catch (err) {
-                console.error('[GFC-Notif] Post-callback error:', err);
-                if (dotNetRef) await dotNetRef.invokeMethodAsync('OnSubscriptionError', err.message);
-            }
-        } else {
-            if (dotNetRef) await dotNetRef.invokeMethodAsync('OnPermissionResult', granted ? 'granted' : 'denied');
-        }
     }
 };
 
