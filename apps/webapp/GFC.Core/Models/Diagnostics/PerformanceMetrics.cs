@@ -51,5 +51,20 @@ namespace GFC.Core.Models.Diagnostics
         /// Gets or sets the number of Gen 2 garbage collections.
         /// </summary>
         public int Gen2Collections { get; set; }
+
+        /// <summary>
+        /// Gets or sets the total disk space in gigabytes.
+        /// </summary>
+        public double TotalDiskSpaceGb { get; set; }
+
+        /// <summary>
+        /// Gets or sets the free disk space in gigabytes.
+        /// </summary>
+        public double FreeDiskSpaceGb { get; set; }
+
+        /// <summary>
+        /// Gets or sets the disk usage as a percentage.
+        /// </summary>
+        public double DiskUsagePercentage { get; set; }
     }
 }

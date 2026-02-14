@@ -106,9 +106,8 @@ public class DatabaseHealthService
         {
             using var command = connection.CreateCommand();
             command.CommandText = @"
-                SELECT SUM(size) * 8 * 1024 
-                FROM sys.master_files 
-                WHERE database_id = DB_ID()";
+                SELECT SUM(CAST(size AS BIGINT)) * 8192 
+                FROM sys.database_files";
             
             var result = await ((System.Data.Common.DbCommand)command).ExecuteScalarAsync(cancellationToken);
             if (result != null && result != DBNull.Value)

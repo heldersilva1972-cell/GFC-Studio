@@ -2,6 +2,7 @@
 using GFC.Core.Models.Diagnostics;
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -89,6 +90,24 @@ namespace GFC.BlazorServer.Services.Diagnostics
             metrics.Gen0Collections = GC.CollectionCount(0);
             metrics.Gen1Collections = GC.CollectionCount(1);
             metrics.Gen2Collections = GC.CollectionCount(2);
+
+            // Disk Space
+            try
+            {
+                var appDrive = Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory);
+                if (!string.IsNullOrEmpty(appDrive))
+                {
+                    var driveInfo = new System.IO.DriveInfo(appDrive);
+                    metrics.TotalDiskSpaceGb = Math.Round(driveInfo.TotalSize / (1024.0 * 1024.0 * 1024.0), 2);
+                    metrics.FreeDiskSpaceGb = Math.Round(driveInfo.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
+                    var usedSpace = driveInfo.TotalSize - driveInfo.AvailableFreeSpace;
+                    metrics.DiskUsagePercentage = Math.Round((double)usedSpace / driveInfo.TotalSize * 100, 2);
+                }
+            }
+            catch (Exception)
+            {
+                // Silently fail for disk info if permissions or drive access issues occur
+            }
 
             return metrics;
         }
