@@ -169,27 +169,59 @@
                                 }
                             </style>
                         }
+                        else if (_isStandalone)
+                        {
+                            <div class="premium-orb bg-success-soft text-success mb-4 mx-auto shadow-success">
+                                <i class="bi bi-check-circle-fill"></i>
+                            </div>
+                            <h4 class="fw-bold mb-3">App Installed</h4>
+                            <p class="text-muted small mb-4 px-3">
+                                GFC is currently running in standalone mode. 
+                            </p>
+                            <button class="btn btn-primary-premium w-100 py-3 fw-bold shadow-premium" @onclick="NextStep">
+                                Continue Setup <i class="bi bi-chevron-right ms-2"></i>
+                            </button>
+                        }
                         else
                         {
                             <div class="premium-orb bg-pink-soft text-pink mb-4 mx-auto">
                                 <i class="bi @(UserConnectionService.IsMobile ? "bi-phone-vibrate" : "bi-laptop")"></i>
                             </div>
-                            <h4 class="fw-bold mb-3">@(UserConnectionService.IsMobile ? "Application Hub" : "Interface Config")</h4>
+                            <h4 class="fw-bold mb-3">@(UserConnectionService.IsMobile ? "Install Application" : "Desktop Installation")</h4>
                             <p class="text-muted small mb-4 px-3">
                                 @(UserConnectionService.IsMobile 
-                                    ? "Finalizing the GFC application installation for standalone operation..."
-                                    : "Optimizing your workstation for high-speed system interaction..."
+                                    ? "Install GFC for a better experience and real-time alerts."
+                                    : "Install the standalone GFC App to your Taskbar and Desktop for high-speed access."
                                 )
                             </p>
 
-                            <div class="info-bubble text-start mb-4">
-                                <i class="bi bi-info-circle-fill me-2"></i>
-                                Please allow any requested browser permissions to ensure seamless operation.
-                            </div>
+                            <div class="d-grid gap-3">
+                                @* Force visible on Desktop to bypass race conditions *@
+                                @if (_canInstall || !UserConnectionService.IsMobile)
+                                {
+                                    <button class="btn btn-primary-premium py-3 fw-bold shadow-premium" @onclick="TriggerPwaInstall">
+                                        <i class="bi bi-download me-2"></i>Install App Now
+                                    </button>
+                                }
 
-                            <div class="loading-state py-2">
-                                <div class="spinner-premium"></div>
-                                <p class="text-muted small mt-3">Configuring Environment...</p>
+                                @if (_installBlocked)
+                                {
+                                    <div class="alert alert-warning-premium text-start mb-3 animate-shake">
+                                        <div class="fw-bold mb-1"><i class="bi bi-exclamation-triangle-fill me-2"></i>Browser Link Blocked</div>
+                                        <div class="small">The 1-click install was blocked by your browser. Please click the <strong>Install</strong> icon in your <strong>Address Bar</strong> (top right) to continue.</div>
+                                    </div>
+                                }
+                                else if (!_canInstall && UserConnectionService.IsMobile)
+                                {
+                                    <div class="info-bubble text-start mb-4">
+                                        <i class="bi bi-info-circle-fill me-2"></i>
+                                        Installation prompt not detected. You can usually install by clicking the 'Install' icon in your browser's address bar.
+                                    </div>
+                                }
+
+                                <button class="btn btn-glass-secondary py-2" @onclick="NextStep">
+                                    <i class="bi bi-skip-forward me-2"></i>@(UserConnectionService.IsMobile ? "Skip Step" : "Stay in Browser")
+                                </button>
                             </div>
                         }
                     </div>
@@ -593,8 +625,8 @@
     private bool _isIOS = false;
     private bool _isStandalone = false;
     private string? _platformInstructions;
-    private bool _hasManuallyAdvanced = false;
     private bool _isSubscribed = false;
+    private bool _installBlocked = false;
     private string? _notifError;
     private string? _vapidKey;
     private DotNetObjectReference<DeviceWizard>? _objRef;
@@ -621,6 +653,7 @@
             
             // Initialize DotNet reference
             _objRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("GFC.registerWizardInstance", _objRef);
 
             // Set VAPID for diagnostics
             if (!string.IsNullOrEmpty(_vapidKey))
@@ -693,6 +726,14 @@
     }
 
     [JSInvokable]
+    public void OnInstallPromptAvailable()
+    {
+        Logger.LogInformation("PWA Install prompt became available via JS callback.");
+        _canInstall = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
     public void OnPermissionResult(string permission)
     {
         if (permission == "denied")
@@ -738,6 +779,8 @@
 
     public void Dispose()
     {
+        // Unregister to prevent memory leaks/dead references
+        try { JS.InvokeVoidAsync("GFC.registerWizardInstance", null); } catch { }
         _objRef?.Dispose();
     }
 
@@ -900,39 +943,11 @@
 
     private async Task NextStep() 
     {
-        // [FIX] Auto-trigger PWA install when entering Step 3
+        // [FIX] Move to installation step, but no longer auto-advance (let user click the button)
         if (CurrentStep == 2)
         {
             CurrentStep = 3;
             StateHasChanged();
-            
-            // On iOS (Browser), we show instructions instead of auto-installing
-            if (_isIOS && !_isStandalone)
-            {
-                return; 
-            }
-
-            currentCheckTask = Task.Run(async () =>
-            {
-                // 2. Trigger Install
-                try 
-                {
-                    await Task.Delay(500);
-                    await JS.InvokeAsync<bool>("GFC.triggerInstall"); 
-                } 
-                catch { }
-                
-                // Auto-advance
-                await Task.Delay(4000); 
-                await InvokeAsync(() =>
-                {
-                    if (CurrentStep == 3) // Only advance if still on step 3
-                    {
-                        CurrentStep++;
-                        StateHasChanged();
-                    }
-                });
-            });
             return;
         }
         
@@ -1106,8 +1121,26 @@
 
     private async Task TriggerPwaInstall()
     {
-        try { await JS.InvokeAsync<bool>("GFC.triggerInstall"); } catch { }
-        NextStep();
+        _installBlocked = false;
+        try 
+        { 
+            var success = await JS.InvokeAsync<bool>("GFC.triggerInstall"); 
+            if (success) 
+            {
+                NextStep();
+            }
+            else
+            {
+                // Browser might have returned false if the prompt was unavailable/blocked
+                _installBlocked = true;
+                StateHasChanged();
+            }
+        } 
+        catch 
+        { 
+            _installBlocked = true;
+            StateHasChanged();
+        }
     }
 
 
