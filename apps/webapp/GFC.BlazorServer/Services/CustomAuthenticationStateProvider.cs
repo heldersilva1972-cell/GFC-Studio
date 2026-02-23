@@ -26,6 +26,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
     // Allows an admin action in one circuit (e.g. deleting a user) to instantly terminate
     // the sessions in ALL other active circuits for that user.
     private static event Action<int>? OnUserInvalidated;
+    private static event Action<string>? OnTokenInvalidated;
 
     // [NEW] High-Speed Global Session Cache
     // This persists across all user circuits and prevents redundant DB calls during reloads.
@@ -34,6 +35,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
     // Scoped state for the current circuit
     private ClaimsPrincipal _currentPrincipal = CreateUnauthenticatedPrincipal();
     private AppUser? _currentUser;
+    private string? _currentToken;
  
     /// <summary>
     /// Clears the global session cache for a specific user to force a database re-validation.
@@ -55,6 +57,19 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         OnUserInvalidated?.Invoke(userId);
     }
  
+    /// <summary>
+    /// Clears the global session cache for a specific token.
+    /// Used when a single device is revoked.
+    /// </summary>
+    public static void InvalidateToken(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return;
+        _tokenCache.TryRemove(token, out _);
+        
+        // [NEW] Notify all active circuits to self-destruct if they are using this token
+        OnTokenInvalidated?.Invoke(token);
+    }
+
     /// <summary>
     /// Clears the entire global session cache, forcing all users to re-validate against the database.
     /// </summary>
@@ -78,6 +93,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
 
         // [NEW] Subscribe to global invalidation events
         OnUserInvalidated += HandleUserInvalidated;
+        OnTokenInvalidated += HandleTokenInvalidated;
     }
 
     private async void HandleUserInvalidated(int userId)
@@ -89,9 +105,19 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         }
     }
 
+    private async void HandleTokenInvalidated(string token)
+    {
+        if (_currentToken == token)
+        {
+            _logger.LogInformation("Circuit Token invalidated by administrative action.");
+            await LogoutAsync(token);
+        }
+    }
+
     public void Dispose()
     {
         OnUserInvalidated -= HandleUserInvalidated;
+        OnTokenInvalidated -= HandleTokenInvalidated;
     }
 
     private bool _autoLoginAttempted = false;
@@ -137,6 +163,8 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
 
                     if (!string.IsNullOrEmpty(token))
                     {
+                        _currentToken = token; // Store for revocation monitoring
+                        
                         // 1. Check Global Cache First (High speed memory hit)
                         if (_tokenCache.TryGetValue(token, out var cachedData) && cachedData.Expiry > DateTime.UtcNow)
                         {

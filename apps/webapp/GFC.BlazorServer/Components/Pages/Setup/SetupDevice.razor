@@ -1,8 +1,9 @@
 @page "/setup/device"
 @using GFC.BlazorServer.Services
 @using GFC.Core.Interfaces
-@inject IDeviceInviteService DeviceInviteService
-@inject IDeviceTrustService DeviceTrustService
+@using GFC.Core.Models.Security
+@inject IDeviceInviteService InviteService
+@inject IDeviceTrustService TrustService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 @inject ISystemSettingsService SettingsService
@@ -36,6 +37,29 @@
                 <div class="mt-4">
                     <p class="small text-muted">This link may have expired or was already used. Please request a new setup link from an administrator.</p>
                 </div>
+            </div>
+        }
+        else if (IsStation && !_stationConfirmed && !_isProcessing)
+        {
+            <div class="status-msg animate-slide-up">
+                <div class="premium-orb bg-warning-soft text-warning mb-4 mx-auto">
+                    <i class="bi bi-display-fill"></i>
+                </div>
+                <h3 class="fw-bold mb-3">Authorize Station</h3>
+                <p class="text-muted small mb-4 px-3">
+                    You are authorizing this computer as a <strong>Collective Station</strong>. Please give it a friendly name to identify it in the system.
+                </p>
+                
+                <div class="form-group mb-4 text-start">
+                    <label class="x-small fw-bold text-muted text-uppercase mb-2">Station Identity (e.g. Lobby PC)</label>
+                    <input type="text" class="form-control-premium py-3" @bind="_stationName" placeholder="Enter station name..." />
+                </div>
+
+                <button class="btn btn-primary-premium w-100 py-3 fw-bold shadow-premium" 
+                        @onclick="ConfirmStationSetup" 
+                        disabled="@(string.IsNullOrWhiteSpace(_stationName) || _isProcessing)">
+                    Authorize This Computer <i class="bi bi-shield-check ms-2"></i>
+                </button>
             </div>
         }
         else if (_success)
@@ -208,6 +232,9 @@
     private bool _isPushProcessing = false;
     private string? _vapidKey;
     private int _onboardedUserId;
+    private string? _stationName;
+    private bool _stationConfirmed = false;
+    private DeviceInviteToken? _validatedInvite;
 
     private DotNetObjectReference<SetupDevice>? _objRef;
 
@@ -351,13 +378,42 @@
 
         try
         {
-            var invite = await DeviceInviteService.ValidateTokenAsync(Token);
-            if (invite == null)
+            _validatedInvite = await InviteService.ValidateTokenAsync(Token);
+            if (_validatedInvite == null)
             {
                 _error = "The provided setup token is invalid, expired, or has already been used.";
                 _isProcessing = false;
                 StateHasChanged();
                 return;
+            }
+
+            if (IsStation && !_stationConfirmed)
+            {
+                // Auto-fill the name if the admin pre-named it (and it's not the generic "Station" mode name)
+                if (string.IsNullOrEmpty(_stationName) && !string.IsNullOrEmpty(_validatedInvite.TargetDeviceName) && _validatedInvite.TargetDeviceName != "Station")
+                {
+                    _stationName = _validatedInvite.TargetDeviceName;
+                }
+
+                // Stop here and ask for name in the UI
+                _isProcessing = false;
+                StateHasChanged();
+                return;
+            }
+
+            // [SECURITY] If this invite is bound to a specific station, verify we are ON that station
+            if (_validatedInvite.TargetStationId.HasValue)
+            {
+                var currentToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                var currentDevice = await TrustService.GetDeviceByTokenAsync(currentToken);
+                
+                if (currentDevice == null || !currentDevice.IsStation || currentDevice.Id != _validatedInvite.TargetStationId.Value)
+                {
+                    _error = $"This setup code is restricted to the station '{_validatedInvite.TargetDeviceName ?? "a specific station"}'. Please use the correct terminal.";
+                    _isProcessing = false;
+                    StateHasChanged();
+                    return;
+                }
             }
 
             // Create actual Device Trust Token
@@ -369,13 +425,13 @@
             string trustToken;
             if (IsStation)
             {
-                trustToken = await DeviceTrustService.CreateStationTokenAsync(invite.UserId, userAgent, ipAddress, 365);
+                trustToken = await TrustService.CreateStationTokenAsync(_validatedInvite.UserId, userAgent, ipAddress, 365, _stationName);
                 // Save Station Identity cookie to disable auto-logins
                 await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_StationIdentity", trustToken, 365);
             }
             else
             {
-                trustToken = await DeviceTrustService.CreateDeviceTokenAsync(invite.UserId, userAgent, ipAddress, duration);
+                trustToken = await TrustService.CreateDeviceTokenAsync(_validatedInvite.UserId, userAgent, ipAddress, duration);
                 // Clear any old station identity
                 await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_StationIdentity", "", -1);
             }
@@ -385,9 +441,9 @@
             await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", trustToken, duration);
 
             // Mark invite as used
-            await DeviceInviteService.MarkTokenAsUsedAsync(Token);
+            await InviteService.MarkTokenAsUsedAsync(Token);
 
-            _onboardedUserId = invite.UserId;
+            _onboardedUserId = _validatedInvite.UserId;
             
             // Pre-fetch VAPID key
             var settings = await BlazorSettingsService.GetAsync();
@@ -404,6 +460,17 @@
             _isProcessing = false;
             StateHasChanged();
         }
+    }
+
+    private async Task ConfirmStationSetup()
+    {
+        if (string.IsNullOrWhiteSpace(_stationName)) return;
+        
+        _stationConfirmed = true;
+        _isProcessing = true;
+        StateHasChanged();
+        
+        await ProcessToken();
     }
 
     private void GoToLogin()

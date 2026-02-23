@@ -11,4 +11,5 @@ public class DeviceSessionDto
     public DateTime ExpiresAtUtc { get; set; }
     public bool IsRevoked { get; set; }
     public bool IsStation { get; set; }
+    public string? StationName { get; set; }
 }

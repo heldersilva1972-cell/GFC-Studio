@@ -118,7 +118,7 @@ public class DeviceTrustService : IDeviceTrustService
         }
     }
 
-    public async Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays)
+    public async Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays, string? stationName = null)
     {
         try
         {
@@ -146,14 +146,15 @@ public class DeviceTrustService : IDeviceTrustService
             LastUsedUtc = DateTime.UtcNow,
             ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays),
             IsRevoked = false,
-            IsStation = true
+            IsStation = true,
+            StationName = stationName
         };
 
         context.TrustedDevices.Add(device);
         await context.SaveChangesAsync();
 
-            _logger.LogInformation("Created STATION trust token authorized by {UserId}, expires {ExpiresAt}", 
-                authorizedByUserId, device.ExpiresAtUtc);
+            _logger.LogInformation("Created STATION trust token '{StationName}' authorized by {UserId}, expires {ExpiresAt}", 
+                stationName ?? "Unnamed", authorizedByUserId, device.ExpiresAtUtc);
 
             return token;
         }
@@ -161,6 +162,23 @@ public class DeviceTrustService : IDeviceTrustService
         {
             _logger.LogError(ex, "Error creating station token");
             throw;
+        }
+    }
+
+    public async Task<List<TrustedDevice>> GetAllActiveStationsAsync()
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.TrustedDevices
+                .Where(d => d.IsStation && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
+                .OrderBy(d => d.StationName)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting active stations");
+            return new List<TrustedDevice>();
         }
     }
 
@@ -181,6 +199,23 @@ public class DeviceTrustService : IDeviceTrustService
         }
     }
 
+    public async Task<TrustedDevice?> GetDeviceByTokenAsync(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return null;
+        
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.TrustedDevices
+                .FirstOrDefaultAsync(d => d.DeviceToken == token && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting device by token");
+            return null;
+        }
+    }
+
     /// <summary>
     /// Revokes a device token
     /// </summary>
@@ -197,6 +232,10 @@ public class DeviceTrustService : IDeviceTrustService
             {
                 device.IsRevoked = true;
                 await context.SaveChangesAsync();
+                
+                // [FIX] Invalidate the memory cache for this specific token to force logout
+                CustomAuthenticationStateProvider.InvalidateToken(token);
+                
                 _logger.LogInformation("Revoked device token for user {UserId}", device.UserId);
                 return true;
             }
@@ -434,7 +473,8 @@ public class DeviceTrustService : IDeviceTrustService
                 LastUsedUtc = d.LastUsedUtc,
                 ExpiresAtUtc = d.ExpiresAtUtc,
                 IsRevoked = d.IsRevoked,
-                IsStation = d.IsStation
+                IsStation = d.IsStation,
+                StationName = d.StationName
             }).ToList();
             
             return sessions;
@@ -529,6 +569,11 @@ public class DeviceTrustService : IDeviceTrustService
     public void InvalidateUserSession(int userId)
     {
         CustomAuthenticationStateProvider.InvalidateUser(userId);
+    }
+
+    public void InvalidateTokenSession(string token)
+    {
+        CustomAuthenticationStateProvider.InvalidateToken(token);
     }
 
     public void InvalidateAllUserSessions()

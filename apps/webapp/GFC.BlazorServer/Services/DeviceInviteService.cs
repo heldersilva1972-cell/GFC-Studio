@@ -8,7 +8,7 @@ namespace GFC.BlazorServer.Services;
 
 public interface IDeviceInviteService
 {
-    Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1);
+    Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1, int? targetStationId = null);
     Task<DeviceInviteToken?> ValidateTokenAsync(string token);
     Task<bool> MarkTokenAsUsedAsync(string token);
     Task CleanupExpiredInvitesAsync();
@@ -28,7 +28,7 @@ public class DeviceInviteService : IDeviceInviteService
         _logger = logger;
     }
 
-    public async Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1)
+    public async Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1, int? targetStationId = null)
     {
         try
         {
@@ -43,6 +43,7 @@ public class DeviceInviteService : IDeviceInviteService
                 CreatedAtUtc = DateTime.UtcNow,
                 ExpiresAtUtc = DateTime.UtcNow.AddHours(expiryHours),
                 TargetDeviceName = deviceName,
+                TargetStationId = targetStationId,
                 IsRevoked = false
             };
 
@@ -66,9 +67,21 @@ public class DeviceInviteService : IDeviceInviteService
         try
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
-            var invite = await context.DeviceInviteTokens
+            
+            // [NEW] Support both full tokens and 8-char short codes (prefix match)
+            var query = context.DeviceInviteTokens
                 .Include(i => i.User)
-                .FirstOrDefaultAsync(i => i.Token == token && !i.IsRevoked && i.UsedAtUtc == null);
+                .Where(i => !i.IsRevoked && i.UsedAtUtc == null);
+            
+            DeviceInviteToken? invite;
+            if (token.Length == 8)
+            {
+                invite = await query.FirstOrDefaultAsync(i => i.Token.StartsWith(token.ToLower()));
+            }
+            else
+            {
+                invite = await query.FirstOrDefaultAsync(i => i.Token == token);
+            }
 
             if (invite == null) return null;
 

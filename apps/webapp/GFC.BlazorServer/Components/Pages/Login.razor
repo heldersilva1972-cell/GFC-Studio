@@ -70,19 +70,18 @@
 
             @if (_loginMode == LoginMode.Password || _loginMode == LoginMode.PassCode)
             {
-                <form autocomplete="off">
-                <EditForm Model="_model" OnValidSubmit="HandleLoginAsync">
+                <EditForm Model="_model" OnSubmit="HandleLoginAsync" autocomplete="off">
                     <DataAnnotationsValidator />
                     <ValidationSummary class="alert alert-danger" />
 
                     <div class="mb-3">
                         <label class="form-label" for="username">Username</label>
-                        <InputText id="username" 
-                                   class="form-control" 
-                                   @bind-Value="_model.Username" 
-                                   placeholder="Enter username"
-                                   autocomplete="on"
-                                   readonly="@(_isStationMode ? null : "readonly")" />
+                        <input id="username" 
+                               class="form-control" 
+                               @bind="_model.Username" 
+                               placeholder="Enter username"
+                               autocomplete="on"
+                               readonly="@(_isStationMode ? null : "readonly")" />
                         <ValidationMessage For="@(() => _model.Username)" />
                     </div>
 
@@ -94,22 +93,25 @@
                         @if (_loginMode == LoginMode.PassCode)
                         {
                             <input id="password"
-                                   type="tel"
-                                   inputmode="numeric"
-                                   pattern="[0-9]*"
+                                   type="text"
+                                   inputmode="text"
                                    class="form-control text-center fs-4 fw-bold"
-                                   maxlength="6"
-                                   style="letter-spacing: 0.5rem;"
+                                   maxlength="64"
+                                   style="letter-spacing: 0.2rem;"
                                    @bind="_model.Password"
-                                   placeholder="000000"
+                                   @onkeydown="HandleKeyDown"
+                                   placeholder="@(_isStationMode ? "Passcode or Setup Code" : "------")"
                                    autocomplete="off"
                                    readonly="@(_isStationMode ? null : "readonly")" />
                         }
                         else
                         {
                             <input id="password"
+                                   type="password"
+                                   class="form-control"
                                    style="border-radius: 0.75rem !important;"
                                    @bind="_model.Password"
+                                   @onkeydown="HandleKeyDown"
                                    placeholder="Enter password"
                                    autocomplete="new-password"
                                    readonly="@(_isStationMode ? null : "readonly")" />
@@ -142,7 +144,6 @@
                         </small>
                     </div>
                 </EditForm>
-                </form>
                 
                 <script>
                     // Remove readonly after a short delay to prevent autofill
@@ -432,6 +433,15 @@
         {
             var passwordToUse = _model.Password?.Trim();
 
+            // [NEW] Setup Code Detection
+            // If the user enters an 8-character code or a full 64-character token,
+            // redirect them to the device setup wizard.
+            if (!string.IsNullOrEmpty(passwordToUse) && (passwordToUse.Length == 8 || passwordToUse.Length == 64))
+            {
+                Navigation.NavigateTo($"/setup/device?token={passwordToUse}&native=true");
+                return;
+            }
+
             // Force RememberMe for personal devices, but NEVER for shared stations
             // This ensures stations always require a fresh login after the browser is closed.
             if (!_isStationMode)
@@ -441,6 +451,13 @@
             else
             {
                 _model.RememberMe = false;
+            }
+
+            // [MANUAL VALIDATION] Since we use OnSubmit to catch setup codes first
+            if (string.IsNullOrWhiteSpace(_model.Username) || string.IsNullOrWhiteSpace(_model.Password))
+            {
+                _error = "Username and Password/Passcode are required.";
+                return;
             }
 
             var result = await AuthStateProvider.LoginAsync(_model.Username, passwordToUse, _model.RememberMe);
@@ -510,6 +527,14 @@
 
     private enum LoginMode { PassCode, Passkey, Password }
     private string _passkeyUsername = "";
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await HandleLoginAsync();
+        }
+    }
 
     private async Task HandlePasskeyLoginAsync()
     {

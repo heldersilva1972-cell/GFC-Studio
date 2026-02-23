@@ -4,6 +4,7 @@
 @using GFC.Core.DTOs
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
+@using GFC.Core.Models.Security
 @using Microsoft.AspNetCore.Authorization
 @using GFC.BlazorServer.Auth
 @inject IUserManagementService UserManagementService
@@ -27,7 +28,7 @@
             <p class="page-subtitle">Manage user accounts and permissions</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-warning fw-bold px-4" @onclick="OpenQuickOnboardModal">
+            <button class="btn btn-warning text-dark fw-bold px-4 shadow-sm" @onclick="OpenQuickOnboardModal">
                 <i class="bi bi-lightning-charge-fill me-2"></i>Quick Onboard
             </button>
             <button class="btn btn-primary px-4" @onclick="OpenAddUserModal">
@@ -76,22 +77,35 @@
         </div>
     </div>
 
-    @* Users Table *@
+    @* Main Content Tabs *@
     <div class="content-card">
-        <div class="card-header">
-            <h2 class="card-title">Users</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="tab-switcher d-flex gap-4">
+                <h2 class="card-title mb-0 cursor-pointer @(_currentTab == "users" ? "text-primary border-bottom border-3 border-primary pb-2" : "text-muted hover-opacity")" @onclick='() => _currentTab = "users"'>
+                    <i class="bi bi-people-fill me-2"></i>Active Users
+                </h2>
+                <h2 class="card-title mb-0 cursor-pointer @(_currentTab == "stations" ? "text-primary border-bottom border-3 border-primary pb-2" : "text-muted hover-opacity")" @onclick='() => _currentTab = "stations"'>
+                    <i class="bi bi-display me-2"></i>Shared Stations
+                </h2>
+            </div>
             <div class="card-actions">
-                <div class="search-box">
-                    <i class="bi bi-search"></i>
-                    <input type="text" 
-                           class="form-control" 
-                           placeholder="Search users..."
-                           @bind="_searchQuery"
-                           @bind:event="oninput" />
-                </div>
-                <button class="btn btn-outline-secondary" @onclick="OpenDefaultPermissionsModal">
-                    <i class="bi bi-gear me-2"></i>Default Permissions
-                </button>
+                @if (_currentTab == "users")
+                {
+                    <div class="search-box">
+                        <i class="bi bi-search"></i>
+                        <input type="text" 
+                               class="form-control" 
+                               placeholder="Search users..."
+                               @bind="_searchQuery"
+                               @bind:event="oninput" />
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-outline-primary btn-sm" @onclick="LoadData">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Refresh Stations
+                    </button>
+                }
             </div>
         </div>
 
@@ -99,11 +113,13 @@
         {
             <div class="loading-state">
                 <div class="spinner-border text-primary"></div>
-                <p>Loading users...</p>
+                <p>Synchronizing data...</p>
             </div>
         }
-        else if (FilteredUsers.Any())
+        else if (_currentTab == "users")
         {
+            @if (FilteredUsers.Any())
+            {
             <div class="table-responsive">
                 <table class="modern-table">
                     <thead>
@@ -230,6 +246,67 @@
                 <h3>No users found</h3>
                 <p>Try adjusting your search or add a new user</p>
             </div>
+        }
+        }
+        else if (_currentTab == "stations")
+        {
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3 class="h5 mb-0">Active Shared Stations</h3>
+                <button class="btn btn-light btn-sm border" @onclick="RefreshStations">
+                    <i class="bi bi-arrow-clockwise me-1"></i> Sync Stations
+                </button>
+            </div>
+            
+            @if (_activeStations != null && _activeStations.Any())
+            {
+                <div class="table-responsive">
+                    <table class="modern-table">
+                        <thead>
+                            <tr>
+                                <th>Station Name</th>
+                                <th>Network Address</th>
+                                <th>Last Authorization</th>
+                                <th class="text-end">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var station in _activeStations)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="user-avatar bg-info bg-opacity-10 text-info me-3">
+                                                <i class="bi bi-display"></i>
+                                            </div>
+                                            <div class="fw-bold">@(!string.IsNullOrEmpty(station.StationName) ? station.StationName : "Unnamed Station")</div>
+                                        </div>
+                                    </td>
+                                    <td><code class="text-primary bg-light px-2 py-1 rounded">@station.IpAddress</code></td>
+                                    <td><span class="text-muted small">@station.LastUsedUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</span></td>
+                                    <td class="text-end">
+                                        <span class="badge bg-success-subtle text-success border border-success border-opacity-25 rounded-pill px-3">
+                                            <i class="bi bi-shield-check me-1"></i>Secure
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="empty-state text-center py-5">
+                    <i class="bi bi-display text-muted" style="font-size: 3rem; opacity: 0.3;"></i>
+                    <h3 class="mt-3">No Shared Stations Linked</h3>
+                    <p class="text-muted mx-auto" style="max-width: 400px;">
+                        Authorized machines like lobby PCs or shared tablets will appear here after they are onboarded.
+                    </p>
+                    <button class="btn btn-warning text-dark rounded-pill px-4 mt-2 shadow-sm" @onclick="OpenQuickOnboardModal">
+                        <i class="bi bi-lightning-charge-fill me-2"></i>Onboard First Station
+                    </button>
+                </div>
+            }
         }
     </div>
 </div>
@@ -727,10 +804,10 @@
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
-            <div class="modal-body pt-0">
-                <div class="onboarding-tool p-4 bg-light rounded-4 border">
-                    <div class="row g-4">
-                        <div class="col-md-7">
+            <div class="modal-body pt-0 @(string.IsNullOrEmpty(_quickGeneratedLink) ? "" : "modal-compact-results")" style="max-height: 75vh; overflow-y: auto;">
+                <div class="onboarding-tool p-3 bg-light rounded-4 border">
+                    <div class="row g-3">
+                        <div class="col-md-6 border-end">
                             @if (!_isStationSetup)
                             {
                                 <label class="form-label fw-bold">1. Select the User to Onboard</label>
@@ -742,29 +819,67 @@
                                     }
                                 </select>
 
-                                @if (_quickOnboardUserId > 0)
-                                {
-                                    <div class="troubleshooting-card animate-entrance card border-0 shadow-sm p-4 mb-3 bg-white rounded-4">
-                                        <label class="fw-bold text-danger small mb-2 d-block text-uppercase"><i class="bi bi-shield-exclamation me-2"></i>Troubleshooting Only</label>
-                                        <p class="x-small text-muted mb-3">If the user is stuck in a login loop or can't see the hub, use the <strong>Clean Slate</strong> reset first.</p>
-                                        
-                                        <button class="btn btn-outline-danger btn-sm w-100 py-2 fw-bold rounded-pill" @onclick="ResetQuickMobileSetup" disabled="@_resettingMobile">
-                                            @if (_resettingMobile) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                                            else { <i class="bi bi-trash3-fill me-2"></i> }
-                                            Revoke All Linked Devices
-                                        </button>
-                                    </div>
-                                }
+                                 @if (_onboardMode == "PIN")
+                                 {
+                                     <div class="form-group mb-4 animate-slide-up p-3 bg-white rounded-4 shadow-sm border border-warning border-opacity-25">
+                                         <label class="form-label fw-bold text-warning-emphasis small text-uppercase mb-2"><i class="bi bi-display me-2"></i>Target Station (Required)</label>
+                                         <div class="d-flex gap-2 align-items-center">
+                                             <select class="form-select border-0 bg-light py-2 rounded-3" @bind="_selectedStationId">
+                                                 <option value="0">Choose shared station...</option>
+                                                 @foreach (var station in _activeStations)
+                                                 {
+                                                     <option value="@station.Id">@(string.IsNullOrEmpty(station.StationName) ? $"Unnamed Station ({station.IpAddress})" : station.StationName)</option>
+                                                 }
+                                             </select>
+                                             <button class="btn btn-light border btn-sm p-1 rounded-3" @onclick="RefreshStations" title="Sync Stations list" type="button">
+                                                 <i class="bi bi-arrow-clockwise"></i>
+                                             </button>
+                                         </div>
+                                         <div class="x-small text-muted mt-2">
+                                             <i class="bi bi-info-circle me-1"></i> The user must set their PIN on <strong>this specific machine</strong>.
+                                         </div>
+                                     </div>
+
+                                     <div class="alert alert-warning border-0 rounded-4 x-small mb-3 animate-fade-in shadow-sm">
+                                         <div class="fw-bold mb-1"><i class="bi bi-shield-lock-fill me-2"></i>PIN Setup Flow</div>
+                                         The user simply opens the link on the machine. They <strong>do not need to log in</strong> with a password; the link authorizes them to set their PIN immediately.
+                                     </div>
+                                 }
+
+                                 @if (_quickOnboardUserId > 0 && _onboardMode != "PIN")
+                                 {
+                                     <div class="troubleshooting-card animate-entrance card border-0 shadow-sm p-4 mb-3 bg-white rounded-4">
+                                         <label class="fw-bold text-danger small mb-2 d-block text-uppercase"><i class="bi bi-shield-exclamation me-2"></i>Troubleshooting Only</label>
+                                         <p class="x-small text-muted mb-3">If the user is stuck in a login loop or can't see the hub, use the <strong>Clean Slate</strong> reset first.</p>
+                                         
+                                         <button class="btn btn-outline-danger btn-sm w-100 py-2 fw-bold rounded-pill" @onclick="ResetQuickMobileSetup" disabled="@_resettingMobile">
+                                             @if (_resettingMobile) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                             else { <i class="bi bi-trash3-fill me-2"></i> }
+                                             Revoke All Linked Devices
+                                         </button>
+                                     </div>
+                                 }
                             }
                             else
                             {
-                                <div class="station-mode-info animate-entrance h-100 d-flex flex-column justify-content-center p-4 bg-white rounded-4 shadow-sm border border-primary border-opacity-10 text-center">
-                                    <div class="mb-3">
+                                <div class="station-mode-info animate-entrance h-100 d-flex flex-column justify-content-center p-4 bg-white rounded-4 shadow-sm border border-primary border-opacity-10">
+                                    <div class="text-center mb-3">
                                         <i class="bi bi-display text-primary" style="font-size: 3rem; opacity: 0.2;"></i>
                                     </div>
-                                    <h5 class="fw-bold text-primary mb-2">Station Setup Enabled</h5>
-                                    <p class="small text-muted mb-0">This link will authorize the device for <strong>all users</strong>. Individual login will be required on the device.</p>
-                                    <div class="mt-3 p-2 bg-light rounded small">
+                                    <h5 class="fw-bold text-primary mb-3 text-center text-uppercase">Station Identity Setup</h5>
+                                    
+                                    <div class="form-group mb-3">
+                                        <label class="form-label fw-bold small text-muted text-uppercase mb-2">Friendly Station Name</label>
+                                        <input type="text" class="form-control border shadow-sm py-2 px-3 rounded-3" 
+                                               placeholder="e.g. Lobby Terminal, Bar Tablet..." 
+                                               @bind="_quickStationName" 
+                                               disabled="@(!string.IsNullOrEmpty(_quickGeneratedLink))" />
+                                        <div class="x-small text-muted mt-2">
+                                            <i class="bi bi-info-circle me-1"></i> Give this computer a label to identify it in the system.
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-auto p-2 bg-light rounded small text-center">
                                         <i class="bi bi-shield-check me-2 text-success"></i>Authorized by: <strong>Admin (@(_users.FirstOrDefault(u => u.UserId == _currentUserId)?.Username ?? "You"))</strong>
                                     </div>
                                 </div>
@@ -773,7 +888,8 @@
                         <div class="col-md-5">
                              <div class="mb-4">
                                  <label class="form-label fw-bold">2. Mode Selection</label>
-                                 <div class="form-check form-switch p-3 bg-white rounded-4 shadow-sm border @(_isStationSetup ? "border-primary shadow-sm" : "")" style="transition: all 0.2s;">
+                                 
+                                 <div class="form-check form-switch p-3 bg-white rounded-4 shadow-sm border mb-2 @(_isStationSetup ? "border-primary shadow-sm" : "")" style="transition: all 0.2s;">
                                      <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" id="stationToggle" @bind="_isStationSetup" @bind:after="OnStationToggle" disabled="@(!string.IsNullOrEmpty(_quickGeneratedLink))">
                                      <label class="form-check-label fw-bold @(_isStationSetup ? "text-primary" : "")" for="stationToggle">
                                          <i class="bi bi-display me-2"></i>Shared / Station Mode
@@ -782,78 +898,91 @@
                                          <i class="bi bi-info-circle me-1"></i> For lobby PCs or shared tablets. Skips device setup for individuals.
                                      </p>
                                  </div>
+
+                                 <div class="form-check form-switch p-3 bg-white rounded-4 shadow-sm border @(_isPinOnlySetup ? "border-warning bg-warning bg-opacity-10 shadow-sm" : "")" style="transition: all 0.2s;">
+                                     <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" id="pinToggle" @bind="_isPinOnlySetup" @bind:after="OnPinToggle" disabled="@(!string.IsNullOrEmpty(_quickGeneratedLink))">
+                                     <label class="form-check-label fw-bold @(_isPinOnlySetup ? "text-warning" : "")" for="pinToggle">
+                                         <i class="bi bi-key-fill me-2"></i>PIN Only (Passcode)
+                                     </label>
+                                     <p class="x-small text-muted mt-2 mb-0 ms-1">
+                                         <i class="bi bi-info-circle me-1"></i> Skips biometric setup. Best for users who only use shared stations.
+                                     </p>
+                                 </div>
                              </div>
 
                              <label class="form-label fw-bold">3. Access Generation</label>
-                             <div class="d-grid gap-2">
-                                <button class="btn btn-warning py-3 fw-bold shadow-sm" 
-                                        @onclick="GenerateQuickInviteLink" 
-                                        disabled="@((_quickOnboardUserId == 0 && !_isStationSetup) || _generatingQuickLink || !string.IsNullOrEmpty(_quickGeneratedLink))">
-                                    @if (_generatingQuickLink) { <span class="spinner-border spinner-border-sm me-2"></span> }
-                                    else { <i class="bi bi-link-45deg me-1"></i> }
-                                    Generate Access Link
-                                </button>
+                              <div class="d-grid gap-2">
+                                 <button class="btn btn-warning py-3 fw-bold shadow-sm" 
+                                         @onclick="GenerateQuickInviteLink" 
+                                         disabled="@(_generatingQuickLink || (_quickOnboardUserId == 0 && !_isStationSetup) || (_isPinOnlySetup && _selectedStationId == 0) || (_isStationSetup && string.IsNullOrWhiteSpace(_quickStationName)) || !string.IsNullOrEmpty(_quickGeneratedLink))">
+                                     @if (_generatingQuickLink) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                     else { <i class="bi bi-link-45deg me-2"></i> }
+                                     Generate Access Link
+                                 </button>
                                 
-                                <button class="btn btn-outline-secondary py-2 small" @onclick="ResetQuickModal" disabled="@(string.IsNullOrEmpty(_quickGeneratedLink))">
+                                 <button class="btn btn-outline-secondary py-2 small" @onclick="ResetQuickModal" disabled="@(string.IsNullOrEmpty(_quickGeneratedLink))">
                                     <i class="bi bi-arrow-counterclockwise me-1"></i> Start Over
                                 </button>
                              </div>
-
-                            @if (!string.IsNullOrEmpty(_quickGeneratedLink))
-                            {
-                                <div class="mt-4 animate-entrance text-center">
-                                    <div class="qr-container p-3 bg-white rounded-4 border shadow-sm d-inline-block">
-                                        @if (_showQrCode)
-                                        {
-                                            <div class="qr-wrapper animate-entrance">
-                                                <img src="@($"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={Uri.EscapeDataString(_quickGeneratedLink)}")" 
-                                                     alt="Setup QR Code" width="180" height="180" class="img-fluid" />
-                                                <div class="mt-2 x-small text-primary fw-bold"><i class="bi bi-camera me-1"></i> Scan with Phone</div>
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-4 py-2" @onclick="() => _showQrCode = true">
-                                                <i class="bi bi-qr-code me-2"></i>Generate QR Code
-                                            </button>
-                                        }
-                                    </div>
-                                </div>
-                            }
                         </div>
                     </div>
 
                     @if (!string.IsNullOrEmpty(_quickGeneratedLink))
                     {
-                        <div class="invite-link-box p-4 bg-white rounded-4 border border-primary border-opacity-25 shadow-sm animate-entrance mt-4">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="fw-bold text-primary small">ONBOARDING LINK READY</span>
-                                <span class="badge bg-success small fw-normal">Verified Security</span>
+                        <div class="invite-results-container mt-3 p-3 bg-white rounded-4 border shadow-sm animate-entrance">
+                            <div class="row align-items-center">
+                                <div class="col-md-5 text-center border-md-end mb-3 mb-md-0">
+                                    @if (_showQrCode)
+                                    {
+                                        <img src="@($"https://api.qrserver.com/v1/create-qr-code/?size=140x140&data={Uri.EscapeDataString(_quickGeneratedLink)}")" 
+                                             alt="QR Code" width="140" height="140" class="img-fluid rounded border p-1" />
+                                        <div class="x-small text-primary fw-bold mt-1">Scan for Fast Access</div>
+                                    }
+                                    else if (_isPinOnlySetup)
+                                    {
+                                        <div class="setup-code-badge p-2 bg-warning bg-opacity-10 rounded-3">
+                                            <div class="x-small fw-bold text-muted">SETUP CODE</div>
+                                            <div class="h3 mb-0 fw-black text-primary ls-1">@(_quickInviteToken?.Substring(0, 8).ToUpper() ?? "--------")</div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary px-3 rounded-pill" @onclick="() => _showQrCode = true">
+                                            <i class="bi bi-qr-code me-3"></i>Show QR Code
+                                        </button>
+                                    }
+                                </div>
+                                <div class="col-md-7">
+                                    <div class="d-flex justify-content-between mb-2">
+                                        <span class="x-small fw-bold text-primary">ACCESS READY</span>
+                                        <span class="badge bg-success x-small fw-normal">Link Valid 24h</span>
+                                    </div>
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control form-control-sm bg-light border-0" value="@_quickGeneratedLink" readonly />
+                                        <button class="btn btn-sm @(_quickCopied ? "btn-success" : "btn-primary") px-3" @onclick="CopyQuickInviteLink">
+                                            <i class="bi @(_quickCopied ? "bi-check-lg" : "bi-clipboard")"></i>
+                                        </button>
+                                    </div>
+                                    <p class="x-small text-muted mb-0 lh-sm">
+                                        @if (_isPinOnlySetup) { <text>Enter the 8-char code at login to set PIN without a link.</text> }
+                                        else if (_isStationSetup) { <text>Open this link on the machine to trust it as a Station.</text> }
+                                        else { <text>Open this link on mobile device to register biometrics.</text> }
+                                    </p>
+                                </div>
                             </div>
-                            <div class="input-group">
-                                <input type="text" class="form-control bg-light border-0" value="@_quickGeneratedLink" readonly id="quickLinkInput" />
-                                <button class="btn @(_quickCopied ? "btn-success" : "btn-primary") px-3" @onclick="CopyQuickInviteLink">
-                                    <i class="bi @(_quickCopied ? "bi-check-lg" : "bi-clipboard")"></i>
-                                </button>
-                            </div>
-                            <p class="x-small text-muted mt-3 mb-0">
-                                <strong>Instructions:</strong> Inform the user to open this link on their device. 
-                                @( _isStationSetup ? "This will trust the MACHINE for any user to log in." : "It is a one-time use link valid for 1 hour." )
-                            </p>
                         </div>
                     }
-                </div>
 
-                <div class="alert alert-info border-0 rounded-4 mt-4 mb-0 d-flex align-items-center">
-                    <i class="bi bi-info-circle-fill fs-4 me-3 text-info"></i>
-                    <div>
-                        <h6 class="fw-bold mb-0 small">Secure Setup Protocol</h6>
-                        <p class="x-small mb-0 text-muted">A "Trust Token" will be permanently burned into the device upon completion, allowing for encrypted biometric access.</p>
+                    <div class="alert alert-info border-0 rounded-4 mt-3 mb-0 d-flex align-items-center py-2 x-small opacity-75">
+                        <i class="bi bi-info-circle-fill me-2 text-info"></i>
+                        <div>
+                            A "Trust Token" will be permanently burned into the device upon completion.
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="modal-footer border-top-0">
-                <button class="btn btn-outline-secondary px-4" @onclick="CloseQuickOnboardModal">Done</button>
+            <div class="modal-footer border-top-0 py-2">
+                <button class="btn btn-outline-secondary px-4 btn-sm rounded-pill" @onclick="CloseQuickOnboardModal">Done</button>
             </div>
         </div>
     </div>
@@ -939,6 +1068,7 @@
     private HashSet<int> _defaultPermissions = new();
     
     private string _searchQuery = "";
+    private string _currentTab = "users";
     private bool _loading = true;
 
     // Modals
@@ -951,11 +1081,17 @@
     private bool _showQuickOnboardModal = false;
     private int _quickOnboardUserId = 0;
     private string _quickGeneratedLink = "";
+    private string _quickInviteToken = "";
     private bool _generatingQuickLink = false;
     private bool _quickCopied = false;
     private bool _showQrCode = false;
     private bool _resettingMobile = false;
     private bool _isStationSetup = false;
+    private bool _isPinOnlySetup = false;
+    private string _quickStationName = "";
+    private List<TrustedDevice> _activeStations = new();
+    private int _selectedStationId = 0;
+    private string _onboardMode = "Mobile";
 
     // User Modal
     private UserListItemDto? _editingUser = null;
@@ -1017,6 +1153,9 @@
                     {
                         _currentUserId = id;
                     }
+                }),
+                Task.Run(async () => {
+                    _activeStations = await DeviceTrustService.GetAllActiveStationsAsync();
                 })
             );
             
@@ -1613,19 +1752,30 @@
     private void ResetQuickModal()
     {
         _quickGeneratedLink = "";
+        _quickInviteToken = "";
         _showQrCode = false;
         _isStationSetup = false;
+        _isPinOnlySetup = false;
+        _quickStationName = "";
+        _selectedStationId = 0;
     }
 
     private void OpenQuickOnboardModal()
     {
         _showQuickOnboardModal = true;
         _quickGeneratedLink = "";
+        _quickInviteToken = "";
         _quickCopied = false;
         _showQrCode = false;
         _isStationSetup = false;
+        _isPinOnlySetup = false;
+        _quickStationName = "";
+        _selectedStationId = 0;
         // [SAFETY] Default to 0 (Choose a user...) instead of auto-selecting the first user (which might be admin)
         _quickOnboardUserId = 0; 
+        
+        // Ensure stations are fresh when opening tool
+        _ = RefreshStations();
     }
 
     private void CloseQuickOnboardModal()
@@ -1637,9 +1787,33 @@
     {
         if (_isStationSetup)
         {
+            _isPinOnlySetup = false;
+            _onboardMode = "Station";
+            _selectedStationId = 0;
             // If turning on station mode, default the user ID to the current admin
             // This satisfies the backend requirement while hiding the dropdown
             _quickOnboardUserId = _currentUserId;
+        }
+        else
+        {
+            _onboardMode = "Mobile";
+        }
+    }
+
+    private void OnPinToggle()
+    {
+        if (_isPinOnlySetup)
+        {
+            _isStationSetup = false;
+            _onboardMode = "PIN";
+            _selectedStationId = 0;
+            
+            // Auto-refresh when entering PIN mode
+            _ = RefreshStations();
+        }
+        else
+        {
+            _onboardMode = "Mobile";
         }
     }
 
@@ -1654,12 +1828,14 @@
         _generatingQuickLink = true;
         try
         {
-            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, _isStationSetup ? "Station" : "Mobile", 24);
+            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, _isStationSetup ? _quickStationName : _onboardMode, 24, _isPinOnlySetup ? _selectedStationId : null);
+            _quickInviteToken = token;
             var baseUrl = await UrlHelper.GetBaseUrlAsync();
             
             // For stations, we can append a hint to the URL
             var stationSfx = _isStationSetup ? "&station=true" : "";
-            _quickGeneratedLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={token}{stationSfx}&native=true";
+            var pinSfx = _isPinOnlySetup ? "&pinOnly=true" : "";
+            _quickGeneratedLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={token}{stationSfx}{pinSfx}&native=true";
         }
         catch (Exception ex)
         {
@@ -1719,5 +1895,18 @@
         await Task.Delay(2000);
         _quickCopied = false;
         StateHasChanged();
+    }
+
+    private async Task RefreshStations()
+    {
+        try
+        {
+            _activeStations = await DeviceTrustService.GetAllActiveStationsAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError("Failed to sync stations: " + ex.Message);
+        }
     }
 }

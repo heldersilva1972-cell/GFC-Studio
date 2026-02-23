@@ -4,12 +4,13 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.DTOs
 @using GFC.Core.Models
+@using GFC.Core.Models.Security
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Services.Vpn
 @inject IUserManagementService UserService
 @inject IVpnConfigurationService VpnService
-@inject IDeviceTrustService DeviceTrustService
-@inject IDeviceInviteService DeviceInviteService
+@inject IDeviceTrustService TrustService
+@inject IDeviceInviteService InviteService
 @inject IUrlHelperService UrlHelper
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -49,29 +50,40 @@
                     <div class="bg-warning rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
                         <i class="bi bi-lightning-charge-fill text-white small"></i>
                     </div>
-                    <h6 class="fw-bold mb-0">Quick Onboard Device</h6>
+                    <h6 class="fw-bold mb-0">Quick Onboard User</h6>
                 </div>
                 
                 <div class="form-group mb-3">
-                    <label class="form-label small fw-bold text-muted text-uppercase">1. Mode Selection</label>
-                    <div class="mode-toggle p-3 bg-white rounded-4 border d-flex align-items-center justify-content-between shadow-sm">
-                        <div class="d-flex align-items-center gap-3">
-                            <i class="bi bi-display fs-4 @(_isStationMode ? "text-primary" : "text-muted")"></i>
-                            <div>
-                                <div class="fw-bold small @(_isStationMode ? "text-primary" : "")">Station Mode</div>
-                                <div class="x-small text-muted">For lobby PCs or tablets</div>
-                            </div>
+                    <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">1. Onboarding Mode</label>
+                    <div class="row g-2">
+                        <div class="col-4">
+                            <button class="btn @(_onboardMode == "Mobile" ? "btn-primary shadow-sm" : "btn-white border") w-100 py-3 rounded-4" 
+                                    @onclick='() => SetOnboardMode("Mobile")' disabled="@(!string.IsNullOrEmpty(_inviteLink))">
+                                <i class="bi bi-phone fs-4 d-block mb-1"></i>
+                                <span class="x-small fw-bold">Mobile</span>
+                            </button>
                         </div>
-                        <div class="form-check form-switch m-0">
-                            <input class="form-check-input" type="checkbox" role="switch" @bind="_isStationMode" disabled="@(!string.IsNullOrEmpty(_inviteLink))">
+                        <div class="col-4">
+                            <button class="btn @(_onboardMode == "Station" ? "btn-primary shadow-sm" : "btn-white border") w-100 py-3 rounded-4" 
+                                    @onclick='() => SetOnboardMode("Station")' disabled="@(!string.IsNullOrEmpty(_inviteLink))">
+                                <i class="bi bi-display fs-4 d-block mb-1"></i>
+                                <span class="x-small fw-bold">Station</span>
+                            </button>
+                        </div>
+                        <div class="col-4">
+                            <button class="btn @(_onboardMode == "PIN" ? "btn-primary shadow-sm" : "btn-white border") w-100 py-3 rounded-4" 
+                                    @onclick='() => SetOnboardMode("PIN")' disabled="@(!string.IsNullOrEmpty(_inviteLink))">
+                                <i class="bi bi-shield-lock-fill fs-4 d-block mb-1"></i>
+                                <span class="x-small fw-bold">PIN Set</span>
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                @if (!_isStationMode)
+                @if (_onboardMode != "Station")
                 {
-                    <div class="form-group mb-3">
-                        <label class="form-label small fw-bold text-muted text-uppercase">2. Target User</label>
+                    <div class="form-group mb-3 animate-slide-up">
+                        <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">2. Target User</label>
                         <select class="form-select border-0 shadow-sm py-2 rounded-4" @bind="_selectedUserId">
                             <option value="0">Choose user...</option>
                             @foreach (var user in _users.OrderBy(u => u.Username))
@@ -80,22 +92,48 @@
                             }
                         </select>
                     </div>
+                    @if (_onboardMode == "PIN")
+                    {
+                        <div class="form-group mb-3 animate-slide-up">
+                            <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">3. Target Station (Required)</label>
+                            <select class="form-select border-0 shadow-sm py-2 rounded-4" @bind="_selectedStationId">
+                                <option value="0">Choose shared station...</option>
+                                @foreach (var station in _activeStations)
+                                {
+                                    <option value="@station.Id">@(string.IsNullOrEmpty(station.StationName) ? $"Unnamed Station ({station.IpAddress})" : station.StationName)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="alert alert-info border-0 rounded-4 x-small mb-3 animate-fade-in shadow-sm">
+                            <i class="bi bi-info-circle-fill me-2"></i>
+                            <strong>PIN Setup Only:</strong> The user will set their passcode on the selected station. <strong>No device</strong> will be linked.
+                        </div>
+                    }
                 }
                 else
                 {
-                    <div class="alert alert-primary border-0 rounded-4 x-small mb-3">
+                    <div class="form-group mb-3 animate-slide-up">
+                        <label class="form-label x-small fw-bold text-muted text-uppercase mb-2">2. Station Identity Setup</label>
+                        <input type="text" class="form-control border-0 shadow-sm py-3 rounded-4" 
+                               placeholder="e.g. Lobby PC, Back Bar Tablet..." 
+                               @bind="_targetStationName" 
+                               disabled="@(!string.IsNullOrEmpty(_inviteLink))" />
+                    </div>
+
+                    <div class="alert alert-primary border-0 rounded-4 x-small mb-3 animate-slide-up shadow-sm">
                         <i class="bi bi-info-circle-fill me-2"></i>
-                        Station mode authorizes the <strong>entire device</strong>. Users must still log in with their own passcodes.
+                        <strong>Station mode</strong> authorizes the <strong>entire device</strong>. Shared stations usually sit at the lobby or bar. Access users must still use their individual PINs to access features.
                     </div>
                 }
 
                 <div class="d-grid gap-2">
                     <button class="btn btn-warning py-3 fw-bold rounded-4 shadow-sm" 
                             @onclick="GenerateInvite" 
-                            disabled="@(_generating || (!_isStationMode && _selectedUserId == 0) || !string.IsNullOrEmpty(_inviteLink))">
+                            disabled="@(_generating || (_onboardMode != "Station" && _selectedUserId == 0) || (_onboardMode == "PIN" && _selectedStationId == 0) || (_onboardMode == "Station" && string.IsNullOrWhiteSpace(_targetStationName)) || !string.IsNullOrEmpty(_inviteLink))">
                         @if (_generating) { <span class="spinner-border spinner-border-sm me-2"></span> }
                         else { <i class="bi bi-link-45deg me-1"></i> }
-                        Generate Access Link
+                        Generate Setup Link
                     </button>
                     
                     @if (!string.IsNullOrEmpty(_inviteLink))
@@ -118,7 +156,12 @@
                             }
                             else
                             {
-                                <div class="input-group">
+                                <div class="mb-3 text-center p-2 bg-light rounded-4 border border-dashed">
+                                    <div class="x-small text-muted text-uppercase fw-bold mb-1">Manual Setup Code</div>
+                                    <div class="h4 fw-black mb-0 letter-spacing-2 text-primary">@(_inviteToken?.Substring(0, 8).ToUpper() ?? "------")</div>
+                                </div>
+
+                                <div class="input-group mb-3">
                                     <input type="text" class="form-control form-control-sm bg-light border-0 x-small" value="@_inviteLink" readonly />
                                     <button class="btn btn-primary btn-sm px-3" @onclick="CopyInvite">
                                         <i class="bi @(_copied ? "bi-check-lg" : "bi-clipboard")"></i>
@@ -126,7 +169,12 @@
                                 </div>
                             }
                             
-                            <button class="btn btn-sm btn-outline-secondary w-100 mt-3 rounded-pill" @onclick="ResetInvite">Start Over</button>
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-primary-soft w-100 rounded-pill fw-bold py-2" @onclick="LaunchSetupNow">
+                                    <i class="bi bi-box-arrow-up-right me-2"></i>Launch on this Station
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary w-100 rounded-pill mt-1" @onclick="ResetInvite">Start Over</button>
+                            </div>
                         </div>
                     }
                 </div>
@@ -562,9 +610,13 @@
 
     // Quick Onboard State
     private bool _showQuickOnboard;
-    private bool _isStationMode;
+    private string _onboardMode = "Mobile"; // Mobile, Station, PIN
     private int _selectedUserId;
+    private string _targetStationName = "";
     private string _inviteLink = "";
+    private string _inviteToken = "";
+    private int _selectedStationId;
+    private List<TrustedDevice> _activeStations = new();
     private bool _generating;
     private bool _showQr;
     private bool _copied;
@@ -598,13 +650,15 @@
         var user = authState.User;
         if (user.Identity?.IsAuthenticated == true)
         {
+            _activeStations = await TrustService.GetAllActiveStationsAsync();
              var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
              if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid))
              {
                  _currentUserId = uid;
+                 _selectedUserId = uid; // Default selection
              }
+             await LoadUsers();
         }
-        await LoadUsers();
     }
 
     private async Task LoadUsers()
@@ -709,6 +763,12 @@
         if (!_showQuickOnboard) ResetInvite();
     }
 
+    private void SetOnboardMode(string mode)
+    {
+        _onboardMode = mode;
+        ResetInvite();
+    }
+
     private async Task GenerateInvite()
     {
         _generating = true;
@@ -719,17 +779,21 @@
             var userIdClaim = authState.User.FindFirst("UserId") ?? authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
             if (userIdClaim != null) int.TryParse(userIdClaim.Value, out currentUserId);
 
+            bool isStation = _onboardMode == "Station";
+            bool isPinOnly = _onboardMode == "PIN";
+
             // Final safeguard for station mode: Use the current admin as the initiator
-            int targetUserId = _isStationMode ? currentUserId : _selectedUserId;
+            int targetUserId = isStation ? currentUserId : _selectedUserId;
             if (targetUserId == 0) return;
 
             // Generate the modern DeviceInviteToken (24 hour expiry for mobile generated links)
-            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, _isStationMode ? "Station" : "Mobile", 24);
+            _inviteToken = await InviteService.CreateInviteTokenAsync(targetUserId, isStation ? _targetStationName : _onboardMode, 24, isPinOnly ? _selectedStationId : null);
             var baseUrl = await UrlHelper.GetBaseUrlAsync();
             
             // Fix: Use the correct activation route used by the system
-            var stationSfx = _isStationMode ? "&station=true" : "";
-            _inviteLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={token}{stationSfx}&native=true";
+            var stationSfx = isStation ? "&station=true" : "";
+            var pinSfx = isPinOnly ? "&pinOnly=true" : "";
+            _inviteLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={_inviteToken}{stationSfx}{pinSfx}&native=true";
             _showQr = true;
         }
         catch (Exception ex)
@@ -740,6 +804,12 @@
         {
             _generating = false;
         }
+    }
+
+    private async Task LaunchSetupNow()
+    {
+        if (string.IsNullOrEmpty(_inviteLink)) return;
+        await JS.InvokeVoidAsync("open", _inviteLink, "_blank");
     }
 
     private async Task CopyInvite()
@@ -754,7 +824,9 @@
     private void ResetInvite()
     {
         _inviteLink = "";
+        _inviteToken = "";
         _selectedUserId = 0;
+        _targetStationName = "";
         _showQr = false;
         _copied = false;
     }
@@ -768,7 +840,7 @@
 
         try
         {
-            await DeviceTrustService.ResetMobileSetupAsync(user.UserId);
+            await TrustService.ResetMobileSetupAsync(user.UserId);
             Toast.ShowSuccess($"Devices revoked for {user.Username}");
         }
         catch (Exception ex)

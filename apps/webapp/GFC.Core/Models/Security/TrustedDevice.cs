@@ -29,4 +29,7 @@ public class TrustedDevice
     public bool IsRevoked { get; set; }
     
     public bool IsStation { get; set; }
+    
+    [MaxLength(100)]
+    public string? StationName { get; set; }
 }

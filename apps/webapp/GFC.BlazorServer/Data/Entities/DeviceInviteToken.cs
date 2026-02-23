@@ -31,5 +31,7 @@ public class DeviceInviteToken
     [MaxLength(100)]
     public string? TargetDeviceName { get; set; }
 
+    public int? TargetStationId { get; set; }
+
     public bool IsValid => !IsRevoked && UsedAtUtc == null && ExpiresAtUtc > DateTime.UtcNow;
 }

@@ -1,6 +1,7 @@
 @page "/setup/wizard"
 @using GFC.BlazorServer.Services
 @using GFC.Core.Interfaces
+@using GFC.Core.Models.Security
 @using Microsoft.AspNetCore.Authorization
 @attribute [AllowAnonymous]
 @inject NavigationManager Navigation
@@ -12,15 +13,23 @@
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject IUserManagementService UserService
 @inject IUserConnectionService UserConnectionService
+@inject IDeviceInviteService InviteService
+@inject IDeviceTrustService TrustService
 @inject ILogger<DeviceWizard> Logger
 
 <div class="wizard-page">
     <div class="wizard-layout animate-fade-in">
-        <div class="wizard-glass-card shadow-premium" style="max-width: @(CurrentStep == 5 ? "600px" : "480px")">
+        <div class="wizard-glass-card shadow-premium" style="max-width: @(CurrentStep == 5 || string.IsNullOrEmpty(_manualToken) && !_isTokenValidated ? "600px" : "480px")">
             
-            @if (CurrentStep < 5)
+            @if (CurrentStep < 5 && (_isTokenValidated || !string.IsNullOrEmpty(Navigation.Uri.Contains("token=") ? "t" : "")))
             {
                 <div class="wizard-header mb-4">
+                    @if (_currentStation != null)
+                    {
+                        <div class="badge bg-primary-soft text-primary rounded-pill px-3 py-2 mb-3 x-small fw-bold">
+                            <i class="bi bi-display me-2"></i>Station: @(_currentStation.StationName ?? "Authorized Terminal")
+                        </div>
+                    }
                     <div class="modern-stepper">
                         <div class="step-blob @(CurrentStep >= 1 ? "active" : "")">
                             <span class="step-num">1</span>
@@ -49,7 +58,54 @@
             }
 
             <div class="wizard-content">
-                @if (CurrentStep == 1)
+                @if (string.IsNullOrEmpty(_manualToken) && !_isTokenValidated && !Navigation.Uri.Contains("token="))
+                {
+                    <div class="step-view text-center animate-slide-up">
+                        <div class="premium-orb bg-indigo-soft text-indigo mb-4 mx-auto">
+                            <i class="bi bi-shield-lock-fill"></i>
+                        </div>
+                        <h2 class="fw-bold mb-3">Welcome to GFC</h2>
+                        
+                        @if (_currentStation != null)
+                        {
+                            <p class="text-muted small mb-4 px-3">
+                                Please enter your 8-character <strong>Setup Code</strong> provided by your administrator to begin.
+                            </p>
+                            
+                            <div class="passcode-container mb-4">
+                                <input type="text" 
+                                       class="form-control-premium text-center fw-black text-uppercase letter-spacing-2" 
+                                       maxlength="8" 
+                                       placeholder="--------"
+                                       @bind="_manualToken" />
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(_passcodeError))
+                            {
+                                <div class="alert alert-danger-premium mb-4 text-start">
+                                    <i class="bi bi-exclamation-circle-fill me-2"></i>@_passcodeError
+                                </div>
+                            }
+
+                            <button class="btn btn-primary-premium w-100 py-3 fw-bold" @onclick="ValidateManualToken" disabled="@_isProcessing">
+                                @if (_isProcessing) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                Verify Code <i class="bi bi-chevron-right ms-2"></i>
+                            </button>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning-premium mb-4 text-start">
+                                <i class="bi bi-shield-slash-fill me-2"></i>
+                                <strong>Computer Not Authorized:</strong> Setup codes can only be used on trusted shared stations.
+                            </div>
+                            <p class="text-muted small mb-4">
+                                If you are on a personal device, please scan the QR code provided by your administrator.
+                            </p>
+                            <button class="btn btn-outline-secondary w-100 py-2 rounded-pill" @onclick="HandleLogout">Return to Login</button>
+                        }
+                    </div>
+                }
+                else if (CurrentStep == 1)
                 {
                     <div class="step-view text-center animate-slide-up">
                         <div class="premium-orb bg-indigo-soft text-indigo mb-4 mx-auto">
@@ -279,7 +335,9 @@
                         
                         <h2 class="fw-extrabold h3 mb-2">Systems Ready</h2>
                         <p class="text-muted small mb-5 px-4">
-                            Onboarding complete. Your account and device are now fully integrated with the GFC secure perimeter.
+                            @(_isPinOnly 
+                                ? "Profile security updated. Your system access PIN is now active and ready for use on any collective station." 
+                                : "Onboarding complete. Your account and device are now fully integrated with the GFC secure perimeter.")
                         </p>
 
                         <a href="@(UserConnectionService.IsMobile ? "/mobile" : "/")" class="btn btn-primary-premium btn-lg w-100 py-3 fw-bold shadow-premium-lg">
@@ -630,6 +688,11 @@
     private string? _notifError;
     private string? _vapidKey;
     private DotNetObjectReference<DeviceWizard>? _objRef;
+    private bool _isPinOnly = false;
+    private string? _manualToken;
+    private bool _isTokenValidated = false;
+    private TrustedDevice? _currentStation;
+    private DeviceInviteToken? _invite;
 
     // Health Check Props
     private class PwaCheck { 
@@ -793,7 +856,7 @@
     };
 
     private string CurrentStepSubtitle => CurrentStep switch {
-        1 => "Set your 6-digit login PIN",
+        1 => _isPinOnly ? "Establish your system identity PIN" : "Set your 6-digit login PIN",
         2 => "Link device biometrics for speed",
         3 => UserConnectionService.IsMobile ? "Install GFC App to your device" : "Bookmark GFC for instant access",
         4 => "Stay updated with real-time push",
@@ -802,6 +865,17 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Check for station identity immediately
+        var token = await JS.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+        if (!string.IsNullOrEmpty(token))
+        {
+            var device = await TrustService.GetDeviceByTokenAsync(token);
+            if (device != null && device.IsStation)
+            {
+                _currentStation = device;
+            }
+        }
+
         // Pre-fetch VAPID key for native binding
         var settings = await SystemSettingsService.GetAsync();
         _vapidKey = settings.VapidPublicKey;
@@ -827,7 +901,26 @@
             // Capture current params to pass through
             var uri = new Uri(Navigation.Uri);
             var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-            var t = query["t"];
+            var t = query["token"];
+            _isPinOnly = query["pinOnly"]?.ToLower() == "true";
+            
+            if (string.IsNullOrEmpty(t))
+            {
+                Logger.LogInformation("No token found in URL. Waiting for manual entry.");
+                return;
+            }
+
+            // [SECURITY] Validate token here to check station binding early
+            _invite = await InviteService.ValidateTokenAsync(t);
+            if (_invite != null && _invite.TargetStationId.HasValue)
+            {
+                if (_currentStation == null || _currentStation.Id != _invite.TargetStationId.Value)
+                {
+                    _passcodeError = "This setup link is restricted to a different station.";
+                    return;
+                }
+            }
+            
             var pendingUrl = $"/setup/pending-auth?t={t}";
 
             // Try refresh with a strict 3-second timeout to avoid 2-minute hangs
@@ -860,27 +953,23 @@
         
         if (int.TryParse(userIdStr, out int userId))
         {
+            _isTokenValidated = true;
             // [FIX] Force fresh fetch from DB to avoid any scoped/cached state issues
             var user = await UserService.GetUserAsync(userId);
             if (user != null)
             {
-                var hasStalePasscode = !string.IsNullOrWhiteSpace(user.PassCodeHash);
-                
-                Logger.LogInformation("WIZARD DIAGNOSTIC: User={Username} (ID={Id}), HasPasscode={HasPass}, HashLen={HashLen}", 
-                    user.Username, userId, hasStalePasscode, user.PassCodeHash?.Length ?? 0);
+                // Read pinOnly if not already set (in case of redirect)
+                if (!_isPinOnly)
+                {
+                    var uri = new Uri(Navigation.Uri);
+                    var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                    _isPinOnly = query["pinOnly"]?.ToLower() == "true";
+                }
 
-                // [FIX] Source of Truth: If a passcode exists in the DB, skip Step 1.
-                // We don't force Step 1 based on URL params anymore, respecting the user's previously set security.
-                if (hasStalePasscode)
-                {
-                    CurrentStep = 2;
-                    Logger.LogInformation("Existing passcode detected for user {UserId}. Skipping Step 1.", userId);
-                }
-                else
-                {
-                    CurrentStep = 1;
-                    Logger.LogInformation("No passcode detected for user {UserId}. Starting at Step 1.", userId);
-                }
+                // If user doesn't have a passcode yet, or if they are in PIN-only setup mode, start at Step 1
+                // [MODIFIED] Force Step 1 (PIN Setup) as required by the onboarding flow
+                CurrentStep = 1;
+                Logger.LogInformation("Starting at Step 1 (PIN Setup). Mode: {Mode}", _isPinOnly ? "PIN ONLY" : "FULL DEVICE");
                 
                 // [FIX] Force immediate draw for mobile
                 StateHasChanged(); 
@@ -974,7 +1063,11 @@
         }
 
         // Branching for Laptop vs Mobile
-        if (CurrentStep == 3 && !UserConnectionService.IsMobile)
+        if (_isPinOnly && CurrentStep == 1)
+        {
+            CurrentStep = 5; // Finish immediately after PIN setup
+        }
+        else if (CurrentStep == 3 && !UserConnectionService.IsMobile)
         {
             CurrentStep = 5; // Skip Push Notifications (Step 4) on laptops
         }
@@ -1119,6 +1212,32 @@
         catch { }
     }
 
+    private async Task ValidateManualToken()
+    {
+        if (string.IsNullOrWhiteSpace(_manualToken) || _manualToken.Length < 8)
+        {
+            _passcodeError = "Please enter the full 8-character code.";
+            return;
+        }
+
+        _isProcessing = true;
+        _passcodeError = null;
+        StateHasChanged();
+
+        try
+        {
+            // We just redirect to the same page with the token in the URL 
+            // This is the cleanest way to trigger all the existing auth/pending/wizard logic
+            var code = _manualToken.Trim();
+            Navigation.NavigateTo($"/setup/device?token={code}", true);
+        }
+        catch (Exception ex)
+        {
+            _passcodeError = "Invalid code: " + ex.Message;
+            _isProcessing = false;
+        }
+    }
+
     private async Task TriggerPwaInstall()
     {
         _installBlocked = false;
@@ -1153,6 +1272,12 @@
             return "Mobile";
         }
         return "Laptop/Desktop";
+    }
+
+    private async Task HandleLogout()
+    {
+        await AuthStateProvider.LogoutAsync();
+        Navigation.NavigateTo("/login", true);
     }
 
     private void FinishWizard()
