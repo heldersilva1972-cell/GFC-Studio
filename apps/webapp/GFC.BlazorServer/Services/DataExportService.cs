@@ -84,6 +84,10 @@ namespace GFC.BlazorServer.Services
         {
             var worksheet = package.Workbook.Worksheets.Add("Members");
             var members = _memberRepository.GetAllMembers();
+            
+            var currentYear = DateTime.Today.Year;
+            var currentYearDues = _duesRepository.GetDuesForYear(currentYear);
+            var paidMemberIds = currentYearDues.Where(d => d.PaymentType != "UNPAID").Select(d => d.MemberID).ToHashSet();
 
             // Headers
             worksheet.Cells[1, 1].Value = "Member ID";
@@ -104,9 +108,10 @@ namespace GFC.BlazorServer.Services
             worksheet.Cells[1, 16].Value = "Date of Birth";
             worksheet.Cells[1, 17].Value = "Non-Portuguese Origin";
             worksheet.Cells[1, 18].Value = "Notes";
+            worksheet.Cells[1, 19].Value = "Current Year Paid";
 
             // Style headers
-            using (var range = worksheet.Cells[1, 1, 1, 18])
+            using (var range = worksheet.Cells[1, 1, 1, 19])
             {
                 range.Style.Font.Bold = true;
                 range.Style.Fill.PatternType = ExcelFillStyle.Solid;
@@ -136,6 +141,7 @@ namespace GFC.BlazorServer.Services
                 worksheet.Cells[row, 16].Value = member.DateOfBirth?.ToString("yyyy-MM-dd");
                 worksheet.Cells[row, 17].Value = member.IsNonPortugueseOrigin ? "Yes" : "No";
                 worksheet.Cells[row, 18].Value = member.Notes;
+                worksheet.Cells[row, 19].Value = paidMemberIds.Contains(member.MemberID) ? "Yes" : "No";
                 row++;
             }
 
@@ -194,18 +200,22 @@ namespace GFC.BlazorServer.Services
         private void AddKeyCardsSheet(ExcelPackage package)
         {
             var worksheet = package.Workbook.Worksheets.Add("Key Cards");
-            var keyCards = GetAllKeyCards();
+            var keyCards = _keyCardRepository.GetAll();
+
+            var members = _memberRepository.GetAllMembers();
+            var memberLookup = members.ToDictionary(m => m.MemberID, m => $"{m.FirstName} {m.LastName}".Trim());
 
             // Headers
             worksheet.Cells[1, 1].Value = "Key Card ID";
             worksheet.Cells[1, 2].Value = "Member ID";
-            worksheet.Cells[1, 3].Value = "Card Number";
-            worksheet.Cells[1, 4].Value = "Is Active";
-            worksheet.Cells[1, 5].Value = "Created Date";
-            worksheet.Cells[1, 6].Value = "Notes";
+            worksheet.Cells[1, 3].Value = "Member Name";
+            worksheet.Cells[1, 4].Value = "Card Number";
+            worksheet.Cells[1, 5].Value = "Is Active";
+            worksheet.Cells[1, 6].Value = "Created Date";
+            worksheet.Cells[1, 7].Value = "Notes";
 
             // Style headers
-            using (var range = worksheet.Cells[1, 1, 1, 6])
+            using (var range = worksheet.Cells[1, 1, 1, 7])
             {
                 range.Style.Font.Bold = true;
                 range.Style.Fill.PatternType = ExcelFillStyle.Solid;
@@ -219,10 +229,11 @@ namespace GFC.BlazorServer.Services
             {
                 worksheet.Cells[row, 1].Value = card.KeyCardId;
                 worksheet.Cells[row, 2].Value = card.MemberId;
-                worksheet.Cells[row, 3].Value = card.CardNumber;
-                worksheet.Cells[row, 4].Value = card.IsActive ? "Yes" : "No";
-                worksheet.Cells[row, 5].Value = card.CreatedDate.ToString("yyyy-MM-dd");
-                worksheet.Cells[row, 6].Value = card.Notes;
+                worksheet.Cells[row, 3].Value = memberLookup.TryGetValue(card.MemberId, out var memberName) ? memberName : $"Unknown ({card.MemberId})";
+                worksheet.Cells[row, 4].Value = card.CardNumber;
+                worksheet.Cells[row, 5].Value = card.IsActive ? "Yes" : "No";
+                worksheet.Cells[row, 6].Value = card.CreatedDate > DateTime.MinValue ? card.CreatedDate.ToString("yyyy-MM-dd") : string.Empty;
+                worksheet.Cells[row, 7].Value = card.Notes;
                 row++;
             }
 
@@ -488,40 +499,7 @@ namespace GFC.BlazorServer.Services
             worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
         }
 
-        private List<KeyCard> GetAllKeyCards()
-        {
-            var keyCards = new List<KeyCard>();
-            using var connection = Db.GetConnection();
-            connection.Open();
 
-            const string sql = @"
-                SELECT KeyCardId, MemberID, CardNumber, Notes, 
-                       CASE WHEN EXISTS (
-                           SELECT 1 FROM MemberKeycardAssignments 
-                           WHERE KeyCardId = kc.KeyCardId AND ToDate IS NULL
-                       ) THEN 1 ELSE 0 END AS IsActive,
-                       (SELECT MIN(FromDate) FROM MemberKeycardAssignments WHERE KeyCardId = kc.KeyCardId) AS CreatedDate
-                FROM dbo.KeyCards kc
-                ORDER BY KeyCardId";
-
-            using var command = new SqlCommand(sql, connection);
-            using var reader = command.ExecuteReader();
-
-            while (reader.Read())
-            {
-                keyCards.Add(new KeyCard
-                {
-                    KeyCardId = (int)reader["KeyCardId"],
-                    MemberId = (int)reader["MemberID"],
-                    CardNumber = reader["CardNumber"]?.ToString() ?? string.Empty,
-                    IsActive = reader["IsActive"] is DBNull ? false : (int)reader["IsActive"] == 1,
-                    Notes = reader["Notes"] as string,
-                    CreatedDate = reader["CreatedDate"] is DBNull ? DateTime.MinValue : (DateTime)reader["CreatedDate"]
-                });
-            }
-
-            return keyCards;
-        }
         public async Task<ImportResult> ImportFromExcelAsync(Stream fileStream)
         {
             return await Task.Run(() =>
