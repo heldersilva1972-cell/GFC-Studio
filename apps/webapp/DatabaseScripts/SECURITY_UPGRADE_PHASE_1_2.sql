@@ -9,6 +9,7 @@ BEGIN
         [UsedAtUtc] DATETIME2 NULL,
         [IsRevoked] BIT NOT NULL DEFAULT 0,
         [TargetDeviceName] NVARCHAR(100) NULL, -- Optional label like "John's iPhone"
+        [TargetStationId] INT NULL,
         CONSTRAINT [FK_DeviceInviteTokens_AppUsers] FOREIGN KEY ([UserId]) REFERENCES [dbo].[AppUsers]([UserId])
     );
 

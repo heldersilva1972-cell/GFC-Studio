@@ -109,6 +109,11 @@
                                     <span class="badge @(item.Satisfied ? (item.IsWaived ? "bg-info" : "bg-success") : "bg-warning")">
                                         @(item.Satisfied ? (item.IsWaived ? "Waived" : "Paid") : "Unpaid")
                                     </span>
+                                    @if(item.AdvanceYearsPaid?.Any() == true) {
+                                       <span class="badge bg-light text-dark border">
+                                           (+ @string.Join(", ", item.AdvanceYearsPaid.Select(y => $"'{y.ToString().Substring(2)}")))
+                                       </span>
+                                    }
                                     
                                     @if (!item.Satisfied && !item.IsWaived && item.MonthsOverdue > 0)
                                     {
@@ -134,6 +139,12 @@
                             {
                                 <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="() => OpenPaymentModal(item)">
                                     Pay
+                                </button>
+                            }
+                            else if (item.Satisfied && !item.IsWaived) 
+                            {
+                                <button class="btn btn-outline-success btn-sm rounded-pill px-2" @onclick="() => OpenAdvancePaymentModal(item)">
+                                    Advance
                                 </button>
                             }
                             else if (CanSetInactive(item))
@@ -181,19 +192,28 @@
             </div>
 
             <div class="row g-2">
-                <div class="col-7">
+                <div class="col-12">
                     <label class="form-label fw-bold">Amount</label>
                     <div class="input-group">
                         <span class="input-group-text">$</span>
                         <input type="number" step="0.01" inputmode="decimal" class="form-control fw-bold" @bind="_paymentForm.Amount" placeholder="0.00" />
                     </div>
                 </div>
-                <div class="col-5">
-                    <label class="form-label fw-bold">Year</label>
+                <div class="col-6">
+                    <label class="form-label fw-bold">Start Year</label>
                     <select class="form-select" @bind="_paymentForm.Year">
-                        @for (int y = DateTime.Now.Year - 1; y <= DateTime.Now.Year + 1; y++)
+                        @for (int y = DateTime.Now.Year - 1; y <= DateTime.Now.Year + 5; y++)
                         {
                             <option value="@y">@y</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6">
+                    <label class="form-label fw-bold">Yrs to Pay</label>
+                    <select class="form-select text-primary fw-bold" @bind="_paymentForm.NumberOfYears">
+                        @for (int i = 1; i <= 10; i++)
+                        {
+                            <option value="@i">@i</option>
                         }
                     </select>
                 </div>
@@ -452,6 +472,7 @@
         public string PaymentType { get; set; } = "CASH";
         public string? CheckNumber { get; set; }
         public int Year { get; set; }
+        public int NumberOfYears { get; set; } = 1;
         public string? Notes { get; set; }
     }
 
@@ -537,6 +558,21 @@
         {
             Amount = null,
             Year = _currentYear,
+            NumberOfYears = 1,
+            PaymentType = "CASH",
+            PaidDate = DateTime.Today
+        };
+        _showPaymentModal = true;
+    }
+
+    private void OpenAdvancePaymentModal(DuesListItemDto item)
+    {
+        _paymentTarget = item;
+        _paymentForm = new PaymentFormModel
+        {
+            Amount = null,
+            Year = _currentYear + 1,
+            NumberOfYears = 1,
             PaymentType = "CASH",
             PaidDate = DateTime.Today
         };
@@ -566,27 +602,37 @@
         }
 
         // MIRRORING Dues.razor logic for checks
-        var existingPayment = await Task.Run(() => DuesRepo.GetDuesForMemberYear(_paymentTarget.MemberId, _paymentForm.Year));
+        var selectedYears = Enumerable.Range(_paymentForm.Year, _paymentForm.NumberOfYears).ToList();
+        var existingPaymentsCount = 0;
+        foreach (var y in selectedYears)
+        {
+            var p = await Task.Run(() => DuesRepo.GetDuesForMemberYear(_paymentTarget.MemberId, y));
+            if (p != null) existingPaymentsCount++;
+        }
         
         bool isLifeMember = _paymentTarget.Status == MemberStatus.Life;
         bool isBoardMember = _paymentTarget.IsBoardMember;
         var waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId));
-        bool hasManualWaiver = waivers.Any(w => _paymentForm.Year >= w.StartYear && _paymentForm.Year <= w.EndYear);
-        bool hasWaivedPayment = existingPayment?.PaymentType?.Equals("WAIVED", StringComparison.OrdinalIgnoreCase) == true;
+        bool hasManualWaiver = waivers.Any(w => selectedYears.Any(y => y >= w.StartYear && y <= w.EndYear));
+        bool hasWaivedPayment = false;
+        foreach (var y in selectedYears)
+        {
+            var p = await Task.Run(() => DuesRepo.GetDuesForMemberYear(_paymentTarget.MemberId, y));
+            if (p?.PaymentType?.Equals("WAIVED", StringComparison.OrdinalIgnoreCase) == true) hasWaivedPayment = true;
+        }
         
         bool isWaived = isLifeMember || isBoardMember || hasManualWaiver || hasWaivedPayment;
 
         if (isWaived)
         {
-             // Confirm removal of waiver
              var confirm = await JSRuntime.InvokeAsync<bool>("confirm", 
-                $"WARNING: Member has active waiver/exemption. Recording a payment will REMOVE the waiver. Proceed?");
+                $"WARNING: Member has active waiver/exemption. Recording a payment will REMOVE the waiver(s). Proceed?");
              if (!confirm) return;
         }
-        else if (existingPayment != null)
+        else if (existingPaymentsCount > 0)
         {
              var confirm = await JSRuntime.InvokeAsync<bool>("confirm", 
-                $"WARNING: A payment already exists for this year. Replace it?");
+                $"WARNING: Payment(s) already exist for the selected year range. Replace?");
              if (!confirm) return;
         }
 
@@ -602,33 +648,39 @@
         {
             var currentUser = AuthStateProvider.GetCurrentUser();
             
-            // 1. Record via Service (Mirroring Dues.razor line 1653)
+            // 1. Record via Service (Mirroring Dues.razor)
             string finalNotes = _paymentForm.Notes ?? "Mobile Entry";
             if (_paymentForm.PaymentType == "CHECK" && !string.IsNullOrWhiteSpace(_paymentForm.CheckNumber))
             {
                 finalNotes += $" (Check #{_paymentForm.CheckNumber})";
             }
 
-            await DuesServiceEF.RecordPaymentAsync(
-                _paymentTarget.MemberId,
-                _paymentForm.Year,
-                _paymentForm.Amount.Value,
-                _paymentForm.PaidDate,
-                finalNotes,
-                _paymentForm.PaymentType,
-                currentUser?.UserId);
+            decimal yearlyAmount = (_paymentForm.Amount ?? 0m) / _paymentForm.NumberOfYears;
 
-            // 2. Auto-clear waiver (Mirroring Dues.razor line 1662)
-            try 
+            for (int i = 0; i < _paymentForm.NumberOfYears; i++)
             {
-               var waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId));
-               var activeWaiver = waivers.FirstOrDefault(w => _paymentForm.Year >= w.StartYear && _paymentForm.Year <= w.EndYear);
-               if (activeWaiver != null)
-               {
-                   await Task.Run(() => DuesWaiverRepository.DeleteWaiver(activeWaiver.WaiverId));
-               }
+                int currentYear = _paymentForm.Year + i;
+                await DuesServiceEF.RecordPaymentAsync(
+                    _paymentTarget.MemberId,
+                    currentYear,
+                    yearlyAmount,
+                    _paymentForm.PaidDate,
+                    finalNotes,
+                    _paymentForm.PaymentType,
+                    currentUser?.UserId);
+
+                // 2. Auto-clear waiver
+                try 
+                {
+                   var waivers = await Task.Run(() => DuesWaiverRepository.GetWaiversForMember(_paymentTarget.MemberId));
+                   var activeWaiver = waivers.FirstOrDefault(w => currentYear >= w.StartYear && currentYear <= w.EndYear);
+                   if (activeWaiver != null)
+                   {
+                       await Task.Run(() => DuesWaiverRepository.DeleteWaiver(activeWaiver.WaiverId));
+                   }
+                }
+                catch { /* Secondary fail */ }
             }
-            catch { /* Secondary fail */ }
 
             // 3. Setup success modal (Mirroring Dues.razor line 1689)
             _lastPaymentMember = _paymentTarget.FullName;

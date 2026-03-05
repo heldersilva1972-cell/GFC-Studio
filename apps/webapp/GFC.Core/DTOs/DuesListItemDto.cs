@@ -18,4 +18,5 @@ public record DuesListItemDto(
     string Notes,
     bool IsBoardMember,
     bool IsInGracePeriod = false,
-    bool IsNonPortugueseOrigin = false);
+    bool IsNonPortugueseOrigin = false,
+    System.Collections.Generic.List<int>? AdvanceYearsPaid = null);

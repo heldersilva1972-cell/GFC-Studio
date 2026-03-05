@@ -94,6 +94,18 @@ public class DuesInsightService : IDuesInsightService
                 else waiverReason = waiverLookup[member.MemberID].FirstOrDefault()?.Reason ?? "Waived";
             }
 
+            List<int>? advanceYears = null;
+            if (isPaid && context.DuesByMember.TryGetValue(member.MemberID, out var allMemberDues))
+            {
+                advanceYears = allMemberDues
+                    .Where(d => d.Year > year && d.PaidDate.HasValue && !string.Equals(d.PaymentType, "WAIVED", StringComparison.OrdinalIgnoreCase))
+                    .Select(d => d.Year)
+                    .OrderBy(y => y)
+                    .ToList();
+                
+                if (advanceYears.Count == 0) advanceYears = null;
+            }
+
             list.Add(new DuesListItemDto(
                 member.MemberID,
                 FormatMemberName(member),
@@ -108,7 +120,9 @@ public class DuesInsightService : IDuesInsightService
                 waiverReason,
                 record?.Notes ?? string.Empty,
                 isBoard,
-                isInGracePeriod));
+                isInGracePeriod,
+                false, // IsNonPortugueseOrigin (was missing explicit mapping in some places but defaulting false is fine, adding false to maintain position before new arg)
+                advanceYears));
         }
 
         return list.OrderBy(i => i.FullName).ToList();

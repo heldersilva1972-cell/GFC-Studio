@@ -9,6 +9,7 @@
 @inject ISystemSettingsService SettingsService
 @inject INotificationService NotificationService
 @inject IBlazorSystemSettingsService BlazorSettingsService
+@inject CustomAuthenticationStateProvider AuthStateProvider
 @implements IDisposable
 
 <PageTitle>Device Setup - GFC System</PageTitle>
@@ -70,9 +71,21 @@
                 <p>Your device has been successfully registered and is now authorized to see the login page.</p>
                 
                 <div class="next-steps mt-4">
-                    <button class="btn btn-primary w-100 py-3 mb-3 fw-bold shadow-sm" @onclick="GoToLogin">
-                        Continue to System Login <i class="bi bi-arrow-right ms-2"></i>
+                    <button class="btn btn-primary w-100 py-3 mb-3 fw-bold shadow-sm" @onclick="GoToLogin" disabled="@_isNavigating">
+                        @if (_isNavigating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Loading Setup...</span>
+                        }
+                        else
+                        {
+                            <span>Continue to System Login <i class="bi bi-arrow-right ms-2"></i></span>
+                        }
                     </button>
+                    @if (!string.IsNullOrEmpty(_error))
+                    {
+                        <div class="alert alert-danger mb-3 p-2 small">@_error</div>
+                    }
                     
                     <div class="pwa-upsell mt-4 p-4 rounded-4 border border-primary border-opacity-25 bg-primary bg-opacity-10 text-start shadow-sm">
                         <div class="d-flex align-items-center mb-3">
@@ -473,10 +486,34 @@
         await ProcessToken();
     }
 
-    private void GoToLogin()
+    private bool _isNavigating = false;
+
+    private async Task GoToLogin()
     {
-        // [FIX] Pass 'setup=enroll' so the Login page knows to redirect to the Device Wizard after login.
-        // This ensures the user is prompted to set up a passcode and biometrics.
-        NavigationManager.NavigateTo("/login?setup=enroll", true);
+        if (_isNavigating) return;
+        _isNavigating = true;
+        _error = null;
+        StateHasChanged();
+
+        try 
+        {
+            if (_onboardedUserId > 0)
+            {
+                // Force log them in so they can complete the wizard seamlessly.
+                // This builds the Identity inside the current Blazor Circuit so we don't drop it.
+                await AuthStateProvider.LoginWithUserAsync(_onboardedUserId);
+            }
+
+            // [CRITICAL FIX] Send them directly to the wizard using soft navigation (forceLoad: false).
+            // A hard reload (forceLoad: true) would drop the Blazor Circuit. On mobile/embedded browsers (QR scanners), 
+            // cookies can be delayed or blocked, causing auto-login to fail and dumping the user on the Login UI.
+            NavigationManager.NavigateTo("/setup/wizard?setup=enroll", false);
+        }
+        catch (Exception ex)
+        {
+            _error = "Navigation error: " + ex.Message;
+            _isNavigating = false;
+            StateHasChanged();
+        }
     }
 }

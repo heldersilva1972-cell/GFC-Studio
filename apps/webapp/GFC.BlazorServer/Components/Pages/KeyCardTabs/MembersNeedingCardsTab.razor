@@ -180,6 +180,10 @@
             var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
             var graceDate = settings?.GraceEndDate?.Date;
 
+            // 3. Fetch all cards to identify members who already have one
+            var cards = await Task.Run(() => KeyCardRepository.GetAll());
+            var cardMemberIds = cards.Select(c => c.MemberId).Distinct().ToHashSet();
+
             _membersNeedingCards = new List<int>();
             _memberLookup = new Dictionary<int, DuesListItemDto>();
 
@@ -191,10 +195,10 @@
                     Logger.LogWarning($"Member 3 (Fialho): Status={row.MemberStatus}, PaymentType={row.DuesPaymentType}, AssignmentId={row.AssignmentId}, KeyCardId={row.KeyCardId}");
                 }
                 
-                // Skip logic: If they have an assignment (AssignmentId is not null), they don't need a card
-                if (row.AssignmentId.HasValue)
+                // Skip logic: If they already have a keycard assigned to them
+                if (cardMemberIds.Contains(row.MemberId))
                 {
-                    if (row.MemberId == 3) Logger.LogWarning($"Member 3 SKIPPED: Has AssignmentId={row.AssignmentId}");
+                    if (row.MemberId == 3) Logger.LogWarning($"Member 3 SKIPPED: Already has a card.");
                     continue;
                 }
 
@@ -236,7 +240,8 @@
                         string.Empty,
                         row.IsDirectorCurrent, // IsBoardMember
                         eligibility.GracePeriodActive,
-                        row.IsNonPortugueseOrigin
+                        row.IsNonPortugueseOrigin,
+                        null // AdvanceYearsPaid
                     );
                     
                     if (row.MemberId == 3) Logger.LogWarning($"Member 3 ADDED to needing cards list");

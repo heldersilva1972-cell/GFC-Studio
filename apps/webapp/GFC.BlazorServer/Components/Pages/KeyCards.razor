@@ -1659,6 +1659,20 @@
             KeyCard? newCard;
             if (_isReplacementMode)
             {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User.Identity?.Name ?? "Unknown";
+
+                // SAFETY: Deactivate and revoke the OLD card from the controller BEFORE we overwrite the database record
+                try 
+                {
+                    await KeyCardLifecycleService.DeactivateCardAsync(_replacingCardId, "Card Replaced", $"Replaced by new card #{_scannedCardNumber}", user);
+                    Logger.LogInformation("Successfully queued deactivation for old card before replacing it.");
+                }
+                catch (Exception syncEx)
+                {
+                    Logger.LogWarning(syncEx, "Physical revocation queueing failed during replacement for card {CardId}. Proceeding with DB replacement.", _replacingCardId);
+                }
+
                 newCard = await Task.Run(() => 
                     KeyCardRepository.ReplaceCard(_selectedMemberId, _scannedCardNumber, _assignNotes, _selectedCardType));
             }
