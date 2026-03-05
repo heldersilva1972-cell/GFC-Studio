@@ -9,5 +9,7 @@ public record LifeEligibilityDto(
     int Age,
     DateTime? RegularSince,
     DateTime? EligibilityDate,
-    bool EligibleNow);
+    bool EligibleNow,
+    bool CurrentYearPaid,
+    int? MonthsUnpaid);
 

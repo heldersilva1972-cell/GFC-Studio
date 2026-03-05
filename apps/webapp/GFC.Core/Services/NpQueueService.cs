@@ -14,12 +14,14 @@ public class NpQueueService : INpQueueService
     private readonly IMemberRepository _memberRepository;
     private readonly MemberService _memberService;
     private readonly IAuditLogger _auditLogger;
+    private readonly IDuesRepository _duesRepository;
 
-    public NpQueueService(IMemberRepository memberRepository, MemberService memberService, IAuditLogger auditLogger)
+    public NpQueueService(IMemberRepository memberRepository, MemberService memberService, IAuditLogger auditLogger, IDuesRepository duesRepository)
     {
         _memberRepository = memberRepository ?? throw new ArgumentNullException(nameof(memberRepository));
         _memberService = memberService ?? throw new ArgumentNullException(nameof(memberService));
         _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
+        _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
     }
 
     public Task<IReadOnlyList<NpQueueEntryDto>> GetQueueAsync(CancellationToken cancellationToken = default)
@@ -27,13 +29,44 @@ public class NpQueueService : INpQueueService
         return Task.Run(() =>
         {
             var queue = _memberRepository.GetNonPortugueseGuestQueue();
+
+            var currentYear = DateTime.Today.Year;
+            var currentYearDues = _duesRepository.GetDuesForYear(currentYear);
+            var paidMemberIds = currentYearDues.Where(d => d.PaymentType != "UNPAID").Select(d => d.MemberID).ToHashSet();
+
+            var allDues = _duesRepository.GetAllDues();
+            var lastPaidDictionary = allDues
+                .Where(d => d.PaymentType != "UNPAID")
+                .GroupBy(d => d.MemberID)
+                .ToDictionary(g => g.Key, g => g.Max(d => d.Year));
+
             return (IReadOnlyList<NpQueueEntryDto>)queue
-                .Select(item => new NpQueueEntryDto(
-                    item.Position,
-                    item.MemberID,
-                    BuildFullName(item.FirstName, item.MiddleName, item.LastName),
-                    item.AcceptedDate,
-                    item.Position == 1))
+                .Select(item => 
+                {
+                    var isPaid = paidMemberIds.Contains(item.MemberID);
+                    int? monthsUnpaid = null;
+
+                    if (!isPaid)
+                    {
+                        if (lastPaidDictionary.TryGetValue(item.MemberID, out var lastPaidYear))
+                        {
+                            monthsUnpaid = Math.Max(0, (DateTime.Today.Year - lastPaidYear - 1) * 12 + DateTime.Today.Month);
+                        }
+                        else if (item.AcceptedDate.HasValue)
+                        {
+                            monthsUnpaid = Math.Max(0, (DateTime.Today.Year - item.AcceptedDate.Value.Year) * 12 + DateTime.Today.Month - item.AcceptedDate.Value.Month);
+                        }
+                    }
+
+                    return new NpQueueEntryDto(
+                        item.Position,
+                        item.MemberID,
+                        BuildFullName(item.FirstName, item.MiddleName, item.LastName),
+                        item.AcceptedDate,
+                        item.Position == 1,
+                        isPaid,
+                        monthsUnpaid);
+                })
                 .ToList();
         }, cancellationToken);
     }

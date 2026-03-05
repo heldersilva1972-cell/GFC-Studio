@@ -8,5 +8,7 @@ public record NpQueueEntryDto(
     int MemberId,
     string FullName,
     DateTime? ApplicationDate,
-    bool CanPromote);
+    bool CanPromote,
+    bool CurrentYearPaid,
+    int? MonthsUnpaid);
 
