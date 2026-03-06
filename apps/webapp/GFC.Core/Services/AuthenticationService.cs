@@ -453,24 +453,32 @@ public class AuthenticationService : IAuthenticationService
     {
         var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
 
-        // [AUTO-CLEANUP] Find existing sessions for this user from the same device
+        // [AUTO-CLEANUP] Smart Platform Rotation in AuthenticationService
         var existingDevices = await _trustedDeviceRepository.GetActiveDevicesForUserAsync(userId);
+        
+        // Use the same smart platform detection as DeviceTrustService
+        var appPlatform = userAgent?.Contains("Android") == true ? "Android" : 
+                         userAgent?.Contains("iPhone") == true ? "iPhone" : "Browser";
+
         var duplicates = existingDevices.Where(d => 
-            d.IpAddress == ipAddress && 
-            d.UserAgent == userAgent && 
-            !d.IsStation // Don't auto-revoke specialized stations via regular login
+            !d.IsStation && // Don't auto-revoke stations
+            (
+                (appPlatform == "Android" && d.UserAgent?.Contains("Android") == true) ||
+                (appPlatform == "iPhone" && d.UserAgent?.Contains("iPhone") == true) ||
+                (appPlatform == "Browser" && d.UserAgent?.Contains("Android") != true && d.UserAgent?.Contains("iPhone") != true)
+            )
         ).ToList();
 
-        foreach (var device in duplicates)
+        foreach (var dev in duplicates)
         {
-            device.IsRevoked = true;
-            await _trustedDeviceRepository.UpdateAsync(device);
+            dev.IsRevoked = true;
+            await _trustedDeviceRepository.UpdateAsync(dev);
         }
         
         if (duplicates.Any())
         {
-            _logger.LogInformation("Auto-cleanup: Revoked {Count} duplicate sessions for user {UserId} (Device match: {IP})", 
-                duplicates.Count, userId, ipAddress ?? "unknown");
+            _logger.LogInformation("Auto-cleanup (AuthService): Revoked {Count} stale {Type} sessions for user {UserId}.", 
+                duplicates.Count, appPlatform, userId);
         }
 
         var token = GenerateSecureToken();

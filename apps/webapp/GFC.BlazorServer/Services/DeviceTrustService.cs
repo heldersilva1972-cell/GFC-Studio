@@ -72,22 +72,32 @@ public class DeviceTrustService : IDeviceTrustService
 
             await using var context = await _contextFactory.CreateDbContextAsync();
             
-            /* 
-            // Enforce Single Session Policy: Revoke all existing active tokens for this user
-            // This ensures a user can only have one trusted device active at a time to prevent session proliferation.
+            // [FIXED] Smart Token Rotation: Revoke existing active tokens of the same type (e.g. Android)
+            // This prevents cluttering the "Cast Activity" Feed with multiple entries for the same phone.
             var existingTokens = await context.TrustedDevices
                 .Where(d => d.UserId == userId && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow)
                 .ToListAsync();
 
             if (existingTokens.Any())
             {
-                foreach (var existingToken in existingTokens)
+                var platform = userAgent?.Contains("Android") == true ? "Android" : 
+                             userAgent?.Contains("iPhone") == true ? "iPhone" : "Browser";
+
+                var matches = existingTokens.Where(t => 
+                    (platform == "Android" && t.UserAgent.Contains("Android")) ||
+                    (platform == "iPhone" && t.UserAgent.Contains("iPhone")) ||
+                    (platform == "Browser" && !t.UserAgent.Contains("Android") && !t.UserAgent.Contains("iPhone"))
+                ).ToList();
+
+                foreach (var oldToken in matches)
                 {
-                    existingToken.IsRevoked = true;
+                    oldToken.IsRevoked = true;
                 }
-                _logger.LogInformation("Revoked {Count} existing sessions for user {UserId} to enforce single-session policy.", existingTokens.Count, userId);
+                
+                if (matches.Any()) {
+                    _logger.LogInformation("Auto-cleanup: Revoked {Count} old {Type} sessions for user {UserId}.", matches.Count, platform, userId);
+                }
             }
-            */
 
 
             
