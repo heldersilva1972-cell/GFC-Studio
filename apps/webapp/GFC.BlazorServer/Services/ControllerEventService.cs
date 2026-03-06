@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.SignalR;
 using GFC.BlazorServer.Hubs;
 
+using System.Collections.Concurrent;
+
 namespace GFC.BlazorServer.Services;
 
 /// <summary>
@@ -13,6 +15,8 @@ namespace GFC.BlazorServer.Services;
 /// </summary>
 public class ControllerEventService
 {
+    private static readonly ConcurrentDictionary<uint, SemaphoreSlim> _syncLocks = new();
+
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<ControllerEventService> _logger;
     private readonly IHubContext<ControllerEventHub> _hubContext;
@@ -135,7 +139,12 @@ public class ControllerEventService
         Action<int, int>? progressCallback = null,
         CancellationToken cancellationToken = default)
     {
-        await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var syncLock = _syncLocks.GetOrAdd(controllerSerialNumber, _ => new SemaphoreSlim(1, 1));
+        await syncLock.WaitAsync(cancellationToken);
+        
+        try
+        {
+            await using var dbContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         
         var controller = await dbContext.Controllers
             .FirstOrDefaultAsync(c => c.SerialNumber == controllerSerialNumber, cancellationToken);
@@ -231,6 +240,7 @@ public class ControllerEventService
                         ControllerEventTime = evt.TimestampUtc, // Wall time reported by controller
                         CardNumber = evt.CardNumber,
                         EventType = (int)evt.EventType,
+                        ReasonCode = evt.ReasonCode,
                         IsByCard = evt.IsByCard,
                         IsByButton = evt.IsByButton,
                         RawIndex = (int)evt.RawIndex,
@@ -288,7 +298,10 @@ public class ControllerEventService
             await dbContext.SaveChangesAsync(cancellationToken);
 
             // Notify UI of new events
-            _ = _hubContext.Clients.All.SendAsync("ReceiveEventUpdate", controller.Id, cancellationToken);
+            if (totalSaved > 0)
+            {
+                _ = _hubContext.Clients.All.SendAsync("ReceiveEventUpdate", controller.Id, cancellationToken);
+            }
 
             // MANDATORY ACK (0xB2)
             try
@@ -303,6 +316,11 @@ public class ControllerEventService
         }
 
         return totalSaved;
+        }
+        finally
+        {
+            syncLock.Release();
+        }
     }
 
     public async Task SaveEventsAsync(uint controllerSerialNumber, IEnumerable<ControllerEvent> events, uint newLastIndex, CancellationToken cancellationToken = default)

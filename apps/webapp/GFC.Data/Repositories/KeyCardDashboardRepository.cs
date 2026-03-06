@@ -156,14 +156,14 @@ public sealed class KeyCardDashboardRepository : IKeyCardDashboardRepository
             
             // Merge waiver status for CURRENT year
             var finalPaymentType = dbPaymentType;
-            if (string.IsNullOrEmpty(finalPaymentType) && waiverStatusCurrent.ContainsKey(memberId))
+            if ((string.IsNullOrEmpty(finalPaymentType) || string.Equals(finalPaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase)) && waiverStatusCurrent.ContainsKey(memberId))
             {
                 finalPaymentType = "WAIVED";
             }
 
             // Merge waiver status for PREVIOUS year
             var finalPreviousPaymentType = dbPreviousPaymentType;
-            if (string.IsNullOrEmpty(finalPreviousPaymentType) && waiverStatusPrevious.ContainsKey(memberId))
+            if ((string.IsNullOrEmpty(finalPreviousPaymentType) || string.Equals(finalPreviousPaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase)) && waiverStatusPrevious.ContainsKey(memberId))
             {
                 finalPreviousPaymentType = "WAIVED";
             }

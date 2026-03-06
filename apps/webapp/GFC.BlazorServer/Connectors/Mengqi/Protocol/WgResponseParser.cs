@@ -194,6 +194,10 @@ internal static class WgResponseParser
         // Byte 14: Door number (0x01 = Door 1, 0x02 = Door 2)
         byte eventTypeRaw = packet[13];
         
+        // Map to DB expectations: EventType 1 = Swipe category, 3 = System/Sensor category
+        int category = 3;
+        if (eventTypeRaw >= 0x01 && eventTypeRaw <= 0x0F) category = 1;
+        
         // Store raw packet for debugging
         var rawDataHex = string.Join(" ", packet.ToArray().Select(b => b.ToString("X2")));
         
@@ -201,7 +205,8 @@ internal static class WgResponseParser
         {
             CardNumber = cardNumber,
             DoorOrReader = doorNumber,
-            EventType = (ControllerEventType)eventTypeRaw,
+            EventType = (ControllerEventType)category,
+            ReasonCode = eventTypeRaw,
             IsByCard = (eventTypeRaw >= 0x01 && eventTypeRaw <= 0x0E),
             IsByButton = (eventTypeRaw == 0x15 || eventTypeRaw == 0x16 || eventTypeRaw == 0x19 || eventTypeRaw == 0x25),
             TimestampUtc = timestampRaw.Value, // Still assigned to property named TimestampUtc, will fix conversion in service.

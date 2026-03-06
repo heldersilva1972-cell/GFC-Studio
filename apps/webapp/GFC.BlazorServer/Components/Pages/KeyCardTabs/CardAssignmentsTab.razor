@@ -13,6 +13,7 @@
 @inject IDuesInsightService DuesInsightService
 @inject ICardDeactivationLogRepository DeactivationLogRepository
 @inject IControllerSyncQueueRepository SyncQueueRepository
+@inject IDuesWaiverRepository DuesWaiverRepository
 @inject KeyCardLifecycleService LifecycleService
 @inject ILogger<CardAssignmentsTab> Logger
 @inject IJSRuntime JSRuntime
@@ -1075,7 +1076,7 @@
                      EventTime = e.TimestampUtc.AddHours(3), 
                      ControllerName = e.Controller?.Name ?? "Unknown Controller",
                      DoorName = e.Door?.Name ?? (e.RawData != null && e.RawData.Contains("DOOR:0") ? "Main Entry (Door 1)" : "Unknown Door"),
-                     AccessGranted = e.EventType == 1
+                     AccessGranted = e.EventType == 1 && (e.ReasonCode == null || e.ReasonCode == 1)
                  }).ToList();
 
                  // Update Last Used on the UI object if we found new events
@@ -1136,6 +1137,7 @@
             var duesPrev = await Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
             var boardCurrentList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
             var boardPrevList = await Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+            var allWaivers = await Task.Run(() => DuesWaiverRepository.GetAllWaivers());
             
             // SyncQueue might be locked by background worker, so we await it safely
             var pendingSyncs = await SyncQueueRepository.GetByStatusAsync("PENDING");
@@ -1147,6 +1149,8 @@
             var duesPrevMap = duesPrev.ToDictionary(d => d.MemberID);
             var boardCurrent = boardCurrentList.Select(a => a.MemberID).ToHashSet();
             var boardPrev = boardPrevList.Select(a => a.MemberID).ToHashSet();
+            var currentWaiversMap = allWaivers.Where(w => year >= w.StartYear && year <= w.EndYear).Select(w => w.MemberId).ToHashSet();
+            var prevWaiversMap = allWaivers.Where(w => (year - 1) >= w.StartYear && (year - 1) <= w.EndYear).Select(w => w.MemberId).ToHashSet();
             
             var pendingCardIds = pendingSyncs.Concat(processingSyncs).Select(x => x.KeyCardId).ToHashSet();
                                 
@@ -1200,8 +1204,8 @@
                 long? cardNumberLong = long.TryParse(c.CardNumber, out long val) ? val : null;
                 DateTime? lastUsed = (cardNumberLong.HasValue && lastUsedMap.TryGetValue(cardNumberLong.Value, out var lu)) ? lu : null;
 
-                bool currentSatisfied = boardCurrent.Contains(c.MemberId) || (duesCurrentMap.TryGetValue(c.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
-                bool prevSatisfied = boardPrev.Contains(c.MemberId) || (duesPrevMap.TryGetValue(c.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                bool currentSatisfied = boardCurrent.Contains(c.MemberId) || currentWaiversMap.Contains(c.MemberId) || (duesCurrentMap.TryGetValue(c.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                bool prevSatisfied = boardPrev.Contains(c.MemberId) || prevWaiversMap.Contains(c.MemberId) || (duesPrevMap.TryGetValue(c.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
 
                 var eligibility = member != null 
                     ? KeyCardService.GetEligibilityBulk(member, year, settings, currentSatisfied, prevSatisfied)
@@ -1236,8 +1240,8 @@
             {
                 if (!cardMemberIds.Contains(m.MemberID))
                 {
-                    bool currentSatisfied = boardCurrent.Contains(m.MemberID) || (duesCurrentMap.TryGetValue(m.MemberID, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
-                    bool prevSatisfied = boardPrev.Contains(m.MemberID) || (duesPrevMap.TryGetValue(m.MemberID, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
+                    bool currentSatisfied = boardCurrent.Contains(m.MemberID) || currentWaiversMap.Contains(m.MemberID) || (duesCurrentMap.TryGetValue(m.MemberID, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
+                    bool prevSatisfied = boardPrev.Contains(m.MemberID) || prevWaiversMap.Contains(m.MemberID) || (duesPrevMap.TryGetValue(m.MemberID, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
                     
                     var eligibility = KeyCardService.GetEligibilityBulk(m, year, settings, currentSatisfied, prevSatisfied);
                     if (eligibility.Eligible)
