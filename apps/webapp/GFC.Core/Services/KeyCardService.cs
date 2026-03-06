@@ -31,13 +31,13 @@ public class KeyCardService
         var member = _memberRepository.GetMemberById(memberId);
         if (member == null)
         {
-            return new KeyCardEligibilityResult(false, false, false, false, false, null, "UNKNOWN");
+            return new KeyCardEligibilityResult(false, false, false, false, false, null, "UNKNOWN", "Member record not found");
         }
 
         // Pending members (no AcceptedDate) do not qualify for key cards
         if (MemberStatusHelper.IsPending(member))
         {
-            return new KeyCardEligibilityResult(false, false, false, false, false, null, "PENDING");
+            return new KeyCardEligibilityResult(false, false, false, false, false, null, "PENDING", "Member is PENDING (Missing Accepted Date)");
         }
 
         // Check if member is a board member (director) for this year
@@ -174,6 +174,19 @@ public class KeyCardService
         var gracePeriodActive = graceDate.HasValue && DateTime.Today <= graceDate.Value;
         var eligible = statusAllowed && (currentYearSatisfied || (gracePeriodActive && previousYearSatisfied));
 
+        string? reason = null;
+        if (!statusAllowed)
+        {
+            reason = $"Status '{memberStatus}' is not eligible for key card access.";
+        }
+        else if (!eligible)
+        {
+             if (graceDate.HasValue && !gracePeriodActive) 
+                reason = "Grace period for dues payment has expired.";
+             else
+                reason = "Dues payment not satisfied for access.";
+        }
+
         return new KeyCardEligibilityResult(
             eligible,
             statusAllowed,
@@ -181,7 +194,8 @@ public class KeyCardService
             previousYearSatisfied,
             gracePeriodActive,
             graceDate,
-            memberStatus ?? string.Empty);
+            memberStatus ?? string.Empty,
+            reason);
     }
 }
 
@@ -192,7 +206,8 @@ public sealed record KeyCardEligibilityResult(
     bool PreviousYearSatisfied,
     bool GracePeriodActive,
     DateTime? GraceEndDate,
-    string MemberStatus)
+    string MemberStatus,
+    string? Reason = null)
 {
     public bool GracePeriodDefined => GraceEndDate.HasValue;
 }

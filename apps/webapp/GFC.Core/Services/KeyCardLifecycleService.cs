@@ -235,11 +235,17 @@ public class KeyCardLifecycleService
                 string reason = !eligibility.StatusAllowed ? "MemberStatusChanged" : 
                                (eligibility.GracePeriodDefined && !eligibility.GracePeriodActive ? "GracePeriodExpired" : "Delinquent");
                 
-                string notes = reason switch {
+                string notes = eligibility.Reason ?? reason switch {
                     "GracePeriodExpired" => "Automatic deactivation: Grace period for dues collection has ended.",
                     "Delinquent" => "Automatic deactivation: No dues payment found for current or previous year.",
                     _ => "Automatic deactivation: Member no longer satisfies access requirements."
                 };
+
+                // Prefix manual-like reason to make it clear it was automatic
+                if (!string.IsNullOrEmpty(eligibility.Reason))
+                {
+                    notes = $"Automatic: {eligibility.Reason}";
+                }
 
                 await DeactivateCardAsync(card.KeyCardId, reason, notes, "System", ct);
                 deactivations++;
