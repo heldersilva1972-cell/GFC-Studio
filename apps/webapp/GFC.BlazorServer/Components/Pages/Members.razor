@@ -840,27 +840,30 @@ else
             var listTask = MemberQueryService.GetMembersAsync(new MemberFilterOptions());
             var detailsTask = Task.Run(() => MemberRepository.GetAllMembers());
             var cardsTask = Task.Run(() => KeyCardRepository.GetAll());
-            var duesCurrentTask = Task.Run(() => DuesRepository.GetDuesForYear(year));
-            var duesPrevTask = Task.Run(() => DuesRepository.GetDuesForYear(year - 1));
-            var boardCurrentTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year));
-            var boardPrevTask = Task.Run(() => BoardRepository.GetAssignmentsByYear(year - 1));
+            var allDuesTask = Task.Run(() => DuesRepository.GetAllDues());
+            var allBoardTask = Task.Run(() => BoardRepository.GetAllAssignments());
             var settingsTask = Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(year));
             var waiversTask = Task.Run(() => DuesWaiverRepository.GetAllWaivers());
 
             await Task.WhenAll(
                 listTask, detailsTask, cardsTask, 
-                duesCurrentTask, duesPrevTask, 
-                boardCurrentTask, boardPrevTask, settingsTask, waiversTask
+                allDuesTask, allBoardTask, settingsTask, waiversTask
             );
 
             var list = listTask.Result;
             var detailsLookup = detailsTask.Result.ToDictionary(m => m.MemberID);
             var allCards = cardsTask.Result;
             
-            var duesCurrent = duesCurrentTask.Result.ToDictionary(d => d.MemberID);
-            var duesPrev = duesPrevTask.Result.ToDictionary(d => d.MemberID);
-            var boardCurrent = boardCurrentTask.Result.Select(a => a.MemberID).ToHashSet();
-            var boardPrev = boardPrevTask.Result.Select(a => a.MemberID).ToHashSet();
+            var allDues = allDuesTask.Result;
+            var duesLookup = allDues.GroupBy(d => d.MemberID).ToDictionary(g => g.Key, g => g.ToList());
+            var allBoard = allBoardTask.Result;
+            var boardLookup = allBoard.GroupBy(a => a.MemberID).ToDictionary(g => g.Key, g => g.Select(a => a.TermYear).ToHashSet());
+
+            var duesCurrent = allDues.Where(d => d.Year == year).ToDictionary(d => d.MemberID);
+            var duesPrev = allDues.Where(d => d.Year == year - 1).ToDictionary(d => d.MemberID);
+            var boardCurrent = allBoard.Where(a => a.TermYear == year).Select(a => a.MemberID).ToHashSet();
+            var boardPrev = allBoard.Where(a => a.TermYear == year - 1).Select(a => a.MemberID).ToHashSet();
+
             var settings = settingsTask.Result;
             var allWaivers = waiversTask.Result;
             
@@ -899,6 +902,49 @@ else
                     bool currentPaid = isBoard || isLife || hasCurrentWaiver || (duesCurrent.TryGetValue(item.MemberId, out var dc) && KeyCardService.IsDuesSatisfied(dc.PaymentType, dc.PaidDate));
                     bool prevPaid = isBoard || isLife || hasPrevWaiver || (duesPrev.TryGetValue(item.MemberId, out var dp) && KeyCardService.IsDuesSatisfied(dp.PaymentType, dp.PaidDate));
                     
+                    // Calculate Overdue Years count
+                    int overdueYears = 0;
+                    if (!isLife)
+                    {
+                        int startYear = detail?.AcceptedDate?.Year ?? detail?.ApplicationDate?.Year ?? year;
+                        if (startYear > year) startYear = year;
+                        
+                        // Count backwards to find last satisfied year
+                        for (int y = year; y >= startYear; y--)
+                        {
+                            bool yPaid = (boardLookup.TryGetValue(item.MemberId, out var by) && by.Contains(y)) ||
+                                         (waiverYearsByMember.TryGetValue(item.MemberId, out var wy) && wy.Contains(y)) ||
+                                         (duesLookup.TryGetValue(item.MemberId, out var dm) && dm.Any(d => d.Year == y && KeyCardService.IsDuesSatisfied(d.PaymentType, d.PaidDate)));
+                            
+                            if (yPaid) break;
+                            overdueYears++;
+                        }
+                    }
+
+                    int totalOverdueMonths = 0;
+                    if (overdueYears > 0)
+                    {
+                        // Calculate months as: (Full Years missing excluding current) * 12 + Current month
+                        // e.g. If March 2026 and missing 2026 only: 3 MOS
+                        //      If March 2026 and missing 2025/2026: 15 MOS (1 YR, 3 MOS)
+                        totalOverdueMonths = ((overdueYears - 1) * 12) + DateTime.Today.Month;
+                    }
+
+                    string GetDurationLabel(int months)
+                    {
+                        if (months <= 0) return string.Empty;
+                        int yrs = months / 12;
+                        int mos = months % 12;
+                        
+                        if (yrs > 0)
+                        {
+                            string yrPart = yrs == 1 ? "1 YR" : $"{yrs} YRS";
+                            string moPart = mos == 0 ? "" : (mos == 1 ? ", 1 MO" : $", {mos} MOS");
+                            return $"({yrPart}{moPart})";
+                        }
+                        return mos == 1 ? "(1 MO)" : $"({mos} MOS)";
+                    }
+                    
                     if (detail == null) return null;
                     var eligibility = CardService.GetEligibilityBulk(detail, year, settings, currentPaid, prevPaid);
 
@@ -906,6 +952,7 @@ else
                     if (status == MemberStatus.Inactive || status == MemberStatus.Deceased || status == MemberStatus.Rejected)
                     {
                         duesStatus = "None";
+                        overdueYears = 0;
                     }
                     else if (status == MemberStatus.Pending)
                     {
@@ -914,18 +961,21 @@ else
                     else if (isLife)
                     {
                         duesStatus = "Life";
+                        overdueYears = 0;
                     }
                     else if (isBoard)
                     {
                         duesStatus = "Paid"; // Board members have paid status by privilege
+                        overdueYears = 0;
                     }
                     else if (eligibility.GracePeriodActive && !eligibility.CurrentYearSatisfied && eligibility.PreviousYearSatisfied)
                     {
-                        duesStatus = "In Grace Period";
+                        // Being in grace period means only the current year is unpaid
+                        duesStatus = $"In Grace Period {GetDurationLabel(totalOverdueMonths)}";
                     }
-                    else if (!eligibility.Eligible)
+                    else if (!eligibility.Eligible || !currentPaid)
                     {
-                        duesStatus = "Past Due";
+                        duesStatus = $"Past Due {GetDurationLabel(totalOverdueMonths)}";
                     }
 
                     // Enrich with card details
@@ -960,6 +1010,7 @@ else
                         HasKeyCard = !string.IsNullOrEmpty(cardNumber),
                         InactiveDate = item.InactiveDate,
                         DuesStatus = duesStatus,
+                        OverdueMonths = totalOverdueMonths,
                         IsBoardMember = isBoard,
                         NormalizedStatus = normalized,
                         CardNumber = cardNumber,
@@ -1177,29 +1228,33 @@ else
         _ => "status-guest"
     };
 
-    private string GetDuesBadgeClass(string dues) => dues?.Trim().ToLowerInvariant() switch
+    private string GetDuesBadgeClass(string dues)
     {
-        "paid" => "dues-paid",
-        "past due" => "dues-overdue",
-        "overdue" => "dues-overdue",
-        "waived" => "dues-waived",
-        "life" => "dues-life",
-        "suspended" => "dues-overdue",
-        "pending" => "status-regular-np",
-        _ => "dues-waived"
-    };
+        if (string.IsNullOrWhiteSpace(dues)) return "dues-waived";
+        var d = dues.Trim().ToLowerInvariant();
+        
+        if (d == "paid") return "dues-paid";
+        if (d.Contains("past due") || d.Contains("overdue") || d == "suspended") return "dues-overdue";
+        if (d.Contains("grace period")) return "dues-overdue"; // Keeping orange for grace but label differs
+        if (d == "waived") return "dues-waived";
+        if (d == "life") return "dues-life";
+        if (d == "pending") return "status-regular-np";
+        
+        return "dues-waived";
+    }
 
-    private string GetDuesLabel(string dues) => dues?.Trim().ToLowerInvariant() switch
+    private string GetDuesLabel(string dues)
     {
-        "paid" => "Paid",
-        "past due" => "Overdue",
-        "overdue" => "Overdue",
-        "waived" => "Waived",
-        "life" => "Life",
-        "suspended" => "Suspended",
-        "pending" => "Pending",
-        _ => string.IsNullOrWhiteSpace(dues) ? "Dues —" : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(dues)
-    };
+        if (string.IsNullOrWhiteSpace(dues)) return "Dues —";
+        
+        // Map "Past Due" to "Overdue" for the UI
+        if (dues.StartsWith("Past Due", StringComparison.OrdinalIgnoreCase))
+        {
+            return dues.Replace("Past Due", "Overdue");
+        }
+        
+        return dues;
+    }
 
     private void NavigateToMember(int memberId) =>
         NavManager.NavigateTo($"/members/{memberId}");
@@ -1235,6 +1290,7 @@ else
         public DateTime? InactiveDate { get; set; }
         public DateTime? DateOfDeath { get; set; }
         public string DuesStatus { get; set; } = "Paid";
+        public int OverdueMonths { get; set; }
         public bool IsBoardMember { get; set; }
         public string? CardNumber { get; set; }
         public bool? CardIsActive { get; set; }
