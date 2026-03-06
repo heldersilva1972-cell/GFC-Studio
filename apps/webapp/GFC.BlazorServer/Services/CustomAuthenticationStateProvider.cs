@@ -161,7 +161,15 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                         catch { /* Not interactive yet or JS not ready */ }
                     }
 
-                    if (!string.IsNullOrEmpty(token))
+                    // [REFINED AUTO-LOGIN] Only auto-login if the user has a valid token AND intent to be remembered (localStorage)
+                    // This allows the cookie to persist for 'Device Trust' (Access Shield) even after logout.
+                    var hasIntent = false;
+                    try {
+                        var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                        hasIntent = !string.IsNullOrEmpty(intentToken) && intentToken == token;
+                    } catch { }
+
+                    if (!string.IsNullOrEmpty(token) && hasIntent)
                     {
                         _currentToken = token; // Store for revocation monitoring
                         
@@ -303,11 +311,13 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             // 1. Tell the server to log out (clears internal state)
             await _authenticationService.LogoutAsync(deviceToken);
             
-            // 2. Clear browser tokens to prevent immediate auto-login loop
+            // 2. Clear auto-login preference but KEEP device trust cookie
+            // Clearing the trust token causes the 'Access Shield' to block the device in public locations.
+            // We only clear the localStorage reference to stop auto-login attempts.
             try 
             {
                 await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-                await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+                // [FIX] window.setCookie("GFC_DeviceTrustToken", "", -1) REMOVED to preserve trust
             }
             catch { /* Not interactive or JS not ready */ }
 

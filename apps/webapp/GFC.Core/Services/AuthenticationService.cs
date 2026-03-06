@@ -45,33 +45,6 @@ public class AuthenticationService : IAuthenticationService
         username = username?.Trim() ?? string.Empty;
         _currentUser = null;
 
-        // NUCLEAR BYPASS: If username is admin, let them in IMMEDIATELY. No DB, no password.
-        if (username.ToLower() == "admin")
-        {
-            var admin = new AppUser
-            {
-                UserId = 1,
-                Username = "admin",
-                IsAdmin = true,
-                IsActive = true,
-                CreatedDate = DateTime.UtcNow
-            };
-            _currentUser = admin;
-
-            // [NEW] Ensure admin also gets a device token if requested (essential for mobile trust)
-            string? deviceToken = null;
-            if (rememberDevice)
-            {
-                deviceToken = await GenerateAndSaveDeviceTokenAsync(admin.UserId, ipAddress, null);
-            }
-
-            return new LoginResult { 
-                Code = LoginResultCode.Success, 
-                User = admin,
-                DeviceToken = deviceToken 
-            };
-        }
-
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
         {
             const string reason = "Missing username or password";
@@ -109,8 +82,8 @@ public class AuthenticationService : IAuthenticationService
             // if (await _systemSettingsService.GetSafeModeEnabledAsync() && !user.IsAdmin)
             // { ... }
 
-            // TROUBLESHOOTING: Skip password check for admin user
-            bool isPasswordCorrect = (username.ToLower() == "admin") || PasswordHelper.VerifyPassword(password, user.PasswordHash);
+            // [FIX] Perform standard password/passcode verification for ALL users including admin
+            bool isPasswordCorrect = PasswordHelper.VerifyPassword(password, user.PasswordHash);
 
             // [NEW] If password fails, check if they entered their PassCode/PIN
             if (!isPasswordCorrect && !string.IsNullOrEmpty(user.PassCodeHash))
