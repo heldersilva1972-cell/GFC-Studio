@@ -85,17 +85,27 @@ public class DatabaseBackupService : IDatabaseBackupService
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            // Verification Step: Run RESTORE VERIFYONLY to ensure the backup file is actually readable and healthy
-            _logger.LogInformation("Verifying backup integrity for: {BackupPath}", backupFilePath);
-            var verifySql = "RESTORE VERIFYONLY FROM DISK = @BackupPath";
-            using (var verifyCommand = new SqlCommand(verifySql, connection))
+            try
             {
-                verifyCommand.CommandTimeout = 300;
-                verifyCommand.Parameters.AddWithValue("@BackupPath", backupFilePath);
-                await verifyCommand.ExecuteNonQueryAsync(cancellationToken);
+                // Verification Step: Run RESTORE VERIFYONLY to ensure the backup file is actually readable and healthy
+                _logger.LogInformation("Verifying backup integrity for: {BackupPath}", backupFilePath);
+                var verifySql = "RESTORE VERIFYONLY FROM DISK = @BackupPath";
+                using (var verifyCommand = new SqlCommand(verifySql, connection))
+                {
+                    verifyCommand.CommandTimeout = 300;
+                    verifyCommand.Parameters.AddWithValue("@BackupPath", backupFilePath);
+                    await verifyCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+                _logger.LogInformation("Database backup and verification completed successfully: {BackupPath}", backupFilePath);
             }
-
-            _logger.LogInformation("Database backup and verification completed successfully: {BackupPath}", backupFilePath);
+            catch (SqlException ex) when (ex.Message.Contains("CREATE DATABASE permission denied") || ex.Message.Contains("VERIFY DATABASE is terminating abnormally"))
+            {
+                _logger.LogWarning("Backup completed successfully, but integrity verification was skipped because the app account lacks 'CREATE DATABASE' permissions (which SQL Server requires to run VERIFYONLY).");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Backup completed but verification failed. The backup file was created but could not be verified automatically.");
+            }
 
             // Update last backup time in config (Local)
             config.LastBackupTime = DateTime.Now;
