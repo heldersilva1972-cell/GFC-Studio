@@ -19,7 +19,7 @@ public class DatabaseBackupService : IDatabaseBackupService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<bool> ExecuteBackupAsync(CancellationToken cancellationToken = default)
+    public async Task<(bool Success, string ErrorMessage)> ExecuteBackupAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -28,13 +28,13 @@ public class DatabaseBackupService : IDatabaseBackupService
             if (!config.IsConfigured)
             {
                 _logger.LogWarning("Backup configuration is not complete. Skipping backup.");
-                return false;
+                return (false, "Backup policy is not configured. Please save a Backup Policy first.");
             }
 
             if (string.IsNullOrWhiteSpace(config.BackupFolder))
             {
                 _logger.LogError("Backup folder is not configured.");
-                return false;
+                return (false, "Backup folder path is empty.");
             }
 
             // Ensure backup folder exists
@@ -48,7 +48,7 @@ public class DatabaseBackupService : IDatabaseBackupService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to create backup folder: {BackupFolder}", config.BackupFolder);
-                    return false;
+                    return (false, $"Failed to create backup directory: {ex.Message}");
                 }
             }
 
@@ -104,12 +104,12 @@ public class DatabaseBackupService : IDatabaseBackupService
             // Cleanup old backups
             await CleanupOldBackupsAsync(config.RetentionDays, cancellationToken);
 
-            return true;
+            return (true, string.Empty);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error executing database backup");
-            return false;
+            return (false, ex.Message);
         }
     }
 
@@ -164,14 +164,14 @@ public class DatabaseBackupService : IDatabaseBackupService
         }
     }
 
-    public async Task<bool> RestoreDatabaseAsync(string backupFilePath, CancellationToken cancellationToken = default)
+    public async Task<(bool Success, string ErrorMessage)> RestoreDatabaseAsync(string backupFilePath, CancellationToken cancellationToken = default)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(backupFilePath) || !File.Exists(backupFilePath))
             {
                 _logger.LogError("Backup file not found: {BackupPath}", backupFilePath);
-                return false;
+                return (false, "The specified backup file does not exist on disk.");
             }
 
             var config = _configService.Load();
@@ -220,7 +220,7 @@ public class DatabaseBackupService : IDatabaseBackupService
             }
 
             _logger.LogInformation("Database restore completed successfully: {DatabaseName}", dbName);
-            return true;
+            return (true, string.Empty);
         }
         catch (Exception ex)
         {
@@ -241,7 +241,7 @@ public class DatabaseBackupService : IDatabaseBackupService
             }
             catch { /* Ignore errors here */ }
             
-            return false;
+            return (false, ex.Message);
         }
     }
 

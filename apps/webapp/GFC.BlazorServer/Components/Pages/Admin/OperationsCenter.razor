@@ -749,6 +749,7 @@
         try
         {
             _backupConfig.DailyBackupTime = new TimeSpan(_selectedBackupHour, 0, 0);
+            _backupConfig.IsConfigured = true;
             BackupConfigService.Save(_backupConfig);
             _statusMessage = "Backup policy updated.";
             _showBackupConfig = false;
@@ -785,11 +786,14 @@
         _isProcessingBackup = true; _statusMessage = "Backing up & Verifying...";
         try
         {
-            if (await DatabaseBackupService.ExecuteBackupAsync()) {
+            var result = await DatabaseBackupService.ExecuteBackupAsync();
+            if (result.Success) {
                 await DataProtectionService.LogBackupCompletesAsync(0);
                 await RefreshHubAsync();
                 _statusMessage = "Backup Verified & Complete.";
-            } else _error = "Backup failed to verify.";
+            } else { 
+                _error = $"Backup failed: {result.ErrorMessage}"; 
+            }
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _isProcessingBackup = false; }
@@ -802,11 +806,14 @@
         if (await JS.InvokeAsync<bool>("confirm", "SYSTEM RESTORE: Overwrite current database?")) {
             _isProcessingBackup = true; _statusMessage = "Restoring...";
             try {
-                if (await DatabaseBackupService.RestoreDatabaseAsync(backup.FullName)) {
+                var result = await DatabaseBackupService.RestoreDatabaseAsync(backup.FullName);
+                if (result.Success) {
                     await DataProtectionService.LogRestoreTestCompletedAsync(0);
                     _statusMessage = "RESTORE SUCCESSFUL.";
                     await RefreshHubAsync();
-                } else _error = "Restore failed.";
+                } else { 
+                    _error = $"Restore failed: {result.ErrorMessage}"; 
+                }
             }
             catch (Exception ex) { _error = ex.Message; }
             finally { _isProcessingBackup = false; }

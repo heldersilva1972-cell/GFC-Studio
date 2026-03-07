@@ -43,9 +43,9 @@ public class BackupSchedulerService : BackgroundService
                     if (config.IsConfigured && ShouldRunBackup(config))
                     {
                         _logger.LogInformation("Scheduled backup time reached. Starting backup...");
-                        var success = await _backupService.ExecuteBackupAsync(stoppingToken);
+                        var result = await _backupService.ExecuteBackupAsync(stoppingToken);
                         
-                        if (success)
+                        if (result.Success)
                         {
                             _logger.LogInformation("Scheduled backup completed successfully.");
                             
