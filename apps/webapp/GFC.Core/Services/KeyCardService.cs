@@ -129,9 +129,18 @@ public class KeyCardService
     public static bool IsStatusEligible(string? status)
     {
         var normalized = MemberStatusHelper.NormalizeStatus(status);
-        return string.Equals(normalized, "REGULAR", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(normalized, "LIFE", StringComparison.OrdinalIgnoreCase) ||
-               normalized.StartsWith("GUEST", StringComparison.OrdinalIgnoreCase);
+        
+        // Block explicitly inactive or suspended states
+        if (string.Equals(normalized, "INACTIVE", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "DECEASED", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "REJECTED", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "PENDING", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Allow access to any other active status (Regular, Life, Custom, Non-Portuguese, etc.)
+        return true;
     }
 
     public static string GetDuesState(string? paymentType, DateTime? paidDate)
