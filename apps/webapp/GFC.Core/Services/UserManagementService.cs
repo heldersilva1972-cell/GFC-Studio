@@ -552,10 +552,12 @@ public class UserManagementService : IUserManagementService
         if (string.IsNullOrEmpty(normalized) || normalized == "dashboard" || normalized == "home")
             return true;
             
+        // 5. High-speed memory lookup for exact match
+        if (routes.Contains(normalized))
+            return true;
 
-            
-        // 5. High-speed memory lookup
-        return routes.Contains(normalized);
+        // 6. Sub-route allowance (if they have access to 'members', allow 'members/114')
+        return routes.Any(r => normalized.StartsWith(r + "/"));
     }
 
     public void SetUserPagePermissions(int userId, List<int> pageIds, string grantedBy)
