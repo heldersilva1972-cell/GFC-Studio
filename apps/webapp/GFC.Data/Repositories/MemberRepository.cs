@@ -241,11 +241,35 @@ FROM Members;";
                 InactiveDate = @InactiveDate
             WHERE MemberID = @MemberID";
         
+        // Diagnostic: Temporary double-log to notes to prove update is hitting the DB
+        string diagnosticNote = $"[SYSTEM] Set AcceptedDate to {(member.AcceptedDate.HasValue ? member.AcceptedDate.Value.ToString("yyyy-MM-dd") : "NULL")} (Ticks: {(member.AcceptedDate.HasValue ? member.AcceptedDate.Value.Ticks.ToString() : "0")}) at {DateTime.Now:HH:mm:ss}";
+        member.Notes = string.IsNullOrWhiteSpace(member.Notes) ? diagnosticNote : member.Notes + "\n" + diagnosticNote;
+
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@MemberID", member.MemberID);
         AddMemberParameters(command, member);
         
-        command.ExecuteNonQuery();
+        // Detailed Logging
+        Console.WriteLine($"[MemberRepository] UPDATING Member {member.MemberID}");
+        Console.WriteLine($" - Status: {member.Status}");
+        Console.WriteLine($" - AcceptedDate: {(member.AcceptedDate.HasValue ? member.AcceptedDate.Value.ToString("yyyy-MM-dd") : "NULL")}");
+        Console.WriteLine($" - ApplicationDate: {(member.ApplicationDate.HasValue ? member.ApplicationDate.Value.ToString("yyyy-MM-dd") : "NULL")}");
+        
+        int rowsAffected = command.ExecuteNonQuery();
+        Console.WriteLine($"[MemberRepository] UPDATE Result: {rowsAffected} row(s) affected.");
+
+        // Verification: Re-read immediately to see if it actually saved
+        try
+        {
+            using var vCmd = new SqlCommand("SELECT AcceptedDate FROM Members WHERE MemberID = @MID", connection);
+            vCmd.Parameters.AddWithValue("@MID", member.MemberID);
+            var result = vCmd.ExecuteScalar();
+            Console.WriteLine($"[MemberRepository] VERIFICATION: AcceptedDate in DB is now: {(result == DBNull.Value ? "NULL" : result.ToString())}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[MemberRepository] VERIFICATION FAILED: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -398,16 +422,32 @@ FROM Members;";
         command.Parameters.AddWithValue("@Phone", (object?)member.Phone ?? DBNull.Value);
         command.Parameters.AddWithValue("@CellPhone", (object?)member.CellPhone ?? DBNull.Value);
         command.Parameters.AddWithValue("@Email", (object?)member.Email ?? DBNull.Value);
-        command.Parameters.AddWithValue("@ApplicationDate", (object?)member.ApplicationDate ?? DBNull.Value);
-        command.Parameters.AddWithValue("@AcceptedDate", (object?)member.AcceptedDate ?? DBNull.Value);
-        command.Parameters.AddWithValue("@StatusChangeDate", (object?)member.StatusChangeDate ?? DBNull.Value);
-        command.Parameters.AddWithValue("@DateOfBirth", (object?)member.DateOfBirth ?? DBNull.Value);
+        
+        // Explicitly typed date parameters to prevent culture/mapping issues
+        var appDate = command.Parameters.Add("@ApplicationDate", SqlDbType.DateTime2);
+        appDate.Value = (object?)member.ApplicationDate ?? DBNull.Value;
+        
+        var accDate = command.Parameters.Add("@AcceptedDate", SqlDbType.DateTime2);
+        accDate.Value = (object?)member.AcceptedDate ?? DBNull.Value;
+        
+        var statusDate = command.Parameters.Add("@StatusChangeDate", SqlDbType.DateTime2);
+        statusDate.Value = (object?)member.StatusChangeDate ?? DBNull.Value;
+        
+        var dob = command.Parameters.Add("@DateOfBirth", SqlDbType.DateTime2);
+        dob.Value = (object?)member.DateOfBirth ?? DBNull.Value;
+
         var encodedNotes = AddressInvalidNoteHelper.Encode(member.Notes, member.AddressInvalid, member.AddressInvalidDate);
         command.Parameters.AddWithValue("@Notes", (object?)encodedNotes ?? DBNull.Value);
         command.Parameters.AddWithValue("@IsNonPortugueseOrigin", member.IsNonPortugueseOrigin);
-        command.Parameters.AddWithValue("@LifeEligibleDate", (object?)member.LifeEligibleDate ?? DBNull.Value);
-        command.Parameters.AddWithValue("@DateOfDeath", (object?)member.DateOfDeath ?? DBNull.Value);
-        command.Parameters.AddWithValue("@InactiveDate", (object?)member.InactiveDate ?? DBNull.Value);
+        
+        var lifeDate = command.Parameters.Add("@LifeEligibleDate", SqlDbType.DateTime2);
+        lifeDate.Value = (object?)member.LifeEligibleDate ?? DBNull.Value;
+        
+        var deathDate = command.Parameters.Add("@DateOfDeath", SqlDbType.DateTime2);
+        deathDate.Value = (object?)member.DateOfDeath ?? DBNull.Value;
+        
+        var inactiveDate = command.Parameters.Add("@InactiveDate", SqlDbType.DateTime2);
+        inactiveDate.Value = (object?)member.InactiveDate ?? DBNull.Value;
     }
 
     private static class AddressInvalidNoteHelper

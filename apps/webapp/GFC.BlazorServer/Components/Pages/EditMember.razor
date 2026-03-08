@@ -99,7 +99,12 @@ else if (_showSuccessAnimation)
                 </svg>
             </div>
             <h2 class="success-title">Member Updated Successfully!</h2>
-            <p class="success-message">Changes to @_memberName have been saved.</p>
+            <p class="success-text">Changes to @(_member?.FirstName) @(_member?.LastName) have been saved. (Logged at: @DateTime.Now.ToString("HH:mm:ss"))</p>
+            <div class="alert alert-info py-1 px-2 mt-2 small" style="font-size: 0.75rem; border: 1px dashed #0891b2;">
+                <strong>Debug Info:</strong> 
+                M:@_accMonth D:@_accDay Y:@_accYear | 
+                DateObj: @(_memberForm?.AcceptedDate?.ToString("yyyy-MM-dd") ?? "NULL")
+            </div>
             <div class="success-actions">
                 <button class="btn btn-primary" @onclick="GoToMemberDetail">
                     <i class="bi bi-eye me-2"></i>View Member Details
@@ -147,6 +152,7 @@ else if (_memberForm != null)
 {
     <EditForm Model="@_memberForm" OnValidSubmit="SaveMember" @onchange="MarkAsChanged">
         <DataAnnotationsValidator />
+        <ValidationSummary />
         
         <div class="row g-4">
             <!-- Personal Information Card -->
@@ -797,6 +803,39 @@ else if (_memberForm != null)
         _saving = true;
         _errorMessage = "";
         
+        // Safety check: Ensure date objects are synchronized with their components before saving
+        UpdateDateOfBirth();
+        UpdateApplicationDate();
+        UpdateAcceptedDate();
+        UpdateRegularSinceDate();
+        UpdateDateOfDeath();
+
+        // Check for invalid date selections (e.g. Feb 29 2018)
+        if ((_dobMonth > 0 || _dobDay > 0 || _dobYear > 0) && !_memberForm.DateOfBirth.HasValue)
+        {
+            _errorMessage = "The Date of Birth entered is not a valid date (e.g. Feb 29 on a non-leap year).";
+            _saving = false;
+            return;
+        }
+        if ((_appMonth > 0 || _appDay > 0 || _appYear > 0) && !_memberForm.ApplicationDate.HasValue)
+        {
+            _errorMessage = "The Application Date entered is not a valid date.";
+            _saving = false;
+            return;
+        }
+        if ((_accMonth > 0 || _accDay > 0 || _accYear > 0) && !_memberForm.AcceptedDate.HasValue)
+        {
+            _errorMessage = "The Accepted Date entered is not a valid date (e.g. Feb 29 on a non-leap year).";
+            _saving = false;
+            return;
+        }
+        if ((_regMonth > 0 || _regDay > 0 || _regYear > 0) && !_memberForm.RegularSince.HasValue)
+        {
+            _errorMessage = "The Regular Membership Start Date entered is not a valid date.";
+            _saving = false;
+            return;
+        }
+
         // Custom validation: At least one phone required
         if (string.IsNullOrWhiteSpace(_memberForm.Phone) && string.IsNullOrWhiteSpace(_memberForm.CellPhone))
         {
@@ -865,6 +904,19 @@ else if (_memberForm != null)
                 }
             }
 
+            // Log AcceptedDate change if it happened
+            if (isAcceptedNow && wasPending)
+            {
+                try
+                {
+                    HistoryRepository.LogMemberChange(MemberId, "AcceptedDate", "NULL", _memberForm.AcceptedDate.Value.ToString("yyyy-MM-dd"));
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to log AcceptedDate change for member {MemberId}", MemberId);
+                }
+            }
+
             // [FIX] Ensure the RegularSince date from the form is persisted to StatusChangeDate
             // This allows manual backdating/correction of the "Regular Member Start Date".
             // We only do this if the user has explicitly set/changed the RegularSince date in the form.
@@ -903,6 +955,11 @@ else if (_memberForm != null)
             _member.Notes = _memberForm.Notes?.Trim();
             _member.DateOfDeath = _memberForm.DateOfDeath;
             _member.ShowOnWebsite = _memberForm.ShowOnWebsite;
+
+            Logger.LogInformation("[EditMember] PRE-SAVE DIAGNOSTICS for Member {MemberId}:", MemberId);
+            Logger.LogInformation(" - Month: {Month}, Day: {Day}, Year: {Year}", _accMonth, _accDay, _accYear);
+            Logger.LogInformation(" - _memberForm.AcceptedDate: {FormDate}", _memberForm.AcceptedDate);
+            Logger.LogInformation(" - _member.AcceptedDate: {MemberDate}", _member.AcceptedDate);
 
             // Update in database
             MemberRepository.UpdateMember(_member);
@@ -1115,30 +1172,24 @@ else if (_memberForm != null)
         public string? Phone { get; set; }
         public string? CellPhone { get; set; }
         
-        [Required(ErrorMessage = "Address is required")]
         public string? Address1 { get; set; }
         
-        [Required(ErrorMessage = "City is required")]
         public string? City { get; set; }
         
-        [Required(ErrorMessage = "State is required")]
         [StringLength(2, ErrorMessage = "State must be 2 characters")]
         public string? State { get; set; }
         
-        [Required(ErrorMessage = "Zip code is required")]
         public string? PostalCode { get; set; }
 
         [Required(ErrorMessage = "Status is required")]
         public string Status { get; set; } = "";
 
-        [Required(ErrorMessage = "Application date is required")]
         public DateTime? ApplicationDate { get; set; }
         
         public DateTime? AcceptedDate { get; set; }
         
         public DateTime? RegularSince { get; set; }
         
-        [Required(ErrorMessage = "Date of birth is required")]
         public DateTime? DateOfBirth { get; set; }
 
         public bool IsNonPortugueseOrigin { get; set; }
