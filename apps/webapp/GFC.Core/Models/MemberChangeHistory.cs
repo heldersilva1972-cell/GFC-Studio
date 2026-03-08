@@ -5,6 +5,8 @@ namespace GFC.Core.Models;
 /// </summary>
 public class MemberChangeHistory
 {
+    public int MemberID { get; set; }
+    public string? MemberName { get; set; }
     public DateTime ChangeDate { get; set; }
     public string FieldName { get; set; } = string.Empty;
     public string? OldValue { get; set; }

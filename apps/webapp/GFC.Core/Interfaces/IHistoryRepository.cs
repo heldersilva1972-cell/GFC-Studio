@@ -11,6 +11,8 @@ public interface IHistoryRepository
     void LogMemberChange(int memberId, string fieldName, string? oldValue, string? newValue, string? changedBy);
     bool MemberHasHistory(int memberId);
     List<MemberChangeHistory> GetMemberHistory(int memberId);
+    List<MemberChangeHistory> GetGlobalHistory(int count = 100);
+    Task<List<MemberChangeHistory>> GetGlobalHistoryAsync(int count = 100);
     DateTime? GetGuestToRegularDate(int memberId);
     DateTime? GetEarliestRegularDate(int memberId);
 

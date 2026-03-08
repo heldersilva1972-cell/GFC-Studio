@@ -25,5 +25,6 @@ public interface IMemberRepository
     List<Member> GetLifeMembers();
     List<Member> GetLifeEligibleMembers(DateTime asOfDate, IHistoryRepository? historyRepository = null);
     int GetLifeEligibleCount(DateTime asOfDate, IHistoryRepository? historyRepository = null);
+    List<Member> FindByNameAndDob(string firstName, string lastName, DateTime dateOfBirth);
 }
 

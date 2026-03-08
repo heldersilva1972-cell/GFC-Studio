@@ -132,7 +132,7 @@ public class Program
             // [MOD] Relaxed to allow delegated access to admin pages. 
             // The actual check is now performed in MainLayout via IUserManagementService.
             options.AddPolicy(AppPolicies.RequireAdmin, policy =>
-                policy.RequireAuthenticatedUser());
+                policy.RequireRole(AppRoles.Admin));
             options.AddPolicy(AppPolicies.CanForceUnlock, policy =>
                 policy.RequireRole(AppRoles.Admin, AppRoles.StudioUnlock));
         });

@@ -5,7 +5,7 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.BusinessRules
 @using System.ComponentModel.DataAnnotations
-@attribute [Authorize(Policy = AppPolicies.RequireAdmin)]
+@attribute [Authorize]
 @inject IMemberRepository MemberRepository
 @inject NavigationManager NavManager
 @inject ILogger<EditMember> Logger
@@ -152,6 +152,22 @@ else if (_memberForm != null)
 {
     <EditForm Model="@_memberForm" OnValidSubmit="SaveMember" @onchange="MarkAsChanged">
         <DataAnnotationsValidator />
+
+        @if (_isReactivating)
+        {
+            <div class="alert alert-info border-info shadow-sm mb-4 d-flex align-items-center gap-3">
+                <div class="alert-icon-circle bg-info text-white">
+                    <i class="bi bi-person-check-fill"></i>
+                </div>
+                <div>
+                    <h6 class="alert-heading mb-1">Reactivating Old Member Profile</h6>
+                    <p class="mb-0 small">
+                        This was an <strong>Inactive</strong> record. As you requested, the previous Application and Acceptance dates have been 
+                        <strong>reset to a clean slate</strong>. Please enter the new dates for this return.
+                    </p>
+                </div>
+            </div>
+        }
         <ValidationSummary />
         
         <div class="row g-4">
@@ -568,6 +584,7 @@ else if (_memberForm != null)
 
 @code {
     [Parameter] public int MemberId { get; set; }
+    [SupplyParameterFromQuery] public string? action { get; set; }
 
     private Member? _member;
     private MemberFormModel? _memberForm;
@@ -582,6 +599,7 @@ else if (_memberForm != null)
     private List<string> _cities = new();
     private List<string> _states = new();
     private List<string> _postalCodes = new();
+    private bool _isReactivating = false;
 
     // Date picker backing fields
     private int _dobMonth = 0;
@@ -615,8 +633,28 @@ else if (_memberForm != null)
         // Register navigation interceptor for in-app navigation
         _navigationInterceptor = NavManager.RegisterLocationChangingHandler(OnLocationChanging);
         
+        _isReactivating = !string.IsNullOrEmpty(action) && action.Equals("reactivate", StringComparison.OrdinalIgnoreCase);
+
         await LoadMemberAsync();
         LoadDropdownData();
+
+        if (_isReactivating && _memberForm != null)
+        {
+            // CLEAR THE OLD DATES AS REQUESTED
+            _memberForm.ApplicationDate = null;
+            _appMonth = 0; _appDay = 0; _appYear = 0;
+            
+            _memberForm.AcceptedDate = null;
+            _accMonth = 0; _accDay = 0; _accYear = 0;
+            
+            _memberForm.RegularSince = null;
+            _regMonth = 0; _regDay = 0; _regYear = 0;
+
+            // Mark as changed so they have to save the clean slate
+            MarkAsChanged();
+            
+            Logger.LogInformation("Member {MemberId} is being reactivated. Cleared historical application dates.", MemberId);
+        }
     }
 
     private ValueTask OnLocationChanging(LocationChangingContext context)

@@ -100,8 +100,51 @@ public class HistoryRepository : IHistoryRepository
                 ChangedBy = reader["ChangedBy"] as string
             });
         }
+        return history;
+    }
+
+    public List<MemberChangeHistory> GetGlobalHistory(int count = 100)
+    {
+        var history = new List<MemberChangeHistory>();
+        
+        using var connection = Db.GetConnection();
+        connection.Open();
+        
+        const string sql = @"
+            SELECT TOP (@Count) h.ChangeDate, h.FieldName, h.OldValue, h.NewValue, h.ChangedBy, h.MemberID,
+                               m.FirstName, m.LastName
+            FROM MemberChangeHistory h
+            LEFT JOIN Members m ON h.MemberID = m.MemberID
+            ORDER BY h.ChangeDate DESC, h.ChangeID DESC";
+        
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@Count", count);
+        
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var first = reader["FirstName"]?.ToString() ?? "";
+            var last = reader["LastName"]?.ToString() ?? "";
+            var memberName = string.IsNullOrWhiteSpace(first) ? $"ID #{reader["MemberID"]}" : $"{last}, {first}";
+
+            history.Add(new MemberChangeHistory
+            {
+                ChangeDate = (DateTime)reader["ChangeDate"],
+                FieldName = reader["FieldName"].ToString() ?? string.Empty,
+                OldValue = reader["OldValue"] as string,
+                NewValue = reader["NewValue"] as string,
+                ChangedBy = reader["ChangedBy"] as string,
+                MemberID = (int)reader["MemberID"],
+                MemberName = memberName // Note: Added a MemberName property to the model if it exists, otherwise we'll handle it in the UI
+            });
+        }
         
         return history;
+    }
+
+    public async Task<List<MemberChangeHistory>> GetGlobalHistoryAsync(int count = 100)
+    {
+        return await Task.Run(() => GetGlobalHistory(count));
     }
 
     /// <summary>
