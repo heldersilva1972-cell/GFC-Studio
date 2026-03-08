@@ -165,8 +165,25 @@
 
         if (!_isAuthorized)
         {
-            var returnUrl = Uri.EscapeDataString(NavigationManager.Uri);
-            NavigationManager.NavigateTo($"/cameras/secure-access?returnUrl={returnUrl}", forceLoad: true);
+            try 
+            {
+                var val = await JSRuntime.InvokeAsync<string>("window.getCookie", "GfcVideoBypass");
+                if (val == "true") _isAuthorized = true;
+            }
+            catch { }
+
+            if (!_isAuthorized && httpContext != null && httpContext.Request.Cookies.TryGetValue("GfcVideoBypass", out var bypassValue) && bypassValue == "true")
+            {
+                _isAuthorized = true;
+            }
+        }
+
+        if (!_isAuthorized)
+        {
+            // Pass relative path to avoid "://" parsing failures in Login.razor
+            var relativePath = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+            var returnUrl = Uri.EscapeDataString("/" + relativePath);
+            NavigationManager.NavigateTo($"/cameras/secure-access?returnUrl={returnUrl}");
             return;
         }
 

@@ -11,7 +11,7 @@ namespace GFC.VideoAgent.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<StreamTokenValidationMiddleware> _logger;
-        private static readonly Regex _streamPathRegex = new(@"^/(live|stream)/(\d+)/.+$", RegexOptions.Compiled);
+        private static readonly Regex _streamPathRegex = new(@"^/(live|stream)/camera(\d+)\.m3u8.*$", RegexOptions.Compiled);
 
         public StreamTokenValidationMiddleware(RequestDelegate next, ILogger<StreamTokenValidationMiddleware> logger)
         {

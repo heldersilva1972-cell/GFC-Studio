@@ -90,12 +90,20 @@ namespace GFC.BlazorServer.Middleware
             {
                 if (userConnectionService.LocationType == GFC.Core.Interfaces.LocationType.Public)
                 {
+                    // [NEW] Allow access if the user has authenticated via passcode and has the bypass cookie
+                    if (context.Request.Cookies.TryGetValue("GfcVideoBypass", out var bypassValue) && bypassValue == "true")
+                    {
+                        await _next(context);
+                        return;
+                    }
+
                     _logger.LogWarning("Blocked public IP {RemoteIpAddress} from accessing {Path}", remoteIpAddress, path);
 
                     // Log to database
                     await LogBlockedAccessAsync(context, remoteIpAddress, path);
 
-                    context.Response.Redirect("/cameras/secure-access");
+                    var returnUrl = Uri.EscapeDataString(path);
+                    context.Response.Redirect($"/cameras/secure-access?returnUrl={returnUrl}");
                     return;
                 }
             }

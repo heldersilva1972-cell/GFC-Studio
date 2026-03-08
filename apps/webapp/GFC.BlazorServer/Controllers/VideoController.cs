@@ -30,13 +30,13 @@ namespace GFC.BlazorServer.Controllers
             // The Video Agent serves HLS streams under the '/stream' request path.
             // If the incoming path is 'live/6/index.m3u8', we want to proxy to 'stream/6/index.m3u8'.
             string targetPath = path;
-            if (path.StartsWith("live/"))
+            if (targetPath.StartsWith("live/"))
             {
-                targetPath = path.Replace("live/", "stream/");
+                targetPath = targetPath.Replace("live/", "stream/");
             }
-            else if (!path.StartsWith("stream/"))
+            if (!targetPath.StartsWith("stream/"))
             {
-                targetPath = "stream/" + path;
+                targetPath = "stream/" + targetPath;
             }
 
             var requestUrl = $"{_videoAgentBaseUrl}/{targetPath}{queryString}";

@@ -62,8 +62,8 @@ namespace GFC.VideoAgent.Services
                 _activeProcesses.TryRemove(stream.CameraId, out _);
             };
 
-            process.OutputDataReceived += (sender, e) => _logger.LogInformation(e.Data);
-            process.ErrorDataReceived += (sender, e) => _logger.LogError(e.Data);
+            process.OutputDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation(e.Data); };
+            process.ErrorDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation("FFMPEG: " + e.Data); };
 
             try
             {

@@ -1,18 +1,61 @@
-// [NEW]
+// Keep track of active HLS instances
+const hlsInstances = {};
+
 function initializeHlsPlayer(videoElementId, hlsUrl) {
     const video = document.getElementById(videoElementId);
+    if (!video) return;
+
+    // Check if we already initialized this video player
+    if (video.dataset.initialized === "true" || hlsInstances[videoElementId]) {
+        return;
+    }
+    video.dataset.initialized = "true";
+
     if (Hls.isSupported()) {
         const hls = new Hls();
+        hlsInstances[videoElementId] = hls;
         hls.loadSource(hlsUrl);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            video.play();
+            video.play().catch(e => console.log("Play failed", e));
+        });
+        hls.on(Hls.Events.ERROR, function (event, data) {
+            if (data.fatal) {
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.error('Fatal network error encountered, trying to recover');
+                        hls.startLoad();
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.error('Fatal media error encountered, trying to recover');
+                        hls.recoverMediaError();
+                        break;
+                    default:
+                        hls.destroy();
+                        delete hlsInstances[videoElementId];
+                        break;
+                }
+            }
         });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = hlsUrl;
         video.addEventListener('loadedmetadata', function () {
-            video.play();
+            video.play().catch(e => console.log("Play failed", e));
         });
+    }
+}
+
+function updateHlsPlayerSource(videoElementId, hlsUrl) {
+    const video = document.getElementById(videoElementId);
+    if (!video) return;
+
+    if (Hls.isSupported() && hlsInstances[videoElementId]) {
+        const hls = hlsInstances[videoElementId];
+        hls.loadSource(hlsUrl);
+        hls.startLoad();
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = hlsUrl;
+        video.play().catch(e => console.log("Play failed", e));
     }
 }
 

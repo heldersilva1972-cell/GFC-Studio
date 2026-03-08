@@ -91,10 +91,15 @@ public class Startup
         // Token validation must come before serving the static files.
         app.UseMiddleware<StreamTokenValidationMiddleware>();
 
+        var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+        provider.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
+        provider.Mappings[".ts"] = "video/MP2T";
+
         app.UseStaticFiles(new StaticFileOptions
         {
             FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(outputDirectory),
-            RequestPath = "/stream"
+            RequestPath = "/stream",
+            ContentTypeProvider = provider
         });
 
         app.UseEndpoints(endpoints =>
@@ -118,7 +123,7 @@ public class Startup
                     return;
                 }
 
-                var streamManager = context.Request.Services.GetRequiredService<StreamManager>();
+                var streamManager = context.RequestServices.GetRequiredService<StreamManager>();
                 var status = streamManager.GetStreamStatus(cameraId);
 
                 // Check if the stream status was found for the given camera ID

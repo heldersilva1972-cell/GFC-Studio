@@ -1,8 +1,16 @@
 @page "/cameras/secure-access"
+@attribute [AllowAnonymous]
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
 @using GFC.Core.Interfaces
+@using GFC.Core.Utilities
+@using GFC.Core.Helpers
 @inject NavigationManager NavigationManager
 @inject GFC.Core.Interfaces.INetworkLocationService NetworkLocationService
 @inject IHttpContextAccessor HttpContextAccessor
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IUserRepository UserRepository
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Secure Video Access Required</PageTitle>
 
@@ -36,25 +44,47 @@
                     }
                     else
                     {
-                        <div class="alert alert-warning">
-                            <i class="bi bi-exclamation-triangle"></i> You are not connected via the secure network.
-                        </div>
-                        
-                        <div class="d-grid gap-2 mt-4">
-                            <button class="btn btn-primary btn-lg" @onclick="CheckAccessAgain">
-                                <i class="bi bi-arrow-repeat"></i> Check Connection Again
-                            </button>
-                            <a href="/" class="btn btn-outline-secondary">
-                                <i class="bi bi-house"></i> Return to Dashboard
-                            </a>
-                        </div>
+                        @if (_isPasscodeMode)
+                        {
+                            <div class="mt-4 p-4 bg-light rounded text-start">
+                                <h5 class="mb-3"><i class="bi bi-key-fill text-primary"></i> Enter Passcode for Access</h5>
+                                @if (!string.IsNullOrEmpty(_passcodeError))
+                                {
+                                    <div class="alert alert-danger py-2">@_passcodeError</div>
+                                }
+                                <div class="input-group mb-3">
+                                    <input type="password" class="form-control form-control-lg" placeholder="Enter your 6-digit passcode" @bind="_passcode" @bind:event="oninput" @onkeyup="HandleKeyPress" autofocus />
+                                    <button class="btn btn-primary" type="button" @onclick="VerifyPasscode" disabled="@_isVerifying">
+                                        @if(_isVerifying) { <span class="spinner-border spinner-border-sm"></span> }
+                                        else { <i class="bi bi-unlock-fill"></i> }
+                                    </button>
+                                </div>
+                                <div class="text-end">
+                                    <button class="btn btn-link btn-sm text-decoration-none" @onclick="() => _isPasscodeMode = false">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-grid gap-2 mt-4">
+                                <button class="btn btn-primary btn-lg" @onclick="CheckAccessAgain">
+                                    <i class="bi bi-arrow-repeat"></i> Check Connection Again
+                                </button>
+                                <button class="btn btn-outline-primary" @onclick="() => _isPasscodeMode = true">
+                                    <i class="bi bi-key"></i> Use Passcode to Unlock
+                                </button>
+                                <a href="/" class="btn btn-outline-secondary">
+                                    <i class="bi bi-house"></i> Return to Dashboard
+                                </a>
+                            </div>
 
-                        <div class="mt-4 p-3 bg-light rounded">
-                            <h6 class="mb-2">Need Help?</h6>
-                            <p class="small text-muted mb-0">
-                                Contact the system administrator to set up secure remote access to the camera system.
-                            </p>
-                        </div>
+                            <div class="mt-4 p-3 bg-light rounded">
+                                <h6 class="mb-2">Need Help?</h6>
+                                <p class="small text-muted mb-0">
+                                    Contact the system administrator to set up secure remote access to the camera system.
+                                </p>
+                            </div>
+                        }
                     }
                 </div>
             </div>
@@ -69,6 +99,12 @@
     private bool _isCheckingAccess = true;
     private bool _hasAccess = false;
 
+    private bool _isPasscodeMode = false;
+    private string _passcode = "";
+    private string _passcodeError = "";
+    private bool _isVerifying = false;
+
+    // existing code
     protected override async Task OnInitializedAsync()
     {
         await CheckAccess();
@@ -95,7 +131,7 @@
                     var redirectUrl = !string.IsNullOrEmpty(ReturnUrl) 
                         ? Uri.UnescapeDataString(ReturnUrl) 
                         : "/cameras/view";
-                    NavigationManager.NavigateTo(redirectUrl, forceLoad: true);
+                    NavigationManager.NavigateTo(redirectUrl);
                 }
             }
         }
@@ -114,5 +150,69 @@
     private async Task CheckAccessAgain()
     {
         await CheckAccess();
+    }
+
+    private async Task VerifyPasscode()
+    {
+        if (string.IsNullOrWhiteSpace(_passcode)) return;
+        
+        _isVerifying = true;
+        _passcodeError = "";
+        
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated != true)
+            {
+                _passcodeError = "You must be logged in to enter a passcode.";
+                return;
+            }
+
+            var username = user.Identity.Name;
+            var dbUser = UserRepository.GetByUsername(username!);
+            
+            if (dbUser != null && !string.IsNullOrEmpty(dbUser.PassCodeHash))
+            {
+                bool isValid = PasswordHelper.VerifyPassword(_passcode, dbUser.PassCodeHash);
+                if (isValid)
+                {
+                    // Set bypass cookie for 1 day
+                    await JSRuntime.InvokeVoidAsync("window.setCookie", "GfcVideoBypass", "true", 1);
+                    
+                    _hasAccess = true;
+                    StateHasChanged();
+                    
+                    await Task.Delay(500);
+                    var redirectUrl = !string.IsNullOrEmpty(ReturnUrl) 
+                        ? Uri.UnescapeDataString(ReturnUrl) 
+                        : "/cameras/view";
+                    NavigationManager.NavigateTo(redirectUrl);
+                    return;
+                }
+            }
+            
+            _passcodeError = "Invalid passcode.";
+        }
+        catch (Exception ex)
+        {
+            _passcodeError = "An error occurred during verification.";
+            Console.WriteLine($"Error verifying passcode: {ex.Message}");
+        }
+        finally
+        {
+            _isVerifying = false;
+            _passcode = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await VerifyPasscode();
+        }
     }
 }
