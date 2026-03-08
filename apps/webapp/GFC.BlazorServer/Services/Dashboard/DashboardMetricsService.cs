@@ -6,6 +6,7 @@ using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using GFC.BlazorServer.Services;
 using CoreDuesPayment = GFC.Core.Models.DuesPayment;
 
 namespace GFC.BlazorServer.Services.Dashboard;
@@ -17,6 +18,7 @@ public class DashboardMetricsService : IDashboardMetricsService
     private readonly IDuesRepository _duesRepository;
     private readonly IDuesYearSettingsRepository _duesYearSettingsRepository;
     private readonly IDashboardService _dashboardService;
+    private readonly IBlazorSystemSettingsService _settingsService;
     private readonly ILogger<DashboardMetricsService> _logger;
 
     public DashboardMetricsService(
@@ -25,6 +27,7 @@ public class DashboardMetricsService : IDashboardMetricsService
         IDuesRepository duesRepository,
         IDuesYearSettingsRepository duesYearSettingsRepository,
         IDashboardService dashboardService,
+        IBlazorSystemSettingsService settingsService,
         ILogger<DashboardMetricsService> logger)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
@@ -32,6 +35,7 @@ public class DashboardMetricsService : IDashboardMetricsService
         _duesRepository = duesRepository ?? throw new ArgumentNullException(nameof(duesRepository));
         _duesYearSettingsRepository = duesYearSettingsRepository ?? throw new ArgumentNullException(nameof(duesYearSettingsRepository));
         _dashboardService = dashboardService ?? throw new ArgumentNullException(nameof(dashboardService));
+        _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -54,6 +58,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             var membershipChangesTask = GetRecentMemberChangeCountAsync(ct);
             var barSalesTask = GetBarSalesMetricsAsync(weekStart, prevWeekStart, ct);
             var staffTask = GetTonightStaffAsync(today, ct);
+            var entryCountsTask = GetTodaysEntryCountsAsync(ct);
             var activityFeedTask = GetRecentActivitiesAsync(ct);
 
             await Task.WhenAll(
@@ -66,6 +71,7 @@ public class DashboardMetricsService : IDashboardMetricsService
                 membershipChangesTask,
                 barSalesTask,
                 staffTask,
+                entryCountsTask,
                 activityFeedTask);
 
             var members = membersTask.Result;
@@ -96,6 +102,8 @@ public class DashboardMetricsService : IDashboardMetricsService
                 WeeklyBarSales = weeklySales,
                 WeeklyBarTransactionCount = weeklyTransactions,
                 WeeklyBarSalesTrend = trend,
+                TodaysMemberEntryCount = entryCountsTask.Result.memberCount,
+                TodaysBuzzedInCount = entryCountsTask.Result.buzzedInCount,
                 TonightBartenders = staffTask.Result,
                 RecentActivities = activityFeedTask.Result
             };
@@ -223,6 +231,40 @@ public class DashboardMetricsService : IDashboardMetricsService
             return new List<ActivityFeedItem>();
         }
     }
+    
+    private async Task<(int memberCount, int buzzedInCount)> GetTodaysEntryCountsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var settings = await _settingsService.GetAsync();
+            var timeZoneId = settings.SystemTimeZoneId ?? "Eastern Standard Time";
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            
+            var nowUtc = DateTime.UtcNow;
+            var clubNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, timeZone);
+            var startOfTodayUtc = TimeZoneInfo.ConvertTimeToUtc(clubNow.Date, timeZone);
+            
+            await using var db = await _contextFactory.CreateDbContextAsync(ct);
+            
+            var eventsToday = await db.ControllerEvents
+                .Where(e => e.TimestampUtc >= startOfTodayUtc)
+                .Select(e => new { e.CardNumber })
+                .ToListAsync(ct);
+
+            // CardNumber == 1 is "Buzzed In"
+            var buzzedInCount = eventsToday.Count(e => e.CardNumber == 1);
+            // CardNumber > 1 is a Member card
+            var memberCount = eventsToday.Count(e => e.CardNumber > 1);
+
+            return (memberCount, buzzedInCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calculating today's entry counts");
+            return (0, 0);
+        }
+    }
+
 
     private async Task<(decimal sales, int transactions, double trend)> GetBarSalesMetricsAsync(DateTime weekStart, DateTime prevWeekStart, CancellationToken ct)
     {
