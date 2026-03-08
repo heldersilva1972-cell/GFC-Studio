@@ -229,7 +229,7 @@ public class UserManagementService : IUserManagementService
 
     private static bool IsActiveForDues(Member member)
     {
-        return member.Status is "REGULAR" or "REGULAR-NP" or "LIFE" 
+        return (member.Status is "REGULAR" or "REGULAR-NP" or "LIFE" or "GUEST")
             && member.Status != "INACTIVE" 
             && member.Status != "DECEASED" 
             && member.Status != "REJECTED";

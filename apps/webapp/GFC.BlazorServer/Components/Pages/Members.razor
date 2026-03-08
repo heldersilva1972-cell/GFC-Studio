@@ -100,12 +100,13 @@
         <div class="d-flex flex-wrap gap-2">
             @foreach (var chip in _statusChips)
             {
+                var count = GetFilterCount(chip.Value);
                 <button type="button"
                         class="btn btn-sm @(IsChipActive(chip.Value) ? "btn-primary" : "btn-outline-secondary")"
                         style="border-radius: 20px; padding: 6px 16px;"
                         @onclick="() => SetStatusFilter(chip.Value)"
                         disabled="@_isLoading">
-                    @chip.Label
+                    @chip.Label (@count)
                 </button>
             }
         </div>
@@ -295,7 +296,7 @@ else
             </div>
             <div class="d-flex justify-content-between mb-2">
                 <span class="text-muted small">Active Members</span>
-                <span class="fw-bold text-success">@_allMembers.Count(m => m.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese or MemberStatus.Life)</span>
+                <span class="fw-bold text-success">@_allMembers.Count(m => m.Status is MemberStatus.Regular or MemberStatus.RegularNonPortuguese or MemberStatus.Life or MemberStatus.Guest)</span>
             </div>
             <div class="d-flex justify-content-between">
                 <span class="text-muted small">With Cards</span>
@@ -807,8 +808,9 @@ else
         new("guest", "Guest", "#6b7280"),
         new("life", "Life", "#d6b33d"),
         new("npqueue", "NP-Regular", "#2563eb"),
-        new("pastdue", "Suspended", "#f97316"),
-        new("inactive", "Inactive", "#ef4444")
+        new("pastdue", "Unpaid", "#f97316"),
+        new("inactive", "Inactive", "#ef4444"),
+        new("deceased", "Deceased", "#475569")
     };
 
     private List<MemberCardModel> _allMembers = new();
@@ -824,9 +826,22 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-
         _isLoading = true;
         await LoadMembersAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        var uri = NavManager.ToAbsoluteUri(NavManager.Uri);
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("status", out var statusVal))
+        {
+            var requestedStatus = statusVal.ToString().ToLowerInvariant();
+            if (_statusChips.Any(c => c.Value == requestedStatus))
+            {
+                _statusFilter = requestedStatus;
+                ApplyFilters();
+            }
+        }
     }
 
     private async Task LoadMembersAsync()
@@ -1068,15 +1083,25 @@ else
         StateHasChanged();
     }
 
-    private bool MatchesStatusFilter(MemberCardModel member) => _statusFilter switch
+    private int GetFilterCount(string value)
+    {
+        if (_allMembers == null) return 0;
+        if (value == "all") return _allMembers.Count;
+        return _allMembers.Count(m => MatchesFilterValue(m, value));
+    }
+
+    private bool MatchesStatusFilter(MemberCardModel member) => MatchesFilterValue(member, _statusFilter);
+
+    private bool MatchesFilterValue(MemberCardModel member, string filter) => filter switch
     {
         "regular" => member.Status == MemberStatus.Regular,
         "guest" => member.Status == MemberStatus.Guest,
         "life" => member.Status == MemberStatus.Life,
         "pending" => member.Status == MemberStatus.Pending,
         "npqueue" => member.Status == MemberStatus.RegularNonPortuguese,
-        "pastdue" => string.Equals(member.DuesStatus, "Past Due", StringComparison.OrdinalIgnoreCase),
-        "inactive" => member.Status is MemberStatus.Inactive or MemberStatus.Deceased or MemberStatus.Rejected,
+        "pastdue" => member.DuesStatus.StartsWith("Past Due", StringComparison.OrdinalIgnoreCase),
+        "inactive" => member.Status is MemberStatus.Inactive or MemberStatus.Rejected,
+        "deceased" => member.Status == MemberStatus.Deceased,
         _ => true
     };
 

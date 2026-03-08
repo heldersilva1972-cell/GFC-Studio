@@ -62,7 +62,7 @@ public class DuesInsightService : IDuesInsightService
             if (!MemberFilters.IsActiveForDuesYear(member, year)) continue;
 
             var record = duesLookup[member.MemberID].FirstOrDefault();
-            var status = MapStatus(member.Status);
+            var status = MapStatus(member);
             var isBoard = context.BoardAssignmentsByMember.TryGetValue(member.MemberID, out var boardYears) && boardYears.Contains(year);
             var isLife = status == MemberStatus.Life;
             
@@ -133,11 +133,12 @@ public class DuesInsightService : IDuesInsightService
         var allRecords = await GetProcessedDataInternalAsync(year, cancellationToken);
         
         var paidCount = allRecords.Count(d => d.Satisfied && !d.IsWaived);
-        var waivedCount = allRecords.Count(d => d.IsWaived);
-        var unpaidCount = allRecords.Count(d => !d.Satisfied);
+        var waivedCount = allRecords.Count(d => d.IsWaived && d.Status != MemberStatus.Pending);
+        var unpaidCount = allRecords.Count(d => !d.Satisfied && d.Status != MemberStatus.Pending);
+        var pendingCount = allRecords.Count(d => d.Status == MemberStatus.Pending);
         var amountCollected = allRecords.Where(d => d.PaidDate.HasValue && !d.IsWaived).Sum(d => d.Amount ?? 0m);
 
-        return new DuesSummaryDto(year, (int)paidCount, (int)unpaidCount, (int)waivedCount, amountCollected);
+        return new DuesSummaryDto(year, (int)paidCount, (int)unpaidCount, (int)waivedCount, amountCollected, (int)pendingCount);
     }
 
     private async Task<List<DuesListItemDto>> GetProcessedDataInternalAsync(int year, CancellationToken cancellationToken)
@@ -170,9 +171,14 @@ public class DuesInsightService : IDuesInsightService
         return string.IsNullOrEmpty(suffix) ? fullName : $"{fullName} {suffix}";
     }
 
-    private static MemberStatus MapStatus(string status)
+    private static MemberStatus MapStatus(Member member)
     {
-        return MemberStatusHelper.NormalizeStatus(status) switch
+        if (MemberStatusHelper.IsPending(member))
+        {
+            return MemberStatus.Pending;
+        }
+
+        return MemberStatusHelper.NormalizeStatus(member.Status) switch
         {
             "REGULAR" => MemberStatus.Regular,
             "REGULAR-NP" => MemberStatus.RegularNonPortuguese,

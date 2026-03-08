@@ -8,5 +8,6 @@ public record DuesSummaryDto(
     int PaidCount,
     int UnpaidCount,
     int WaivedCount,
-    decimal AmountCollected);
+    decimal AmountCollected,
+    int PendingCount);
 
