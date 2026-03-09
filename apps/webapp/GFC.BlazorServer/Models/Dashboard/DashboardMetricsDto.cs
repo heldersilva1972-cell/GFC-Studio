@@ -19,6 +19,12 @@ public class DashboardMetricsDto
     public int TodaysBuzzedInCount { get; set; }
     public List<BartenderInfo> TonightBartenders { get; set; } = new();
     public List<ActivityFeedItem> RecentActivities { get; set; } = new();
+
+    // Sign-in Draw Tracking
+    public bool SignInDrawReprintRecommended { get; set; }
+    public DateTime? LastSignInDrawExportDate { get; set; }
+    public DateTime? LastSignInDrawChangeDate { get; set; }
+    public List<string> SignInDrawChangeReasons { get; set; } = new();
 }
 
 public class BartenderInfo

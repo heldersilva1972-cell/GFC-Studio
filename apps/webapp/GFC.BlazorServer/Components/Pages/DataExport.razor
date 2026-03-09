@@ -5,6 +5,10 @@
 @inject IDataExportService ExportService
 @inject ILogger<DataExport> Logger
 @inject IJSRuntime JSRuntime
+@inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SettingsService
+@inject GFC.BlazorServer.Services.SignInDrawPrintService PrintDrawService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IUserManagementService UserService
 @using System.IO
 
 <PageTitle>Data Export - GFC Membership</PageTitle>
@@ -111,6 +115,14 @@
                             <small class="d-block text-muted">System user accounts (Admin only)</small>
                         </label>
                     </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="signindraw" @bind="_options.IncludeSignInNumberDraw" />
+                        <label class="form-check-label" for="signindraw">
+                            <strong>Sign-in Number Draw</strong>
+                            <small class="d-block text-muted">A list of all paid, waived, and life members for the number draw</small>
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -129,6 +141,14 @@
                 </button>
                 <button class="btn btn-outline-secondary ms-2" @onclick="SelectAll">Select All</button>
                 <button class="btn btn-outline-secondary ms-2" @onclick="DeselectAll">Deselect All</button>
+                
+                @if (_options.IncludeSignInNumberDraw && _canPrintDraw)
+                {
+                    <button class="btn btn-outline-primary ms-2 shadow-sm" @onclick="PrintDrawList">
+                        <i class="bi bi-printer me-2"></i>
+                        <span>Print Draw List Now</span>
+                    </button>
+                }
             </div>
         </div>
     </div>
@@ -212,6 +232,16 @@
     // Import state
     private bool _isImporting = false;
     private GFC.Core.Models.ImportResult _importResult;
+    private bool _canPrintDraw = false;
+
+    protected override void OnInitialized()
+    {
+        var user = AuthStateProvider.GetCurrentUser();
+        if (user != null)
+        {
+            _canPrintDraw = UserService.UserHasPageAccess(user.UserId, "/print-membership-draw");
+        }
+    }
 
     private void SelectAll()
     {
@@ -223,6 +253,7 @@
         _options.IncludeBoardMembers = true;
         _options.IncludeNpQueue = true;
         _options.IncludeLifeEligibility = true;
+        _options.IncludeSignInNumberDraw = true;
         _options.IncludeUsers = false; // Keep users off by default for security
     }
 
@@ -236,6 +267,7 @@
         _options.IncludeBoardMembers = false;
         _options.IncludeNpQueue = false;
         _options.IncludeLifeEligibility = false;
+        _options.IncludeSignInNumberDraw = false;
         _options.IncludeUsers = false;
     }
 
@@ -294,7 +326,7 @@
         // Check if at least one option is selected
         if (!_options.IncludeMembers && !_options.IncludeDues && !_options.IncludeKeyCards &&
             !_options.IncludePhysicalKeys && !_options.IncludeLotteryShifts && !_options.IncludeBoardMembers && 
-            !_options.IncludeNpQueue && !_options.IncludeLifeEligibility && !_options.IncludeUsers)
+            !_options.IncludeNpQueue && !_options.IncludeLifeEligibility && !_options.IncludeUsers && !_options.IncludeSignInNumberDraw)
         {
             _errorMessage = "Please select at least one data type to export.";
             _successMessage = string.Empty;
@@ -314,6 +346,14 @@
             // Trigger download
             await DownloadFile(fileName, excelData, contentType);
             
+            // Update last print timestamp if sign-in draw was included
+            if (_options.IncludeSignInNumberDraw)
+            {
+                var settings = await SettingsService.GetAsync();
+                settings.LastSignInDrawExportUtc = DateTime.UtcNow;
+                await SettingsService.UpdateAsync(settings);
+            }
+
             _successMessage = "Export completed successfully! The file should download automatically.";
         }
         catch (Exception ex)
@@ -324,6 +364,25 @@
         finally
         {
             _isExporting = false;
+        }
+    }
+
+    private async Task PrintDrawList()
+    {
+        try
+        {
+            await PrintDrawService.RequestPrintAsync();
+
+            // Update last print timestamp
+            var settings = await SettingsService.GetAsync();
+            settings.LastSignInDrawExportUtc = DateTime.UtcNow;
+            await SettingsService.UpdateAsync(settings);
+            
+            _successMessage = "Print list updated. Ready to print.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Print error: {ex.Message}";
         }
     }
 

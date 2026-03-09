@@ -8,15 +8,16 @@ namespace GFC.Core.Interfaces
 
     public class ExportOptions
     {
-        public bool IncludeMembers { get; set; } = true;
-        public bool IncludeDues { get; set; } = true;
-        public bool IncludeKeyCards { get; set; } = true;
-        public bool IncludePhysicalKeys { get; set; } = true;
-        public bool IncludeLotteryShifts { get; set; } = true;
-        public bool IncludeBoardMembers { get; set; } = true;
-        public bool IncludeNpQueue { get; set; } = true;
-        public bool IncludeLifeEligibility { get; set; } = true;
+        public bool IncludeMembers { get; set; } = false;
+        public bool IncludeDues { get; set; } = false;
+        public bool IncludeKeyCards { get; set; } = false;
+        public bool IncludePhysicalKeys { get; set; } = false;
+        public bool IncludeLotteryShifts { get; set; } = false;
+        public bool IncludeBoardMembers { get; set; } = false;
+        public bool IncludeNpQueue { get; set; } = false;
+        public bool IncludeLifeEligibility { get; set; } = false;
         public bool IncludeUsers { get; set; } = false;
+        public bool IncludeSignInNumberDraw { get; set; } = false;
     }
 }
 

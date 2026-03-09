@@ -1,0 +1,180 @@
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data.Entities
+@using GFC.BlazorServer.Auth
+@inject IMemberRepository MemberRepository
+@inject IDuesYearSettingsRepository SettingsRepository
+@inject IDuesRepository DuesRepository
+@inject IJSRuntime JSRuntime
+
+<div class="draw-print-content">
+    <div class="print-header">
+        <h1>GFC Membership Sign-in Number Draw List</h1>
+        <p>List Generated On: @_generatedDate.ToString("MMMM dd, yyyy HH:mm")</p>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Member ID</th>
+                <th>First Name</th>
+                <th>Middle Name</th>
+                <th>Last Name</th>
+                <th>Dues Status (@_currentYear)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var member in _members)
+            {
+                <tr>
+                    <td class="member-id">@member.MemberID</td>
+                    <td>@member.FirstName</td>
+                    <td>@member.MiddleName</td>
+                    <td>@member.LastName</td>
+                    <td>@_currentYear PAID</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<style>
+    .draw-print-content {
+        display: none;
+    }
+
+    @@media print {
+        /* Hide everything else */
+        .app-shell, .app-topbar, .app-sidebar, .app-content::before, .app-content::after, .no-print, header, aside, .sidebar-overlay, .dash-page, .page-container, .modal {
+            display: none !important;
+        }
+
+        .draw-print-content {
+            display: block !important;
+            background: white !important;
+            color: black !important;
+            width: 100% !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            padding: 0.5in !important;
+        }
+
+        .print-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .print-header h1 {
+            margin: 0;
+            font-size: 20pt;
+        }
+
+        .print-header p {
+            margin: 5px 0;
+            font-style: italic;
+            color: #666;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px 12px;
+            text-align: center;
+            font-size: 11pt;
+        }
+
+        th {
+            background-color: #f2f2f2 !important;
+            font-weight: bold;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .member-id {
+            font-weight: bold;
+            font-size: 14pt;
+        }
+
+        thead {
+            display: table-header-group;
+        }
+        
+        @@page {
+            margin: 0.5in;
+        }
+    }
+</style>
+
+@code {
+    private List<Member> _members = new();
+    private int _currentYear;
+    private DateTime _generatedDate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _generatedDate = DateTime.Now;
+        _currentYear = DateTime.Today.Year;
+        await LoadDataAsync();
+    }
+
+    public async Task RefreshAndPrint()
+    {
+        _generatedDate = DateTime.Now;
+        await LoadDataAsync();
+        StateHasChanged();
+        // Allow DOM to update before triggering print
+        await Task.Delay(200);
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            var currentYearDues = await Task.Run(() => DuesRepository.GetDuesForYear(_currentYear));
+            
+            var paidMemberIds = currentYearDues
+                .Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                .Select(d => d.MemberID)
+                .ToHashSet();
+
+            var duesSettings = await Task.Run(() => SettingsRepository.GetSettingsForYear(_currentYear));
+            var graceEndDate = duesSettings?.GraceEndDate?.Date;
+            var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date <= graceEndDate.Value;
+            
+            HashSet<int> prevPaidIds = new();
+            if (isGracePeriodActive)
+            {
+                var prevDues = await Task.Run(() => DuesRepository.GetDuesForYear(_currentYear - 1));
+                prevPaidIds = prevDues
+                    .Where(d => d.PaidDate.HasValue && !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                    .Select(d => d.MemberID)
+                    .ToHashSet();
+            }
+
+            _members = allMembers
+                .OrderBy(m => m.MemberID)
+                .Where(member => {
+                    var normalizedStatus = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status);
+                    if (normalizedStatus is "INACTIVE" or "DECEASED") return false;
+                    
+                    bool paidCurrent = paidMemberIds.Contains(member.MemberID);
+                    bool paidPrev = prevPaidIds.Contains(member.MemberID);
+                    
+                    return normalizedStatus is "LIFE" or "BOARD" || paidCurrent || (isGracePeriodActive && paidPrev);
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[LoadDrawDataComp] {ex.Message}");
+        }
+    }
+}

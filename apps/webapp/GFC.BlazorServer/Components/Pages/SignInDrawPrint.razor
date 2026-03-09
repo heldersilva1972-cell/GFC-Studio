@@ -1,0 +1,276 @@
+@page "/print-membership-draw"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.BlazorServer.Data.Entities
+@using Microsoft.AspNetCore.Authorization
+@using GFC.BlazorServer.Auth
+@attribute [Authorize]
+@inject IMemberRepository MemberRepository
+@inject IDuesRepository DuesRepository
+@inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SettingsService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavMgr
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IUserManagementService UserService
+
+<PageTitle>Print Sign-in Number Draw List</PageTitle>
+
+<style>
+    /* Hide everything in the MainLayout except the body when printing */
+    @@media print {
+        .app-shell, .app-topbar, .app-sidebar, .app-content::before, .app-content::after, .no-print, header, aside, .sidebar-overlay {
+            display: none !important;
+        }
+        
+        main, .app-content, .content, .print-container {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+        }
+
+        thead {
+            display: table-header-group;
+        }
+        
+        @@page {
+            margin: 0.5in;
+        }
+    }
+
+    body {
+        background: white !important;
+        color: black !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .print-header {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .print-header h1 {
+        margin: 0;
+        font-size: 20pt;
+    }
+
+    .print-header p {
+        margin: 5px 0;
+        font-style: italic;
+        color: #666;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+
+    th, td {
+        border: 1px solid #ddd;
+        padding: 10px 12px;
+        text-align: center;
+        font-size: 11pt;
+    }
+
+    th {
+        background-color: #f2f2f2 !important;
+        font-weight: bold;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .member-id {
+        font-weight: bold;
+        font-size: 14pt;
+    }
+
+    .no-print {
+        padding: 15px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+</style>
+
+<AuthorizeView>
+    <Authorized>
+        @if (_isAuthorized)
+        {
+            <div class="no-print">
+                <div>
+                    <strong>Print Preview:</strong> Membership Sign-in Number Draw
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" onclick="window.print()">
+                        <i class="bi bi-printer-fill me-2"></i> Print Now
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="GoBack">
+                        Back to Dashboard
+                    </button>
+                </div>
+            </div>
+
+            <div class="print-container">
+                <div class="print-header">
+                    <h1>GFC Membership Sign-in Number Draw List</h1>
+                    <p>List Generated On: @_generatedDate.ToString("MMMM dd, yyyy HH:mm")</p>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Member ID</th>
+                            <th>First Name</th>
+                            <th>Middle Name</th>
+                            <th>Last Name</th>
+                            <th>Dues Status (@_currentYear)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var member in _members)
+                        {
+                            <tr>
+                                <td class="member-id">@member.MemberID</td>
+                               <td>@member.FirstName</td>
+                                <td>@member.MiddleName</td>
+                                <td>@member.LastName</td>
+                                <td>@_currentYear PAID</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (_isVerifying)
+        {
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif;">
+                <div class="spinner-border text-primary mb-3" role="status"></div>
+                <div class="text-muted">Verifying data access permissions...</div>
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-danger p-4 m-4">
+                <h4 class="alert-heading"><i class="bi bi-shield-lock me-2"></i>Permission Required</h4>
+                <p>Your account is authenticated, but it does not have permission to access <strong>Data Export</strong> functions required for this list.</p>
+                <hr>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>Account: @context.User.Identity?.Name</span>
+                    <button class="btn btn-outline-danger" @onclick="GoBack">Return to Dashboard</button>
+                </div>
+            </div>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif;">
+            <div class="spinner-border text-secondary mb-3" role="status"></div>
+            <div class="text-muted">Connecting to secure session...</div>
+            <div class="small text-muted mt-2">If you aren't redirected, please <a href="/login?returnUrl=/print-membership-draw">log in here</a>.</div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private List<Member> _members = new();
+    private int _currentYear;
+    private DateTime _generatedDate;
+    private bool _isAuthorized = false;
+    private bool _isVerifying = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _generatedDate = DateTime.Now;
+        _currentYear = DateTime.Today.Year;
+        
+        await CheckAccessAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Task.Delay(1500);
+            await CheckAccessAsync();
+
+            if (_isAuthorized)
+            {
+                await JSRuntime.InvokeVoidAsync("window.print");
+            }
+        }
+    }
+
+    private async Task CheckAccessAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                // Generalized permission check:
+                // 1. Is an Admin? (Global override)
+                // 2. Has permission specifically for THIS page route?
+                
+                var userIdClaim = user.FindFirst("UserId") ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+                {
+                    // Use the centralized service that respects the toggles in your screenshot
+                    _isAuthorized = UserService.UserHasPageAccess(userId, "/print-membership-draw");
+                }
+
+                if (_isAuthorized)
+                {
+                    _isVerifying = false;
+                    if (_members.Count == 0)
+                    {
+                        await LoadDataAsync();
+                    }
+                }
+                
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[PrintAuthCheck] {ex.Message}");
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+            var currentYearDues = await Task.Run(() => DuesRepository.GetDuesForYear(_currentYear));
+            
+            var paidMemberIds = currentYearDues
+                .Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                .Select(d => d.MemberID)
+                .ToHashSet();
+
+            _members = allMembers
+                .OrderBy(m => m.MemberID)
+                .Where(member => {
+                    var normalizedStatus = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status);
+                    return normalizedStatus is "LIFE" or "BOARD" || paidMemberIds.Contains(member.MemberID);
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[LoadDrawData] {ex.Message}");
+        }
+    }
+
+    private void GoBack()
+    {
+        NavMgr.NavigateTo("/");
+    }
+}

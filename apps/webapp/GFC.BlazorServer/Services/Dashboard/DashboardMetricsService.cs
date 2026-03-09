@@ -60,6 +60,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             var staffTask = GetTonightStaffAsync(today, ct);
             var entryCountsTask = GetTodaysEntryCountsAsync(ct);
             var activityFeedTask = GetRecentActivitiesAsync(ct);
+            var drawStatusTask = GetSignInDrawStatusAsync(ct);
 
             await Task.WhenAll(
                 membersTask,
@@ -72,7 +73,8 @@ public class DashboardMetricsService : IDashboardMetricsService
                 barSalesTask,
                 staffTask,
                 entryCountsTask,
-                activityFeedTask);
+                activityFeedTask,
+                drawStatusTask);
 
             var members = membersTask.Result;
             var currentYearDues = currentYearDuesTask.Result;
@@ -105,7 +107,11 @@ public class DashboardMetricsService : IDashboardMetricsService
                 TodaysMemberEntryCount = entryCountsTask.Result.memberCount,
                 TodaysBuzzedInCount = entryCountsTask.Result.buzzedInCount,
                 TonightBartenders = staffTask.Result,
-                RecentActivities = activityFeedTask.Result
+                RecentActivities = activityFeedTask.Result,
+                SignInDrawReprintRecommended = drawStatusTask.Result.recommended,
+                LastSignInDrawExportDate = drawStatusTask.Result.lastExport,
+                LastSignInDrawChangeDate = drawStatusTask.Result.lastChange,
+                SignInDrawChangeReasons = drawStatusTask.Result.reasons
             };
         }
         catch (Exception ex)
@@ -442,6 +448,110 @@ public class DashboardMetricsService : IDashboardMetricsService
         {
             _logger.LogWarning(ex, "Failed to fetch recent member counts");
             return 0;
+        }
+    }
+
+    private async Task<(bool recommended, DateTime? lastExport, DateTime? lastChange, List<string> reasons)> GetSignInDrawStatusAsync(CancellationToken ct)
+    {
+        try
+        {
+            var settings = await _settingsService.GetAsync();
+            var lastExport = settings.LastSignInDrawExportUtc ?? DateTime.MinValue;
+            var reasons = new List<string>();
+
+            var members = await Task.Run(() => _memberRepository.GetAllMembers(), ct);
+            var currentYear = DateTime.Today.Year;
+            var currentYearDues = await Task.Run(() => _duesRepository.GetDuesForYear(currentYear), ct);
+            
+            // Grace Period Handling
+            var duesSettings = await Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
+            var graceEndDate = duesSettings?.GraceEndDate?.Date;
+            var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date <= graceEndDate.Value;
+            
+            // We need previous year's paid IDs to detect transitions even after grace expires
+            var prevDues = await Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1));
+            var prevPaidIds = prevDues
+                .Where(d => d.PaidDate.HasValue && !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                .Select(d => d.MemberID)
+                .ToHashSet();
+
+            var paidMemberIds = currentYearDues
+                .Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                .Select(d => d.MemberID)
+                .ToHashSet();
+
+            bool IsIncluded(Member m, bool forGraceCheck)
+            {
+                var normalized = MemberStatusHelper.NormalizeStatus(m.Status);
+                if (normalized is "INACTIVE" or "DECEASED") return false;
+                
+                bool paidCurrent = paidMemberIds.Contains(m.MemberID);
+                bool paidPrev = prevPaidIds.Contains(m.MemberID);
+
+                // If forGraceCheck is true, we assume the grace period is/was active
+                return normalized is "LIFE" or "BOARD" || paidCurrent || (forGraceCheck && paidPrev);
+            }
+
+            // 1. Check for anyone who meets the criteria and changed recently (ADD)
+            var additions = members
+                .Where(m => {
+                    if (!IsIncluded(m, isGracePeriodActive)) return false;
+                    
+                    // Was there a status change since last print?
+                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExport) return true;
+                    
+                    // Was there a payment since last print?
+                    var dues = currentYearDues.FirstOrDefault(d => d.MemberID == m.MemberID);
+                    if (dues?.PaidDate != null && dues.PaidDate.Value > lastExport) return true;
+                    
+                    return false;
+                })
+                .ToList();
+
+            foreach (var m in additions)
+            {
+                reasons.Add($"Add: [{m.MemberID}] {m.FirstName} {m.LastName}");
+            }
+
+            // 2. Check for anyone who does NOT meet criteria but changed recently (REMOVE)
+            // Or people who lost eligibility because the grace period ended since last print.
+            var removals = members
+                .Where(m => {
+                    bool currentlyIncluded = IsIncluded(m, isGracePeriodActive);
+                    if (currentlyIncluded) return false;
+                    
+                    // If they were included in the last print, they need to be removed now.
+                    // Case A: Status changed since last print
+                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExport) return true;
+                    
+                    // Case B: Grace period was active during last print, but is not now
+                    if (!isGracePeriodActive && graceEndDate.HasValue && lastExport <= graceEndDate.Value)
+                    {
+                        // Were they only in because of last year's dues?
+                        if (prevPaidIds.Contains(m.MemberID) && !paidMemberIds.Contains(m.MemberID)) return true;
+                    }
+                    
+                    return false;
+                })
+                .ToList();
+
+            foreach (var m in removals)
+            {
+                reasons.Add($"Remove: [{m.MemberID}] {m.FirstName} {m.LastName}");
+            }
+
+            // Overall change date for display
+            var statusDates = members.Where(m => m.StatusChangeDate.HasValue).Select(m => m.StatusChangeDate!.Value).ToList();
+            var paymentDates = currentYearDues.Where(d => d.PaidDate.HasValue).Select(d => d.PaidDate!.Value).ToList();
+            var allDates = statusDates.Concat(paymentDates).ToList();
+            var lastChange = allDates.Any() ? (DateTime?)allDates.Max() : null;
+
+            return (reasons.Any(), settings.LastSignInDrawExportUtc, lastChange, reasons.Distinct().OrderBy(r => r).Take(10).ToList());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating Sign-in Draw status");
+            return (false, null, null, new List<string>());
         }
     }
 }

@@ -222,6 +222,7 @@ public class Program
         builder.Services.AddScoped<DashboardSessionState>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.BarSalesStateContainer>();
         builder.Services.AddScoped<GFC.BlazorServer.Services.FinancialInsightsStateContainer>();
+        builder.Services.AddScoped<SignInDrawPrintService>();
 
         builder.Services.AddScoped<ICardReaderProfileService, CardReaderProfileService>();
         builder.Services.AddScoped<ICardEligibilityService, CardEligibilityService>();
@@ -622,6 +623,36 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 catch (Exception ex)
                 {
                     Console.WriteLine($">>> Error applying critical SystemSettings NULL fix: {ex.Message}");
+                }
+
+                // [CRITICAL FIX 8] Add missing Sign-in Draw and Shift columns
+                try 
+                {
+                    var fixDrawColsSql = @"
+                        IF EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
+                        BEGIN
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SystemSettings') AND name = 'LastSignInDrawExportUtc')
+                                ALTER TABLE SystemSettings ADD LastSignInDrawExportUtc DATETIME2 NULL;
+                            
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SystemSettings') AND name = 'DayShiftStartTime')
+                                ALTER TABLE SystemSettings ADD DayShiftStartTime TIME NOT NULL DEFAULT '09:00:00';
+                            
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SystemSettings') AND name = 'DayShiftEndTime')
+                                ALTER TABLE SystemSettings ADD DayShiftEndTime TIME NOT NULL DEFAULT '17:00:00';
+                                
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SystemSettings') AND name = 'NightShiftStartTime')
+                                ALTER TABLE SystemSettings ADD NightShiftStartTime TIME NOT NULL DEFAULT '18:00:00';
+                                
+                            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SystemSettings') AND name = 'NightShiftEndTime')
+                                ALTER TABLE SystemSettings ADD NightShiftEndTime TIME NOT NULL DEFAULT '02:00:00';
+                        END
+                    ";
+                    dbContext.Database.ExecuteSqlRaw(fixDrawColsSql);
+                    Console.WriteLine(">>> CRITICAL: Applied Sign-in Draw and Shift column fixes.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($">>> Error applying critical Draw tracking fix: {ex.Message}");
                 }
 
                 // [AUTO-FIX 3] ControllerEvents Schema Refinement

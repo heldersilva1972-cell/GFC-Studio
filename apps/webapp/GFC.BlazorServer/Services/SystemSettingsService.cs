@@ -319,6 +319,7 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.NightShiftStartTime = settings.NightShiftStartTime;
         existingSettings.NightShiftEndTime = settings.NightShiftEndTime;
 
+        existingSettings.LastSignInDrawExportUtc = settings.LastSignInDrawExportUtc;
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
         // Sync ShiftDefaults immediately

@@ -76,6 +76,9 @@ namespace GFC.BlazorServer.Services
             
             if (options.IncludeUsers)
                 AddUsersSheet(package);
+            
+            if (options.IncludeSignInNumberDraw)
+                AddSignInNumberDrawSheet(package);
 
             return package.GetAsByteArray();
         }
@@ -497,6 +500,91 @@ namespace GFC.BlazorServer.Services
 
             // Auto-fit columns
             worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
+        }
+
+        private void AddSignInNumberDrawSheet(ExcelPackage package)
+        {
+            var worksheet = package.Workbook.Worksheets.Add("updated list for sign-in number draw");
+            var members = _memberRepository.GetAllMembers();
+            
+            var currentYear = DateTime.Today.Year;
+            var currentYearDues = _duesRepository.GetDuesForYear(currentYear);
+            
+            var paidMemberIds = currentYearDues
+                .Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                .Select(d => d.MemberID)
+                .ToHashSet();
+
+            // Add Header with Generation Date (to tell if list is up to date)
+            worksheet.Cells[1, 1, 1, 5].Merge = true;
+            worksheet.Cells[1, 1].Value = $"List Generated On: {DateTime.Now:MMMM dd, yyyy HH:mm}";
+            worksheet.Cells[1, 1].Style.Font.Italic = true;
+            worksheet.Cells[1, 1].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+
+            // Headers
+            worksheet.Cells[2, 1].Value = "Member ID";
+            worksheet.Cells[2, 2].Value = "First Name";
+            worksheet.Cells[2, 3].Value = "Middle Name";
+            worksheet.Cells[2, 4].Value = "Last Name";
+            worksheet.Cells[2, 5].Value = $"Dues Status ({currentYear})";
+
+            // Style headers
+            using (var range = worksheet.Cells[2, 1, 2, 5])
+            {
+                range.Style.Font.Bold = true;
+                range.Style.Fill.PatternType = ExcelFillStyle.Solid;
+                range.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
+                range.Style.Border.BorderAround(ExcelBorderStyle.Thin);
+                range.Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+            }
+
+            // Data
+            int row = 3;
+            foreach (var member in members.OrderBy(m => m.MemberID))
+            {
+                var normalizedStatus = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status);
+                bool isPaid = normalizedStatus is "LIFE" or "BOARD" || paidMemberIds.Contains(member.MemberID);
+
+                // Filter: Only include members that are "paid"
+                if (!isPaid) continue;
+
+                // Member ID (Bold & Larger)
+                var idCell = worksheet.Cells[row, 1];
+                idCell.Value = member.MemberID;
+                idCell.Style.Font.Bold = true;
+                idCell.Style.Font.Size = 14;
+
+                worksheet.Cells[row, 2].Value = member.FirstName;
+                worksheet.Cells[row, 3].Value = member.MiddleName;
+                worksheet.Cells[row, 4].Value = member.LastName;
+                
+                // Show Year instead of just "Yes"
+                worksheet.Cells[row, 5].Value = $"{currentYear} PAID";
+                
+                // Center all columns in the row
+                worksheet.Cells[row, 1, row, 5].Style.HorizontalAlignment = ExcelHorizontalAlignment.Center;
+                worksheet.Cells[row, 1, row, 5].Style.VerticalAlignment = ExcelVerticalAlignment.Center;
+                
+                row++;
+            }
+
+            // Auto-fit columns
+            if (worksheet.Dimension != null)
+            {
+                worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
+            }
+
+            // Printer settings for hard copies
+            // Repeat the Generation Date (Row 1) and Column Headers (Row 2) on every page
+            worksheet.PrinterSettings.RepeatRows = new ExcelAddress("$1:$2");
+            
+            // Add page numbers to the footer (e.g. "Page 1 of 3")
+            worksheet.HeaderFooter.OddFooter.RightAlignedText = "Page &P of &N";
+            
+            // Ensure data fits within the width of a standard page
+            worksheet.PrinterSettings.FitToPage = true;
+            worksheet.PrinterSettings.FitToWidth = 1;
+            worksheet.PrinterSettings.FitToHeight = 0; // Automatic number of pages
         }
 
 

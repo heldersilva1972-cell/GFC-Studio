@@ -149,4 +149,7 @@ public class SystemSettings
     public TimeSpan DayShiftEndTime { get; set; } = new TimeSpan(17, 0, 0);
     public TimeSpan NightShiftStartTime { get; set; } = new TimeSpan(18, 0, 0);
     public TimeSpan NightShiftEndTime { get; set; } = new TimeSpan(2, 0, 0);
+
+    // Sign-in Number Draw tracking
+    public DateTime? LastSignInDrawExportUtc { get; set; }
 }
