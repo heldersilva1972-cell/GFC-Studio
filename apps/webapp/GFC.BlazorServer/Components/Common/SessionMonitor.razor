@@ -32,6 +32,7 @@
     private int _idleTimeoutMinutes;
     private Timer _countdownTimer;
     private int _countdownSeconds = 60;
+    private bool _logoutInProgress = false;  // prevents double-logout race between JS and C# timers
 
     [Parameter]
     public bool IsStation { get; set; }
@@ -72,8 +73,19 @@
                 _countdownTimer?.Dispose();
                 Logger.LogWarning("Session auto-logout triggered after countdown expired.");
                 await LogoutUser();
+                return; // Do NOT call StateHasChanged after navigation — component is being torn down
             }
-            await InvokeAsync(StateHasChanged);
+
+            try
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                // Circuit may have disconnected. Stop the timer to prevent repeated failures.
+                Logger.LogWarning(ex, "StateHasChanged failed in session countdown — disposing timer.");
+                _countdownTimer?.Dispose();
+            }
         }, null, 1000, 1000);
 
         Logger.LogInformation("Idle warning displayed. User has 60 seconds to respond.");
@@ -83,10 +95,33 @@
     [JSInvokable]
     public async Task LogoutUser()
     {
-        await JSRuntime.InvokeVoidAsync("sessionMonitor.cleanup");
-        // [MODIFIED] Do not clear tokens or revoke trust on idle timeout.
-        // We only want to end the interactive session.
-        await AuthStateProvider.LogoutAsync();
+        // Prevent double-logout: both the JS 30-min timeout and the C# countdown
+        // can independently trigger this method at nearly the same time.
+        if (_logoutInProgress) return;
+        _logoutInProgress = true;
+
+        _countdownTimer?.Dispose();
+
+        try
+        {
+            // JS context may be unavailable (degraded circuit, navigation already in progress, etc.)
+            // Must NOT let this throw — the logout must always complete.
+            await JSRuntime.InvokeVoidAsync("sessionMonitor.cleanup");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "JS cleanup failed during logout — proceeding with server-side logout.");
+        }
+
+        try
+        {
+            await AuthStateProvider.LogoutAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "AuthStateProvider.LogoutAsync() failed — forcing navigation to login.");
+        }
+
         NavigationManager.NavigateTo("/login", true);
     }
 
@@ -99,6 +134,7 @@
     public async Task ResetFromJavaScript()
     {
         _countdownTimer?.Dispose();
+        _logoutInProgress = false; // allow future logout attempts after a session reset
         await JSRuntime.InvokeVoidAsync("sessionMonitor.hideWarningModal");
     }
 
