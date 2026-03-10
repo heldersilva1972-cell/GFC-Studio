@@ -28,6 +28,18 @@ public class ImmediateSyncDispatcher : IImmediateSyncDispatcher
         var card = _keyCardRepository.GetById(keyCardId);
         if (card == null) return;
 
+        // Guard: a blank CardNumber would cause 'long.Parse("")' to crash in the sync worker,
+        // creating an entry that retries forever but never succeeds.
+        if (string.IsNullOrWhiteSpace(card.CardNumber))
+        {
+            _logger.LogError(
+                "DispatchSyncAsync aborted for KeyCardId {KeyCardId}: CardNumber is blank. " +
+                "The KeyCard record may not have been fully saved before the sync was triggered. " +
+                "No queue entry will be created.",
+                keyCardId);
+            return;
+        }
+
         // 1. Add to queue first (safety first, ensures we don't lose the intent if we crash during immediate try)
         var queueId = await _queueRepo.AddAsync(new GFC.Core.Models.ControllerSyncQueueItem
         {

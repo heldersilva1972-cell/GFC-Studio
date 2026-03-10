@@ -57,6 +57,17 @@ public class ControllerSyncService : IControllerSyncService
             return;
         }
 
+        // Guard: a blank CardNumber cannot be parsed as a long and will cause a FormatException
+        // on every retry attempt, looping forever. Permanently fail the item here instead.
+        if (string.IsNullOrWhiteSpace(item.CardNumber))
+        {
+            var errorMsg = $"Queue item {item.QueueId} has a blank CardNumber and can never be processed. " +
+                           $"Marking as permanently failed. The card assignment should be reviewed.";
+            _logger.LogError(errorMsg);
+            await _queueRepo.IncrementAttemptAsync(item.QueueId, errorMsg);
+            return;
+        }
+
         try
         {
             // Mark as processing
@@ -151,7 +162,14 @@ public class ControllerSyncService : IControllerSyncService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update IsControllerSynced for card {CardNumber}, but hardware sync was successful.", item.CardNumber);
+                // Elevated to LogError: this failure is silent but leaves the card showing
+                // 'Activation Not Confirmed' in the UI indefinitely, even though the hardware
+                // sync succeeded. Needs investigation if seen in logs.
+                _logger.LogError(ex,
+                    "SYNC FLAG UPDATE FAILED: Hardware sync for card {CardNumber} (QueueId {QueueId}) was successful, " +
+                    "but updating IsControllerSynced in the database failed. " +
+                    "The card will incorrectly show 'Activation Not Confirmed' in the UI.",
+                    item.CardNumber, item.QueueId);
             }
 
             _logger.LogInformation(
