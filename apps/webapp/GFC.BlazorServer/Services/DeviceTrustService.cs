@@ -136,16 +136,8 @@ public class DeviceTrustService : IDeviceTrustService
 
             await using var context = await _contextFactory.CreateDbContextAsync();
         
-        // [AUTO-CLEANUP] Remove any existing stations from this IP before creating a new one
-        var existingStations = await context.TrustedDevices
-            .Where(d => d.IsStation && d.IpAddress == ipAddress && !d.IsRevoked)
-            .ToListAsync();
-
-        foreach (var oldStation in existingStations)
-        {
-            oldStation.IsRevoked = true;
-            _logger.LogInformation("Auto-cleanup: Revoking old station session from IP {IP}", ipAddress);
-        }
+        // [MODIFIED] Do NOT auto-revoke existing stations from this IP.
+        // This allows multiple physical computers at the same club location (shared public IP) to coexist.
 
         var device = new TrustedDevice
         {
@@ -553,10 +545,11 @@ public class DeviceTrustService : IDeviceTrustService
             device.LastUsedUtc = DateTime.UtcNow;
 
             // Rolling Trust: Extend expiration based on system settings
-            // We fetch settings directly from DB to ensure we use the latest value
+            // [STATION MODE] Shared stations stay authorized for 1 year (365 days) from last use.
+            // [USER MODE] Personal devices follow the system setting (default 30 days).
             var settings = await context.SystemSettings.FirstOrDefaultAsync(s => s.Id == 1);
-            int durationDays = settings?.TrustedDeviceDurationDays ?? 30;
-
+            int durationDays = device.IsStation ? 365 : (settings?.TrustedDeviceDurationDays ?? 30);
+ 
             var newExpiration = DateTime.UtcNow.AddDays(durationDays);
             
             // Optimization: Only update the DB if the expiration has moved forward significantly (more than 1 day)
