@@ -157,13 +157,22 @@ internal static class WgResponseParser
         // COMPLETE EVENT-READBACK SPEC (WG3000/Mengqi) — FROM REAL WIRESHARK CAPTURES
         
         // Expecting a 64-byte response for P64 commands
-        if (packet.Length < 64) return (events, 0);
+        if (packet.Length < 64)
+        {
+            Console.WriteLine($"[WgResponseParser] WARN: ParseEvents got short packet ({packet.Length} bytes) for requestedIndex={requestedIndex}. Skipping.");
+            return (events, 0);
+        }
 
         // Byte[0] = 0x17, Byte[1] = 0x20 (confirmed command code for event record in user capture)
         // Some firmwares might still use 0xB0, so we should ideally check both or rely on the dispatcher.
-        // For this specific task, we align with the 0x20 spec provided.
+        // DIAGNOSTIC: Log anything that doesn't match so we can extend the parser for other event types.
         if (packet[0] != 0x17 || (packet[1] != 0x20 && packet[1] != 0xB0))
+        {
+            var hexDump = string.Join(" ", packet.Slice(0, Math.Min(packet.Length, 32)).ToArray().Select(b => b.ToString("X2")));
+            Console.WriteLine($"[WgResponseParser] WARN: ParseEvents REJECTED packet for requestedIndex={requestedIndex}. " +
+                              $"Byte[0]=0x{packet[0]:X2} Byte[1]=0x{packet[1]:X2}. First 32 bytes: {hexDump}");
             return (events, 0);
+        }
 
         // B) Event Index (uint32 little-endian) - Byte[8..11]
         uint eventIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(8, 4));

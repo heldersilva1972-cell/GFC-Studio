@@ -201,6 +201,21 @@ public class ControllerEventService
             .Where(d => d.ControllerId == controller.Id)
             .ToDictionaryAsync(d => d.DoorIndex, d => d, cancellationToken);
 
+        // Load club timezone once so every event gets a correct UTC timestamp.
+        // The controller always reports its local wall-clock time; without this conversion
+        // the date-range filters on the Door Activity Log silently exclude previous-day events.
+        TimeZoneInfo clubTimeZone;
+        try
+        {
+            var settings = await _settingsService.GetAsync();
+            clubTimeZone = TimeZoneInfo.FindSystemTimeZoneById(
+                settings.SystemTimeZoneId ?? "Eastern Standard Time");
+        }
+        catch
+        {
+            clubTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        }
+
 
         // 4.4 Optimized Duplicate prevention
         var existingIndices = await dbContext.ControllerEvents
@@ -236,8 +251,11 @@ public class ControllerEventService
                     {
                         ControllerId = controller.Id,
                         DoorId = doorId,
-                        TimestampUtc = evt.TimestampUtc, // Keeping legacy field for now
-                        ControllerEventTime = evt.TimestampUtc, // Wall time reported by controller
+                        // ControllerEventTime = raw wall-clock from the controller (used for display).
+                        ControllerEventTime = evt.TimestampUtc,
+                        // TimestampUtc = properly converted to UTC for all date-range queries/filters.
+                        // DST-safe: handles spring-forward (invalid times) and fall-back (ambiguous times).
+                        TimestampUtc = ConvertControllerTimeToUtc(evt.TimestampUtc, clubTimeZone),
                         CardNumber = evt.CardNumber,
                         EventType = (int)evt.EventType,
                         ReasonCode = evt.ReasonCode,
@@ -260,6 +278,18 @@ public class ControllerEventService
                         batch.Clear();
                         progressCallback?.Invoke(totalSaved, itemsToSync);
                     }
+                }
+                else
+                {
+                    // DIAGNOSTIC: An index was visited but the parser returned no event.
+                    // Either the controller returned an unrecognised packet type (check the
+                    // WgResponseParser "[WgResponseParser] WARN" console output for raw hex),
+                    // or it returned a genuine empty record for this slot.
+                    // lastSyncedIndex still advances so this index will be permanently skipped.
+                    _logger.LogWarning(
+                        "Sync {Sn}: Index {Index} returned no parseable event — will be permanently skipped. " +
+                        "Check console output for WgResponseParser raw packet bytes.",
+                        controllerSerialNumber, i);
                 }
                 
                 lastSyncedIndex = i;
@@ -575,6 +605,38 @@ public class ControllerEventService
             .ToListAsync(cancellationToken);
 
         return latest.ToDictionary(e => e.ControllerId);
+    }
+
+    /// <summary>
+    /// Converts a local wall-clock time reported by the door controller to UTC,
+    /// handling all DST edge cases safely.
+    ///
+    /// Three cases:
+    ///   1. Normal time     → standard ConvertTimeToUtc
+    ///   2. Invalid time    → spring-forward gap (2:xx AM on change day doesn't exist)
+    ///                        → use standard (non-DST) offset as safe fallback
+    ///   3. Ambiguous time  → fall-back overlap (1:xx AM occurs twice on change day)
+    ///                        → use standard (non-DST) offset to be deterministic
+    /// </summary>
+    private static DateTime ConvertControllerTimeToUtc(DateTime controllerLocalTime, TimeZoneInfo timeZone)
+    {
+        var localTime = DateTime.SpecifyKind(controllerLocalTime, DateTimeKind.Unspecified);
+
+        if (timeZone.IsInvalidTime(localTime))
+        {
+            // Spring-forward: this wall-clock time does not exist (clocks skipped it).
+            // Apply the standard offset as a best approximation.
+            return localTime - timeZone.BaseUtcOffset;
+        }
+
+        if (timeZone.IsAmbiguousTime(localTime))
+        {
+            // Fall-back: this wall-clock time occurs twice.
+            // Use the standard (non-DST) offset so the result is always deterministic.
+            return localTime - timeZone.BaseUtcOffset;
+        }
+
+        return TimeZoneInfo.ConvertTimeToUtc(localTime, timeZone);
     }
 }
 
