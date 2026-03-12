@@ -3,6 +3,9 @@ using GFC.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using System.Data;
+using System.Linq;
+using GFC.Core.DTOs;
+
 
 namespace GFC.BlazorServer.Services
 {
@@ -11,7 +14,12 @@ namespace GFC.BlazorServer.Services
         Task<List<FinancialDataPoint>> GetAggregatedDataAsync(FinancialAnalyticsRequest request);
         Task<FinancialSummary> GetSummaryAsync(FinancialAnalyticsRequest request);
         Task<List<int>> GetAvailableYearsAsync();
+        Task<(List<DailySalesReportDto> Data, int TotalBar, int TotalLotto, string Server, string Database, string Error)> GetDailySalesReportsAsync(DateTime startDate, DateTime endDate);
     }
+
+
+
+
 
     public class FinancialAnalyticsRequest
     {
@@ -177,5 +185,186 @@ namespace GFC.BlazorServer.Services
             };
             return summary;
         }
+
+        public async Task<(List<DailySalesReportDto> Data, int TotalBar, int TotalLotto, string Server, string Database, string Error)> GetDailySalesReportsAsync(DateTime startDate, DateTime endDate)
+        {
+            string currentStep = "Initializing";
+            string dbServer = "Unknown";
+            string dbName = "Unknown";
+            try {
+                currentStep = "Connecting to DB";
+                using var db = await _dbFactory.CreateDbContextAsync();
+                
+                var conn = db.Database.GetDbConnection();
+                dbName = conn.Database ?? "Unknown";
+                dbServer = conn.DataSource ?? "Unknown";
+
+                currentStep = "Counting BarSaleEntries";
+                int totalBar = 0;
+                try { totalBar = await db.BarSaleEntries.CountAsync(); } 
+                catch (Exception ex) { Console.WriteLine($"[Diag] Bar count fail: {ex.Message}"); }
+                
+                currentStep = "Counting LotteryShifts";
+                int totalLotto = 0;
+                try { totalLotto = await db.LotteryShifts.CountAsync(); }
+                catch (Exception ex) { Console.WriteLine($"[Diag] Lotto count fail: {ex.Message}"); }
+
+                var start = startDate.Date;
+                var end = endDate.Date;
+
+                // 1. Fetch Bar Data - Search by either the raw SaleDate OR the AdjustedSaleDate
+                currentStep = "Fetching BarSaleEntries";
+                var barEntriesRaw = await db.BarSaleEntries
+                    .AsNoTracking()
+                    .Where(e => (e.SaleDate >= start && e.SaleDate <= end) || 
+                                (e.AdjustedSaleDate != null && e.AdjustedSaleDate >= start && e.AdjustedSaleDate <= end))
+                    .Select(e => new {
+                        SaleDate = (DateTime?)e.SaleDate ?? DateTime.MinValue,
+                        AdjustedSaleDate = e.AdjustedSaleDate,
+                        Shift = e.Shift ?? "Day",
+                        IsRentalHall = e.IsRentalHall,
+                        TotalSales = (decimal?)e.TotalSales ?? 0m,
+                        TotalHours = (decimal?)e.TotalHours ?? 0m,
+                        Notes = e.Notes ?? "",
+                        CreatedBy = e.CreatedBy ?? "Unknown",
+                        CreatedAt = (DateTime?)e.CreatedAt ?? DateTime.MinValue
+                    })
+                    .ToListAsync();
+                
+                // Final refinement in memory to ensure we group by the CORRECT date (Adjusted if available)
+                var barEntries = barEntriesRaw.Select(e => new {
+                    Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
+                    e.Shift,
+                    e.IsRentalHall,
+                    e.TotalSales,
+                    e.TotalHours,
+                    e.Notes,
+                    e.CreatedBy,
+                    e.CreatedAt
+                }).Where(e => e.Date >= start && e.Date <= end).ToList();
+
+                Console.WriteLine($"[FinancialService] Found {barEntries.Count} barEntries.");
+
+                // 2. Fetch Lottery Data
+                currentStep = "Fetching LotteryShifts";
+                var lottoShifts = await db.LotteryShifts
+                    .AsNoTracking()
+                    .Where(e => e.ShiftDate >= start && e.ShiftDate <= end)
+                    .Select(e => new {
+                        e.ShiftId,
+                        ShiftDate = (DateTime?)e.ShiftDate ?? DateTime.MinValue,
+                        ShiftType = e.ShiftType ?? "Day",
+                        TotalSales = (decimal?)e.TotalSales ?? 0m,
+                        TotalPayouts = (decimal?)e.TotalPayouts ?? 0m,
+                        NetDue = (decimal?)e.NetDue ?? 0m,
+                        StartingCash = (decimal?)e.StartingCash ?? 0m,
+                        EndingCash = (decimal?)e.EndingCash ?? 0m,
+                        BackupBagAmount = (decimal?)e.BackupBagAmount ?? 0m,
+                        EnvelopeAmount = (decimal?)e.EnvelopeAmount ?? 0m,
+                        Notes = e.Notes ?? "",
+                        EmployeeName = e.EmployeeName ?? "Unknown",
+                        CreatedDate = (DateTime?)e.CreatedDate ?? DateTime.MinValue
+                    })
+                    .ToListAsync();
+
+                Console.WriteLine($"[FinancialService] Found {lottoShifts.Count} lottoShifts.");
+
+
+
+            // 3. Group and Aggregate
+            var dates = barEntries.Select(e => e.Date)
+                .Union(lottoShifts.Select(s => s.ShiftDate.Date))
+                .OrderByDescending(d => d)
+                .ToList();
+
+            var reports = new List<DailySalesReportDto>();
+
+                foreach (var date in dates)
+                {
+                    var dailyReport = new DailySalesReportDto { Date = date };
+                    
+                    // Get shifts for this date
+                    var dayBar = barEntries.FirstOrDefault(e => e.Date == date && e.Shift == "Day" && !e.IsRentalHall);
+                    var nightBar = barEntries.FirstOrDefault(e => e.Date == date && e.Shift == "Night" && !e.IsRentalHall);
+                    var hallBar = barEntries.FirstOrDefault(e => e.Date == date && e.IsRentalHall);
+
+
+                    var dayLotto = lottoShifts.FirstOrDefault(s => s.ShiftDate.Date == date && s.ShiftType == "Day");
+                    var nightLotto = lottoShifts.FirstOrDefault(s => s.ShiftDate.Date == date && s.ShiftType == "Night");
+
+                    // Map Day Shift
+                    if (dayBar != null || dayLotto != null)
+                    {
+                        dailyReport.Shifts.Add(new ShiftReportDto {
+                            ShiftType = "Day",
+                            IsRentalHall = false,
+                            BarSales = dayBar?.TotalSales ?? 0,
+                            TotalHours = dayBar?.TotalHours,
+                            LottoSales = dayLotto?.TotalSales ?? 0,
+                            LottoPayouts = dayLotto?.TotalPayouts ?? 0,
+                            LottoNetDue = dayLotto?.NetDue ?? 0,
+                            StartingCash = dayLotto?.StartingCash ?? 0,
+                            EndingCash = dayLotto?.EndingCash ?? 0,
+                            BackupBagAmount = dayLotto?.BackupBagAmount ?? 0,
+                            EnvelopeAmount = dayLotto?.EnvelopeAmount ?? 0,
+                            Notes = dayBar?.Notes ?? dayLotto?.Notes,
+                            CreatedBy = dayBar?.CreatedBy ?? dayLotto?.EmployeeName,
+                            CreatedAt = dayBar?.CreatedAt ?? dayLotto?.CreatedDate ?? date
+
+                        });
+                    }
+
+                    // Map Night Shift
+                    if (nightBar != null || nightLotto != null)
+                    {
+                        dailyReport.Shifts.Add(new ShiftReportDto {
+                            ShiftType = "Night",
+                            IsRentalHall = false,
+                            BarSales = nightBar?.TotalSales ?? 0,
+                            TotalHours = nightBar?.TotalHours,
+                            LottoSales = nightLotto?.TotalSales ?? 0,
+                            LottoPayouts = nightLotto?.TotalPayouts ?? 0,
+                            LottoNetDue = nightLotto?.NetDue ?? 0,
+                            StartingCash = nightLotto?.StartingCash ?? 0,
+                            EndingCash = nightLotto?.EndingCash ?? 0,
+                            BackupBagAmount = nightLotto?.BackupBagAmount ?? 0,
+                            EnvelopeAmount = nightLotto?.EnvelopeAmount ?? 0,
+                            Notes = nightBar?.Notes ?? nightLotto?.Notes,
+                            CreatedBy = nightBar?.CreatedBy ?? nightLotto?.EmployeeName,
+                            CreatedAt = nightBar?.CreatedAt ?? nightLotto?.CreatedDate ?? date
+
+                        });
+                    }
+
+                    // Map Hall Rental
+                    if (hallBar != null)
+                    {
+                        dailyReport.Shifts.Add(new ShiftReportDto {
+                            ShiftType = "Hall",
+                            IsRentalHall = true,
+                            BarSales = hallBar.TotalSales,
+                            TotalHours = hallBar.TotalHours,
+                            Notes = hallBar.Notes,
+                            CreatedBy = hallBar.CreatedBy,
+                            CreatedAt = hallBar.CreatedAt
+                        });
+                    }
+
+                    reports.Add(dailyReport);
+                }
+
+                return (reports, totalBar, totalLotto, dbServer, dbName, "None");
+            }
+            catch (Exception ex)
+            {
+                string msg = $"Error at {currentStep}: {ex.Message}";
+                Console.WriteLine($"[FinancialService:Critical] {msg}");
+                return (new List<DailySalesReportDto>(), 0, 0, dbServer, dbName, msg);
+            }
+        }
+
+
+
     }
 }
+

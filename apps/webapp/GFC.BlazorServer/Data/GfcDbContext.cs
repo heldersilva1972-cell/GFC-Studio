@@ -804,6 +804,8 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.NetDue).HasColumnType("decimal(18,2)");
             entity.Property(e => e.StartingCash).HasColumnType("decimal(18,2)");
             entity.Property(e => e.EndingCash).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.BackupBagAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.EnvelopeAmount).HasColumnType("decimal(18,2)");
         });
 
         modelBuilder.Entity<LotteryWeeklyStat>(entity =>

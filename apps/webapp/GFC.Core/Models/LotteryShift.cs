@@ -25,11 +25,14 @@ namespace GFC.Core.Models
         public decimal ClaimsBonus { get; set; }
         public decimal NetDue { get; set; }
         
+        public decimal BackupBagAmount { get; set; }
+        public decimal EnvelopeAmount { get; set; }
+        
         public decimal? OriginalTotalSales { get; set; }
         
         // Calculated values
         public decimal NetSales => TotalSales - TotalPayouts - TotalCancels;
-        public decimal ExpectedCash => StartingCash + NetSales;
+        public decimal ExpectedCash => StartingCash + TotalSales - TotalPayouts + BackupBagAmount;
         public decimal Variance => EndingCash - ExpectedCash;
         
         // Additional tracking
