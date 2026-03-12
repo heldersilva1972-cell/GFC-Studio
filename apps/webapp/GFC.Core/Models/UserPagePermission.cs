@@ -32,4 +32,5 @@ public class UserPagePermission
     public string GrantedBy { get; set; }
 
     public bool ReceivePush { get; set; } = false;
+    public bool CanEdit { get; set; } = false;
 }

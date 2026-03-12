@@ -160,6 +160,7 @@ public class PagePermissionRepository : IPagePermissionRepository
               INNER JOIN AppPages ap ON upp.PageId = ap.PageId
               WHERE upp.UserId = @UserId AND upp.CanAccess = 1
               ORDER BY ap.Category, ap.DisplayOrder";
+
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@UserId", userId);
         using var reader = command.ExecuteReader();
@@ -256,8 +257,9 @@ public class PagePermissionRepository : IPagePermissionRepository
               WHEN MATCHED THEN
                   UPDATE SET CanAccess = 1, GrantedDate = GETDATE(), GrantedBy = @GrantedBy
               WHEN NOT MATCHED THEN
-                  INSERT (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush)
-                  VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, 0);";
+                  INSERT (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush, CanEdit)
+                  VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, 0, 0);";
+
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@UserId", userId);
         command.Parameters.AddWithValue("@PageId", pageId);
@@ -296,15 +298,17 @@ public class PagePermissionRepository : IPagePermissionRepository
             // Add new permissions
             foreach (var pageId in pageIds)
             {
-                const string insertSql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush)
-                      VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, @ReceivePush)";
+                const string insertSql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush, CanEdit)
+                      VALUES (@UserId, @PageId, 1, GETDATE(), @GrantedBy, @ReceivePush, @CanEdit)";
                 using var insertCommand = new SqlCommand(insertSql, connection, transaction);
                 insertCommand.Parameters.AddWithValue("@UserId", userId);
                 insertCommand.Parameters.AddWithValue("@PageId", pageId);
                 insertCommand.Parameters.AddWithValue("@GrantedBy", grantedBy);
-                insertCommand.Parameters.AddWithValue("@ReceivePush", 0); // Default to false for bulk set if not specified
+                insertCommand.Parameters.AddWithValue("@ReceivePush", 0); 
+                insertCommand.Parameters.AddWithValue("@CanEdit", 0);
                 insertCommand.ExecuteNonQuery();
             }
+
 
             transaction.Commit();
         }
@@ -338,6 +342,20 @@ public class PagePermissionRepository : IPagePermissionRepository
         command.Parameters.AddWithValue("@ReceivePush", receivePush);
         command.ExecuteNonQuery();
     }
+
+    public void UpdateEditPreference(int userId, int pageId, bool canEdit)
+    {
+        using var connection = Db.GetConnection();
+        connection.Open();
+        
+        const string sql = "UPDATE UserPagePermissions SET CanEdit = @CanEdit WHERE UserId = @UserId AND PageId = @PageId";
+        using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@UserId", userId);
+        command.Parameters.AddWithValue("@PageId", pageId);
+        command.Parameters.AddWithValue("@CanEdit", canEdit);
+        command.ExecuteNonQuery();
+    }
+
     
     // Bulk operations
     public void GrantAllPermissions(int userId, string grantedBy)
@@ -345,14 +363,15 @@ public class PagePermissionRepository : IPagePermissionRepository
         using var connection = Db.GetConnection();
         connection.Open();
         
-        const string sql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy)
-              SELECT @UserId, PageId, 1, GETDATE(), @GrantedBy
+        const string sql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush, CanEdit)
+              SELECT @UserId, PageId, 1, GETDATE(), @GrantedBy, 0, 0
               FROM AppPages
               WHERE IsActive = 1
               AND NOT EXISTS (
                   SELECT 1 FROM UserPagePermissions 
                   WHERE UserId = @UserId AND PageId = AppPages.PageId
               )";
+
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@UserId", userId);
         command.Parameters.AddWithValue("@GrantedBy", grantedBy);
@@ -376,10 +395,11 @@ public class PagePermissionRepository : IPagePermissionRepository
             }
 
             // Copy permissions from source user
-            const string copySql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy)
-                  SELECT @TargetUserId, PageId, CanAccess, GETDATE(), @GrantedBy
+            const string copySql = @"INSERT INTO UserPagePermissions (UserId, PageId, CanAccess, GrantedDate, GrantedBy, ReceivePush, CanEdit)
+                  SELECT @TargetUserId, PageId, CanAccess, GETDATE(), @GrantedBy, ReceivePush, CanEdit
                   FROM UserPagePermissions
                   WHERE UserId = @SourceUserId";
+
             using var copyCommand = new SqlCommand(copySql, connection, transaction);
             copyCommand.Parameters.AddWithValue("@SourceUserId", sourceUserId);
             copyCommand.Parameters.AddWithValue("@TargetUserId", targetUserId);
@@ -492,8 +512,11 @@ public class PagePermissionRepository : IPagePermissionRepository
             CanAccess = reader["CanAccess"] != DBNull.Value && (bool)reader["CanAccess"],
             GrantedDate = reader["GrantedDate"] != DBNull.Value ? (DateTime)reader["GrantedDate"] : DateTime.MinValue,
             GrantedBy = reader["GrantedBy"] as string,
-            ReceivePush = reader["ReceivePush"] != DBNull.Value && (bool)reader["ReceivePush"]
+            ReceivePush = reader["ReceivePush"] != DBNull.Value && (bool)reader["ReceivePush"],
+            CanEdit = HasColumn(reader, "CanEdit") && reader["CanEdit"] != DBNull.Value && (bool)reader["CanEdit"]
         };
+
+
 
         // If we have page columns, map the Page object too
         if (HasColumn(reader, "PageRoute"))

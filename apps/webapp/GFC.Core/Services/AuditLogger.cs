@@ -167,6 +167,8 @@ public static class AuditLogActions
     public const string SessionInvalidatedVpnLost = "SessionInvalidatedVpnLost";
     public const string AccessRevoked = "AccessRevoked";
     public const string PageView = "PageView";
+    public const string ShiftReportSubmitted = "Shift Report Submitted";
+    public const string ShiftReportCorrected = "Shift Report Corrected";
     
     // VPN & Onboarding Actions
     public const string VpnOnboardingStarted = "VpnOnboardingStarted";
@@ -237,6 +239,8 @@ public static class AuditLogActions
         DbRestoreFailed,
         DbMaintenanceModeEnabled,
         DbMaintenanceModeDisabled,
-        PageView
+        PageView,
+        ShiftReportSubmitted,
+        ShiftReportCorrected
     };
 }

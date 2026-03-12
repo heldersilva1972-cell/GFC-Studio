@@ -575,6 +575,25 @@ public class UserManagementService : IUserManagementService
         _userPermissionsCache.TryRemove(userId, out _);
     }
 
+    public void UpdateUserEditPreference(int userId, int pageId, bool canEdit)
+    {
+        _pagePermissionRepository.UpdateEditPreference(userId, pageId, canEdit);
+        // Invalidate cache
+        _userPermissionsCache.TryRemove(userId, out _);
+    }
+
+    public UserPagePermission? GetUserPagePermission(int userId, string pageRoute)
+    {
+        var permissions = GetUserPagePermissions(userId);
+        var normalized = pageRoute.TrimStart('/').ToLowerInvariant();
+        
+        return permissions.FirstOrDefault(p => 
+            p.Page != null && 
+            (p.Page.PageRoute.TrimStart('/').ToLowerInvariant() == normalized || 
+             p.Page.PageRoute.ToLowerInvariant() == pageRoute.ToLowerInvariant()));
+    }
+
+
     public void GrantAllPagePermissions(int userId, string grantedBy)
     {
         _pagePermissionRepository.GrantAllPermissions(userId, grantedBy);

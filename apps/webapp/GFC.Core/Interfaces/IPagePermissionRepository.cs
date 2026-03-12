@@ -25,6 +25,7 @@ public interface IPagePermissionRepository
     void SetUserPermissions(int userId, IEnumerable<int> pageIds, string grantedBy);
     void ClearUserPermissions(int userId);
     void UpdatePushPreference(int userId, int pageId, bool receivePush);
+    void UpdateEditPreference(int userId, int pageId, bool canEdit);
     
     // Bulk operations
     void GrantAllPermissions(int userId, string grantedBy);

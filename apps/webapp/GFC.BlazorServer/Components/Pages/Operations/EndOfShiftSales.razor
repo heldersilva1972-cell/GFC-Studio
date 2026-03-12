@@ -11,6 +11,7 @@
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JSRuntime
 @inject IAuditLogger AuditLogger
+@inject IUserManagementService UserService
 @attribute [Authorize]
 
 <PageTitle>End of Shift Sales | GFC Control Center</PageTitle>
@@ -114,12 +115,14 @@
                                 <div class="alert alert-info border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center py-3 px-4 animate-slide-up" style="background: rgba(99, 102, 241, 0.05); border-left: 5px solid #6366f1 !important;">
                                     <div class="d-flex align-items-center gap-3 w-100">
                                         <div class="bg-indigo p-2 rounded-circle position-relative" style="background: rgba(99, 102, 241, 0.1);">
-                                            <i class="bi bi-pencil-square text-indigo fs-4"></i>
-                                            <span class="position-absolute top-0 start-100 translate-middle p-1 bg-indigo border border-light rounded-circle animate-pulse"></span>
+                                            <i class="bi @(_isWithinGracePeriod ? "bi-pencil-square" : "bi-shield-lock-fill") text-indigo fs-4"></i>
+                                            @if (_isWithinGracePeriod) {
+                                                <span class="position-absolute top-0 start-100 translate-middle p-1 bg-indigo border border-light rounded-circle animate-pulse"></span>
+                                            }
                                         </div>
                                         <div>
-                                            <div class="fw-bold text-dark">Reviewing Existing Entry</div>
-                                            <div class="small text-muted">A report was already submitted for this shift. You can make corrections within the 2-hour window.</div>
+                                            <div class="fw-bold text-dark">@(_isWithinGracePeriod ? "Reviewing Existing Entry" : "Administrative Correction")</div>
+                                            <div class="small text-muted">@(_isWithinGracePeriod ? "A report was already submitted for this shift. You can make corrections within the 2-hour window." : "This report is outside the standard 2-hour window. Your administrative status allows for corrections.")</div>
                                         </div>
                                     </div>
                                 </div>
@@ -390,9 +393,18 @@
                                 @if (ExistingEntryFound && !IsLocked)
                                 {
                                     <div class="text-center mb-2">
-                                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-3 py-2 rounded-pill fw-bold small">
-                                            <i class="bi bi-clock me-1"></i> EDITABLE WINDOW ACTIVE
-                                        </span>
+                                        @if (_isWithinGracePeriod)
+                                        {
+                                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-3 py-2 rounded-pill fw-bold small">
+                                                <i class="bi bi-clock me-1"></i> EDITABLE WINDOW ACTIVE
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 rounded-pill fw-bold small">
+                                                <i class="bi bi-shield-lock me-1"></i> ADMINISTRATIVE OVERRIDE
+                                            </span>
+                                        }
                                         <p class="small text-muted mt-2">Submitted at @(ExistingBarEntry?.CreatedAt.ToLocalTime().ToString("h:mm tt"))</p>
                                     </div>
                                 }
@@ -833,7 +845,14 @@
 </style>
 
 @code {
+    [Parameter, SupplyParameterFromQuery(Name = "date")]
+    public string? QueryDate { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "shift")]
+    public string? QueryShift { get; set; }
+
     private decimal? BarSales { get; set; }
+
     private decimal? LottoSales { get; set; }
     private decimal? LottoCashes { get; set; }
     private decimal? LottoNetDue { get; set; }
@@ -852,6 +871,7 @@
     private bool Submitted { get; set; } = false;
     private bool ExistingEntryFound { get; set; } = false;
     private bool IsLocked { get; set; } = false;
+    private bool _isWithinGracePeriod { get; set; } = false;
     private bool _showValidation { get; set; } = false;
     private bool IsRentalHall { get; set; } = false;
     private bool IsEarlyMorning => DateTime.Now.Hour < 5;
@@ -873,7 +893,19 @@
     private decimal LottoEnvelopeAmount => Math.Max(0, LottoTotalSurplus - (LottoBackupBag ?? 0));
     private decimal LottoNextShiftStart => (LottoCashCounted ?? 0) - LottoReturnToBag - LottoEnvelopeAmount;
 
+    // Original values for auditing
+    private decimal? _originalBarSales;
+    private decimal? _originalLottoSales;
+    private decimal? _originalLottoCashCounted;
+    private decimal? _originalLottoPayouts;
+    private decimal? _originalLottoNetDue;
+    private decimal? _originalLottoOpeningCash;
+    private decimal? _originalLottoBackupBag;
+    private decimal? _originalTotalHours;
+    private string? _originalNotes;
+
     private BarSaleEntry? ExistingBarEntry { get; set; }
+
     private LotteryShift? ExistingLottoEntry { get; set; }
     private AppUser? CurrentUser { get; set; }
 
@@ -895,11 +927,33 @@
             return;
         }
 
-        ApplyBusinessDayLogic();
+        // Handle Query Parameters for Editing
+        if (!string.IsNullOrEmpty(QueryDate) && DateTime.TryParse(QueryDate, out var qDate))
+        {
+            ReportDate = qDate;
+            if (!string.IsNullOrEmpty(QueryShift))
+            {
+                ShiftType = QueryShift;
+                if (ShiftType == "Hall")
+                {
+                    IsRentalHall = true;
+                }
+                else
+                {
+                    IsRentalHall = false;
+                }
+            }
+        }
+        else
+        {
+            ApplyBusinessDayLogic();
+        }
+
         await UpdateShiftAvailability();
         await CheckExisting();
         Loading = false;
     }
+
 
     private void ApplyBusinessDayLogic()
     {
@@ -1069,23 +1123,45 @@
                     LottoBackupBag = ExistingLottoEntry.BackupBagAmount;
                     LottoCashCounted = ExistingLottoEntry.EndingCash;
                 }
+
+                _originalBarSales = BarSales;
+                _originalLottoSales = LottoSales;
+                _originalLottoCashCounted = LottoCashCounted;
+                _originalLottoPayouts = LottoCashes;
+                _originalLottoNetDue = LottoNetDue;
+                _originalLottoOpeningCash = LottoOpeningCash;
+                _originalLottoBackupBag = LottoBackupBag;
+                _originalTotalHours = TotalHours;
+                _originalNotes = Notes;
                 
                 // Context preservation
+
                 Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
                 _createdByName = ExistingBarEntry?.CreatedBy ?? ExistingLottoEntry?.CreatedBy;
 
                 // Check 2-Hour Lock
                 var cutoff = DateTime.UtcNow.AddHours(-2);
                 var createdTime = ExistingBarEntry?.CreatedAt ?? ExistingLottoEntry?.CreatedDate ?? DateTime.UtcNow;
+                _isWithinGracePeriod = createdTime >= cutoff;
                 
-                // Only the creator can edit
+                // Only the creator can edit within 2 hours... 
+                // UNLESS they have the special 'CanEdit' permission we just implemented.
                 _isOwner = _createdByName == CurrentUser?.Username;
                 
-                if (createdTime < cutoff || !_isOwner)
+                var hasManagerOverride = false;
+                try {
+                    var perm = UserService.GetUserPagePermission(CurrentUser.UserId, "/finance/bar-lottery-sales");
+                    if (perm?.CanEdit == true) hasManagerOverride = true;
+                } catch { }
+
+                if (CurrentUser.IsAdmin) hasManagerOverride = true;
+
+                if (!hasManagerOverride && (createdTime < cutoff || !_isOwner))
                 {
                     IsLocked = true;
                 }
             }
+
             else
             {
                 // No existing entry - start with carryover
@@ -1186,6 +1262,35 @@
         IsSubmitting = true;
         try
         {
+            // 0. Capture audit comparison BEFORE any database updates or refreshes
+            string? auditDetail = null;
+            if (ExistingEntryFound)
+            {
+                var changes = new List<string>();
+                if (BarSales != _originalBarSales) 
+                    changes.Add($"Bar Sales: {_originalBarSales:C2} -> {BarSales:C2}");
+                if (LottoSales != _originalLottoSales) 
+                    changes.Add($"Lotto Sales: {_originalLottoSales:C2} -> {LottoSales:C2}");
+                if (LottoCashCounted != _originalLottoCashCounted) 
+                    changes.Add($"Counted Cash: {_originalLottoCashCounted:C2} -> {LottoCashCounted:C2}");
+                if (LottoCashes != _originalLottoPayouts)
+                    changes.Add($"Payouts: {_originalLottoPayouts:C2} -> {LottoCashes:C2}");
+                if (LottoNetDue != _originalLottoNetDue)
+                    changes.Add($"Net Due: {_originalLottoNetDue:C2} -> {LottoNetDue:C2}");
+                if (LottoOpeningCash != _originalLottoOpeningCash)
+                    changes.Add($"Opening Cash: {_originalLottoOpeningCash:C2} -> {LottoOpeningCash:C2}");
+                if (LottoBackupBag != _originalLottoBackupBag)
+                    changes.Add($"Backup Bag: {_originalLottoBackupBag:C2} -> {LottoBackupBag:C2}");
+                if (TotalHours != _originalTotalHours)
+                    changes.Add($"Hours: {_originalTotalHours} -> {TotalHours}");
+                if (Notes != _originalNotes)
+                    changes.Add("Notes were updated");
+                
+                auditDetail = $"Edited Shift Report for {ReportDate:yyyy-MM-dd} ({ShiftType}). ";
+                if (changes.Count == 0) auditDetail += "No significant changes detected.";
+                else auditDetail += "Changes: " + string.Join(", ", changes);
+            }
+
             using var db = await DbFactory.CreateDbContextAsync();
 
             // 1. Bar Sales
@@ -1261,11 +1366,22 @@
                 }
             }
 
-            AuditLogger.Log("Shift Report Submitted", CurrentUser?.UserId, null, $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}");
+            // 3. Log Audit
+            if (ExistingEntryFound)
+            {
+                // We pre-calculated the auditDetail at the start of the method to avoid post-save refresh issues
+                AuditLogger.Log(AuditLogActions.ShiftReportCorrected, CurrentUser?.UserId, null, auditDetail);
+            }
+            else
+            {
+                AuditLogger.Log(AuditLogActions.ShiftReportSubmitted, CurrentUser?.UserId, null, $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}");
+            }
+
             
             Submitted = true;
             await UpdateShiftAvailability(); // Refresh badges
             await CheckExisting(); // Refresh state
+
         }
         catch (Exception ex)
         {

@@ -5,7 +5,11 @@
 @using GFC.Core.DTOs
 @inject IFinancialAnalyticsService FinancialService
 @inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IUserManagementService UserService
+@inject NavigationManager Navigation
 @attribute [Authorize]
+
 
 <PageTitle>Bar and Lottery Sales Entries | GFC Finance</PageTitle>
 
@@ -140,7 +144,7 @@
                                                     </span>
                                                 </td>
                                                 <td class="pe-4 text-center">
-                                                    <button class="btn btn-icon-sm" @onclick="() => ShowShiftDetail(shift)">
+                                                    <button class="btn btn-icon-sm" @onclick="() => ShowShiftDetail(day.Date, shift)">
                                                         <i class="bi bi-info-circle"></i>
                                                     </button>
                                                 </td>
@@ -239,8 +243,12 @@
                 </div>
                 <div class="modal-footer border-0 p-3 bg-light">
                     <button class="btn btn-secondary rounded-pill px-4" @onclick="() => _selectedShift = null">Close</button>
-                    <button class="btn btn-primary rounded-pill px-4" @onclick="() => GoToEdit(_selectedShift)">Edit Report</button>
+                    @if (_canEdit)
+                    {
+                        <button class="btn btn-primary rounded-pill px-4" @onclick="() => GoToEdit(_selectedShiftDate, _selectedShift)">Edit Report</button>
+                    }
                 </div>
+
             </div>
         </div>
     </div>
@@ -407,17 +415,50 @@
     private DateTime _endDate = DateTime.Today;
 
     private bool _loading = true;
+    private bool _canEdit = false;
     private string _statusMessage = "Initializing...";
     private string? _errorMessage;
     private List<DailySalesReportDto> _days = new();
     private List<string> _debugLogs = new();
     private ShiftReportDto? _selectedShift;
+    private DateTime _selectedShiftDate;
 
     protected override async Task OnInitializedAsync()
     {
         Log("Page Initialized");
+        await CheckPermissions();
         await RefreshData();
     }
+
+    private async Task CheckPermissions()
+    {
+        try 
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            // System Admins always have edit access
+            if (user.IsInRole("Admin"))
+            {
+                _canEdit = true;
+                return;
+            }
+
+            // Check granular page permission for non-admins
+            var userIdClaim = user.FindFirst(c => c.Type == "sub") ?? user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+            {
+                var permission = await Task.Run(() => UserService.GetUserPagePermission(userId, "/finance/bar-lottery-sales"));
+                _canEdit = permission?.CanEdit ?? false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Permission Error: {ex.Message}");
+            _canEdit = false; // Safe default
+        }
+    }
+
 
     private void Log(string message)
     {
@@ -479,16 +520,16 @@
 
 
 
-    private void ShowShiftDetail(ShiftReportDto shift)
+    private void ShowShiftDetail(DateTime businessDate, ShiftReportDto shift)
     {
+        _selectedShiftDate = businessDate;
         _selectedShift = shift;
     }
 
-    private void GoToEdit(ShiftReportDto shift)
+    private void GoToEdit(DateTime businessDate, ShiftReportDto shift)
     {
-        // Navigate to the end-of-shift page with the correct date and shift context
-        // This assumes the end-of-shift page can handle parameters or we just navigate there
-        JS.InvokeVoidAsync("location.assign", $"/operations/end-of-shift?date={shift.CreatedAt:yyyy-MM-dd}&shift={shift.ShiftType}");
+        // Navigate to the end-of-shift page with the correct business date and shift context
+        Navigation.NavigateTo($"/operations/end-of-shift?date={businessDate:yyyy-MM-dd}&shift={shift.ShiftType}");
     }
 
     private async Task ExportToExcel()

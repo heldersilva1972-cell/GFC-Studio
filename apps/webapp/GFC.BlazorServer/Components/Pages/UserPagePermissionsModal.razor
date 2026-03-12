@@ -149,20 +149,41 @@
                                                     <div class="modern-switch @(SelectedPageIds.Contains(appPage.PageId) ? "checked" : "")" @onclick="() => TogglePage(appPage)"></div>
                                                 </div>
                                                 
-                                                @if (SelectedPageIds.Contains(appPage.PageId) && SupportsPush(appPage))
+                                                 @if (SelectedPageIds.Contains(appPage.PageId) && (SupportsPush(appPage) || SupportsEdit(appPage)))
                                                 {
-                                                    <div class="d-flex align-items-center justify-content-between pt-2 border-top mt-2 animate-fade-in">
-                                                        <div class="d-flex align-items-center gap-2 text-muted small">
-                                                            <i class="bi bi-bell-fill @(PushEnabledPageIds.Contains(appPage.PageId) ? "text-warning" : "")"></i>
-                                                            <span>Push Notifications</span>
-                                                        </div>
-                                                        <div class="form-check form-switch mb-0">
-                                                            <input class="form-check-input" type="checkbox" role="switch" 
-                                                                   checked="@PushEnabledPageIds.Contains(appPage.PageId)"
-                                                                   @onchange="(e) => TogglePush(appPage.PageId, e)">
-                                                        </div>
+                                                    <div class="d-flex flex-column gap-2 pt-2 border-top mt-2 animate-fade-in">
+                                                        @if (SupportsPush(appPage))
+                                                        {
+                                                            <div class="d-flex align-items-center justify-content-between">
+                                                                <div class="d-flex align-items-center gap-2 text-muted small">
+                                                                    <i class="bi bi-bell-fill @(PushEnabledPageIds.Contains(appPage.PageId) ? "text-warning" : "")"></i>
+                                                                    <span>Push Notifications</span>
+                                                                </div>
+                                                                <div class="form-check form-switch mb-0">
+                                                                    <input class="form-check-input" type="checkbox" role="switch" 
+                                                                           checked="@PushEnabledPageIds.Contains(appPage.PageId)"
+                                                                           @onchange="(e) => TogglePush(appPage.PageId, e)">
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        
+                                                        @if (SupportsEdit(appPage))
+                                                        {
+                                                            <div class="d-flex align-items-center justify-content-between">
+                                                                <div class="d-flex align-items-center gap-2 text-muted small">
+                                                                    <i class="bi bi-pencil-square @(EditEnabledPageIds.Contains(appPage.PageId) ? "text-primary" : "")"></i>
+                                                                    <span>Edit Permission</span>
+                                                                </div>
+                                                                <div class="form-check form-switch mb-0">
+                                                                    <input class="form-check-input" type="checkbox" role="switch" 
+                                                                           checked="@EditEnabledPageIds.Contains(appPage.PageId)"
+                                                                           @onchange="(e) => ToggleEdit(appPage.PageId, e)">
+                                                                </div>
+                                                            </div>
+                                                        }
                                                     </div>
                                                 }
+
                                             </div>
                                         </div>
                                     </div>
@@ -225,9 +246,13 @@
     private HashSet<int> OriginalSelectedPageIds { get; set; } = new();
     private HashSet<int> PushEnabledPageIds { get; set; } = new();
     private HashSet<int> OriginalPushEnabledPageIds { get; set; } = new();
+    private HashSet<int> EditEnabledPageIds { get; set; } = new();
+    private HashSet<int> OriginalEditEnabledPageIds { get; set; } = new();
     private HashSet<string> CollapsedCategories { get; set; } = new();
 
-    private bool HasChanges => !SelectedPageIds.SetEquals(OriginalSelectedPageIds) || !PushEnabledPageIds.SetEquals(OriginalPushEnabledPageIds);
+    private bool HasChanges => !SelectedPageIds.SetEquals(OriginalSelectedPageIds) || 
+                              !PushEnabledPageIds.SetEquals(OriginalPushEnabledPageIds) ||
+                              !EditEnabledPageIds.SetEquals(OriginalEditEnabledPageIds);
 
     protected override async Task OnInitializedAsync()
     {
@@ -256,7 +281,11 @@
                 
                 PushEnabledPageIds = userPermissions.Where(p => p.ReceivePush).Select(p => p.PageId).ToHashSet();
                 OriginalPushEnabledPageIds = new HashSet<int>(PushEnabledPageIds);
+
+                EditEnabledPageIds = userPermissions.Where(p => p.CanEdit).Select(p => p.PageId).ToHashSet();
+                OriginalEditEnabledPageIds = new HashSet<int>(EditEnabledPageIds);
             }
+
         }
         catch (Exception ex)
         {
@@ -321,6 +350,32 @@
                route.Contains("alert") || 
                route.Contains("controller");
     }
+
+    private bool SupportsEdit(AppPage page)
+    {
+        var route = page.PageRoute?.ToLower().TrimStart('/') ?? "";
+        var name = page.PageName?.ToLower() ?? "";
+        
+        // [NEW] specifically allow editing for Bar/Lottery sales entries
+        // Check both the URL route and the Display Name to be safe
+        return route.Contains("finance/bar-lottery-sales") || 
+               name.Contains("bar/lottery sales") || 
+               name.Contains("bar/lottery entries") ||
+               name.Contains("bar lottery sales") ||
+               name.Contains("bar lottery entries");
+    }
+
+
+
+    private void ToggleEdit(int pageId, ChangeEventArgs e)
+    {
+        bool isChecked = (bool)(e.Value ?? false);
+        if (isChecked)
+            EditEnabledPageIds.Add(pageId);
+        else
+            EditEnabledPageIds.Remove(pageId);
+    }
+
 
     private void SelectAll()
     {
@@ -474,22 +529,34 @@
         {
             if (string.IsNullOrEmpty(ErrorMessage))
             {
-                // [NEW] Persist push preferences
+                // [NEW] Persist push and edit preferences
                 foreach (var pageId in SelectedPageIds)
                 {
+                    // Push
                     bool isPushEnabled = PushEnabledPageIds.Contains(pageId);
-                    bool originallyEnabled = OriginalPushEnabledPageIds.Contains(pageId);
+                    bool originallyPushEnabled = OriginalPushEnabledPageIds.Contains(pageId);
                     
-                    if (isPushEnabled != originallyEnabled)
+                    if (isPushEnabled != originallyPushEnabled)
                     {
                         await Task.Run(() => UserService.UpdateUserPushPreference(UserId, pageId, isPushEnabled));
+                    }
+
+                    // Edit
+                    bool isEditEnabled = EditEnabledPageIds.Contains(pageId);
+                    bool originallyEditEnabled = OriginalEditEnabledPageIds.Contains(pageId);
+
+                    if (isEditEnabled != originallyEditEnabled)
+                    {
+                        await Task.Run(() => UserService.UpdateUserEditPreference(UserId, pageId, isEditEnabled));
                     }
                 }
 
                 Saving = false;
                 OriginalSelectedPageIds = new HashSet<int>(SelectedPageIds);
                 OriginalPushEnabledPageIds = new HashSet<int>(PushEnabledPageIds);
+                OriginalEditEnabledPageIds = new HashSet<int>(EditEnabledPageIds);
             }
+
         }
     }
 }
