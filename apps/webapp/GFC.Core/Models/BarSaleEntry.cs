@@ -29,6 +29,9 @@ namespace GFC.Core.Models
 
         public decimal? OriginalTotalSales { get; set; }
 
+        public decimal? TotalHours { get; set; }
+        public bool IsRentalHall { get; set; }
+
         public string? ModifiedBy { get; set; }
 
         public DateTime? ModifiedDate { get; set; }
