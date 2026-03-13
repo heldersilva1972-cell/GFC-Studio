@@ -133,6 +133,22 @@ The Comcast router needs to pass incoming VPN traffic specifically to the TP-Lin
 
 ## 6. Troubleshooting & Future-Proofing
 
+### TP-Link Power Outage & System Time Sync
+If the TP-Link router loses power, it may forget its internal system time and revert to a past year (e.g., 2025). 
+Because WireGuard has strict "Anti-Replay" security protection, if the TP-Link attempts to send a VPN handshake from 2025 to a Windows Server living in 2026, the Windows Server will assume it is a hacker and instantly block the tunnel.
+
+**Symptoms of a Desynced Clock:**
+* The tunnel says `0 B received` even if the Public IP addresses are perfectly correct.
+* The TP-Link's main Status page shows the wrong System Time.
+
+**The Fix:**
+1. Log into the TP-Link router (`192.168.0.1`).
+2. Go to **Preferences -> System Time**.
+3. Ensure the router is set to "Get Dynamically from NTP Server" or manually correct the date to match today's date.
+4. Go to the Windows Server, Deactivate the WireGuard tunnel, wait 3 seconds, and Reactivate it to force a fresh handshake using the corrected time.
+
+---
+
 ### The #1 Vulnerability: Dynamic Public IP Changes
 The entire setup hinges on the Windows Server knowing the exact Public IP address of the Club's Comcast modem (the `Endpoint` value in the Server's WireGuard config). 
 Comcast Business IPs rarely change, but a prolonged power outage or hardware replacement can cause Comcast to assign a new Public IP.
