@@ -30,7 +30,29 @@
                         </div>
                     </div>
                     
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="d-flex flex-column align-items-end gap-2">
+                        <div class="d-flex gap-2">
+                            <button class="btn @(_showSummariesOnly ? "btn-primary" : "btn-outline-primary") btn-sm rounded-pill px-3 shadow-sm" @onclick="() => _showSummariesOnly = !_showSummariesOnly">
+                                <i class="bi @(_showSummariesOnly ? "bi-list-ul" : "bi-card-heading") me-1"></i> @(_showSummariesOnly ? "Show Detailed Shifts" : "Summaries Only")
+                            </button>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary btn-sm rounded-pill px-3 shadow-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-funnel me-1"></i> Quick Filters
+                                </button>
+                                <ul class="dropdown-menu shadow-sm border-0 dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="#" @onclick:preventDefault @onclick="() => SetDateRange(7)">Last 7 Days</a></li>
+                                    <li><a class="dropdown-item" href="#" @onclick:preventDefault @onclick="() => SetDateRange(14)">Last 14 Days</a></li>
+                                    <li><a class="dropdown-item" href="#" @onclick:preventDefault @onclick="SetThisMonth">This Month</a></li>
+                                    <li><a class="dropdown-item" href="#" @onclick:preventDefault @onclick="SetLastMonth">Last Month</a></li>
+                                </ul>
+                            </div>
+                            <button class="btn btn-outline-dark btn-sm rounded-pill px-3 shadow-sm" @onclick="PrintSummaries">
+                                <i class="bi bi-printer me-1"></i> Print Summaries
+                            </button>
+                            <button class="btn btn-outline-success btn-sm rounded-pill px-3 shadow-sm" @onclick="ExportToExcel">
+                                <i class="bi bi-file-earmark-excel me-1"></i> Export
+                            </button>
+                        </div>
                         <div class="date-filter-group bg-white rounded-pill p-1 border shadow-sm d-flex align-items-center">
                             <input type="date" class="form-control form-control-sm border-0 bg-transparent fw-bold" 
                                    @bind="_startDate" style="width: 130px;" />
@@ -42,9 +64,6 @@
                                 else { <i class="bi bi-search me-1"></i> <span>Search</span> }
                             </button>
                         </div>
-                        <button class="btn btn-outline-success btn-sm rounded-pill px-3 shadow-sm" @onclick="ExportToExcel">
-                            <i class="bi bi-file-earmark-excel me-1"></i> Export
-                        </button>
                     </div>
                 </div>
             </div>
@@ -108,8 +127,9 @@
                                 </div>
                             </div>
                         </div>
-
-                        <div class="day-body p-0">
+                        @if (!_showSummariesOnly)
+                        {
+                            <div class="day-body p-0">
                             <div class="table-responsive">
                                 <table class="table table-hover mb-0 align-middle custom-table">
                                     <thead>
@@ -221,6 +241,7 @@
                                 </table>
                             </div>
                         </div>
+                        }
                     </div>
                 }
             </div>
@@ -446,6 +467,61 @@
         from { transform: translateY(20px); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
     }
+
+    @@media print {
+        body { 
+            background: white !important; 
+        }
+        /* Hide UI Chrome */
+        header, .navbar, .sidebar, .entries-header, .btn, .loader-ring { 
+            display: none !important; 
+        }
+        
+        /* Force page container to be plain */
+        .glass-page-container, .page-content-wrapper {
+            background: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+        }
+
+        /* Format summary cards for paper */
+        .day-group-card {
+            background: #fff !important;
+            border: 1px solid #ccc !important;
+            box-shadow: none !important;
+            margin-bottom: 20px !important;
+            page-break-inside: avoid !important;
+            border-radius: 0 !important;
+        }
+
+        .day-header {
+            padding: 10px !important;
+            border-bottom: 1px solid #ddd !important;
+        }
+
+        .badge {
+            border: 1px solid #aaa !important;
+            color: black !important;
+            background: transparent !important;
+        }
+
+        .text-white {
+            color: black !important;
+        }
+        
+        .bg-danger {
+            background: transparent !important;
+            color: #ef4444 !important;
+        }
+
+        /* Hide details if summarry view is needed */
+        .day-body {
+            display: none !important;
+        }
+    }
 </style>
 
 @code {
@@ -453,6 +529,7 @@
     private DateTime _endDate = DateTime.Today;
 
     private bool _loading = true;
+    private bool _showSummariesOnly = false;
     private bool _canEdit = false;
     private string _statusMessage = "Initializing...";
     private string? _errorMessage;
@@ -536,7 +613,29 @@
         }
     }
 
+    private async Task SetDateRange(int days)
+    {
+        _endDate = DateTime.Today;
+        _startDate = DateTime.Today.AddDays(-days);
+        await RefreshData();
+    }
 
+    private async Task SetThisMonth()
+    {
+        var today = DateTime.Today;
+        _startDate = new DateTime(today.Year, today.Month, 1);
+        _endDate = new DateTime(today.Year, today.Month, DateTime.DaysInMonth(today.Year, today.Month));
+        await RefreshData();
+    }
+
+    private async Task SetLastMonth()
+    {
+        var today = DateTime.Today;
+        var firstOfThisMonth = new DateTime(today.Year, today.Month, 1);
+        _endDate = firstOfThisMonth.AddDays(-1);
+        _startDate = new DateTime(_endDate.Year, _endDate.Month, 1);
+        await RefreshData();
+    }
 
     private void ShowShiftDetail(DateTime businessDate, ShiftReportDto shift)
     {
@@ -554,5 +653,18 @@
     {
         // Placeholder for export functionality
         await JS.InvokeVoidAsync("alert", "Exporting " + _days.Count + " days of data to Excel...");
+    }
+
+    private async Task PrintSummaries()
+    {
+        // Force the UI into summary mode first
+        _showSummariesOnly = true;
+        StateHasChanged();
+        
+        // Slight delay to allow DOM to re-render without the tables
+        await Task.Delay(100); 
+        
+        // Trigger browser print dialog
+        await JS.InvokeVoidAsync("window.print");
     }
 }
