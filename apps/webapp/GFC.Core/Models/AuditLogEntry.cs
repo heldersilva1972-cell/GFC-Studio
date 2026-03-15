@@ -9,6 +9,7 @@ public class AuditLogEntry
     public int? PerformedByUserId { get; set; }
     public AppUser? PerformedBy { get; set; }
     public int? TargetUserId { get; set; }
+    public int? TargetMemberId { get; set; }
     public string Action { get; set; } = string.Empty;
     public string? Details { get; set; }
     public string? PageUrl { get; set; }

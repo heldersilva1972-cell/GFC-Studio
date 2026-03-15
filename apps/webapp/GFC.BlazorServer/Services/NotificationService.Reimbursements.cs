@@ -32,7 +32,7 @@ public static class ReimbursementNotificationService
             if (string.IsNullOrWhiteSpace(template)) return;
 
             var body = template
-                .Replace("{RequestorName}", $"{requestor.FirstName} {requestor.LastName}")
+                .Replace("{RequestorName}", FormatMemberName(requestor))
                 .Replace("{RequestId}", request.Id.ToString())
                 .Replace("{RequestDate}", request.RequestDate.ToString("MMM d, yyyy"))
                 .Replace("{TotalAmount}", request.TotalAmount.ToString("C2"))
@@ -101,7 +101,7 @@ public static class ReimbursementNotificationService
             if (string.IsNullOrWhiteSpace(template)) return;
 
             var body = template
-                .Replace("{RequestorName}", $"{requestor.FirstName} {requestor.LastName}")
+                .Replace("{RequestorName}", FormatMemberName(requestor))
                 .Replace("{RequestId}", request.Id.ToString())
                 .Replace("{TotalAmount}", request.TotalAmount.ToString("C2"))
                 .Replace("{ApprovedDate}", request.ApprovedDateUtc?.ToString("MMM d, yyyy") ?? "N/A");
@@ -136,7 +136,7 @@ public static class ReimbursementNotificationService
             if (string.IsNullOrWhiteSpace(template)) return;
 
             var body = template
-                .Replace("{RequestorName}", $"{requestor.FirstName} {requestor.LastName}")
+                .Replace("{RequestorName}", FormatMemberName(requestor))
                 .Replace("{RequestId}", request.Id.ToString())
                 .Replace("{TotalAmount}", request.TotalAmount.ToString("C2"))
                 .Replace("{RejectReason}", request.RejectReason ?? "No reason provided")
@@ -172,7 +172,7 @@ public static class ReimbursementNotificationService
             if (string.IsNullOrWhiteSpace(template)) return;
 
             var body = template
-                .Replace("{RequestorName}", $"{requestor.FirstName} {requestor.LastName}")
+                .Replace("{RequestorName}", FormatMemberName(requestor))
                 .Replace("{RequestId}", request.Id.ToString())
                 .Replace("{TotalAmount}", request.TotalAmount.ToString("C2"))
                 .Replace("{PaidDate}", request.PaidDateUtc?.ToString("MMM d, yyyy") ?? "N/A");
@@ -214,6 +214,21 @@ public static class ReimbursementNotificationService
         // This could use SMTP, SendGrid, or another email service
         logger.LogInformation("Email would be sent to {To} with subject: {Subject}", to, subject);
         await Task.CompletedTask;
+    }
+    private static string FormatMemberName(Member member)
+    {
+        var first = member.FirstName?.Trim() ?? "";
+        var last = member.LastName?.Trim() ?? "";
+        var middle = member.MiddleName?.Trim() ?? "";
+        var suffix = member.Suffix?.Trim() ?? "";
+
+        var mFirst = first;
+        var mLast = last;
+        var mMiddle = string.IsNullOrWhiteSpace(middle) ? "" : " " + middle[0] + ".";
+        var mSuffix = string.IsNullOrWhiteSpace(suffix) ? "" : " " + suffix;
+
+        if (string.IsNullOrWhiteSpace(mLast)) return (mFirst + mMiddle + mSuffix).Trim();
+        return $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
     }
 }
 

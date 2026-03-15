@@ -53,13 +53,17 @@ namespace GFC.Core.Services
             };
 
             var keyId = _repository.IssueKey(key);
+            
+            var issuedKey = _repository.GetKeyById(keyId);
+            var memberName = issuedKey?.MemberName ?? $"Member #{memberId}";
 
-        var details = $"Issued physical key {keyId} on {issuedDate:d} by {issuedBy ?? "unknown"}; notes: {notes ?? "none"}";
+            var details = $"[{memberName}] Issued physical key {keyId} on {issuedDate:d} by {issuedBy ?? "unknown"}; notes: {notes ?? "none"}";
             _auditLogger.Log(
                 AuditLogActions.PhysicalKeyAssigned,
                 null,
                 null,
-            details);
+                details,
+                targetMemberId: memberId);
 
             return keyId;
         }
@@ -69,12 +73,15 @@ namespace GFC.Core.Services
             _repository.ReturnKey(keyId, returnedDate, returnedBy);
 
             var key = _repository.GetKeyById(keyId);
-        var details = $"Returned key {keyId} on {returnedDate:d} by {returnedBy ?? "unknown"}";
+            var memberId = key?.MemberID ?? 0;
+            var memberName = key?.MemberName ?? "Unknown Member";
+            var details = $"[{memberName}] Returned key {keyId} on {returnedDate:d} by {returnedBy ?? "unknown"}";
             _auditLogger.Log(
                 AuditLogActions.PhysicalKeyReturned,
                 null,
                 null,
-            details);
+                details,
+                targetMemberId: memberId > 0 ? memberId : null);
         }
 
         public void UpdateKey(PhysicalKey key)

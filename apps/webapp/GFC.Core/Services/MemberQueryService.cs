@@ -143,21 +143,26 @@ public class MemberQueryService : IMemberQueryService
     {
         var first = (member.FirstName ?? string.Empty).Trim();
         var last = (member.LastName ?? string.Empty).Trim();
-        var middle = string.IsNullOrWhiteSpace(member.MiddleName)
+        
+        var middlePart = string.IsNullOrWhiteSpace(member.MiddleName)
             ? string.Empty
-            : $" {member.MiddleName!.Trim()}";
+            : $" {member.MiddleName.Trim()[0]}.";
+
+        var suffixPart = string.IsNullOrWhiteSpace(member.Suffix)
+            ? string.Empty
+            : $" {member.Suffix.Trim()}";
 
         if (string.IsNullOrWhiteSpace(last))
         {
-            return $"{first}{middle}".Trim();
+            return $"{first}{middlePart}{suffixPart}".Trim();
         }
 
         if (string.IsNullOrWhiteSpace(first))
         {
-            return $"{last}{middle}".Trim();
+            return $"{last}{middlePart}{suffixPart}".Trim();
         }
 
-        return $"{last}, {first}{middle}";
+        return $"{last}, {first}{middlePart}{suffixPart}".Trim().Replace("  ", " ");
     }
 }
 

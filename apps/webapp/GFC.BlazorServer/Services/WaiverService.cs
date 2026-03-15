@@ -73,15 +73,19 @@ public class WaiverService
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        var member = await dbContext.Members.FindAsync(new object[] { memberId }, cancellationToken);
+        var memberName = member != null ? $"{member.LastName}, {member.FirstName}" : $"Member #{memberId}";
+
         var previousSummary = previous == null
             ? "no previous waiver"
             : $"previous reason {previous.Reason}, notes: {previous.Notes ?? "none"}";
-        var auditDetails = $"Waiver set for {year}: reason {reason.Trim()}, notes: {notes ?? "none"}; {previousSummary}";
+        var auditDetails = $"[{memberName}] Waiver set for {year}: reason {reason.Trim()}, notes: {notes ?? "none"}; {previousSummary}";
         _auditLogger.Log(
             AuditLogActions.DuesWaiverChanged,
             performedByUserId,
             null,
-            auditDetails);
+            auditDetails,
+            targetMemberId: memberId);
     }
 
     public async Task<List<Waiver>> GetWaiversForMemberAsync(int memberId, CancellationToken cancellationToken = default)

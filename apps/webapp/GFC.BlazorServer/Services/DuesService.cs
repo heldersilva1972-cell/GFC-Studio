@@ -103,15 +103,20 @@ public class DuesService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        var member = await _dbContext.Members.FindAsync(new object[] { memberId }, cancellationToken);
+        var memberName = member != null ? $"{member.LastName}, {member.FirstName}" : $"Member #{memberId}";
+
         var previousSummary = previousDetails == null
             ? "no previous payment"
             : $"previous amount {previousDetails.Amount?.ToString() ?? "n/a"}, paid {previousDetails.PaidDate?.ToShortDateString() ?? "n/a"}, notes: {previousDetails.Notes ?? "none"}";
-        var details = $"Recorded dues for {year}: amount {amount}, paid {paidDate:d}, notes: {notes ?? "none"}; {previousSummary}";
+        
+        var details = $"[{memberName}] Recorded dues for {year}: amount {amount}, paid {paidDate:d}, notes: {notes ?? "none"}; {previousSummary}";
         _auditLogger.Log(
             AuditLogActions.DuesChanged,
             performedByUserId,
             null,
-            details);
+            details,
+            targetMemberId: memberId);
 
         // Trigger card reactivation if lifecycle service is available
         if (_keyCardLifecycleService != null)

@@ -83,12 +83,14 @@ public class KeyCardAdminService
 
         _memberKeycardRepository.AddAssignment(assignment);
         _historyService.LogChange(memberId, "KeyCard", null, $"Assigned key card {card.CardNumber}", source);
-        var details = $"Assigned key card {card.CardNumber} via {source}; notes: {notes ?? "none"}";
+        var memberName = $"{member.LastName}, {member.FirstName}";
+        var details = $"[{memberName}] Assigned key card {card.CardNumber} via {source}; notes: {notes ?? "none"}";
         _auditLogger.Log(
             AuditLogActions.KeyCardAdded,
             null,
             null,
-            details);
+            details,
+            targetMemberId: memberId);
     }
 }
 

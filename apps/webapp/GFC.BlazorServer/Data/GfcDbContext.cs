@@ -14,6 +14,7 @@ public class GfcDbContext : DbContext
     }
 
     public DbSet<ControllerDevice> Controllers => Set<ControllerDevice>();
+    public DbSet<Member> Members => Set<Member>();
     public DbSet<Door> Doors => Set<Door>();
     public DbSet<ControllerEvent> ControllerEvents => Set<ControllerEvent>();
     public DbSet<ControllerLastIndex> ControllerLastIndexes => Set<ControllerLastIndex>();

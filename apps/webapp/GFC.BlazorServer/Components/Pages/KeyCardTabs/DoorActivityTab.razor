@@ -632,7 +632,7 @@
             
             var membersById = allMembers.ToDictionary(m => m.MemberID);
             
-            var newActivities = events.Select(e => {
+            var processedActivities = events.Select(e => {
                 string? memberName = null;
                 if (e.CardNumber.HasValue && e.CardNumber.Value == RemoteUnlockCardNumber)
                 {
@@ -647,7 +647,7 @@
                     {
                         if (membersById.TryGetValue(card.MemberId, out var member))
                         {
-                            memberName = $"{member.FirstName} {member.LastName}";
+                            memberName = $"{member.LastName.Trim()}, {member.FirstName.Trim()}{(string.IsNullOrWhiteSpace(member.MiddleName) ? "" : " " + member.MiddleName.Trim()[0] + ".")}{(string.IsNullOrWhiteSpace(member.Suffix) ? "" : " " + member.Suffix.Trim())}".Trim().Replace("  ", " ");
                         }
                     }
                 }
@@ -666,17 +666,24 @@
                     RawIndex = e.RawIndex,
                     RawData = e.RawData
                 };
-            })
-            .GroupBy(a => new { 
-                a.OccurredAt, 
-                a.ControllerName, 
-                a.DoorName, 
-                a.CardNumber, 
-                a.EventType, 
-                a.ReasonCode 
-            })
-            .Select(g => g.First())
-            .ToList();
+            }).ToList();
+
+            // DEBOUNCE LOGIC: Hardware readers often "bounce" and generate 3-6 events for a single physical swipe.
+            // If the same Card/Door/Type appears within a 5-second window, collapse it.
+            var newActivities = new List<ActivityItem>();
+            foreach (var item in processedActivities)
+            {
+                var isDuplicate = newActivities.Any(existing => 
+                    existing.CardNumber == item.CardNumber && 
+                    existing.DoorName == item.DoorName && 
+                    existing.EventType == item.EventType &&
+                    Math.Abs((item.OccurredAt - existing.OccurredAt).TotalSeconds) < 6);
+
+                if (!isDuplicate)
+                {
+                    newActivities.Add(item);
+                }
+            }
             
             if (isAutoRefresh)
             {

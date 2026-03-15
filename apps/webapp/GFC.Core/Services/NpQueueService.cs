@@ -110,12 +110,14 @@ public class NpQueueService : INpQueueService
         var previousStatus = member.Status;
         await _memberService.UpdateMemberStatusAsync(member, "REGULAR");
 
-        var details = $"Promoted from {previousStatus ?? "unknown"} to REGULAR (previous position {first.Position})";
+        var memberName = $"{member.LastName}, {member.FirstName}";
+        var details = $"[{memberName}] Promoted from {previousStatus ?? "unknown"} to REGULAR (previous position {first.Position})";
         _auditLogger.Log(
             AuditLogActions.NPQueuePromote,
             null,
             null,
-            details);
+            details,
+            targetMemberId: memberId);
     }
 }
 

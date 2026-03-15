@@ -269,25 +269,30 @@ public class MemberService
         var oldNormalized = MemberStatusHelper.NormalizeStatus(oldStatus);
         var newNormalized = MemberStatusHelper.NormalizeStatus(newStatus);
 
+        var member = _memberRepository.GetMemberById(memberId);
+        var memberName = member != null ? $"{member.LastName}, {member.FirstName}" : $"Member #{memberId}";
+
         if (oldNormalized.Equals("LIFE", StringComparison.OrdinalIgnoreCase) ||
             newNormalized.Equals("LIFE", StringComparison.OrdinalIgnoreCase))
         {
-            var details = $"Status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"}";
+            var details = $"[{memberName}] Status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"}";
             _auditLogger.Log(
                 AuditLogActions.LifeStatusChanged,
                 null,
                 null,
-                details);
+                details,
+                targetMemberId: memberId);
         }
 
         if (string.Equals(newNormalized, "INACTIVE", StringComparison.OrdinalIgnoreCase))
         {
-            var details = $"Dues status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"} (set inactive for dues)";
+            var details = $"[{memberName}] Dues status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"} (set inactive for dues)";
             _auditLogger.Log(
                 AuditLogActions.DuesChanged,
                 null,
                 null,
-                details);
+                details,
+                targetMemberId: memberId);
         }
     }
 }

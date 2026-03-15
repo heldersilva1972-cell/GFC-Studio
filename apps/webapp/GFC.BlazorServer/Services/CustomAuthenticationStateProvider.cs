@@ -306,10 +306,13 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
 
     public async Task LogoutAsync(string? deviceToken = null)
     {
+        // 0. Use current token if none provided (to ensure global cache is cleared)
+        var tokenToClear = deviceToken ?? _currentToken;
+
         try 
         {
-            // 1. Tell the server to log out (clears internal state)
-            await _authenticationService.LogoutAsync(deviceToken);
+            // 1. Tell the server to log out (clears internal state in the AuthenticationService)
+            await _authenticationService.LogoutAsync(tokenToClear);
             
             // 2. Clear auto-login preference but KEEP device trust cookie
             // Clearing the trust token causes the 'Access Shield' to block the device in public locations.
@@ -322,9 +325,9 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             catch { /* Not interactive or JS not ready */ }
 
             // 3. Clear global cache to ensure this specific token isn't reused immediately
-            if (!string.IsNullOrEmpty(deviceToken))
+            if (!string.IsNullOrEmpty(tokenToClear))
             {
-                _tokenCache.TryRemove(deviceToken, out _);
+                _tokenCache.TryRemove(tokenToClear, out _);
             }
         }
         catch (Exception ex)
@@ -332,7 +335,10 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             _logger.LogError(ex, "Error during LogoutAsync");
         }
 
+        // 4. Force reset of ALL scoped state
         _currentUser = null;
+        _currentToken = null; 
+        _autoLoginAttempted = false;
         _currentPrincipal = CreateUnauthenticatedPrincipal();
         NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
     }

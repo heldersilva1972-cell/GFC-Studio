@@ -127,14 +127,15 @@ public class DashboardMetricsService : IDashboardMetricsService
         {
             await using var db = await _contextFactory.CreateDbContextAsync(ct);
             
+            // Take more than we need so we can filter duplicates and still have 5 left
             var recentEvents = await db.ControllerEvents
                 .Include(e => e.Door)
                 .OrderByDescending(e => e.TimestampUtc)
                 .ThenByDescending(e => e.RawIndex)
-                .Take(5)
+                .Take(30) 
                 .ToListAsync(ct);
 
-            _logger.LogInformation($"[RecentActivity] Found {recentEvents.Count} recent events");
+            _logger.LogInformation($"[RecentActivity] Fetched {recentEvents.Count} candidates for recent events");
 
             var recentSales = await db.BarSaleEntries
                 .OrderByDescending(e => e.SaleDate)
@@ -150,45 +151,50 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Distinct()
                 .ToList();
 
-            _logger.LogInformation($"[RecentActivity] Card numbers to lookup: {string.Join(", ", cardNumbers)}");
-
             // Build a lookup dictionary: CardNumber -> Member Name
             var cardToMemberLookup = new Dictionary<string, string>();
             if (cardNumbers.Any())
             {
                 var members = await Task.Run(() => _memberRepository.GetAllMembers(), ct);
-                _logger.LogInformation($"[RecentActivity] Loaded {members.Count} total members");
-
                 var keyCards = await db.KeyCards
                     .Where(kc => cardNumbers.Contains(kc.CardNumber))
                     .ToListAsync(ct);
-
-                _logger.LogInformation($"[RecentActivity] Found {keyCards.Count} matching KeyCards");
 
                 foreach (var card in keyCards)
                 {
                     var member = members.FirstOrDefault(m => m.MemberID == card.MemberId);
                     if (member != null)
                     {
-                        var memberName = $"{member.FirstName} {member.LastName}";
-                        cardToMemberLookup[card.CardNumber] = memberName;
-                        _logger.LogInformation($"[RecentActivity] Mapped card {card.CardNumber} -> {memberName}");
-                    }
-                    else
-                    {
-                        _logger.LogWarning($"[RecentActivity] No member found for card {card.CardNumber} (MemberId: {card.MemberId})");
+                        cardToMemberLookup[card.CardNumber] = FormatMemberName(member);
                     }
                 }
             }
 
+            // DEBOUNCE LOGIC for Feed
+            var filteredEvents = new List<GFC.BlazorServer.Data.Entities.ControllerEvent>();
             foreach (var e in recentEvents)
+            {
+                var isDuplicate = filteredEvents.Any(existing => 
+                    existing.CardNumber == e.CardNumber && 
+                    existing.DoorId == e.DoorId && 
+                    existing.EventType == e.EventType &&
+                    Math.Abs((e.TimestampUtc - existing.TimestampUtc).TotalSeconds) < 6);
+
+                if (!isDuplicate)
+                {
+                    filteredEvents.Add(e);
+                    if (filteredEvents.Count >= 10) break; // Keep up to 10 events for the combined feed
+                }
+            }
+
+            foreach (var e in filteredEvents)
             {
                 var eventTypeText = e.EventType switch {
                     1 => "Access Granted",
                     2 => "Access Denied",
-                    3 => "Door Forced Open",
-                    4 => "Door Held Open",
-                    5 => "Button Press",
+                    3 => "Door Forced",
+                    4 => "Held Open",
+                    5 => "Button",
                     _ => "Security Event"
                 };
 
@@ -197,15 +203,9 @@ public class DashboardMetricsService : IDashboardMetricsService
                 {
                     var cardNumStr = e.CardNumber.Value.ToString();
                     if (cardToMemberLookup.TryGetValue(cardNumStr, out var memberName))
-                    {
-                        cardInfo = $" - {memberName} (Card #{e.CardNumber})";
-                        _logger.LogInformation($"[RecentActivity] Event {e.Id}: Found member name for card {cardNumStr}");
-                    }
+                        cardInfo = $" - {memberName}";
                     else
-                    {
                         cardInfo = $" - Card #{e.CardNumber}";
-                        _logger.LogWarning($"[RecentActivity] Event {e.Id}: No member name found for card {cardNumStr}");
-                    }
                 }
 
                 activities.Add(new ActivityFeedItem
@@ -220,8 +220,8 @@ public class DashboardMetricsService : IDashboardMetricsService
             {
                 activities.Add(new ActivityFeedItem
                 {
-                    Title = "Bar Revenue Recorded",
-                    Detail = $"{s.TotalSales:C} - {s.Notes ?? "General Sales"}",
+                    Title = "Bar Revenue",
+                    Detail = $"{s.TotalSales:C} - {s.Notes ?? "General"}",
                     TimestampUtc = s.SaleDate
                 });
             }
@@ -254,13 +254,37 @@ public class DashboardMetricsService : IDashboardMetricsService
             
             var eventsToday = await db.ControllerEvents
                 .Where(e => e.TimestampUtc >= startOfTodayUtc)
-                .Select(e => new { e.CardNumber })
+                .OrderBy(e => e.TimestampUtc)
+                .Select(e => new { e.CardNumber, e.DoorId, e.EventType, e.TimestampUtc })
                 .ToListAsync(ct);
 
+            // DEBOUNCE LOGIC: Calculate intent entries (collapse hardware bursts)
+            var debouncedEvents = new List<GFC.BlazorServer.Data.Entities.ControllerEvent>();
+            foreach (var e in eventsToday)
+            {
+                var isDuplicate = debouncedEvents.Any(existing => 
+                    existing.CardNumber == e.CardNumber && 
+                    existing.DoorId == e.DoorId && 
+                    existing.EventType == e.EventType &&
+                    Math.Abs((e.TimestampUtc - existing.TimestampUtc).TotalSeconds) < 6);
+
+                if (!isDuplicate)
+                {
+                    // Convert the anonymous type back to an entity for the debounced list
+                    debouncedEvents.Add(new GFC.BlazorServer.Data.Entities.ControllerEvent
+                    {
+                        CardNumber = e.CardNumber,
+                        DoorId = e.DoorId,
+                        EventType = e.EventType,
+                        TimestampUtc = e.TimestampUtc
+                    });
+                }
+            }
+
             // CardNumber == 1 is "Buzzed In"
-            var buzzedInCount = eventsToday.Count(e => e.CardNumber == 1);
+            var buzzedInCount = debouncedEvents.Count(e => e.CardNumber == 1);
             // CardNumber > 1 is a Member card
-            var memberCount = eventsToday.Count(e => e.CardNumber > 1);
+            var memberCount = debouncedEvents.Count(e => e.CardNumber > 1);
 
             return (memberCount, buzzedInCount);
         }
@@ -510,7 +534,7 @@ public class DashboardMetricsService : IDashboardMetricsService
 
             foreach (var m in additions)
             {
-                reasons.Add($"Add: [{m.MemberID}] {m.FirstName} {m.LastName}");
+                reasons.Add($"Add: [{m.MemberID}] {FormatMemberName(m)}");
             }
 
             // 2. Check for anyone who does NOT meet criteria but changed recently (REMOVE)
@@ -537,7 +561,7 @@ public class DashboardMetricsService : IDashboardMetricsService
 
             foreach (var m in removals)
             {
-                reasons.Add($"Remove: [{m.MemberID}] {m.FirstName} {m.LastName}");
+                reasons.Add($"Remove: [{m.MemberID}] {FormatMemberName(m)}");
             }
 
             // Overall change date for display
@@ -553,6 +577,21 @@ public class DashboardMetricsService : IDashboardMetricsService
             _logger.LogWarning(ex, "Error calculating Sign-in Draw status");
             return (false, null, null, new List<string>());
         }
+    }
+    private string FormatMemberName(Member member)
+    {
+        var first = member.FirstName?.Trim() ?? "";
+        var last = member.LastName?.Trim() ?? "";
+        var middle = member.MiddleName?.Trim() ?? "";
+        var suffix = member.Suffix?.Trim() ?? "";
+
+        var mFirst = first;
+        var mLast = last;
+        var mMiddle = string.IsNullOrWhiteSpace(middle) ? "" : " " + middle[0] + ".";
+        var mSuffix = string.IsNullOrWhiteSpace(suffix) ? "" : " " + suffix;
+
+        if (string.IsNullOrWhiteSpace(mLast)) return (mFirst + mMiddle + mSuffix).Trim();
+        return $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
     }
 }
 

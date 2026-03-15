@@ -34,7 +34,7 @@ namespace GFC.Data.Repositories
                 const string sql = @"
                     SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
                            pk.IssuedBy, pk.ReturnedBy, pk.Notes,
-                           m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
+                           m.LastName + ', ' + m.FirstName + CASE WHEN m.MiddleName IS NOT NULL AND m.MiddleName <> '' THEN ' ' + LEFT(m.MiddleName, 1) + '.' ELSE '' END + ISNULL(' ' + m.Suffix, '') AS MemberName
                     FROM dbo.PhysicalKeys pk
                     INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
                     ORDER BY pk.IssuedDate DESC";
@@ -66,7 +66,7 @@ namespace GFC.Data.Repositories
                 const string sql = @"
                     SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
                            pk.IssuedBy, pk.ReturnedBy, pk.Notes,
-                           m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
+                           m.LastName + ', ' + m.FirstName + CASE WHEN m.MiddleName IS NOT NULL AND m.MiddleName <> '' THEN ' ' + LEFT(m.MiddleName, 1) + '.' ELSE '' END + ISNULL(' ' + m.Suffix, '') AS MemberName
                     FROM dbo.PhysicalKeys pk
                     INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
                     WHERE pk.ReturnedDate IS NULL
@@ -97,7 +97,7 @@ namespace GFC.Data.Repositories
             const string sql = @"
                 SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
                        pk.IssuedBy, pk.ReturnedBy, pk.Notes,
-                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
+                       m.LastName + ', ' + m.FirstName + CASE WHEN m.MiddleName IS NOT NULL AND m.MiddleName <> '' THEN ' ' + LEFT(m.MiddleName, 1) + '.' ELSE '' END + ISNULL(' ' + m.Suffix, '') AS MemberName
                 FROM dbo.PhysicalKeys pk
                 INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
                 WHERE pk.MemberID = @MemberID
@@ -123,7 +123,7 @@ namespace GFC.Data.Repositories
             const string sql = @"
                 SELECT pk.PhysicalKeyID, pk.MemberID, pk.IssuedDate, pk.ReturnedDate, 
                        pk.IssuedBy, pk.ReturnedBy, pk.Notes,
-                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName
+                       m.LastName + ', ' + m.FirstName + CASE WHEN m.MiddleName IS NOT NULL AND m.MiddleName <> '' THEN ' ' + LEFT(m.MiddleName, 1) + '.' ELSE '' END + ISNULL(' ' + m.Suffix, '') AS MemberName
                 FROM dbo.PhysicalKeys pk
                 INNER JOIN dbo.Members m ON pk.MemberID = m.MemberID
                 WHERE pk.PhysicalKeyID = @PhysicalKeyID";

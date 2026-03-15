@@ -91,7 +91,7 @@ public class ReimbursementReminderWorker : BackgroundService
         foreach (var request in agedRequests)
         {
             var staffMember = memberRepository.GetMemberById(request.RequestorMemberId);
-            var staffName = staffMember != null ? $"{staffMember.FirstName} {staffMember.LastName}" : "Staff Member";
+            var staffName = staffMember != null ? FormatMemberName(staffMember) : "Staff Member";
             
             var age = (DateTime.UtcNow - request.CreatedUtc).Days;
             var title = "Aged Reimbursement Alert";
@@ -116,5 +116,20 @@ public class ReimbursementReminderWorker : BackgroundService
 
         await db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Reminder process complete.");
+    }
+    private string FormatMemberName(Member member)
+    {
+        var first = member.FirstName?.Trim() ?? "";
+        var last = member.LastName?.Trim() ?? "";
+        var middle = member.MiddleName?.Trim() ?? "";
+        var suffix = member.Suffix?.Trim() ?? "";
+
+        var mFirst = first;
+        var mLast = last;
+        var mMiddle = string.IsNullOrWhiteSpace(middle) ? "" : " " + middle[0] + ".";
+        var mSuffix = string.IsNullOrWhiteSpace(suffix) ? "" : " " + suffix;
+
+        if (string.IsNullOrWhiteSpace(mLast)) return (mFirst + mMiddle + mSuffix).Trim();
+        return $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
     }
 }

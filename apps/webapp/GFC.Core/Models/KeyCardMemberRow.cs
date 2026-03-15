@@ -26,9 +26,16 @@ public class KeyCardMemberRow
     {
         get
         {
-            var firstPart = string.IsNullOrWhiteSpace(MiddleName) ? FirstName : $"{FirstName} {MiddleName}";
-            var name = string.IsNullOrWhiteSpace(LastName) ? firstPart : $"{LastName}, {firstPart}";
-            return string.IsNullOrWhiteSpace(Suffix) ? name : $"{name} {Suffix}";
+            var first = FirstName?.Trim() ?? "";
+            var last = LastName?.Trim() ?? "";
+            var middle = MiddleName?.Trim() ?? "";
+            var suffix = Suffix?.Trim() ?? "";
+
+            var mMiddle = string.IsNullOrWhiteSpace(middle) ? "" : " " + middle[0] + ".";
+            var mSuffix = string.IsNullOrWhiteSpace(suffix) ? "" : " " + suffix;
+
+            if (string.IsNullOrWhiteSpace(last)) return (first + mMiddle + mSuffix).Trim();
+            return $"{last}, {first}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
         }
     }
     public bool HasActiveAssignment => AssignmentId.HasValue;

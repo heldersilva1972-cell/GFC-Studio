@@ -161,14 +161,18 @@ public class DuesInsightService : IDuesInsightService
 
     private static string FormatMemberName(Member member)
     {
-        var first = (member.FirstName ?? string.Empty).Trim();
-        var middle = (member.MiddleName ?? string.Empty).Trim();
-        var last = (member.LastName ?? string.Empty).Trim();
-        var suffix = (member.Suffix ?? string.Empty).Trim();
+        var first = member.FirstName?.Trim() ?? "";
+        var last = member.LastName?.Trim() ?? "";
+        var middle = member.MiddleName?.Trim() ?? "";
+        var suffix = member.Suffix?.Trim() ?? "";
 
-        var firstPart = string.IsNullOrWhiteSpace(middle) ? first : $"{first} {middle}";
-        var fullName = string.IsNullOrWhiteSpace(last) ? firstPart : $"{last}, {firstPart}";
-        return string.IsNullOrEmpty(suffix) ? fullName : $"{fullName} {suffix}";
+        var mFirst = first;
+        var mLast = last;
+        var mMiddle = string.IsNullOrWhiteSpace(middle) ? "" : " " + middle[0] + ".";
+        var mSuffix = string.IsNullOrWhiteSpace(suffix) ? "" : " " + suffix;
+
+        if (string.IsNullOrWhiteSpace(mLast)) return (mFirst + mMiddle + mSuffix).Trim();
+        return $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
     }
 
     private static MemberStatus MapStatus(Member member)

@@ -16,6 +16,7 @@ public class AuditLogRecord
     public string PerformedByDisplayName { get; set; } = "System";
 
     public int? TargetUserId { get; set; }
+    public int? TargetMemberId { get; set; }
 
     public string TargetDisplayName { get; set; } = "--";
 

@@ -112,7 +112,7 @@ public class HistoryRepository : IHistoryRepository
         
         const string sql = @"
             SELECT TOP (@Count) h.ChangeDate, h.FieldName, h.OldValue, h.NewValue, h.ChangedBy, h.MemberID,
-                               m.FirstName, m.LastName
+                                m.FirstName, m.LastName, m.MiddleName, m.Suffix
             FROM MemberChangeHistory h
             LEFT JOIN Members m ON h.MemberID = m.MemberID
             ORDER BY h.ChangeDate DESC, h.ChangeID DESC";
@@ -125,7 +125,17 @@ public class HistoryRepository : IHistoryRepository
         {
             var first = reader["FirstName"]?.ToString() ?? "";
             var last = reader["LastName"]?.ToString() ?? "";
-            var memberName = string.IsNullOrWhiteSpace(first) ? $"ID #{reader["MemberID"]}" : $"{last}, {first}";
+            var middle = reader["MiddleName"]?.ToString() ?? "";
+            var suffix = reader["Suffix"]?.ToString() ?? "";
+
+            var mFirst = first.Trim();
+            var mLast = last.Trim();
+            var mMiddle = string.IsNullOrWhiteSpace(middle) ? "" : " " + middle.Trim()[0] + ".";
+            var mSuffix = string.IsNullOrWhiteSpace(suffix) ? "" : " " + suffix.Trim();
+
+            var memberName = string.IsNullOrWhiteSpace(mLast) 
+                ? (string.IsNullOrWhiteSpace(mFirst) ? $"ID #{reader["MemberID"]}" : $"{mFirst}{mMiddle}{mSuffix}".Trim())
+                : $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
 
             history.Add(new MemberChangeHistory
             {

@@ -159,7 +159,7 @@ namespace GFC.BlazorServer.Services
             
             // Get all members to create a lookup dictionary
             var members = _memberRepository.GetAllMembers();
-            var memberLookup = members.ToDictionary(m => m.MemberID, m => $"{m.FirstName} {m.LastName}".Trim());
+            var memberLookup = members.ToDictionary(m => m.MemberID, m => FormatMemberName(m));
 
             // Headers
             worksheet.Cells[1, 1].Value = "Payment ID";
@@ -206,7 +206,7 @@ namespace GFC.BlazorServer.Services
             var keyCards = _keyCardRepository.GetAll();
 
             var members = _memberRepository.GetAllMembers();
-            var memberLookup = members.ToDictionary(m => m.MemberID, m => $"{m.FirstName} {m.LastName}".Trim());
+            var memberLookup = members.ToDictionary(m => m.MemberID, m => FormatMemberName(m));
 
             // Headers
             worksheet.Cells[1, 1].Value = "Key Card ID";
@@ -861,6 +861,21 @@ namespace GFC.BlazorServer.Services
             }
             
             return phone?.Trim();
+        }
+        private string FormatMemberName(Member member)
+        {
+            var first = member.FirstName?.Trim() ?? "";
+            var last = member.LastName?.Trim() ?? "";
+            var middle = member.MiddleName?.Trim() ?? "";
+            var suffix = member.Suffix?.Trim() ?? "";
+
+            var mFirst = first;
+            var mLast = last;
+            var mMiddle = string.IsNullOrWhiteSpace(middle) ? "" : " " + middle[0] + ".";
+            var mSuffix = string.IsNullOrWhiteSpace(suffix) ? "" : " " + suffix;
+
+            if (string.IsNullOrWhiteSpace(mLast)) return (mFirst + mMiddle + mSuffix).Trim();
+            return $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
         }
     }
 }

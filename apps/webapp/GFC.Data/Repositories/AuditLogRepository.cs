@@ -51,14 +51,15 @@ public class AuditLogRepository : IAuditLogRepository
         connection.Open();
 
         const string sql = @"
-INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details, PageUrl, DurationSeconds, IpAddress, DeviceToken)
+INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, TargetMemberId, Action, Details, PageUrl, DurationSeconds, IpAddress, DeviceToken)
 OUTPUT INSERTED.AuditLogId
-VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @PageUrl, @DurationSeconds, @IpAddress, @DeviceToken);";
+VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @TargetMemberId, @Action, @Details, @PageUrl, @DurationSeconds, @IpAddress, @DeviceToken);";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@TimestampUtc", entry.TimestampUtc == default ? DateTime.UtcNow : entry.TimestampUtc);
         command.Parameters.AddWithValue("@PerformedByUserId", entry.PerformedByUserId.HasValue ? entry.PerformedByUserId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@TargetUserId", entry.TargetUserId.HasValue ? entry.TargetUserId.Value : DBNull.Value);
+        command.Parameters.AddWithValue("@TargetMemberId", entry.TargetMemberId.HasValue ? entry.TargetMemberId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@Action", entry.Action);
         command.Parameters.AddWithValue("@Details", (object?)entry.Details ?? DBNull.Value);
         command.Parameters.AddWithValue("@PageUrl", (object?)entry.PageUrl ?? DBNull.Value);
@@ -82,14 +83,15 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @Pa
         await connection.OpenAsync();
 
         const string sql = @"
-INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, Action, Details, PageUrl, DurationSeconds, IpAddress, DeviceToken)
+INSERT INTO AuditLogs (TimestampUtc, PerformedByUserId, TargetUserId, TargetMemberId, Action, Details, PageUrl, DurationSeconds, IpAddress, DeviceToken)
 OUTPUT INSERTED.AuditLogId
-VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @PageUrl, @DurationSeconds, @IpAddress, @DeviceToken);";
+VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @TargetMemberId, @Action, @Details, @PageUrl, @DurationSeconds, @IpAddress, @DeviceToken);";
 
         using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@TimestampUtc", entry.TimestampUtc == default ? DateTime.UtcNow : entry.TimestampUtc);
         command.Parameters.AddWithValue("@PerformedByUserId", entry.PerformedByUserId.HasValue ? entry.PerformedByUserId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@TargetUserId", entry.TargetUserId.HasValue ? entry.TargetUserId.Value : DBNull.Value);
+        command.Parameters.AddWithValue("@TargetMemberId", entry.TargetMemberId.HasValue ? entry.TargetMemberId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@Action", entry.Action);
         command.Parameters.AddWithValue("@Details", (object?)entry.Details ?? DBNull.Value);
         command.Parameters.AddWithValue("@PageUrl", (object?)entry.PageUrl ?? DBNull.Value);
@@ -158,16 +160,18 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @Action, @Details, @Pa
         var countSql = $"SELECT COUNT(*) FROM AuditLogs al {whereClause};";
 
         var pageSql = $@"
-SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds, al.IpAddress, al.DeviceToken,
+SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.TargetMemberId, al.Action, al.Details, al.PageUrl, al.DurationSeconds, al.IpAddress, al.DeviceToken,
        pb.Username AS PerformedByUsername, pb.MemberId AS PerformedByMemberId,
        tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId,
        pbm.FirstName AS PerformedByFirstName, pbm.LastName AS PerformedByLastName,
-       tbm.FirstName AS TargetFirstName, tbm.LastName AS TargetLastName
+       tbm.FirstName AS TargetFirstName, tbm.LastName AS TargetLastName,
+       tm.FirstName AS TargetMemberFirstName, tm.LastName AS TargetMemberLastName
 FROM AuditLogs al
 LEFT JOIN AppUsers pb ON al.PerformedByUserId = pb.UserId
 LEFT JOIN AppUsers tb ON al.TargetUserId = tb.UserId
 LEFT JOIN Members pbm ON pb.MemberId = pbm.MemberID
 LEFT JOIN Members tbm ON tb.MemberId = tbm.MemberID
+LEFT JOIN Members tm ON al.TargetMemberId = tm.MemberID
 {whereClause}
 ORDER BY al.TimestampUtc DESC
 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
@@ -360,6 +364,11 @@ BEGIN
     BEGIN
         ALTER TABLE [dbo].[AuditLogs] ADD [DeviceToken] NVARCHAR(100) NULL;
     END
+
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[AuditLogs]') AND name = N'TargetMemberId')
+    BEGIN
+        ALTER TABLE [dbo].[AuditLogs] ADD [TargetMemberId] INT NULL;
+    END
 END";
 
         using var command = new SqlCommand(sql, connection);
@@ -383,14 +392,15 @@ END";
         var targetUserId = targetValue is DBNull ? (int?)null : Convert.ToInt32(targetValue);
 
         var performedByMemberName = BuildMemberName(reader, "PerformedByFirstName", "PerformedByLastName");
-        var targetMemberName = BuildMemberName(reader, "TargetFirstName", "TargetLastName");
-
+        var targetMemberName = BuildMemberName(reader, "TargetFirstName", "TargetLastName") ?? BuildMemberName(reader, "TargetMemberFirstName", "TargetMemberLastName");
+ 
         return new AuditLogRecord
         {
             AuditLogId = reader.GetInt32(reader.GetOrdinal("AuditLogId")),
             TimestampUtc = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc),
             PerformedByUserId = performedByUserId,
             TargetUserId = targetUserId,
+            TargetMemberId = reader["TargetMemberId"] is DBNull ? (int?)null : Convert.ToInt32(reader["TargetMemberId"]),
             Action = reader.GetString(reader.GetOrdinal("Action")),
             Details = reader["Details"] as string,
             PageUrl = reader["PageUrl"] as string,

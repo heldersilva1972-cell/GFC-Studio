@@ -115,7 +115,7 @@ public class BoardRepository : IBoardRepository
             const string sql = @"
                 SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
                        ba.StartDate, ba.EndDate, ba.Notes,
-                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
+                       m.LastName + ', ' + m.FirstName + CASE WHEN m.MiddleName IS NOT NULL AND m.MiddleName <> '' THEN ' ' + LEFT(m.MiddleName, 1) + '.' ELSE '' END + ISNULL(' ' + m.Suffix, '') AS MemberName,
                        bp.PositionName
                 FROM BoardAssignments ba
                 INNER JOIN Members m ON ba.MemberID = m.MemberID
@@ -153,7 +153,7 @@ public class BoardRepository : IBoardRepository
             const string sql = @"
                 SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
                        ba.StartDate, ba.EndDate, ba.Notes,
-                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
+                       m.LastName + ', ' + m.FirstName + CASE WHEN m.MiddleName IS NOT NULL AND m.MiddleName <> '' THEN ' ' + LEFT(m.MiddleName, 1) + '.' ELSE '' END + ISNULL(' ' + m.Suffix, '') AS MemberName,
                        bp.PositionName
                 FROM BoardAssignments ba
                 INNER JOIN Members m ON ba.MemberID = m.MemberID
@@ -252,7 +252,7 @@ public class BoardRepository : IBoardRepository
             const string sql = @"
                 SELECT ba.AssignmentID, ba.MemberID, ba.PositionID, ba.TermYear,
                        ba.StartDate, ba.EndDate, ba.Notes,
-                       m.FirstName + ' ' + ISNULL(m.MiddleName + ' ', '') + m.LastName + ISNULL(' ' + m.Suffix, '') AS MemberName,
+                       m.LastName + ', ' + m.FirstName + CASE WHEN m.MiddleName IS NOT NULL AND m.MiddleName <> '' THEN ' ' + LEFT(m.MiddleName, 1) + '.' ELSE '' END + ISNULL(' ' + m.Suffix, '') AS MemberName,
                        bp.PositionName
                 FROM BoardAssignments ba
                 INNER JOIN Members m ON ba.MemberID = m.MemberID

@@ -17,7 +17,7 @@ public class AuditLogger : IAuditLogger
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public void Log(string action, int? performedByUserId, int? targetUserId, string? details = null, string? ipAddress = null, string? deviceToken = null)
+    public void Log(string action, int? performedByUserId, int? targetUserId, string? details = null, string? ipAddress = null, string? deviceToken = null, int? targetMemberId = null)
     {
         var sanitizedTargetUserId = IsUserAccountAction(action) ? targetUserId : null;
 
@@ -25,6 +25,7 @@ public class AuditLogger : IAuditLogger
         {
             PerformedByUserId = performedByUserId,
             TargetUserId = sanitizedTargetUserId,
+            TargetMemberId = targetMemberId,
             Action = action,
             Details = details,
             IpAddress = ipAddress,
