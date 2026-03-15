@@ -57,13 +57,20 @@ public class PageDiscoveryService
                         changed = true;
                     }
 
+                    // [REORG] Explicitly move specific pages to requested categories
+                    // This overrides whatever might be in the database or namespace mapping
+                    string targetedCategory = GetExplicitCategoryOverride(page.PageRoute) ?? page.Category;
+
                     // AUTO-FIX CATEGORY: If the existing page is in DASHBOARD or has no category,
-                    // but we've discovered it in a specific namespace segment, update it.
-                    if (string.IsNullOrEmpty(existing.Category) || existing.Category == "DASHBOARD" || existing.Category == "UNSPECIFIED")
+                    // OR if we have a targeted override, update it.
+                    if (string.IsNullOrEmpty(existing.Category) || 
+                        existing.Category == "DASHBOARD" || 
+                        existing.Category == "UNSPECIFIED" ||
+                        targetedCategory != page.Category) // page.Category here is from DetermineCategory...
                     {
-                        if (!string.IsNullOrEmpty(page.Category) && page.Category != "DASHBOARD")
+                        if (!string.IsNullOrEmpty(targetedCategory) && existing.Category != targetedCategory)
                         {
-                            existing.Category = page.Category;
+                            existing.Category = targetedCategory;
                             changed = true;
                         }
                     }
@@ -94,6 +101,23 @@ public class PageDiscoveryService
         {
             _logger.LogError(ex, "Error during page discovery and synchronization");
         }
+    }
+
+    /// <summary>
+    /// Returns explicit category overrides for specific routes to ensure menu organization
+    /// matches user expectations regardless of file location.
+    /// </summary>
+    private string? GetExplicitCategoryOverride(string route)
+    {
+        var normalized = route.TrimStart('/').ToLowerInvariant();
+
+        return normalized switch
+        {
+            "operations/end-of-shift" => "BARTENDERS",
+            "mobile/schedule" => "MOBILE",
+            "mobile/manage-schedule" => "BARTENDERS",
+            _ => null
+        };
     }
 
     /// <summary>
@@ -158,6 +182,9 @@ public class PageDiscoveryService
             
         if (upperNs.Contains("PAGES.FINANCE") || upperNs.Contains("PAGES.SALES") || upperNs.Contains("PAGES.REIMBURSEMENTS")) 
             return "FINANCE";
+
+        if (upperNs.Contains("PAGES.BARTENDERS") || upperNs.Contains("PAGES.OPERATIONS")) 
+            return "BARTENDERS";
             
         if (upperNs.Contains("PAGES.WEBSITE") || upperNs.Contains("PAGES.CMS")) 
             return "WEBSITE";
