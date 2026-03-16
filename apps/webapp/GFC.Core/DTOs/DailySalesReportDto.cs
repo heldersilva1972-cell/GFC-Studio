@@ -73,9 +73,7 @@ namespace GFC.Core.DTOs
 
         public decimal GetShiftNetDue(ShiftReportDto shift)
         {
-            if (shift.ShiftType == "Day" || shift.IsRentalHall) return shift.LottoNetDue;
-            var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
-            return day != null ? shift.LottoNetDue - day.LottoNetDue : shift.LottoNetDue;
+            return shift.LottoNetDue;
         }
 
         public decimal GetShiftNetIncome(ShiftReportDto shift)
