@@ -20,4 +20,9 @@ public class DuesPayment
 
     [MaxLength(500)]
     public string? Notes { get; set; }
+
+    public int? RecordedByUserId { get; set; }
+
+    [MaxLength(255)]
+    public string? RecordedBy { get; set; }
 }

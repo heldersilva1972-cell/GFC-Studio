@@ -12,6 +12,8 @@ public class DuesPayment
     public DateTime? PaidDate { get; set; }
     public string? PaymentType { get; set; } // CASH, CHECK, CARD, WAIVED
     public string? Notes { get; set; }
+    public int? RecordedByUserId { get; set; }
+    public string? RecordedBy { get; set; }
 }
 
 

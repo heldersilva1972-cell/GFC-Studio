@@ -18,6 +18,7 @@ public class KeyCardLifecycleService
     private readonly IBoardRepository _boardRepository;
     private readonly ILogger<KeyCardLifecycleService> _logger;
     private readonly KeyCardService _keyCardService;
+    private readonly IAuditLogger _auditLogger;
 
     public KeyCardLifecycleService(
         IKeyCardRepository keyCardRepository,
@@ -28,7 +29,8 @@ public class KeyCardLifecycleService
         IDuesYearSettingsRepository settingsRepository,
         IBoardRepository boardRepository,
         ILogger<KeyCardLifecycleService> logger,
-        KeyCardService keyCardService)
+        KeyCardService keyCardService,
+        IAuditLogger auditLogger)
     {
         _keyCardRepository = keyCardRepository;
         _memberRepository = memberRepository;
@@ -39,6 +41,7 @@ public class KeyCardLifecycleService
         _boardRepository = boardRepository;
         _logger = logger;
         _keyCardService = keyCardService;
+        _auditLogger = auditLogger;
     }
 
     /// <summary>
@@ -120,6 +123,14 @@ public class KeyCardLifecycleService
                 ControllerSynced = false // Will be updated when sync logs success
             });
 
+            _auditLogger.Log(
+                "KeyCardDeactivated",
+                null, // performer ID not readily available as int here without lookup
+                null,
+                $"Card #{card.CardNumber} deactivated for member {card.MemberId}. Reason: {reason} ({notes}). Performed by: {performedBy ?? "System"}",
+                targetMemberId: card.MemberId
+            );
+
             _logger.LogInformation("Deactivated card {CardId} - Reason: {Reason}", keyCardId, reason);
         }
         catch (Exception ex)
@@ -162,6 +173,14 @@ public class KeyCardLifecycleService
                 PerformedBy = performedBy,
                 ControllerSynced = false
             });
+
+            _auditLogger.Log(
+                "KeyCardActivated",
+                null,
+                null,
+                $"Card #{card.CardNumber} activated for member {card.MemberId}. Notes: {notes}. Performed by: {performedBy ?? "System"}",
+                targetMemberId: card.MemberId
+            );
 
             _logger.LogInformation("Reactivated card {CardId}", keyCardId);
         }

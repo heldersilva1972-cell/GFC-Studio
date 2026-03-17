@@ -79,12 +79,21 @@ public class DuesService
                 existing.Notes
             };
 
+        string? recorderName = null;
+        if (performedByUserId.HasValue)
+        {
+            var user = await _dbContext.AppUsers.FindAsync(new object[] { performedByUserId.Value }, cancellationToken);
+            recorderName = user?.Username ?? "Unknown";
+        }
+
         if (existing != null)
         {
             existing.Amount = amount;
             existing.PaidDate = paidDate;
             existing.PaymentType = paymentType;
             existing.Notes = notes;
+            existing.RecordedByUserId = performedByUserId;
+            existing.RecordedBy = recorderName;
             _dbContext.DuesPayments.Update(existing);
         }
         else
@@ -96,7 +105,9 @@ public class DuesService
                 Amount = amount,
                 PaidDate = paidDate,
                 PaymentType = paymentType,
-                Notes = notes
+                Notes = notes,
+                RecordedByUserId = performedByUserId,
+                RecordedBy = recorderName
             };
             _dbContext.DuesPayments.Add(payment);
         }

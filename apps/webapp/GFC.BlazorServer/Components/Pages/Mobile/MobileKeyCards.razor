@@ -14,6 +14,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IMemberAccessService MemberAccessService
+@inject IAuditLogger AuditLogger
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using Microsoft.AspNetCore.Authorization
@@ -659,6 +660,9 @@
             var member = await Task.Run(() => MemberRepository.GetMemberById(memberId));
             if (member != null)
             {
+                var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to reactivate {member.FirstName} {member.LastName} to REGULAR status?");
+                if (!confirmed) return;
+
                 member.Status = "REGULAR";
                 member.StatusChangeDate = DateTime.Now;
                 member.InactiveDate = null;
@@ -704,11 +708,19 @@
 
             if (card.IsActive)
             {
+                var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to DEACTIVATE Card #{card.CardNumber}?\n\nThis will immediately revoke door access.");
+                if (!confirmed) return;
+
                 await KeyCardLifecycleService.DeactivateCardAsync(card.KeyCardId, "Manual", "Deactivated via Mobile", user);
+                AuditLogger.Log("KeyCardDeactivated", null, null, $"Card #{card.CardNumber} deactivated via Mobile by {user}", targetMemberId: card.MemberId);
             }
             else
             {
+                var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to REACTIVATE Card #{card.CardNumber}?");
+                if (!confirmed) return;
+
                 await KeyCardLifecycleService.ReactivateCardAsync(card.KeyCardId, "Reactivated via Mobile", user);
+                AuditLogger.Log("KeyCardReactivated", null, null, $"Card #{card.CardNumber} reactivated via Mobile by {user}", targetMemberId: card.MemberId);
             }
 
             await LoadData();
@@ -750,6 +762,13 @@
             KeyCard newCard;
             if (activeCard != null)
             {
+                var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Member already has an active card (#{activeCard.CardNumber}).\n\nDo you want to DEACTIVATE the old card and replace it with #{_newCardNumber}?");
+                if (!confirmed)
+                {
+                    _isSaving = false;
+                    return;
+                }
+
                 var notes = string.IsNullOrWhiteSpace(_assignNotes) ? "Replaced via Mobile" : _assignNotes;
 
                 // SAFETY: Deactivate and revoke the OLD card from the controller BEFORE we overwrite the database record
@@ -766,6 +785,7 @@
                 if (long.TryParse(_newCardNumber, out long newNum) && long.TryParse(activeCard.CardNumber, out long oldNum))
                 {
                     await KeyHistoryService.LogReplacementAsync(_selectedMemberId, oldNum, newNum, notes, user, _selectedCardType);
+                    AuditLogger.Log("KeyCardReplaced", null, null, $"Card #{oldNum} replaced with #{_newCardNumber} for member {_selectedMemberId} by {user} via Mobile.", targetMemberId: _selectedMemberId);
                 }
             }
             else
@@ -775,6 +795,7 @@
                 if (long.TryParse(_newCardNumber, out long cardNumberLong))
                 {
                     await KeyHistoryService.LogAssignmentAsync(_selectedMemberId, cardNumberLong, notes, user, _selectedCardType);
+                    AuditLogger.Log("KeyCardAssigned", null, null, $"Card #{_newCardNumber} assigned to member {_selectedMemberId} by {user} via Mobile.", targetMemberId: _selectedMemberId);
                 }
             }
 

@@ -111,6 +111,10 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
                 {
                     details += $"; Notes: {payment.Notes}";
                 }
+                if (!string.IsNullOrWhiteSpace(payment.RecordedBy))
+                {
+                    details += $" (Recorded by {payment.RecordedBy})";
+                }
 
                 events.Add(new MemberActivityEvent
                 {
@@ -231,6 +235,10 @@ public sealed class MemberActivityTimelineService : IMemberActivityTimelineServi
                 if (!string.IsNullOrWhiteSpace(entry.Reason))
                 {
                     details += $"; {entry.Reason}";
+                }
+                if (!string.IsNullOrWhiteSpace(entry.PerformedBy))
+                {
+                    details += $" (by {entry.PerformedBy})";
                 }
 
                 events.Add(new MemberActivityEvent

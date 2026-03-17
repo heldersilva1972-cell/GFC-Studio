@@ -22,6 +22,7 @@
 @inject NavigationManager NavManager
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject KeyCardLifecycleService KeyCardLifecycleService
+@inject IAuditLogger AuditLogger
 
 @implements IDisposable
 
@@ -289,16 +290,26 @@
                                             {
                                                 var isPending = _pendingSyncs.ContainsKey(card.KeyCardId);
                                                 <div class="d-flex align-items-center gap-2">
-                                                    <span class="badge bg-success-subtle text-success border border-success-subtle">
-                                                        <i class="bi bi-credit-card-2-front"></i> Active
-                                                    </span>
+                                                    @if (card.IsActive)
+                                                    {
+                                                        <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                            <i class="bi bi-credit-card-2-front"></i> Active
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
+                                                            <i class="bi bi-credit-card"></i> Inactive
+                                                        </span>
+                                                    }
+                                                    
                                                     @if (isPending)
                                                     {
                                                         <span class="text-warning" title="Sync Pending">
                                                             <i class="bi bi-arrow-repeat spin-slow"></i>
                                                         </span>
                                                     }
-                                                    else
+                                                    else if (card.IsActive)
                                                     {
                                                         <span class="text-success" title="Synced">
                                                             <i class="bi bi-cloud-check"></i>
@@ -318,7 +329,15 @@
                                               if (item.IsWaived) 
                                               {
                                                   <span class="badge bg-info-subtle text-info border border-info-subtle">
-                                                      <i class="bi bi-shield-check me-1"></i> Waived
+                                                      <i class="bi bi-shield-check me-1"></i>
+                                                      @if (_memberWaiverDetails.TryGetValue(item.MemberId, out var manualWaiver))
+                                                      {
+                                                          <span>Waived @(manualWaiver.EndYear >= 2099 ? "Permanently" : $"thru {manualWaiver.EndYear}")</span>
+                                                      }
+                                                      else
+                                                      {
+                                                          <span>Waived</span>
+                                                      }
                                                   </span>
                                               }
                                               else 
@@ -342,7 +361,7 @@
                                          }
                                          else
                                          {
-                                             @FormatOverdueText(item.MonthsOverdue)
+                                             @FormatPreciseOverdueText(item.DueDate)
                                          }
                                     </td>
                                     <td class="text-end pe-4">
@@ -364,10 +383,16 @@
                                                 }
                                                 else if (IsPaid(item))
                                                 {
-                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEditPaymentModal(item)" title="Edit Payment">
-                                                        <i class="bi bi-pencil"></i>
-                                                        <span class="d-none d-lg-inline ms-1">Edit</span>
-                                                    </button>
+                                                    bool hasPhysicalPayment = !string.IsNullOrEmpty(item.PaymentType) && !item.PaymentType.Equals("WAIVED", StringComparison.OrdinalIgnoreCase);
+                                                    
+                                                    if (hasPhysicalPayment && !item.IsWaived)
+                                                    {
+                                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEditPaymentModal(item)" title="Edit Payment">
+                                                            <i class="bi bi-pencil"></i>
+                                                            <span class="d-none d-lg-inline ms-1">Edit</span>
+                                                        </button>
+                                                    }
+                                                    
                                                     <button class="btn btn-sm btn-outline-success" @onclick="() => OpenAdvancePaymentModal(item)" title="Advance Payment">
                                                         <i class="bi bi-cash-stack"></i>
                                                         <span class="d-none d-lg-inline ms-1">Advance</span>
@@ -453,15 +478,24 @@
                                             }
                                         </div>
                                     }
-                                    else if (item.IsWaived)
-                                    {
-                                        <div class="text-info fw-bold">Waived</div>
-                                    }
+                                     else if (item.IsWaived)
+                                     {
+                                         <div class="text-info fw-bold">
+                                             @if (_memberWaiverDetails.TryGetValue(item.MemberId, out var manualWaiver))
+                                             {
+                                                 <span>Waived @(manualWaiver.EndYear >= 2099 ? "Forever" : (manualWaiver.EndYear > _selectedYear ? $"thru {manualWaiver.EndYear}" : ""))</span>
+                                             }
+                                             else
+                                             {
+                                                 <span>Waived</span>
+                                             }
+                                         </div>
+                                     }
                                     else
                                     {
                                         <div class="text-danger fw-bold">Unpaid</div>
                                         @if(item.MonthsOverdue > 0) {
-                                            <div class="text-danger x-small">@FormatOverdueText(item.MonthsOverdue)</div>
+                                             <div class="text-danger x-small">@FormatPreciseOverdueText(item.DueDate)</div>
                                         }
                                     }
                                 </div>
@@ -471,7 +505,14 @@
                                         var hasCard = _memberCards.TryGetValue(item.MemberId, out var card);
                                         if (hasCard)
                                         {
-                                            <div class="text-success fw-bold"><i class="bi bi-credit-card"></i> Active</div>
+                                            if (card.IsActive)
+                                            {
+                                                <div class="text-success fw-bold"><i class="bi bi-credit-card"></i> Active</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="text-secondary fw-bold"><i class="bi bi-credit-card"></i> Inactive</div>
+                                            }
                                         }
                                         else
                                         {
@@ -1304,6 +1345,7 @@
     
     // Data Caches
     private Dictionary<int, KeyCard> _memberCards = new();
+    private Dictionary<int, DuesWaiverPeriod> _memberWaiverDetails = new();
     private Dictionary<int, ControllerSyncQueueItem> _pendingSyncs = new();
 
     // Scan Buffer
@@ -1484,7 +1526,8 @@
             {
                 var allCards = await Task.Run(() => KeyCardRepository.GetAll());
                 _memberCards = allCards
-                    .Where(c => c.IsActive)
+                    .OrderByDescending(c => c.IsActive)
+                    .ThenByDescending(c => c.KeyCardId)
                     .GroupBy(c => c.MemberId)
                     .ToDictionary(g => g.Key, g => g.First());
 
@@ -1495,11 +1538,18 @@
 
                 _pendingSyncCount = _pendingSyncs.Count;
                 _lastSyncTime = await SyncQueueRepository.GetLastCompletedTimeAsync();
+
+                // Load manual waivers for the current year
+                var waiversForYear = await Task.Run(() => DuesWaiverRepository.GetWaiversForYear(_selectedYear));
+                _memberWaiverDetails = waiversForYear
+                    .GroupBy(w => w.MemberId)
+                    .ToDictionary(g => g.Key, g => g.First());
             }
             catch (Exception)
             {
                 _memberCards = new();
                 _pendingSyncs = new();
+                _memberWaiverDetails = new();
             }
         }
         catch (Exception ex)
@@ -1871,7 +1921,32 @@
         _paymentTarget = item;
         _paymentForm = PaymentFormModel.CreateDefault();
         _paymentForm.PaymentType = string.IsNullOrWhiteSpace(item.PaymentType) ? PaymentMethods.First() : item.PaymentType;
-        _paymentForm.Year = _selectedYear + 1; // Default to next year
+        
+        // Logical start year: The first year NOT covered by payment or waiver
+        int startYear = _selectedYear + 1;
+        
+        // 1. Advance Payments Check
+        if (item.AdvanceYearsPaid?.Any() == true)
+        {
+            startYear = Math.Max(startYear, item.AdvanceYearsPaid.Max() + 1);
+        }
+        
+        // 2. Waiver Check
+        try 
+        {
+            var waivers = DuesWaiverRepository.GetWaiversForMember(item.MemberId);
+            if (waivers.Any())
+            {
+                var maxWaiverYear = waivers.Max(w => w.EndYear);
+                startYear = Math.Max(startYear, maxWaiverYear + 1);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to check waivers for advance payment start year");
+        }
+
+        _paymentForm.Year = startYear;
         _paymentForm.NumberOfYears = 1;
         
         var today = DateTime.Today;
@@ -1956,6 +2031,7 @@
     private async Task SubmitEditPayment()
     {
         _operationInProgress = true;
+        var currentUser = AuthStateProvider.GetCurrentUser();
         try
         {
             // Update the payment record
@@ -1966,17 +2042,29 @@
                 payment.PaidDate = _editPaymentForm.PaidDate;
                 payment.PaymentType = _editPaymentForm.PaymentType;
                 payment.Notes = _editPaymentForm.Notes;
+                
+                // Track who edited it
+                payment.RecordedByUserId = currentUser?.UserId;
+                payment.RecordedBy = currentUser?.Username ?? "Unknown";
+                
                 await Task.Run(() => DuesRepository.UpdateDuesRecord(payment));
             }
             
             // Log the change for audit
-            var currentUser = AuthStateProvider.GetCurrentUser();
             await Task.Run(() => GlobalNoteRepository.InsertNote(new GlobalNote
             {
                 NoteDate = DateTime.Now,
                 Category = "PAYMENT EDIT",
                 Text = $"Payment edited for {_editPaymentTarget?.FullName} (ID {_editPaymentTarget?.MemberId}) - Year: {_editPaymentForm.Year}, Amount: {_editPaymentForm.Amount:C}, Date: {_editPaymentForm.PaidDate.ToString("yyyy-MM-dd")}, Method: {_editPaymentForm.PaymentType} by {currentUser?.Username ?? "Unknown"}"
             }));
+            
+            AuditLogger.Log(
+                AuditLogActions.DuesChanged,
+                currentUser?.UserId,
+                null,
+                $"Edited payment for {_editPaymentTarget?.FullName} (ID {_editPaymentTarget?.MemberId}): New Amount: {_editPaymentForm.Amount:C}, New Date: {_editPaymentForm.PaidDate:yyyy-MM-dd}",
+                targetMemberId: _editPaymentTarget?.MemberId
+            );
             
             _operationMessage = $"Payment for {_editPaymentTarget?.FullName} updated successfully.";
             _operationError = false;
@@ -2029,7 +2117,7 @@
 
             return _activeFilter switch
             {
-                DuesFilter.Paid => _allItems.Where(i => i.Satisfied),
+                DuesFilter.Paid => _allItems.Where(i => i.Satisfied && !i.IsWaived),
                 DuesFilter.Unpaid => _allItems.Where(i => !i.Satisfied && i.Status != MemberStatus.Pending),
                 DuesFilter.Waived => _allItems.Where(i => IsExempt(i) && i.Status != MemberStatus.Pending),
                 DuesFilter.Pending => _allItems.Where(i => i.Status == MemberStatus.Pending),
@@ -2038,7 +2126,40 @@
         }
     }
 
-    private static string FormatOverdueText(int months) => $"{months} mo";
+    private static string FormatPreciseOverdueText(DateTime? dueDate)
+    {
+        if (!dueDate.HasValue) return "Unpaid";
+        
+        DateTime today = DateTime.Today;
+        if (today <= dueDate.Value) return "Due Today";
+
+        var start = dueDate.Value;
+        var end = today;
+
+        int years = end.Year - start.Year;
+        int months = end.Month - start.Month;
+        int days = end.Day - start.Day;
+
+        if (days < 0)
+        {
+            months--;
+            var prevMonth = end.AddMonths(-1);
+            days += DateTime.DaysInMonth(prevMonth.Year, prevMonth.Month);
+        }
+
+        if (months < 0)
+        {
+            years--;
+            months += 12;
+        }
+
+        var parts = new List<string>();
+        if (years > 0) parts.Add($"{years} {(years == 1 ? "year" : "years")}");
+        if (months > 0) parts.Add($"{months} {(months == 1 ? "month" : "months")}");
+        if (days > 0) parts.Add($"{days} {(days == 1 ? "day" : "days")}");
+
+        return parts.Count > 0 ? string.Join(", ", parts) : "Due Today";
+    }
     
     private static string GetStatusBadge(MemberStatus status) => status switch {
         MemberStatus.Regular or MemberStatus.RegularNonPortuguese => "bg-success-subtle text-success",

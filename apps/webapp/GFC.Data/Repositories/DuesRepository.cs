@@ -19,7 +19,9 @@ public class DuesRepository : IDuesRepository
         "Amount",
         "PaidDate",
         "PaymentType",
-        "Notes"
+        "Notes",
+        "RecordedByUserId",
+        "RecordedBy"
     };
 
     private static string GetContext(string methodName) => $"{nameof(DuesRepository)}.{methodName}";
@@ -37,7 +39,7 @@ public class DuesRepository : IDuesRepository
             connection.Open();
 
             const string sql = @"
-                SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes
+                SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes, RecordedByUserId, RecordedBy
                 FROM DuesPayments";
 
             using var command = new SqlCommand(sql, connection);
@@ -69,7 +71,7 @@ public class DuesRepository : IDuesRepository
             connection.Open();
 
             const string sql = @"
-            SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes
+            SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes, RecordedByUserId, RecordedBy
             FROM DuesPayments
             WHERE Year = @Year";
 
@@ -105,7 +107,7 @@ public class DuesRepository : IDuesRepository
             connection.Open();
 
             const string sql = @"
-                SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes
+                SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes, RecordedByUserId, RecordedBy
                 FROM DuesPayments
                 WHERE MemberID = @MemberID
                 ORDER BY Year, PaidDate";
@@ -139,7 +141,7 @@ public class DuesRepository : IDuesRepository
             connection.Open();
 
             const string sql = @"
-                SELECT TOP 1 DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes
+                SELECT TOP 1 DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes, RecordedByUserId, RecordedBy
                 FROM DuesPayments
                 WHERE MemberID = @MemberID AND Year = @Year";
 
@@ -226,7 +228,9 @@ public class DuesRepository : IDuesRepository
                 SET Amount = @Amount,
                     PaidDate = @PaidDate,
                     PaymentType = @PaymentType,
-                    Notes = @Notes
+                    Notes = @Notes,
+                    RecordedByUserId = @RecordedByUserId,
+                    RecordedBy = @RecordedBy
                 WHERE DuesPaymentID = @DuesPaymentID";
 
             using var updateCommand = new SqlCommand(updateSql, connection);
@@ -240,8 +244,8 @@ public class DuesRepository : IDuesRepository
         {
             // Insert new record
             const string insertSql = @"
-                INSERT INTO DuesPayments (MemberID, Year, Amount, PaidDate, PaymentType, Notes)
-                VALUES (@MemberID, @Year, @Amount, @PaidDate, @PaymentType, @Notes);
+                INSERT INTO DuesPayments (MemberID, Year, Amount, PaidDate, PaymentType, Notes, RecordedByUserId, RecordedBy)
+                VALUES (@MemberID, @Year, @Amount, @PaidDate, @PaymentType, @Notes, @RecordedByUserId, @RecordedBy);
                 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             using var insertCommand = new SqlCommand(insertSql, connection);
@@ -445,7 +449,9 @@ public class DuesRepository : IDuesRepository
             Amount = reader["Amount"] is DBNull ? null : (decimal?)reader["Amount"],
             PaidDate = reader["PaidDate"] is DBNull ? null : (DateTime?)reader["PaidDate"],
             PaymentType = reader["PaymentType"] as string,
-            Notes = reader["Notes"] as string
+            Notes = reader["Notes"] as string,
+            RecordedByUserId = reader["RecordedByUserId"] is DBNull ? null : (int?)reader["RecordedByUserId"],
+            RecordedBy = reader["RecordedBy"] as string
         };
     }
 
@@ -457,6 +463,8 @@ public class DuesRepository : IDuesRepository
         command.Parameters.AddWithValue("@PaidDate", (object?)payment.PaidDate ?? DBNull.Value);
         command.Parameters.AddWithValue("@PaymentType", (object?)payment.PaymentType ?? DBNull.Value);
         command.Parameters.AddWithValue("@Notes", (object?)payment.Notes ?? DBNull.Value);
+        command.Parameters.AddWithValue("@RecordedByUserId", (object?)payment.RecordedByUserId ?? DBNull.Value);
+        command.Parameters.AddWithValue("@RecordedBy", (object?)payment.RecordedBy ?? DBNull.Value);
     }
 
     private static bool IsWaivedPayment(DuesPayment payment)
@@ -485,7 +493,9 @@ public class DuesRepository : IDuesRepository
             SET Amount = @Amount,
                 PaidDate = @PaidDate,
                 PaymentType = @PaymentType,
-                Notes = @Notes
+                Notes = @Notes,
+                RecordedByUserId = @RecordedByUserId,
+                RecordedBy = @RecordedBy
             WHERE DuesPaymentID = @DuesPaymentID";
 
         using var command = new SqlCommand(sql, connection);
@@ -494,6 +504,8 @@ public class DuesRepository : IDuesRepository
         command.Parameters.AddWithValue("@PaidDate", (object?)payment.PaidDate ?? DBNull.Value);
         command.Parameters.AddWithValue("@PaymentType", (object?)payment.PaymentType ?? DBNull.Value);
         command.Parameters.AddWithValue("@Notes", (object?)payment.Notes ?? DBNull.Value);
+        command.Parameters.AddWithValue("@RecordedByUserId", (object?)payment.RecordedByUserId ?? DBNull.Value);
+        command.Parameters.AddWithValue("@RecordedBy", (object?)payment.RecordedBy ?? DBNull.Value);
 
         command.ExecuteNonQuery();
     }
@@ -511,7 +523,7 @@ public class DuesRepository : IDuesRepository
             connection.Open();
 
             const string sql = @"
-                SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes
+                SELECT DuesPaymentID, MemberID, Year, Amount, PaidDate, PaymentType, Notes, RecordedByUserId, RecordedBy
                 FROM DuesPayments
                 WHERE MemberID = @MemberID
                   AND Year BETWEEN @StartYear AND @EndYear";

@@ -162,7 +162,7 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @TargetMemberId, @Acti
         var pageSql = $@"
 SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.TargetMemberId, al.Action, al.Details, al.PageUrl, al.DurationSeconds, al.IpAddress, al.DeviceToken,
        pb.Username AS PerformedByUsername, pb.MemberId AS PerformedByMemberId,
-       tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId,
+       tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId_AppUser,
        pbm.FirstName AS PerformedByFirstName, pbm.LastName AS PerformedByLastName,
        tbm.FirstName AS TargetFirstName, tbm.LastName AS TargetLastName,
        tm.FirstName AS TargetMemberFirstName, tm.LastName AS TargetMemberLastName
@@ -277,11 +277,12 @@ WHERE AuditLogId = COALESCE(@LogId, (
             await connection.OpenAsync();
 
             const string sql = @"
-SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.Action, al.Details, al.PageUrl, al.DurationSeconds, al.IpAddress, al.DeviceToken,
+SELECT al.AuditLogId, al.TimestampUtc, al.PerformedByUserId, al.TargetUserId, al.TargetMemberId, al.Action, al.Details, al.PageUrl, al.DurationSeconds, al.IpAddress, al.DeviceToken,
        pb.Username AS PerformedByUsername, pb.MemberId AS PerformedByMemberId,
-       tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId,
+       tb.Username AS TargetUsername, tb.MemberId AS TargetMemberId_AppUser,
        pbm.FirstName AS PerformedByFirstName, pbm.LastName AS PerformedByLastName,
-       tbm.FirstName AS TargetFirstName, tbm.LastName AS TargetLastName
+       tbm.FirstName AS TargetFirstName, tbm.LastName AS TargetLastName,
+       tm.FirstName AS TargetMemberFirstName, tm.LastName AS TargetMemberLastName
 FROM AuditLogs al
 INNER JOIN (
     SELECT PerformedByUserId, MAX(AuditLogId) as MaxId
@@ -294,6 +295,7 @@ LEFT JOIN AppUsers pb ON al.PerformedByUserId = pb.UserId
 LEFT JOIN AppUsers tb ON al.TargetUserId = tb.UserId
 LEFT JOIN Members pbm ON pb.MemberId = pbm.MemberID
 LEFT JOIN Members tbm ON tb.MemberId = tbm.MemberID
+LEFT JOIN Members tm ON al.TargetMemberId = tm.MemberID
 ORDER BY al.TimestampUtc DESC;";
 
             var results = new List<AuditLogRecord>();
@@ -392,7 +394,13 @@ END";
         var targetUserId = targetValue is DBNull ? (int?)null : Convert.ToInt32(targetValue);
 
         var performedByMemberName = BuildMemberName(reader, "PerformedByFirstName", "PerformedByLastName");
-        var targetMemberName = BuildMemberName(reader, "TargetFirstName", "TargetLastName") ?? BuildMemberName(reader, "TargetMemberFirstName", "TargetMemberLastName");
+        
+        // PRIORITY: 
+        // 1. Direct TargetMemberId name (from AuditLogs.TargetMemberId)
+        // 2. TargetUserId's linked member name (from tb -> tbm)
+        // 3. User's linked member name (legacy check)
+        var targetMemberName = BuildMemberName(reader, "TargetMemberFirstName", "TargetMemberLastName") 
+                               ?? BuildMemberName(reader, "TargetFirstName", "TargetLastName");
  
         return new AuditLogRecord
         {

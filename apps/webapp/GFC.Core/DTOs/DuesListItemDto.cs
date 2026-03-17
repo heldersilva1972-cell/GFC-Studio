@@ -12,6 +12,8 @@ public record DuesListItemDto(
     DateTime? PaidDate,
     string PaymentType,
     int MonthsOverdue,
+    int DaysOverdue,
+    DateTime? DueDate,
     bool Satisfied,
     bool IsWaived,
     string? WaiverReason,
@@ -19,4 +21,5 @@ public record DuesListItemDto(
     bool IsBoardMember,
     bool IsInGracePeriod = false,
     bool IsNonPortugueseOrigin = false,
+    string? RecordedBy = null,
     System.Collections.Generic.List<int>? AdvanceYearsPaid = null);

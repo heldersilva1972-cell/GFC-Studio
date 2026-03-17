@@ -74,6 +74,8 @@ public class DuesInsightService : IDuesInsightService
             if (!paidTab && isSatisfied) continue;
 
             var overdueMonths = 0;
+            var overdueDays = 0;
+            DateTime? dueDate = null;
             var isInGracePeriod = false;
             
             if (!isSatisfied)
@@ -82,6 +84,8 @@ public class DuesInsightService : IDuesInsightService
                 if (overdueResult.IsOverdue && overdueResult.FirstUnpaidYear <= year)
                 {
                     overdueMonths = overdueResult.MonthsOverdue;
+                    overdueDays = overdueResult.DaysOverdue;
+                    dueDate = overdueResult.DueDate;
                 }
                 isInGracePeriod = overdueResult.IsInGracePeriod;
             }
@@ -115,13 +119,16 @@ public class DuesInsightService : IDuesInsightService
                 record?.PaidDate,
                 record?.PaymentType ?? string.Empty,
                 overdueMonths,
+                overdueDays,
+                dueDate,
                 isSatisfied,
                 isWaived,
                 waiverReason,
                 record?.Notes ?? string.Empty,
                 isBoard,
                 isInGracePeriod,
-                false, // IsNonPortugueseOrigin (was missing explicit mapping in some places but defaulting false is fine, adding false to maintain position before new arg)
+                member.IsNonPortugueseOrigin,
+                record?.RecordedBy,
                 advanceYears));
         }
 
