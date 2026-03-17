@@ -39,16 +39,22 @@ public class DuesYearSettingsRepository : IDuesYearSettingsRepository
                     Year = (int)reader["Year"],
                     StandardDues = (decimal)reader["StandardDues"],
                     GraceEndApplied = reader["GraceEndApplied"] is DBNull ? false : (bool)reader["GraceEndApplied"],
-                    GraceEndDate = reader["GraceEndDate"] is DBNull ? null : (DateTime?)reader["GraceEndDate"]
+                    GraceEndDate = reader["GraceEndDate"] is DBNull ? new DateTime(year, 2, 1) : (DateTime?)reader["GraceEndDate"]
                 };
             }
         }
         catch (SqlException ex) when (ex.Number == 208)
         {
-            return null;
+            // Fall through to default
         }
 
-        return null;
+        return new DuesYearSettings
+        {
+            Year = year,
+            StandardDues = 250m,
+            GraceEndApplied = true,
+            GraceEndDate = new DateTime(year, 2, 1)
+        };
     }
 
     /// <summary>

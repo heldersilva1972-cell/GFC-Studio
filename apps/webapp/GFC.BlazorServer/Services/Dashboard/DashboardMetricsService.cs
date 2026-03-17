@@ -370,7 +370,7 @@ public class DashboardMetricsService : IDashboardMetricsService
     {
         var currentLookup = BuildLatestDuesLookup(currentYearDues);
         var previousLookup = BuildLatestDuesLookup(previousYearDues);
-        var gracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date <= graceEndDate.Value;
+        var gracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value;
 
         var statusActiveCount = 0;
         var unpaidCount = 0;
@@ -490,7 +490,7 @@ public class DashboardMetricsService : IDashboardMetricsService
             // Grace Period Handling
             var duesSettings = await Task.Run(() => _duesYearSettingsRepository.GetSettingsForYear(currentYear), ct);
             var graceEndDate = duesSettings?.GraceEndDate?.Date;
-            var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date <= graceEndDate.Value;
+            var isGracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value;
             
             // We need previous year's paid IDs to detect transitions even after grace expires
             var prevDues = await Task.Run(() => _duesRepository.GetDuesForYear(currentYear - 1));
@@ -549,7 +549,7 @@ public class DashboardMetricsService : IDashboardMetricsService
                     if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExport) return true;
                     
                     // Case B: Grace period was active during last print, but is not now
-                    if (!isGracePeriodActive && graceEndDate.HasValue && lastExport <= graceEndDate.Value)
+                    if (!isGracePeriodActive && graceEndDate.HasValue && lastExport < graceEndDate.Value)
                     {
                         // Were they only in because of last year's dues?
                         if (prevPaidIds.Contains(m.MemberID) && !paidMemberIds.Contains(m.MemberID)) return true;

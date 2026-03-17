@@ -22,4 +22,5 @@ public record DuesListItemDto(
     bool IsInGracePeriod = false,
     bool IsNonPortugueseOrigin = false,
     string? RecordedBy = null,
-    System.Collections.Generic.List<int>? AdvanceYearsPaid = null);
+    System.Collections.Generic.List<int>? AdvanceYearsPaid = null,
+    string? PendingReason = null);

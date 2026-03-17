@@ -122,7 +122,7 @@ public class OverdueCalculationService
         // Only applies if the first unpaid year matches the year of the GraceEndDate
         if (context.GraceEndDate.HasValue && 
             context.GraceEndDate.Value.Year == firstUnpaidYear && 
-            today <= context.GraceEndDate.Value)
+            today < context.GraceEndDate.Value)
         {
             return new OverdueResult
             {

@@ -74,7 +74,7 @@ public class CardEligibilityService : ICardEligibilityService
         var previousYearDues = _duesRepository.GetDuesForMemberYear(memberId, evaluationYear - 1);
 
         var graceEndDate = _duesYearSettingsRepository.GetSettingsForYear(evaluationYear)?.GraceEndDate?.Date;
-        var gracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date <= graceEndDate.Value;
+        var gracePeriodActive = graceEndDate.HasValue && DateTime.Today.Date < graceEndDate.Value;
 
         var currentYearSatisfied = IsDuesSatisfied(currentYearDues?.PaymentType, currentYearDues?.PaidDate);
         if (currentYearSatisfied)

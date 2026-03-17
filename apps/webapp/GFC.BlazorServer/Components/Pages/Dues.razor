@@ -28,6 +28,121 @@
 
 <PageTitle>Dues Management - GFC</PageTitle>
 
+
+    @if (_isPrintingVoterList)
+    {
+        <style>
+            @@media print {
+                /* Zero out all layout spacing to pull content to the top */
+                html, body, .app-shell, main, .main, .content {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    background: white !important;
+                }
+
+                /* Hide the main dashboard and UI chrome */
+                .dues-container, 
+                .app-topbar, 
+                .app-sidebar, 
+                .sidebar, 
+                .topbar, 
+                .no-print,
+                header, 
+                aside, 
+                footer,
+                .modal,
+                .modal-backdrop,
+                .nav-scrollable {
+                    display: none !important;
+                    height: 0 !important;
+                    overflow: hidden !important;
+                }
+
+                /* Show only the list */
+                .voter-list-print {
+                    display: block !important;
+                    background: white !important;
+                    color: black !important;
+                    width: 100% !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    position: static !important;
+                    visibility: visible !important;
+                }
+
+                /* Ensure table details print correctly */
+                table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                    margin-top: 10px !important;
+                }
+                th, td {
+                    border: 1px solid #333 !important;
+                    padding: 4px 8px !important;
+                    text-align: left !important;
+                    font-size: 10pt !important;
+                    line-height: 1.2 !important;
+                    visibility: visible !important;
+                }
+                th {
+                    background-color: #f2f2f2 !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                }
+                .checkbox-box {
+                    width: 14px !important;
+                    height: 14px !important;
+                    border: 1px solid #000 !important;
+                    display: inline-block !important;
+                    visibility: visible !important;
+                }
+                
+                @@page {
+                    margin: 0.5in;
+                    size: portrait;
+                }
+            }
+        </style>
+    }
+
+    <div class="voter-list-print d-none">
+        <div class="text-center mt-0 pt-0 mb-3">
+            <h3 class="fw-bold mt-0 mb-0">Official GFC Voter Eligibility List - @_selectedYear</h3>
+            <div class="text-muted small">
+                Total Eligible Voters: @EligibleVoters.Count() | Date Generated: @DateTime.Now.ToString("MMMM dd, yyyy")
+            </div>
+        </div>
+        
+        <table class="table">
+            <thead>
+                <tr>
+                    <th style="width: 50px; text-align: center;">Voted</th>
+                    <th style="width: 100px;">Member ID</th>
+                    <th>Member Name (Last, First)</th>
+                    <th>Member Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var member in EligibleVoters)
+                {
+                    <tr>
+                        <td style="text-align: center;"><div class="checkbox-box"></div></td>
+                        <td>@member.MemberId</td>
+                        <td>@member.FullName</td>
+                        <td>
+                            @switch(member.Status) {
+                                case MemberStatus.Regular: <span>Regular Member</span> break;
+                                case MemberStatus.RegularNonPortuguese: <span>Regular Non-Portuguese</span> break;
+                                case MemberStatus.Life: <span>Life Member</span> break;
+                                default: <span>@member.Status</span> break;
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
 <div class="dues-container fade-in">
     <!-- Header Section -->
     <div class="page-header d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3 mb-4">
@@ -39,8 +154,26 @@
             @if (_graceEndDate.HasValue)
             {
                 var daysRemaining = (_graceEndDate.Value - DateTime.Today).Days;
-                var badgeClass = daysRemaining > 15 ? "bg-success" : daysRemaining > 0 ? "bg-warning" : "bg-danger";
-                var remainingText = daysRemaining > 0 ? $"{daysRemaining} Days Remaining" : (daysRemaining == 0 ? "Expires Today" : "Expired");
+                
+                string badgeClass;
+                string remainingText;
+                
+                if (daysRemaining > 15) {
+                    badgeClass = "bg-success";
+                    remainingText = $"{daysRemaining} Days Remaining";
+                } else if (daysRemaining > 1) {
+                    badgeClass = "bg-warning";
+                    remainingText = $"{daysRemaining} Days Remaining";
+                } else if (daysRemaining == 1) {
+                    badgeClass = "bg-danger";
+                    remainingText = "1 Day Left";
+                } else if (daysRemaining <= 0 && daysRemaining > -14) {
+                    badgeClass = "bg-danger";
+                    remainingText = "Expired";
+                } else {
+                    badgeClass = "bg-secondary"; // Gray color
+                    remainingText = "Off";
+                }
                 
                 <div class="badge @badgeClass text-white d-flex align-items-center gap-2 px-3 py-2 flex-grow-1 flex-lg-grow-0 justify-content-center" 
                      style="font-size: 0.85rem; cursor: pointer; font-weight: 600; border-radius: 50px; border: 1px solid rgba(255,255,255,0.2); height: 38px;" 
@@ -53,13 +186,18 @@
             }
 
             <div class="d-flex align-items-center gap-2 flex-grow-1 flex-lg-grow-0 justify-content-end">
+                <button class="btn btn-voter-list-print d-flex align-items-center gap-2" type="button" @onclick="PrintVoterList">
+                    <i class="bi bi-printer-fill fs-5"></i>
+                    <span class="fw-bold">Print Voter List</span>
+                </button>
+                <div class="vr mx-1 d-none d-lg-block"></div>
                 <label class="text-muted small mb-0 fw-semibold d-lg-none">Year:</label>
                 <select class="form-select year-select" @bind="_selectedYear" @bind:after="OnYearChanged">
-                @foreach (var year in _years)
-                {
-                    <option value="@year">@year</option>
-                }
-            </select>
+                    @foreach (var year in _years)
+                    {
+                        <option value="@year">@year</option>
+                    }
+                </select>
             </div>
         </div>
     </div>
@@ -256,6 +394,12 @@
                                             @GetStatusLabel(item.Status)
                                         </span>
                                         @if(item.IsBoardMember) { <span class="badge bg-purple-subtle text-purple ms-1">Board</span> }
+                                        @if(item.Status == MemberStatus.Pending && !string.IsNullOrWhiteSpace(item.PendingReason))
+                                        {
+                                            <div class="small text-muted mt-1 lh-1" style="max-width: 120px; font-size: 0.7rem;">
+                                                <i class="bi bi-clock-history me-1"></i>@item.PendingReason
+                                            </div>
+                                        }
                                     </td>
                                     <td>
                                         @if (item.Amount > 0)
@@ -1018,7 +1162,7 @@
                                 </select>
                             </div>
                             <small class="text-muted">
-                                Setting "April 1st" means cards expire on April 1st, @_selectedYear.
+                                Setting "February 1st" means cards expire on February 1st, @_selectedYear.
                             </small>
                         </div>
 
@@ -1054,7 +1198,9 @@
             </div>
         </div>
     }
+
 </div>
+
 
 @code {
     private enum DuesFilter { Unpaid, Paid, Waived, Pending }
@@ -1081,6 +1227,22 @@
     private int _gracePeriodDay;
     private string _gracePeriodError = string.Empty;
     private bool _savingGracePeriod;
+    private bool _isPrintingVoterList = false;
+    
+    private IEnumerable<DuesListItemDto> EligibleVoters => _allItems
+        .Where(i => i.Satisfied && (i.Status == MemberStatus.Regular || i.Status == MemberStatus.RegularNonPortuguese || i.Status == MemberStatus.Life))
+        .OrderBy(i => i.FullName);
+
+    private async Task PrintVoterList()
+    {
+        _isPrintingVoterList = true;
+        StateHasChanged();
+        await Task.Delay(200); // Allow styles to apply
+        await JSRuntime.InvokeVoidAsync("window.print");
+        await Task.Delay(500); // Wait for dialog to open
+        _isPrintingVoterList = false;
+        StateHasChanged();
+    }
     
     // Edit Payment Modal State
     private bool _showEditPaymentModal;
@@ -1512,7 +1674,7 @@
             _allItems = combined.GroupBy(x => x.MemberId).Select(g => g.First()).ToList();
             
             _graceEndDate = _currentYearSettings?.GraceEndDate;
-            if (_graceEndDate.HasValue && DateTime.Today <= _graceEndDate.Value)
+            if (_graceEndDate.HasValue && DateTime.Today < _graceEndDate.Value)
             {
                 _membersAtRiskCount = _allItems.Count(x => x.PaidDate == null && (x.Amount ?? 0) > 0);
             }
@@ -1759,7 +1921,7 @@
         }
         else
         {
-            _gracePeriodMonth = 4;
+            _gracePeriodMonth = 2; // February 1st
             _gracePeriodDay = 1;
         }
 
@@ -2588,5 +2750,28 @@
 
     .record-count-badge i {
         font-size: 0.875rem;
+    }
+
+    .btn-voter-list-print {
+        background: #f8f9fa;
+        color: #495057;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        white-space: nowrap;
+    }
+
+    .btn-voter-list-print:hover {
+        background: #fff;
+        color: #0d6efd;
+        border-color: #0d6efd;
+        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.15);
+        transform: translateY(-1px);
+    }
+
+    .btn-voter-list-print:active {
+        transform: translateY(0);
     }
 </style>

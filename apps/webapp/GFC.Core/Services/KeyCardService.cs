@@ -180,7 +180,7 @@ public class KeyCardService
         DateTime? graceEndDate)
     {
         var graceDate = graceEndDate?.Date;
-        var gracePeriodActive = graceDate.HasValue && DateTime.Today <= graceDate.Value;
+        var gracePeriodActive = graceDate.HasValue && DateTime.Today < graceDate.Value;
         var eligible = statusAllowed && (currentYearSatisfied || (gracePeriodActive && previousYearSatisfied));
 
         string? reason = null;

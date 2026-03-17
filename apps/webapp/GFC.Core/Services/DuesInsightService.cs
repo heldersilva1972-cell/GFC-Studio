@@ -110,6 +110,14 @@ public class DuesInsightService : IDuesInsightService
                 if (advanceYears.Count == 0) advanceYears = null;
             }
 
+            string? pendingReason = null;
+            if (status == MemberStatus.Pending)
+            {
+                if (!member.ApplicationDate.HasValue) pendingReason = "Missing Application Date";
+                else if (!member.AcceptedDate.HasValue) pendingReason = "Waiting for Acceptance Date";
+                else pendingReason = "Incomplete Setup";
+            }
+
             list.Add(new DuesListItemDto(
                 member.MemberID,
                 FormatMemberName(member),
@@ -129,7 +137,8 @@ public class DuesInsightService : IDuesInsightService
                 isInGracePeriod,
                 member.IsNonPortugueseOrigin,
                 record?.RecordedBy,
-                advanceYears));
+                advanceYears,
+                pendingReason));
         }
 
         return list.OrderBy(i => i.FullName).ToList();
