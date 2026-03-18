@@ -1411,6 +1411,14 @@
 
             _operationMessage = $"Waiver updated for {_waiverForm.MemberName}.";
             _operationError = false;
+
+            AuditLogger.Log(
+                AuditLogActions.DuesWaiverAdded,
+                currentUser?.UserId,
+                null,
+                $"Granted waiver for member ID {_waiverForm.MemberId} from {startYear} to {endYear} (Reason: {_waiverForm.Reason})",
+                targetMemberId: _waiverForm.MemberId
+            );
             
             // NEW: Automatically trigger card reactivation if they are now eligible
             try 
@@ -1457,6 +1465,16 @@
         try
         {
             await Task.Run(() => DuesWaiverRepository.DeleteWaiver(_waiverForm.WaiverId.Value));
+            
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            AuditLogger.Log(
+                AuditLogActions.DuesWaiverRemoved,
+                currentUser?.UserId,
+                null,
+                $"Removed waiver for member ID {_waiverForm.MemberId} for period {_waiverForm.StartYear}-{_waiverForm.EndYear}",
+                targetMemberId: _waiverForm.MemberId
+            );
+
             _operationMessage = "Waiver removed successfully.";
             _operationError = false;
             await LoadDataInternal(silent: true);
@@ -1869,6 +1887,13 @@
                    if (activeWaiver != null)
                    {
                        await Task.Run(() => DuesWaiverRepository.DeleteWaiver(activeWaiver.WaiverId));
+                       AuditLogger.Log(
+                            AuditLogActions.DuesWaiverRemoved,
+                            currentUser?.UserId,
+                            null,
+                            $"Waiver auto-cleared for member ID {_paymentTarget.MemberId} for year {currentYear} due to payment recording",
+                            targetMemberId: _paymentTarget.MemberId
+                        );
                        Logger.LogInformation("Waiver {WaiverId} auto-cleared due to payment", activeWaiver.WaiverId);
                    }
                 }
@@ -2221,10 +2246,10 @@
             }));
             
             AuditLogger.Log(
-                AuditLogActions.DuesChanged,
+                AuditLogActions.DuesPaymentUpdated,
                 currentUser?.UserId,
                 null,
-                $"Edited payment for {_editPaymentTarget?.FullName} (ID {_editPaymentTarget?.MemberId}): New Amount: {_editPaymentForm.Amount:C}, New Date: {_editPaymentForm.PaidDate:yyyy-MM-dd}",
+                $"Edited payment for {_editPaymentTarget?.FullName} (ID {_editPaymentTarget?.MemberId}) - Year: {_editPaymentForm.Year}: New Amount: {_editPaymentForm.Amount:C}, New Date: {_editPaymentForm.PaidDate:yyyy-MM-dd}",
                 targetMemberId: _editPaymentTarget?.MemberId
             );
             

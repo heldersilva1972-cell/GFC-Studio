@@ -81,7 +81,7 @@ public class WaiverService
             : $"previous reason {previous.Reason}, notes: {previous.Notes ?? "none"}";
         var auditDetails = $"[{memberName}] Waiver set for {year}: reason {reason.Trim()}, notes: {notes ?? "none"}; {previousSummary}";
         _auditLogger.Log(
-            AuditLogActions.DuesWaiverChanged,
+            AuditLogActions.DuesWaiverAdded,
             performedByUserId,
             null,
             auditDetails,

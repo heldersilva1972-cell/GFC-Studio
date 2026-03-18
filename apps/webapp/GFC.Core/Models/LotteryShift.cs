@@ -35,6 +35,9 @@ namespace GFC.Core.Models
         public decimal ExpectedCash => StartingCash + TotalSales - TotalPayouts + BackupBagAmount;
         public decimal Variance => EndingCash - ExpectedCash;
         
+        // Income for the house: (Sales - Payouts - Cancels) - NetDue to State
+        public decimal LotteryIncome => NetSales - NetDue;
+        
         // Additional tracking
         public string? Notes { get; set; }
         public string? Status { get; set; } // "Draft", "Submitted", "Approved", "Reconciled"

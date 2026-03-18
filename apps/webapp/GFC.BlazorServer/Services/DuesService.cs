@@ -61,9 +61,9 @@ public class DuesService
             throw new ArgumentException("Amount must be greater than 0.", nameof(amount));
         }
 
-        if (year > DateTime.Now.Year)
+        if (year > DateTime.Now.Year + 10)
         {
-            throw new ArgumentException("Year cannot be in the future.", nameof(year));
+            throw new ArgumentException("Year cannot be more than 10 years in the future.", nameof(year));
         }
 
         var existing = await _dbContext.DuesPayments
@@ -122,8 +122,13 @@ public class DuesService
             : $"previous amount {previousDetails.Amount?.ToString() ?? "n/a"}, paid {previousDetails.PaidDate?.ToShortDateString() ?? "n/a"}, notes: {previousDetails.Notes ?? "none"}";
         
         var details = $"[{memberName}] Recorded dues for {year}: amount {amount}, paid {paidDate:d}, notes: {notes ?? "none"}; {previousSummary}";
+        
+        var actionType = year > DateTime.Today.Year 
+            ? AuditLogActions.DuesAdvancedAdded 
+            : AuditLogActions.DuesPaymentAdded;
+
         _auditLogger.Log(
-            AuditLogActions.DuesChanged,
+            actionType,
             performedByUserId,
             null,
             details,

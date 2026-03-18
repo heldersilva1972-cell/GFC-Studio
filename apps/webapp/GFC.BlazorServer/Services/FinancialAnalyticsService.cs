@@ -15,6 +15,7 @@ namespace GFC.BlazorServer.Services
         Task<FinancialSummary> GetSummaryAsync(FinancialAnalyticsRequest request);
         Task<List<int>> GetAvailableYearsAsync();
         Task<(List<DailySalesReportDto> Data, int TotalBar, int TotalLotto, string Server, string Database, string Error)> GetDailySalesReportsAsync(DateTime startDate, DateTime endDate);
+        Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null);
     }
 
 
@@ -365,6 +366,23 @@ namespace GFC.BlazorServer.Services
 
 
 
+        public async Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var query = db.LotteryShifts
+                .Where(s => s.ShiftDate >= startDate && s.ShiftDate <= endDate);
+
+            if (!string.IsNullOrEmpty(shiftType))
+                query = query.Where(s => s.ShiftType == shiftType);
+
+            if (!string.IsNullOrEmpty(employeeName))
+                query = query.Where(s => s.EmployeeName == employeeName);
+
+            return await query
+                .OrderByDescending(s => s.ShiftDate)
+                .ThenByDescending(s => s.ShiftId)
+                .ToListAsync();
+        }
     }
 }
 

@@ -21,7 +21,7 @@ window.financialCharts = {
             const bgColor = dataset.bg || colorPalette[index % colorPalette.length].bg;
 
             return {
-                type: config.type, // Explicitly set dataset type
+                type: dataset.type || config.type, // Use individual dataset type if provided
                 label: dataset.label,
                 data: dataset.data,
                 backgroundColor: bgColor,

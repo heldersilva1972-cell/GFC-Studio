@@ -111,13 +111,49 @@ public class PageDiscoveryService
     {
         var normalized = route.TrimStart('/').ToLowerInvariant();
 
-        return normalized switch
+        // [MEMBERSHIP] - Root pages or misc routes
+        if (normalized == "members" || normalized == "dues" || normalized == "keycards" || 
+            normalized == "life-eligibility" || normalized == "np-queue" || normalized == "bylaws" ||
+            normalized == "directors" || normalized == "physicalkeys")
+            return "MEMBERSHIP";
+
+        // [FINANCE]
+        if (normalized == "admin/bar-sales" || normalized == "reimbursements/manage" || 
+            normalized == "finance/insights" || normalized == "finance/lottery-analytics" || 
+            normalized == "finance/bar-lottery-sales")
+            return "FINANCE";
+
+        // [BARTENDERS]
+        if (normalized == "operations/end-of-shift" || normalized == "admin/staff-shifts" || 
+            normalized == "mobile/manage-schedule" || normalized == "mobile/liquor/manage")
+            return "BARTENDERS";
+
+        // [WEBSITE]
+        if (normalized == "admin/pages" || normalized == "admin/reviews" || normalized == "admin/event-promotions" || 
+            normalized == "admin/nav-menu-editor" || normalized == "admin/website-settings" || 
+            normalized == "admin/form-builder" || normalized == "admin/form-submissions" || 
+            normalized == "controllers/schedules/specialevents")
+            return "WEBSITE";
+
+        // [HALL RENTALS]
+        if (normalized == "admin/hall-management" || normalized == "admin/hall-rental-settings")
+            return "HALL RENTALS";
+
+        // [SYSTEM]
+        if (normalized == "admin/operations" || normalized == "admin/system/communications" || 
+            normalized == "admin/system/alerts")
+            return "SYSTEM";
+
+        // [MOBILE]
+        if (normalized == "mobile" || normalized == "hub" || normalized.StartsWith("mobile/"))
         {
-            "operations/end-of-shift" => "BARTENDERS",
-            "mobile/schedule" => "MOBILE",
-            "mobile/manage-schedule" => "BARTENDERS",
-            _ => null
-        };
+            // Some mobile pages belong elsewhere based on sidebar
+            if (normalized == "mobile/manage-schedule" || normalized == "mobile/liquor/manage")
+                return "BARTENDERS";
+            return "MOBILE";
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -143,8 +179,8 @@ public class PageDiscoveryService
 
             var route = routeAttr.Template;
             
-            // Determine category from namespace
-            var category = DetermineCategoryFromNamespace(type.Namespace);
+            // Determine category from namespace and route
+            var category = GetExplicitCategoryOverride(route) ?? DetermineCategoryFromNamespace(type.Namespace, route);
             
             // Check if page requires admin (you can use a custom attribute for this)
             var requiresAdmin = DetermineIfRequiresAdmin(type, route, category);
@@ -164,13 +200,36 @@ public class PageDiscoveryService
         return pages.OrderBy(p => p.Category).ThenBy(p => p.DisplayOrder).ToList();
     }
 
-    private string DetermineCategoryFromNamespace(string? ns)
+    private string DetermineCategoryFromNamespace(string? ns, string route)
     {
         if (ns == null) return "DASHBOARD";
 
-        // Map namespace folders to the exact Sidebar Group Titles
+        var normalizedRoute = route.TrimStart('/').ToLowerInvariant();
         var upperNs = ns.ToUpperInvariant();
 
+        // Heuristic 1: Explicit Route Markers (Highest Priority after Overrides)
+        if (normalizedRoute.StartsWith("admin/"))
+        {
+            if (normalizedRoute.Contains("hall")) return "HALL RENTALS";
+            if (normalizedRoute.Contains("website") || normalizedRoute.Contains("page")) return "WEBSITE";
+            if (normalizedRoute.Contains("operation") || normalizedRoute.Contains("system")) return "SYSTEM";
+            return "ADMINISTRATION";
+        }
+
+        if (normalizedRoute.StartsWith("members") || normalizedRoute.StartsWith("dues") || 
+            normalizedRoute.StartsWith("directors") || normalizedRoute.StartsWith("keycards"))
+            return "MEMBERSHIP";
+
+        if (normalizedRoute.StartsWith("finance/") || normalizedRoute.StartsWith("finance-"))
+            return "FINANCE";
+
+        if (normalizedRoute.StartsWith("cameras/"))
+            return "CAMERA SYSTEM";
+
+        if (normalizedRoute.StartsWith("controllers/"))
+            return "CONTROLLERS";
+
+        // Heuristic 2: Namespace Folders
         if (upperNs.Contains("PAGES.ADMIN") || upperNs.Contains("PAGES.USERS")) 
             return "ADMINISTRATION";
             
@@ -204,6 +263,15 @@ public class PageDiscoveryService
         if (upperNs.Contains("PAGES.MOBILE")) 
             return "MOBILE";
 
+        // Fallback for root pages - if it's in the root GFC.BlazorServer.Components.Pages
+        // and didn't match anything above, it's likely a Membership page or Dashboard.
+        if (ns == "GFC.BlazorServer.Components.Pages")
+        {
+            if (normalizedRoute == "" || normalizedRoute == "dashboard" || normalizedRoute == "home")
+                return "DASHBOARD";
+            return "MEMBERSHIP";
+        }
+
         return "DASHBOARD";
     }
 
@@ -218,7 +286,7 @@ public class PageDiscoveryService
             return true;
 
         // Admin categories
-        if (category == "Administration" || category == "System")
+        if (category == "ADMINISTRATION" || category == "SYSTEM")
             return true;
 
         // Admin routes

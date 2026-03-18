@@ -19,6 +19,9 @@ public class AuditLogger : IAuditLogger
 
     public void Log(string action, int? performedByUserId, int? targetUserId, string? details = null, string? ipAddress = null, string? deviceToken = null, int? targetMemberId = null)
     {
+        // Don't log PageView to the primary audit log database - user requested reduction of noise.
+        if (action == AuditLogActions.PageView) return;
+
         var sanitizedTargetUserId = IsUserAccountAction(action) ? targetUserId : null;
 
         WriteEntry(new AuditLogEntry
@@ -53,42 +56,25 @@ public class AuditLogger : IAuditLogger
 
     public int LogPageView(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
     {
-        var details = string.IsNullOrWhiteSpace(pageTitle) ? pageUrl : $"{pageTitle} ({pageUrl})";
-        return WriteEntry(new AuditLogEntry
-        {
-            PerformedByUserId = userId,
-            Action = AuditLogActions.PageView,
-            Details = $"Navigated to {details}",
-            PageUrl = pageUrl,
-            IpAddress = ipAddress,
-            DeviceToken = deviceToken
-        });
+        // Suppressed to reduce log noise
+        return 0;
     }
 
     public async Task<int> LogPageViewAsync(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
     {
-        var details = string.IsNullOrWhiteSpace(pageTitle) ? pageUrl : $"{pageTitle} ({pageUrl})";
-        return await WriteEntryAsync(new AuditLogEntry
-        {
-            PerformedByUserId = userId,
-            Action = AuditLogActions.PageView,
-            Details = $"Navigated to {details}",
-            PageUrl = pageUrl,
-            IpAddress = ipAddress,
-            DeviceToken = deviceToken
-        });
+        // Suppressed to reduce log noise
+        return await Task.FromResult(0);
     }
 
     public void UpdatePageViewDuration(int userId, string pageUrl, int seconds, string? ipAddress = null, string? deviceToken = null, int? logId = null)
     {
-        _repository.UpdateDuration(userId, pageUrl, seconds, ipAddress, deviceToken, logId);
+        // Suppressed
     }
 
     public async Task UpdatePageViewDurationAsync(int userId, string pageUrl, int seconds, string? ipAddress = null, string? deviceToken = null, int? logId = null)
     {
-        // For now, we reuse the repository method which is sync, but we call it from an async wrapper.
-        // We could also implement UpdateDurationAsync in repository if needed.
-        await Task.Run(() => _repository.UpdateDuration(userId, pageUrl, seconds, ipAddress, deviceToken, logId));
+        // Suppressed
+        await Task.CompletedTask;
     }
 
     private static bool IsUserAccountAction(string action)
@@ -145,6 +131,11 @@ public static class AuditLogActions
     public const string NPQueueAdd = "NPQueueAdd";
     public const string NPQueuePromote = "NPQueuePromote";
     public const string NPQueueRemove = "NPQueueRemove";
+    public const string DuesPaymentAdded = "DuesPaymentAdded";
+    public const string DuesPaymentUpdated = "DuesPaymentUpdated";
+    public const string DuesAdvancedAdded = "DuesAdvancedAdded";
+    public const string DuesWaiverAdded = "DuesWaiverAdded";
+    public const string DuesWaiverRemoved = "DuesWaiverRemoved";
     public const string LifeStatusChanged = "LifeStatusChanged";
     public const string DirectorRoleChanged = "DirectorRoleChanged";
     public const string KeyCardAdded = "KeyCardAdded";
@@ -203,6 +194,11 @@ public static class AuditLogActions
         NPQueueAdd,
         NPQueuePromote,
         NPQueueRemove,
+        DuesPaymentAdded,
+        DuesPaymentUpdated,
+        DuesAdvancedAdded,
+        DuesWaiverAdded,
+        DuesWaiverRemoved,
         LifeStatusChanged,
         DirectorRoleChanged,
         KeyCardAdded,
@@ -240,7 +236,6 @@ public static class AuditLogActions
         DbRestoreFailed,
         DbMaintenanceModeEnabled,
         DbMaintenanceModeDisabled,
-        PageView,
         ShiftReportSubmitted,
         ShiftReportCorrected
     };
