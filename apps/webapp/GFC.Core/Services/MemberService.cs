@@ -37,16 +37,16 @@ public class MemberService
     /// Updates a member's status and logs the change.
     /// Wrapper that preserves previous call sites.
     /// </summary>
-    public async Task UpdateMemberStatusAsync(Member member, string newStatus, string? userName = null)
+    public async Task UpdateMemberStatusAsync(Member member, string newStatus, string? userName = null, int? performedByUserId = null)
     {
-        await UpdateMemberStatusAsync(member, newStatus, userName, bypassAutomations: false);
+        await UpdateMemberStatusAsync(member, newStatus, userName, false, performedByUserId);
     }
 
     /// <summary>
     /// Updates a member's status and logs the change.
     /// Added overload to retain compatibility with callers that pass a bypass flag.
     /// </summary>
-    public async Task UpdateMemberStatusAsync(Member member, string newStatus, string? userName, bool bypassAutomations)
+    public async Task UpdateMemberStatusAsync(Member member, string newStatus, string? userName, bool bypassAutomations, int? performedByUserId = null)
     {
         if (member == null)
             throw new ArgumentNullException(nameof(member));
@@ -89,7 +89,7 @@ public class MemberService
         AppendStatusNotesIfApplicable(member, oldStatus);
 
         // Keep audit behavior consistent; bypass flag reserved for future automation toggles.
-        TryAuditStatusChange(member.MemberID, oldStatus, newStatus);
+        TryAuditStatusChange(member.MemberID, oldStatus, newStatus, performedByUserId);
         
         // Evaluate key card eligibility immediately
         if (member.MemberID > 0)
@@ -259,7 +259,7 @@ public class MemberService
         }
     }
 
-    private void TryAuditStatusChange(int memberId, string? oldStatus, string? newStatus)
+    private void TryAuditStatusChange(int memberId, string? oldStatus, string? newStatus, int? performedByUserId = null)
     {
         if (string.Equals(oldStatus, newStatus, StringComparison.OrdinalIgnoreCase))
         {
@@ -278,7 +278,17 @@ public class MemberService
             var details = $"[{memberName}] Status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"}";
             _auditLogger.Log(
                 AuditLogActions.LifeStatusChanged,
+                performedByUserId,
                 null,
+                details,
+                targetMemberId: memberId);
+        }
+        else
+        {
+            var details = $"[{memberName}] Status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"}";
+            _auditLogger.Log(
+                AuditLogActions.MemberStatusChanged,
+                performedByUserId,
                 null,
                 details,
                 targetMemberId: memberId);
@@ -289,7 +299,7 @@ public class MemberService
             var details = $"[{memberName}] Dues status change: {oldStatus ?? "unknown"} -> {newStatus ?? "unknown"} (set inactive for dues)";
             _auditLogger.Log(
                 AuditLogActions.DuesChanged,
-                null,
+                performedByUserId,
                 null,
                 details,
                 targetMemberId: memberId);

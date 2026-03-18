@@ -22,12 +22,10 @@ public class AuditLogger : IAuditLogger
         // Don't log PageView to the primary audit log database - user requested reduction of noise.
         if (action == AuditLogActions.PageView) return;
 
-        var sanitizedTargetUserId = IsUserAccountAction(action) ? targetUserId : null;
-
         WriteEntry(new AuditLogEntry
         {
             PerformedByUserId = performedByUserId,
-            TargetUserId = sanitizedTargetUserId,
+            TargetUserId = targetUserId,
             TargetMemberId = targetMemberId,
             Action = action,
             Details = details,
@@ -77,12 +75,7 @@ public class AuditLogger : IAuditLogger
         await Task.CompletedTask;
     }
 
-    private static bool IsUserAccountAction(string action)
-    {
-        return action is AuditLogActions.AdminCreated
-            or AuditLogActions.PasswordReset
-            or AuditLogActions.SuspiciousLoginAttempt;
-    }
+
 
     private int WriteEntry(AuditLogEntry entry)
     {
@@ -161,6 +154,9 @@ public static class AuditLogActions
     public const string PageView = "PageView";
     public const string ShiftReportSubmitted = "Shift Report Submitted";
     public const string ShiftReportCorrected = "Shift Report Corrected";
+    public const string MemberAdded = "Member Added";
+    public const string MemberUpdated = "Member Updated";
+    public const string MemberStatusChanged = "Member Status Changed";
     
     // VPN & Onboarding Actions
     public const string VpnOnboardingStarted = "VpnOnboardingStarted";
@@ -237,6 +233,9 @@ public static class AuditLogActions
         DbMaintenanceModeEnabled,
         DbMaintenanceModeDisabled,
         ShiftReportSubmitted,
-        ShiftReportCorrected
+        ShiftReportCorrected,
+        MemberAdded,
+        MemberUpdated,
+        MemberStatusChanged
     };
 }
