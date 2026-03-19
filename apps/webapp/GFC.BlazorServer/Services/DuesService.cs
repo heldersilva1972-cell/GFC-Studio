@@ -123,9 +123,15 @@ public class DuesService
         
         var details = $"[{memberName}] Recorded dues for {year}: amount {amount}, paid {paidDate:d}, notes: {notes ?? "none"}; {previousSummary}";
         
-        var actionType = year > DateTime.Today.Year 
-            ? AuditLogActions.DuesAdvancedAdded 
-            : AuditLogActions.DuesPaymentAdded;
+        var actionType = AuditLogActions.DuesPaymentAdded;
+        if (existing != null)
+        {
+            actionType = AuditLogActions.DuesPaymentUpdated;
+        }
+        else if (year > DateTime.Today.Year)
+        {
+            actionType = AuditLogActions.DuesAdvancedAdded;
+        }
 
         _auditLogger.Log(
             actionType,

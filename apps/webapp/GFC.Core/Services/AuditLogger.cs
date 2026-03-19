@@ -124,11 +124,11 @@ public static class AuditLogActions
     public const string NPQueueAdd = "NPQueueAdd";
     public const string NPQueuePromote = "NPQueuePromote";
     public const string NPQueueRemove = "NPQueueRemove";
-    public const string DuesPaymentAdded = "DuesPaymentAdded";
-    public const string DuesPaymentUpdated = "DuesPaymentUpdated";
-    public const string DuesAdvancedAdded = "DuesAdvancedAdded";
-    public const string DuesWaiverAdded = "DuesWaiverAdded";
-    public const string DuesWaiverRemoved = "DuesWaiverRemoved";
+    public const string DuesPaymentAdded = "Dues Payment Added";
+    public const string DuesPaymentUpdated = "Dues Payment Updated";
+    public const string DuesAdvancedAdded = "Dues Advance Recorded";
+    public const string DuesWaiverAdded = "Dues Waiver Granted";
+    public const string DuesWaiverRemoved = "Dues Waiver Reversed";
     public const string LifeStatusChanged = "LifeStatusChanged";
     public const string DirectorRoleChanged = "DirectorRoleChanged";
     public const string KeyCardAdded = "KeyCardAdded";
