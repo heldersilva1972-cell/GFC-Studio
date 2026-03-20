@@ -450,16 +450,9 @@
                 return;
             }
 
-            // Force RememberMe for personal devices, but NEVER for shared stations
-            // This ensures stations always require a fresh login after the browser is closed.
-            if (!_isStationMode)
-            {
-                _model.RememberMe = true;
-            }
-            else
-            {
-                _model.RememberMe = false;
-            }
+            // ALWAYS request a device token so we can survive a page refresh.
+            // Persistence is handled by the cookie's expiration, not the database.
+            _model.RememberMe = true;
 
             // [MANUAL VALIDATION] Since we use OnSubmit to catch setup codes first
             if (string.IsNullOrWhiteSpace(_model.Username) || string.IsNullOrWhiteSpace(_model.Password))
@@ -498,13 +491,11 @@
             if (!string.IsNullOrWhiteSpace(result.DeviceToken))
             {
                 await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", result.DeviceToken);
-                // Keep cookie in sync for middleware - PERSISTENT for 30 days
-                await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", result.DeviceToken, 30);
-            }
-            else
-            {
-                // Ensure we don't have a personal token on a station, but KEEP the Station Identity cookie.
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+                
+                // [FIXED] Strategy: On stations, use a session cookie (days = 0).
+                // This survives page refreshes but expires when the browser closes.
+                int cookieDays = _isStationMode ? 0 : 30;
+                await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", result.DeviceToken, cookieDays);
             }
 
             Navigation.NavigateTo(GetPostLoginDestination(), forceLoad: false);

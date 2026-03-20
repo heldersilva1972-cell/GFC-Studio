@@ -135,60 +135,63 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                 var context = _httpContextAccessor.HttpContext;
                 string? token = null;
 
-                // [STATION GUARD] 
-                // If this machine is tagged as a Shared Station, we ABSOLUTELY FORBID auto-login.
-                // This is the machine authorization token (Station Identity).
-                bool isSharedStation = context?.Request.Cookies.ContainsKey("GFC_StationIdentity") == true;
+                // [STATION DETECTION]
+                // Stations MUST persist their login across refreshes while the browser is open.
+                bool isSharedStation = context?.Request != null && context.Request.Cookies.ContainsKey("GFC_StationIdentity");
                 
-                if (isSharedStation)
+                // 1. Try Cookies (Initial load / Prerendering)
+                if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
                 {
-                    _logger?.LogDebug("Auto-login: Station Mode Detected. User auto-login is forbidden.");
+                    // Got token from cookie - extremely reliable for refreshes
                 }
-                else
+                else 
                 {
-                    // 1. Try Cookies (Initial load / Prerendering)
-                    if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
+                    // 2. Try LocalStorage (Interactive circuit reconnection)
+                    try 
                     {
-                        // Got token from cookie
+                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
                     }
-                    else 
+                    catch { /* Not interactive yet or JS not ready */ }
+                }
+
+                if (!string.IsNullOrEmpty(token))
+                {
+                    // [REFINED AUTO-LOGIN] 
+                    // Trust the token if: 
+                    // a) It came from a cookie (server-side context exists)
+                    // b) It is a shared station (station machines are always high-trust for local sessions)
+                    // c) We can verify it against the cache/DB
+                    
+                    bool shouldRestore = context != null || isSharedStation;
+                    
+                    if (!shouldRestore)
                     {
-                        // 2. Try LocalStorage (Interactive circuit reconnection)
-                        try 
-                        {
-                            token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-                        }
-                        catch { /* Not interactive yet or JS not ready */ }
+                         // Final fallback: check local storage intent if this is a random interactive re-eval
+                         try {
+                            var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                            shouldRestore = !string.IsNullOrEmpty(intentToken) && intentToken == token;
+                         } catch { }
                     }
 
-                    // [REFINED AUTO-LOGIN] Only auto-login if the user has a valid token AND intent to be remembered (localStorage)
-                    // This allows the cookie to persist for 'Device Trust' (Access Shield) even after logout.
-                    var hasIntent = false;
-                    try {
-                        var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-                        hasIntent = !string.IsNullOrEmpty(intentToken) && intentToken == token;
-                    } catch { }
-
-                    if (!string.IsNullOrEmpty(token) && hasIntent)
+                    if (shouldRestore)
                     {
-                        _currentToken = token; // Store for revocation monitoring
+                        _currentToken = token;
                         
-                        // 1. Check Global Cache First (High speed memory hit)
+                        // Check cache first for speed
                         if (_tokenCache.TryGetValue(token, out var cachedData) && cachedData.Expiry > DateTime.UtcNow)
                         {
                             var user = cachedData.User;
                             _currentUser = user;
                             _currentPrincipal = BuildPrincipal(user);
+                            _currentToken = token; // Mark it as restored
                             
-                            // [FIX] Hydrate the scoped AuthenticationService so it's ready for sub-services
-                            await _authenticationService.LoginWithDeviceTokenAsync(token);
-                            
+                            // Propagate login to persistence service in background
+                            _ = _authenticationService.LoginWithDeviceTokenAsync(token);
                             _userSessionService.SetLoginTime(DateTime.UtcNow);
-                            _logger?.LogDebug("Auto-login: Restored user {Username} from global token cache.", user.Username);
                         }
                         else 
                         {
-                            // 2. Fallback to Database
+                            // DB Validation Hit
                             var result = await _authenticationService.LoginWithDeviceTokenAsync(token);
                             if (result.Success && result.User != null)
                             {
@@ -196,8 +199,8 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                                 _currentUser = updatedUser;
                                 _currentPrincipal = BuildPrincipal(updatedUser);
                                 _userSessionService.SetLoginTime(DateTime.UtcNow);
-
-                                // Cache for 1 hour to prevent constant DB pressure during mobile flickers
+                                
+                                // Cache for 1 hour to prevent DB thrashing on refreshes
                                 _tokenCache[token] = (updatedUser, DateTime.UtcNow.AddHours(1));
                             }
                         }

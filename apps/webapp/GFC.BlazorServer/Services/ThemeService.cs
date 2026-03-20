@@ -5,7 +5,7 @@ namespace GFC.BlazorServer.Services;
 public class ThemeService
 {
     private readonly IJSRuntime _jsRuntime;
-    private bool _isDarkMode = true; // Default to dark mode as requested for premium look
+    private bool _isDarkMode = false; // Forced to Light Mode as per user request
 
     public event Action? OnThemeChanged;
 
@@ -18,14 +18,11 @@ public class ThemeService
 
     public async Task InitializeAsync()
     {
-        var savedTheme = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "theme");
-        if (!string.IsNullOrEmpty(savedTheme))
-        {
-            _isDarkMode = savedTheme == "dark";
-        }
-        
+        // Forced to Light Mode as per user request. Ignore localStorage.
+        _isDarkMode = false;
         await ApplyThemeAsync();
     }
+
 
     public async Task ToggleThemeAsync()
     {

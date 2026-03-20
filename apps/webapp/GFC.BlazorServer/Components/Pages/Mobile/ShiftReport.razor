@@ -5,772 +5,693 @@
 @using GFC.Core.Models
 @using GFC.BlazorServer.Data
 @using Microsoft.EntityFrameworkCore
-@using SixLabors.ImageSharp
-@using SixLabors.ImageSharp.Processing
-@using SixLabors.ImageSharp.Formats.Jpeg
 @inject NavigationManager Navigation
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject ILotteryShiftRepository LotteryRepo
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JSRuntime
 @inject IAuditLogger AuditLogger
-@using GFC.BlazorServer.Components.Shared.Mobile
-@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Environment
+@inject IUserManagementService UserService
 @attribute [Authorize]
 
-<PageTitle>End of shift sales | GFC Staff</PageTitle>
+<PageTitle>End of Shift | GFC Mobile</PageTitle>
 
-<div class="mobile-report-container">
-    <!-- FIXED TOP SECTION -->
-    <div class="header-nav-stack">
-        <!-- HEADER -->
-        <header class="app-header">
-            <div class="container py-3">
-                <div class="d-flex align-items-center justify-content-center w-100">
-                    <h6 class="mb-0 fw-bold header-title">End of shift sales</h6>
-                </div>
+<div class="glass-page-container mobile-version">
+    <div class="page-content-wrapper animate-slide-up">
+        
+        <!-- HEADER is now provided by MainLayout with the drawer -->
+        <div class="px-3 pt-4 mb-4 d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-link text-primary p-0 me-1" @onclick="HandleCancel">
+                    <i class="bi bi-chevron-left fs-4"></i>
+                </button>
+                <h1 class="h4 fw-black mb-0">End of Shift</h1>
             </div>
-        </header>
-    </div>
+            <div class="header-date">
+                <input type="date" class="form-control form-control-sm border-0 bg-white-glass fw-bold rounded-pill px-3 shadow-sm" 
+                       @bind-value="ReportDate" @bind-value:after="OnDateChanged"
+                       max="@DateTime.Today.ToString("yyyy-MM-dd")"
+                       disabled="@IsLocked" />
+            </div>
+        </div>
 
-    <!-- SCROLLABLE CONTENT -->
-    <main class="report-scroll-area">
-        <div class="container py-2">
-            @if (Submitted)
-            {
-                <div class="d-flex flex-column align-items-center justify-content-center h-100 animate-entrance px-4">
-                    <div class="mb-4" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); width: 90px; height: 90px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(40, 167, 69, 0.3);">
-                        <i class="bi bi-check-lg text-white" style="font-size: 3.5rem;"></i>
-                    </div>
-                    <h2 class="fw-bold mb-2">Shift Recorded!</h2>
-                    <p class="text-muted text-center mb-5">Your sales and reports have been safely secured.</p>
-                    
-                    <button class="btn btn-app-primary w-100 py-3 rounded-4 shadow-sm fw-bold mb-3" @onclick="@(() => Navigation.NavigateTo("/mobile"))">
-                        <i class="bi bi-arrow-left me-2"></i> Return to Clean Menu
+        @if (Submitted)
+        {
+            <div class="p-4 text-center mt-5">
+                <div class="success-icon-box mb-4 mx-auto shadow-lg">
+                    <i class="bi bi-check2-circle"></i>
+                </div>
+                <h2 class="fw-black mb-2">Report Secured!</h2>
+                <p class="text-muted mb-5">Your end-of-shift data has been successfully recorded in the audit logs.</p>
+                <div class="d-grid gap-3">
+                    <button class="btn btn-primary rounded-pill py-3 fw-bold shadow" @onclick="HandleCancel">
+                        <i class="bi bi-speedometer2 me-2"></i> Dashboard
                     </button>
-                    
-                    <button class="btn btn-link text-muted text-decoration-none small" @onclick="@(() => Submitted = false)">
+                    <button class="btn btn-link text-muted text-decoration-none small" @onclick="() => Submitted = false">
                         <i class="bi bi-pencil-square me-1"></i> Edit Shift Report
                     </button>
-                    
-                    <div class="mt-4 text-muted small">
-                        <span class="spinner-grow spinner-grow-sm text-primary me-2" role="status"></span>
-                        Redirecting in a few seconds...
-                    </div>
                 </div>
-            }
-            else if (Loading)
-            {
-                <div class="text-center py-5 animate-entrance">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p class="mt-3 text-muted small">Preparing report...</p>
-                </div>
-            }
-            else
-            {
-                <div class="animate-entrance">
-                    <!-- RECENT EDIT BUTTON -->
-                    @if (_recentReport != null)
-                    {
-                        <div class="mb-3 animate-entrance">
-                            <button class="btn btn-warning w-100 py-2 d-flex align-items-center justify-content-center shadow-sm" @onclick="LoadRecentReport">
-                                <i class="bi bi-pencil-square me-2"></i>
-                                <span>@(_recentReport.Date.Date == ReportDate.Date && _recentReport.Shift == ShiftType ? "Edit This Report" : $"Edit Last Report ({_recentReport.Date:MMM dd} - {_recentReport.Shift})")</span>
-                            </button>
+            </div>
+        }
+        else if (Loading)
+        {
+            <div class="d-flex flex-column align-items-center justify-content-center py-5 mt-5">
+                <div class="loader-ring mb-3"></div>
+                <span class="text-muted fw-bold text-uppercase" style="letter-spacing: 0.1em;">Loading Shift State...</span>
+            </div>
+        }
+        else
+        {
+            <div class="px-3 pb-5">
+                @if (!string.IsNullOrEmpty(_validationError))
+                {
+                    <div class="alert alert-danger border-0 shadow-lg rounded-4 mb-4 d-flex align-items-center gap-3 py-3 px-4 glass-error animate-slide-up">
+                        <div class="bg-danger p-2 rounded-circle shadow-sm">
+                            <i class="bi bi-exclamation-triangle-fill text-white fs-5"></i>
                         </div>
-                    }
-
-                    <!-- DATE & SHIFT SELECTOR -->
-                    <div class="app-card mb-2 py-2" style="display: block;">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="modern-label small mb-0">Shift Information</label>
-                            
-                        </div>
-
-                        <div class="d-flex align-items-center gap-3 mb-3 p-2 rounded-3 bg-light border border-light">
-                            <div class="rounded-circle bg-white d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-                                <i class="bi @(ShiftType == "Day" ? "bi-sun-fill text-warning" : "bi-moon-stars-fill text-primary") fs-5"></i>
-                            </div>
-                            <div>
-                                <div class="fw-bold" style="font-size: 0.95rem;">@ReportDate.ToString("dddd, MMM dd")</div>
-                                <div class="text-muted small">@(ShiftType) Shift Report</div>
-                            </div>
-                        </div>
-
-                        <label class="modern-label mb-2 small">Shift Type</label>
-                        <div class="d-flex gap-2 p-1 bg-light rounded-3">
-                            <button type="button" class='shift-opt @(ShiftType == "Day" ? "active" : "")' @onclick='() => SetShift("Day")'>
-                                <i class="bi bi-sun-fill"></i> Day
-                            </button>
-                            <button type="button" class='shift-opt @(ShiftType == "Night" ? "active" : "")' @onclick='() => SetShift("Night")'>
-                                <i class="bi bi-moon-stars-fill"></i> Night
-                            </button>
-                        </div>
-                    </div>
-
-                    @if (ExistingEntryFound && !IsEditingExisting)
-                    {
-                        <!-- SUMMARY CARD (ReadOnly) -->
-                        <!-- SUMMARY CARD (ReadOnly) -->
-                        <!-- SUMMARY CARD (REVAMPED) -->
-                        <div class="mb-4 pt-2">
-                            <div class="p-4 rounded-4 shadow-sm position-relative overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.04);">
-                                <!-- Status Badge -->
-                                <div class="d-flex justify-content-between align-items-start mb-4">
-                                    <div>
-                                        <div class="badge rounded-pill bg-success-subtle text-success border border-success-subtle px-3 py-2 mb-2 fw-bold text-uppercase" style="font-size: 0.7rem; letter-spacing: 0.5px;">
-                                            <i class="bi bi-check-circle-fill me-1"></i> Shift Complete
-                                        </div>
-                                        <h2 class="fw-black mb-0 text-dark" style="letter-spacing: -0.5px;">Shift Summary</h2>
-                                        <div class="text-muted small">Submitted today at @((ExistingBarEntry?.ModifiedDate ?? DateTime.Now).ToString("h:mm tt"))</div>
-                                    </div>
-                                    <div class="bg-light rounded-circle d-flex align-items-center justify-content-center text-muted" style="width: 48px; height: 48px;">
-                                        <i class="bi bi-file-earmark-text fs-4"></i>
-                                    </div>
-                                </div>
-
-                                <!-- Big Num -->
-                                <div class="mb-4 text-center py-2" style="background: linear-gradient(to right, rgba(248,249,250,0.5), rgba(248,249,250,1)); border-radius: 12px;">
-                                    <div class="small fw-bold text-muted text-uppercase mb-1">Total Revenue Recorded</div>
-                                    <div class="display-4 fw-black text-dark" style="letter-spacing: -1px;">
-                                        $@(((ExistingBarEntry?.TotalSales ?? 0) + (ExistingLottoEntry?.TotalSales ?? 0)).ToString("N0"))
-                                    </div>
-                                </div>
-
-                                <!-- Split -->
-                                <div class="row g-3 mb-4">
-                                    <div class="col-6">
-                                        <div class="p-3 bg-light rounded-4 h-100 border border-light">
-                                            <div class="d-flex align-items-center gap-2 mb-2 text-primary">
-                                                <i class="bi bi-cup-straw"></i>
-                                                <span class="small fw-bold text-uppercase">Bar</span>
-                                            </div>
-                                            <div class="fs-4 fw-bold text-dark">$@((ExistingBarEntry?.TotalSales ?? 0).ToString("N0"))</div>
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <div class="p-3 bg-light rounded-4 h-100 border border-light">
-                                            <div class="d-flex align-items-center gap-2 mb-2 text-success">
-                                                <i class="bi bi-ticket-perforated"></i>
-                                                <span class="small fw-bold text-uppercase">Lotto</span>
-                                            </div>
-                                            <div class="fs-4 fw-bold text-dark">$@((ExistingLottoEntry?.TotalSales ?? 0).ToString("N0"))</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <!-- EDIT FORM -->
-                        <div class="app-card mb-2 py-2" style="display: block;">
-                            <div class="mb-2">
-                            <label class="modern-label small">Bar Sales</label>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="fs-4 fw-bold text-muted opacity-50">$</span>
-                                <input type="number" step="0.01" inputmode="decimal" class="modern-big-input-compact" placeholder="0.00" @bind-value="BarSales" onfocus="this.select()" />
-                            </div>
-                        </div>
-
-
-
-                        <div class="mb-2">
-                            <label class="modern-label small">Lottery Sales</label>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="fs-4 fw-bold text-muted opacity-50">$</span>
-                                <input type="number" step="0.01" inputmode="decimal" class="modern-big-input-compact" placeholder="0.00" @bind-value="LottoSales" onfocus="this.select()" />
-                            </div>
-                        </div>
-
-
-                        
-                        <div class="p-2 rounded-3 mt-2" style="background: rgba(13, 110, 253, 0.05); border: 1px dashed var(--app-primary);">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span class="small fw-bold text-muted text-uppercase">Total Sales</span>
-                                <span class="fw-black fs-4 text-primary">$@(((BarSales ?? 0) + (LottoSales ?? 0)).ToString("N2"))</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="app-card mb-2 py-2" style="display: block;">
-                        <label class="modern-label mb-1 small">Notes (Optional)</label>
-                        <textarea class="form-control rounded-3 border-0 bg-light p-2" rows="2" 
-                                placeholder="Any discrepancies..." @bind="Notes"></textarea>
-                        
-                        <button class="btn btn-app-primary w-100 py-2 mt-2" 
-                                disabled="@IsSubmitting" @onclick="HandleSubmit">
-                            @if (IsSubmitting)
-                            {
-                                <span class="spinner-border spinner-border-sm me-2"></span>
-                                <span>Submitting...</span>
-                            }
-                            else
-                            {
-                                <i class="bi @(ExistingEntryFound ? "bi-check-all" : "bi-cloud-upload-fill") me-2"></i>
-                                <span>@(ExistingEntryFound ? "Update Report" : "Submit Report")</span>
-                            }
-                        </button>
-
-                        <div class="mt-2 pt-2 border-top text-center w-100">
-                            <button class="btn btn-link text-danger text-decoration-none fw-bold w-100 py-2" @onclick="HandleCancel">
-                                <i class="bi bi-x-circle me-1"></i> Cancel & Return
-                            </button>
-                            <p class="mb-0 text-muted" style="font-size: 0.65rem; opacity: 0.8;">Data entered will not be saved.</p>
+                        <div>
+                            <div class="fw-black text-primary text-uppercase small" style="letter-spacing: 0.05em;">Action Required</div>
+                            <div class="text-muted fw-bold" style="font-size: 0.9rem;">@_validationError</div>
                         </div>
                     </div>
                 }
-                </div>
-            }
-        </div>
-    </main>
 
-    <!-- BOTTOM BAR -->
-    <div class="fixed-bottom-nav">
-        <MobileBottomNav ActiveTab="End of shift sales" />
+                @if (!string.IsNullOrEmpty(_lockErrorMessage))
+                {
+                    <div class="alert alert-warning border-0 shadow-lg rounded-4 mb-4 d-flex align-items-center gap-3 py-3 px-4 glass-warning animate-slide-up">
+                        <div class="bg-warning p-2 rounded-circle shadow-sm">
+                            <i class="bi bi-lock-fill text-dark fs-5"></i>
+                        </div>
+                        <div>
+                            <div class="fw-black text-primary text-uppercase small" style="letter-spacing: 0.05em;">Access Restricted</div>
+                            <div class="text-muted fw-bold" style="font-size: 0.85rem;">@_lockErrorMessage</div>
+                        </div>
+                    </div>
+                }
+
+                <div class="row g-4 mb-5">
+                    <!-- LEFT COLUMN: CONFIG & SALES -->
+                    <div class="col-12 col-lg-6">
+                        <!-- SHIFT SELECT -->
+                        <div class="form-glass-card shadow-sm p-4 mb-4 @(string.IsNullOrEmpty(ShiftType) && _showValidation ? "border-danger" : "")">
+                            <label class="section-label mb-3">SELECT YOUR SHIFT</label>
+                            <div class="shift-selector-inline">
+                                <button class='shift-btn-large @(ShiftType == "Day" ? "active" : "")' @onclick='() => SetShift("Day")' disabled="@IsLocked">
+                                    <div class="d-flex flex-column align-items-center">
+                                        <div><i class="bi bi-sun-fill me-2 fs-5"></i> DAY SHIFT</div>
+                                        @if (_dayMainSubmitted) { 
+                                            <span class="badge bg-success bg-opacity-10 text-success border border-success rounded-pill mt-1" style="font-size: 0.6rem;">SUBMITTED</span> 
+                                        }
+                                    </div>
+                                </button>
+                                <button class='shift-btn-large @(ShiftType == "Night" ? "active" : "")' @onclick='() => SetShift("Night")' disabled="@IsLocked">
+                                    <div class="d-flex flex-column align-items-center">
+                                        <div><i class="bi bi-moon-stars-fill me-2 fs-5"></i> NIGHT SHIFT</div>
+                                        @if (_nightMainSubmitted) { 
+                                            <span class="badge bg-success bg-opacity-10 text-success border border-success rounded-pill mt-1" style="font-size: 0.6rem;">SUBMITTED</span> 
+                                        }
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- BAR LOCATION -->
+                        <div class="form-glass-card shadow-sm p-3 mb-4 @(IsRentalHall ? "hall-active-card border-primary" : "")">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="section-label @(IsRentalHall ? "text-primary" : "text-muted") mb-0">BAR LOCATION</label>
+                                @if (_hallSubmitted) {
+                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary rounded-pill px-2 py-1" style="font-size: 0.65rem;">RENTAL SUBMITTED</span>
+                                }
+                                <button type="button" class='btn btn-sm @(IsRentalHall ? "btn-indigo" : "btn-outline-secondary") rounded-pill px-3 fw-bold' @onclick="ToggleRentalHall" disabled="@IsLocked">
+                                    <i class="bi @(IsRentalHall ? "bi-check-circle-fill" : "bi-building") me-1"></i> @(IsRentalHall ? "RENTAL HALL ACTIVE" : "USE RENTAL HALL")
+                                </button>
+                            </div>
+                            @if (!IsRentalHall)
+                            {
+                                <p class="small text-muted mb-0 fw-semibold" style="font-size: 0.75rem;">Standard bar location active.</p>
+                            }
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(ShiftType))
+                        {
+                            <div class="row g-3 mb-4">
+                                <div class="col-6">
+                                    <div class="form-glass-card shadow-sm p-4 h-100 config-accent">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <label class="section-label text-truncate mb-0">CONFIG</label>
+                                            <i class="bi bi-clock fs-5 text-indigo opacity-25"></i>
+                                        </div>
+                                        <label class="form-label small fw-black text-muted text-uppercase mb-1">Hours</label>
+                                        <div class="input-group-modern @(TotalHours == null && _showValidation ? "border-danger" : "")">
+                                            <input type="number" step="0.25" class="form-input-modern" placeholder="0.00" 
+                                                   inputmode="decimal" @bind-value="TotalHours" disabled="@IsLocked" />
+                                            <span class="input-unit">Hr</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="form-glass-card shadow-sm p-4 h-100 sales-accent">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <label class="section-label mb-0">SALES</label>
+                                            <i class="bi bi-cup-straw fs-5 text-primary opacity-25"></i>
+                                        </div>
+                                        <label class="form-label small fw-black text-muted text-uppercase mb-1">Total</label>
+                                        <div class="input-group-modern @(BarSales == null && _showValidation ? "border-danger" : "")">
+                                            <span class="input-addon text-primary opacity-50 px-0">$</span>
+                                            <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" 
+                                                   inputmode="decimal" @bind-value="BarSales" disabled="@IsLocked" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <!-- RIGHT COLUMN: LOTTERY & NOTES -->
+                    <div class="col-12 col-lg-6">
+                        @if (!string.IsNullOrEmpty(ShiftType))
+                        {
+                            @if (!IsRentalHall)
+                            {
+                                <!-- LOTTERY RECONCILIATION -->
+                                <div class="form-glass-card shadow-sm p-4 mb-4 lotto-accent">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <label class="section-label">LOTTERY RECONCILIATION</label>
+                                        <i class="bi bi-ticket-perforated fs-4 text-success opacity-25"></i>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-12 col-md-6 col-lg-12">
+                                            <label class="form-label small fw-black text-muted text-uppercase mb-1">① Net Sales (Ticket)</label>
+                                            <div class="input-group-modern">
+                                                <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" 
+                                                       @bind-value="LottoSales" @bind-value:event="oninput" inputmode="decimal" />
+                                            </div>
+                                        </div>
+                                        <div class="col-12 col-md-6 col-lg-12">
+                                            <label class="form-label small fw-black text-muted text-uppercase mb-1">② Cashes (Payouts)</label>
+                                            <div class="input-group-modern">
+                                                <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" 
+                                                       @bind-value="LottoCashes" @bind-value:event="oninput" inputmode="decimal" />
+                                            </div>
+                                        </div>
+                                        <div class="col-12 col-md-6 col-lg-12">
+                                            <label class="form-label small fw-black text-muted text-uppercase mb-1">③ Net Due (Ticket)</label>
+                                            <div class="input-group-modern">
+                                                <input type="text" class="form-input-modern text-primary" placeholder="0.00" 
+                                                       @bind-value="LottoNetDue" @bind-value:event="oninput" inputmode="text" />
+                                            </div>
+                                        </div>
+                                        <div class="col-12 col-md-6 col-lg-12 border-top-mobile pt-3-mobile">
+                                            <label class="form-label small fw-black text-muted text-uppercase mb-1">④ Beginning Cash</label>
+                                            <div class="input-group-modern">
+                                                <input type="number" step="1" class="form-input-modern" placeholder="0" @bind-value="LottoOpeningCash" inputmode="numeric" />
+                                            </div>
+                                        </div>
+                                        <div class="col-12 col-md-6 col-lg-12">
+                                            <label class="form-label small fw-black text-muted text-uppercase mb-1">⑤ Backup Bag added</label>
+                                            <div class="input-group-modern">
+                                                <span class="input-addon text-warning opacity-50">+</span>
+                                                <input type="number" step="1" class="form-input-modern" placeholder="0" @bind-value="LottoBackupBag" inputmode="numeric" />
+                                            </div>
+                                        </div>
+                                        <div class="col-12 col-md-6 col-lg-12">
+                                            <label class="form-label small fw-black text-success text-uppercase mb-1">⑥ Ending Cash (Counted)</label>
+                                            <div class="input-group-modern">
+                                                <span class="input-addon text-success">$</span>
+                                                <input type="number" step="0.01" class="form-input-modern fw-bold text-success" placeholder="0.00" 
+                                                       @bind-value="LottoCashCounted" @bind-value:event="oninput" inputmode="decimal" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- RESULTS CARDS -->
+                                    <div class="row g-2 mt-4">
+                                        <div class="col-12 mb-2">
+                                            <div class="sim-res-card alt-glass shadow-sm">
+                                                <span class="sim-res-label">DRAWER EXPECTED</span>
+                                                <span class="sim-res-val">$@(LottoDrawerValue.ToString("N2"))</span>
+                                                <div class="small-math text-muted mt-1" style="font-size: 0.6rem; opacity: 0.7;">
+                                                    Start: $@((LottoOpeningCash ?? 0).ToString("N2")) + Sales: $@(((LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0)).ToString("N2")) - Payouts: $@(((LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0)).ToString("N2")) + Bag: $@((LottoBackupBag ?? 0).ToString("N2"))
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="sim-res-card @(LottoDiscrepancy == 0 ? "exact" : LottoDiscrepancy > 0 ? "over" : "short")">
+                                                <span class="sim-res-label">VARIANCE</span>
+                                                <span class="sim-res-val">@((LottoDiscrepancy == 0 ? "$0.00" : (LottoDiscrepancy < 0 ? "(" : "") + "$" + Math.Abs(LottoDiscrepancy).ToString("N2") + (LottoDiscrepancy < 0 ? ")" : "")))</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="sim-res-card house">
+                                                <span class="sim-res-label">ENVELOPE</span>
+                                                <span class="sim-res-val">$@(LottoEnvelopeAmount.ToString("N2"))</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            <!-- NOTES -->
+                            <div class="form-glass-card shadow-sm p-4 mb-4">
+                                <label class="small text-muted fw-bold text-uppercase mb-2">Shift Notes & Discrepancies</label>
+                                <textarea class="form-control-modern" rows="4" placeholder="Type details here..." 
+                                          @bind="Notes" disabled="@IsLocked"></textarea>
+                            </div>
+
+                            <!-- SUBMIT -->
+                            <div class="d-grid gap-3">
+                                <button class="btn @(ExistingEntryFound ? "btn-indigo" : "btn-action-submit") py-3 fw-bold shadow-lg" 
+                                        disabled="@(IsSubmitting || IsLocked)" @onclick="HandleSubmit">
+                                    @if (IsSubmitting) {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                        <span>SECURING DATA...</span>
+                                    } else {
+                                        <i class="bi @(ExistingEntryFound ? "bi-check-all" : "bi-cloud-upload-fill") me-2"></i>
+                                        <span>@(ExistingEntryFound ? "UPDATE EXISTING REPORT" : "SUBMIT SHIFT REPORT")</span>
+                                    }
+                                </button>
+                                <button class="btn btn-outline-secondary rounded-pill py-3 fw-bold" @onclick="ResetSelection">
+                                    <i class="bi bi-arrow-counterclockwise me-1"></i> CLEAR SELECTION
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 </div>
 
-<!-- IMAGE PREVIEW OVERLAY -->
-@if (_viewingImage && !string.IsNullOrEmpty(TicketImageUrl))
-{
-    <div class="image-viewer-overlay animate-entrance" @onclick="() => _viewingImage = false">
-        <div class="d-flex flex-column h-100 p-2">
-             <div class="d-flex justify-content-end mb-2">
-                <button class="btn btn-dark rounded-circle d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);">
-                    <i class="bi bi-x-lg text-white"></i>
-                </button>
-            </div>
-            <div class="flex-grow-1 d-flex align-items-center justify-content-center position-relative overflow-hidden rounded-4">
-                <img src="@TicketImageUrl" style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
-            </div>
-             <div class="text-center mt-3 mb-4">
-                <p class="text-white-50 small mb-0">Tap anywhere to close</p>
-            </div>
-        </div>
-    </div>
-}
-
 <style>
-    .mobile-report-container {
-        position: fixed;
+    .glass-page-container {
+        --c-glass-bg: var(--bg-surface);
+        --c-glass-border: var(--glass-border);
+        --c-accent-primary: #0d6efd;
+        --c-accent-success: #198754;
+        --c-text-primary: var(--text-primary);
+        --c-text-muted: var(--text-muted);
+        --c-accent-indigo: #6366f1;
+
+        min-height: 100vh;
+        background: var(--bg-primary);
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        color: var(--c-text-primary);
+        padding-bottom: 2rem;
+    }
+
+    .mobile-app-header {
+        background: var(--bg-secondary);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--glass-border);
+        position: sticky;
         top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        display: flex;
-        flex-direction: column;
-        background-color: var(--app-bg, #f8f9fa);
-        overflow: hidden;
+        z-index: 100;
+        transition: all 0.3s ease;
     }
 
-    .header-nav-stack {
-        flex-shrink: 0;
-        z-index: 1000;
-        background: white;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    @@media (min-width: 992px) {
+        .mobile-app-header {
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
+            margin-bottom: 1.5rem !important;
+        }
+        .mobile-app-header h1 {
+            font-size: 1.25rem;
+        }
     }
 
-    .report-scroll-area {
-        flex: 1;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 90px;
+    .bg-white-glass { background: var(--bg-surface); backdrop-filter: blur(5px); }
+
+    .fw-black { font-weight: 900; }
+
+    .form-glass-card {
+        background: var(--bg-surface);
+        backdrop-filter: blur(12px);
+        border: 1.5px solid var(--glass-border);
+        border-radius: 20px;
+        box-shadow: var(--card-shadow);
     }
 
-    .fixed-bottom-nav {
-        flex-shrink: 0;
-        background: white;
-        z-index: 1000;
-    }
-
-    .extra-small {
-        font-size: 0.65rem;
-        font-weight: 700;
+    .section-label {
+        font-weight: 900;
+        font-size: 0.85rem;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
-        color: var(--app-text-muted);
+        color: var(--c-accent-primary);
+        border-left: 4px solid var(--c-accent-primary);
+        padding-left: 12px;
+        display: block;
     }
-    
-    .image-viewer-overlay {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.95);
-        z-index: 2000;
-        display: flex;
-        flex-direction: column;
-        backdrop-filter: blur(5px);
-    }
-</style>
 
-<style>
-    .modern-big-input-compact {
-        font-size: 1.5rem;
-        font-weight: 700;
-        border: none;
-        background: transparent;
-        outline: none;
-        width: 100%;
-        padding: 0.25rem 0;
-    }
+    .lotto-accent .section-label { color: var(--c-accent-success); border-color: var(--c-accent-success); }
+    .sales-accent .section-label { color: var(--c-accent-primary); border-color: var(--c-accent-primary); }
+    .config-accent .section-label { color: var(--c-accent-indigo); border-color: var(--c-accent-indigo); }
+
+    .shift-selector-inline { display: flex; gap: 0.75rem; }
     
-    .shift-opt {
+    .shift-btn-large {
         flex: 1;
-        border: none;
-        padding: 8px;
-        border-radius: 10px;
-        background: transparent;
-        color: var(--app-text-muted);
-        font-weight: 700;
-        font-size: 0.8rem;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 2px solid var(--glass-border);
+        background: var(--bg-surface);
+        padding: 1rem 0.5rem;
+        border-radius: 16px;
+        font-weight: 900;
+        font-size: 0.85rem;
+        color: var(--c-text-muted);
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
-    .shift-opt.active {
-        background: white;
-        color: var(--app-primary);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    .shift-btn-large.active {
+        border-color: var(--c-accent-primary);
+        background: rgba(13, 110, 253, 0.1);
+        color: var(--c-accent-primary);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
     }
 
-    /* Remove arrows from number input */
-    input::-webkit-outer-spin-button,
-    input::-webkit-inner-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
+    .hall-toggle-btn.active {
+        border-color: var(--c-accent-indigo);
+        background: rgba(99, 102, 241, 0.1);
+        color: var(--c-accent-indigo);
     }
-    input[type=number] {
-      -moz-appearance: textfield;
+
+    .hall-active-card { border-color: rgba(99, 102, 241, 0.4) !important; background: rgba(99, 102, 241, 0.05) !important; }
+
+    .input-group-modern {
+        background: var(--bg-primary);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        padding: 0.65rem 1rem;
+        border: 1px solid var(--glass-border);
+        transition: all 0.2s ease;
+    }
+
+    .input-group-modern.big { padding: 0.85rem 1.25rem; }
+    .input-group-modern:focus-within { border-color: var(--c-accent-primary); box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.1); }
+
+    .form-input-modern { border: none; outline: none; width: 100%; background: transparent; font-weight: 700; color: var(--c-text-primary); font-size: 1.1rem; }
+    .big .form-input-modern { font-size: 1.5rem; }
+
+    .input-addon { font-weight: 800; font-size: 1.2rem; margin-right: 0.75rem; }
+    .input-unit { font-weight: 900; color: var(--c-text-muted); font-size: 0.9rem; text-transform: uppercase; margin-left: 0.75rem; }
+
+    .sim-res-card {
+        background: var(--bg-primary); border: 1px solid var(--glass-border); border-radius: 16px; padding: 12px;
+        display: flex; flex-direction: column; align-items: center; text-align: center;
+        box-shadow: var(--card-shadow);
+    }
+    .sim-res-label { font-size: 0.6rem; font-weight: 800; color: var(--c-text-muted); text-transform: uppercase; margin-bottom: 2px; }
+    .sim-res-val { font-size: 1.1rem; font-weight: 900; color: var(--c-text-primary); }
+
+    .sim-res-card.short { border-top: 4px solid #e11d48; background: rgba(225, 29, 72, 0.05); }
+    .sim-res-card.short .sim-res-val { color: #fb7185; }
+
+    .sim-res-card.exact { border-top: 4px solid #16a34a; background: rgba(22, 163, 74, 0.05); }
+    .sim-res-card.exact .sim-res-val { color: #4ade80; }
+
+    .sim-res-card.over { border-top: 4px solid #0ea5e9; background: rgba(14, 165, 233, 0.05); }
+    .sim-res-card.over .sim-res-val { color: #38bdf8; }
+
+    .sim-res-card.house .sim-res-val { color: #34d399; }
+    
+    .sim-res-card.alt-glass { border-top: 4px solid #6366f1; background: rgba(99, 102, 241, 0.08); }
+    .sim-res-card.alt-glass .sim-res-val { color: #4f46e5; }
+    .sim-res-card.alt-glass .sim-res-label { color: #6366f1; border-bottom-color: rgba(99, 102, 241, 0.1); }
+    
+    .small-math { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+
+    .form-control-modern { width: 100%; border-radius: 16px; border: 1px solid var(--glass-border); background: var(--bg-primary); color: var(--c-text-primary); padding: 1rem; font-weight: 600; min-height: 100px; }
+
+    .btn-action-submit { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white !important; border: none; border-radius: 999px; }
+    .btn-indigo { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white !important; border: none; border-radius: 999px; }
+
+    .success-icon-box { background: linear-gradient(135deg, #10b981 0%, #059669 100%); width: 80px; height: 80px; border-radius: 50%; color: white; font-size: 3rem; display: flex; align-items: center; justify-content: center; }
+
+    .animate-slide-up { animation: slideUp 0.4s ease-out; }
+    @@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .loader-ring { width: 48px; height: 48px; border: 5px solid var(--glass-border); border-bottom-color: var(--c-accent-primary); border-radius: 50%; animation: rotation 1s linear infinite; }
+    @@keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .glass-error { background: rgba(239, 68, 68, 0.1); border-left: 4px solid #ef4444 !important; }
+    .glass-warning { background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b !important; }
+
+    /* TABLET & DESKTOP OPTIMIZATION */
+    @@media (min-width: 992px) {
+        .glass-page-container.mobile-version {
+            padding-top: 1rem;
+            display: flex;
+            flex-direction: column;
+        }
+        .page-content-wrapper {
+            max-width: 1100px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .form-glass-card {
+            margin-bottom: 0 !important;
+        }
+        .px-3.pb-5 {
+            padding-bottom: 1rem !important;
+        }
+        /* Ensure columns in the same row align nicely */
+        .row.g-4 {
+            display: flex;
+            align-items: stretch;
+        }
+        .col-lg-6 {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+    }
+
+    /* Mobile Utility Fixes */
+    .border-top-mobile { border-top: 1px solid var(--glass-border); }
+    .pt-3-mobile { padding-top: 1rem; }
+
+    @@media (min-width: 768px) {
+        .border-top-mobile { border-top: none; }
+        .pt-3-mobile { padding-top: 0; }
     }
 </style>
 
 @code {
     private decimal? BarSales { get; set; }
     private decimal? LottoSales { get; set; }
-    private decimal? LottoCommission { get; set; }
-    private decimal? LottoCashBonus { get; set; }
-    private decimal? LottoClaimsBonus { get; set; }
-    private string? TicketImageUrl { get; set; }
+    private decimal? LottoCashes { get; set; }
+    private decimal? LottoNetDue { get; set; }
+    private decimal? LottoOpeningCash { get; set; }
+    private decimal? LottoBackupBag { get; set; }
+    private decimal? LottoCashCounted { get; set; }
+    private decimal? TotalHours { get; set; }
     
-    [SupplyParameterFromQuery(Name = "date")]
-    public string? DateParam { get; set; }
-
-    [SupplyParameterFromQuery(Name = "shift")]
-    public string? ShiftParam { get; set; }
-
-    private string ShiftType { get; set; } = "Day";
+    private string? ShiftType { get; set; }
     private DateTime ReportDate { get; set; } = DateTime.Today;
     private string? Notes { get; set; }
-    private bool _isUploading { get; set; } 
-    private bool _isLiveCameraMode { get; set; }
-    private bool _viewingImage { get; set; }
-    private string? _error { get; set; }
-    
+    private bool IsRentalHall { get; set; } = false;
+
     private bool Loading { get; set; } = true;
     private bool IsSubmitting { get; set; } = false;
     private bool Submitted { get; set; } = false;
-    private bool ShowDatePicker { get; set; } = false;
     private bool ExistingEntryFound { get; set; } = false;
-    private bool IsEditingExisting { get; set; } = false;
-    
-    // Original values for auditing
+    private bool IsLocked { get; set; } = false;
+    private string? _validationError { get; set; }
+    private string? _lockErrorMessage { get; set; }
+    private bool _showValidation = false;
+
+    private bool _dayMainSubmitted;
+    private bool _nightMainSubmitted;
+    private bool _hallSubmitted;
+
     private BarSaleEntry? ExistingBarEntry { get; set; }
     private LotteryShift? ExistingLottoEntry { get; set; }
-
     private AppUser? CurrentUser { get; set; }
 
-    private void HandleCancel()
-    {
-        Navigation.NavigateTo("/mobile");
+    // Shift Delta Tracking (for cumulative machine reports)
+    private decimal _prevDaySales { get; set; } = 0;
+    private decimal _prevDayCashes { get; set; } = 0;
+
+    // Math Logic
+    private decimal LottoDrawerValue {
+        get {
+            decimal salesDelta = (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0); 
+            decimal cashesDelta = (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
+            return (LottoOpeningCash ?? 0) + salesDelta - cashesDelta + (LottoBackupBag ?? 0);
+        }
     }
+    private decimal LottoDiscrepancy => (LottoCashCounted ?? 0) - LottoDrawerValue;
+    private decimal LottoTotalSurplus => Math.Max(0, (LottoCashCounted ?? 0) - 1200);
+    private decimal LottoEnvelopeAmount => Math.Max(0, LottoTotalSurplus - (LottoBackupBag ?? 0));
 
     protected override async Task OnInitializedAsync()
     {
         CurrentUser = AuthStateProvider.GetCurrentUser();
-        if (CurrentUser == null)
-        {
-            Navigation.NavigateTo("/login");
-            return;
-        }
-
-        try
-        {
-
-            if (!string.IsNullOrEmpty(DateParam) && DateTime.TryParse(DateParam, out var d) && !string.IsNullOrEmpty(ShiftParam))
-            {
-                ReportDate = d;
-                ShiftType = ShiftParam;
-            }
-            else
-            {
-                ApplyBusinessDayLogic();
-            }
-            
-            await CheckExisting();
-            await CheckForRecentReport();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error loading initial data: {ex.Message}");
-        }
-        finally
-        {
-            Loading = false;
-        }
+        if (CurrentUser == null) { Navigation.NavigateTo("/login"); return; }
+        ApplyBusinessDayLogic();
+        await UpdateShiftAvailability();
+        await CheckExisting();
+        Loading = false;
     }
 
     private void ApplyBusinessDayLogic()
     {
         var now = DateTime.Now;
-        var totalMinutes = now.Hour * 60 + now.Minute;
+        if (now.Hour < 5) ReportDate = DateTime.Today.AddDays(-1);
+    }
 
-        // Logic:
-        // 5:00 AM – 7:29 PM (05:00 - 19:29) -> Today, Day
-        // 7:30 PM – 11:59 PM (19:30 - 23:59) -> Today, Night
-        // 12:00 AM – 4:59 AM (00:00 - 04:59) -> Yesterday, Night
-
-        if (totalMinutes < 300) // Before 5 AM
-        {
-            ReportDate = DateTime.Today.AddDays(-1);
-            ShiftType = "Night";
-        }
-        else if (totalMinutes < 1170) // Before 7:30 PM
-        {
-            ReportDate = DateTime.Today;
-            ShiftType = "Day";
-        }
-        else // After 7:30 PM
-        {
-            ReportDate = DateTime.Today;
-            ShiftType = "Night";
-        }
+    private async Task OnDateChanged()
+    {
+        await UpdateShiftAvailability();
+        await CheckExisting();
     }
 
     private async Task SetShift(string type)
     {
+        _lockErrorMessage = null;
         ShiftType = type;
         await CheckExisting();
-    }
-
-    private class RecentReportInfo
-    {
-        public DateTime Date { get; set; }
-        public string Shift { get; set; } = "";
-        public DateTime Timestamp { get; set; }
-    }
-
-    private RecentReportInfo? _recentReport;
-
-    private async Task CheckForRecentReport()
-    {
-        try
-        {
-            using var db = await DbFactory.CreateDbContextAsync();
-            var cutoff = DateTime.UtcNow.AddHours(-2);
-            var username = CurrentUser?.Username;
-
-            // Check Bar Entries
-            // Check Bar Entries
-            // Rule: User must have created it, or modified it (legacy), AND it must be within 2 hours
-            var lastBar = await db.BarSaleEntries
-                .Where(e => (e.CreatedBy == username || (e.CreatedBy == null && e.ModifiedBy == username)) && 
-                           (e.CreatedAt >= cutoff)) 
-                .OrderByDescending(e => e.CreatedAt)
-                .Select(e => new RecentReportInfo { 
-                    Date = (e.AdjustedSaleDate ?? e.SaleDate).Date, 
-                    Shift = e.Shift, 
-                    Timestamp = e.CreatedAt 
-                })
-                .FirstOrDefaultAsync();
-
-            // Check Lottery Entries
-            // LotteryShift has 'EmployeeName' and 'CreatedBy'
-            var lastLotto = LotteryRepo.GetAll() // Warning: potential perf issue if table huge, but likely okay for now. Better to use formatted query if possible.
-                .Where(e => (e.EmployeeName == username || e.CreatedBy == username) && 
-                            (e.ModifiedDate >= cutoff || e.CreatedDate >= cutoff))
-                .OrderByDescending(e => e.ModifiedDate ?? e.CreatedDate)
-                .Select(e => new RecentReportInfo { 
-                    Date = e.ShiftDate.Date, 
-                    Shift = e.ShiftType, 
-                    Timestamp = e.ModifiedDate ?? e.CreatedDate 
-                })
-                .FirstOrDefault();
-
-            // Compare
-            // 2-Hour Lock logic
-            if (lastBar != null && lastLotto != null)
-            {
-                _recentReport = lastBar.Timestamp > lastLotto.Timestamp ? lastBar : lastLotto;
-            }
-            else
-            {
-                _recentReport = lastBar ?? lastLotto;
-            }
-
-            // Note: We deliberately ALLOW showing the current report here if it was just submitted,
-            // so the user can use this button to "Unlock" it.
-        }
-        catch 
-        { 
-            // checking history shouldn't break the page
+        if (IsLocked) {
+             _lockErrorMessage = "Access Restricted: This existing report is locked.";
+             ResetSelection();
         }
     }
 
-    private async Task LoadRecentReport()
+    private async Task ToggleRentalHall()
     {
-        if (_recentReport == null) return;
-        
-        ReportDate = _recentReport.Date;
-        ShiftType = _recentReport.Shift;
-        _recentReport = null; // Hide button after clicking
+        IsRentalHall = !IsRentalHall;
+        _lockErrorMessage = null;
+        ShiftType = IsRentalHall ? "Hall" : null;
+        await UpdateShiftAvailability();
         await CheckExisting();
-        StartEditing(); // Auto-start editing for recent reports
+        if (IsLocked) {
+             _lockErrorMessage = "Access Restricted: This existing report is locked.";
+             ResetSelection();
+        }
+    }
+
+    private void ResetSelection()
+    {
+        ShiftType = null; BarSales = null; TotalHours = null; LottoSales = null; LottoCashes = null; LottoNetDue = null; 
+        LottoBackupBag = 0; LottoCashCounted = null; Notes = null; ExistingEntryFound = false; IsLocked = false;
+    }
+
+    private async Task UpdateShiftAvailability()
+    {
+        try {
+            using var db = await DbFactory.CreateDbContextAsync();
+            _dayMainSubmitted = await db.BarSaleEntries.AnyAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == "Day" && !e.IsRentalHall);
+            _nightMainSubmitted = await db.BarSaleEntries.AnyAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == "Night" && !e.IsRentalHall);
+            _hallSubmitted = await db.BarSaleEntries.AnyAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.IsRentalHall);
+        } catch { }
     }
 
     private async Task CheckExisting()
     {
-        ExistingEntryFound = false;
-        ExistingBarEntry = null;
-        ExistingLottoEntry = null;
+        ExistingBarEntry = null; ExistingLottoEntry = null; ExistingEntryFound = false; IsLocked = false;
+        _prevDaySales = 0; _prevDayCashes = 0;
+        if (string.IsNullOrEmpty(ShiftType)) return;
 
-        try
-        {
+        try {
             using var db = await DbFactory.CreateDbContextAsync();
-            
-            // Check for Bar Entry
-            ExistingBarEntry = await db.BarSaleEntries
-                .FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == ShiftType);
-
-            // Check for Lottery Entry
+            ExistingBarEntry = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == ShiftType && e.IsRentalHall == IsRentalHall);
             var lottoShifts = LotteryRepo.GetByDateRange(ReportDate, ReportDate);
             ExistingLottoEntry = lottoShifts.FirstOrDefault(s => s.ShiftType == ShiftType);
 
-            if (ExistingBarEntry != null || ExistingLottoEntry != null)
-            {
+            if (ShiftType == "Night") {
+                var dayShift = lottoShifts.FirstOrDefault(s => s.ShiftType == "Day");
+                if (dayShift != null) { _prevDaySales = dayShift.TotalSales; _prevDayCashes = dayShift.TotalPayouts; }
+            }
+
+            if (ExistingBarEntry != null || ExistingLottoEntry != null) {
                 ExistingEntryFound = true;
-                // DO NOT populate fields yet. Wait for user to click "Edit".
+                BarSales = ExistingBarEntry?.TotalSales;
+                TotalHours = ExistingBarEntry?.TotalHours;
+                if (ExistingLottoEntry != null) {
+                    LottoSales = ExistingLottoEntry.TotalSales; LottoCashes = ExistingLottoEntry.TotalPayouts;
+                    LottoNetDue = ExistingLottoEntry.NetDue; LottoOpeningCash = ExistingLottoEntry.StartingCash;
+                    LottoBackupBag = ExistingLottoEntry.BackupBagAmount; LottoCashCounted = ExistingLottoEntry.EndingCash;
+                }
+                Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
+                var createdTime = ExistingBarEntry?.CreatedAt ?? ExistingLottoEntry?.CreatedDate ?? DateTime.UtcNow;
+                if (createdTime < DateTime.UtcNow.AddHours(-2) && !CurrentUser.IsAdmin && (ExistingBarEntry?.CreatedBy != CurrentUser.Username)) IsLocked = true;
+            } else {
+                BarSales = null; TotalHours = null; LottoSales = null; LottoCashes = null; LottoNetDue = null; LottoBackupBag = 0; LottoCashCounted = null; Notes = null;
+                LottoOpeningCash = await GetCarryoverCash();
             }
-            else
-            {
-                // Clear fields if no existing entry (Ready for new input)
-                ResetFields();
+        } catch { }
+    }
+
+    private async Task<decimal> GetCarryoverCash()
+    {
+        try {
+            using var db = await DbFactory.CreateDbContextAsync();
+            if (ShiftType == "Night") {
+                var day = await db.LotteryShifts.AsNoTracking().FirstOrDefaultAsync(s => s.ShiftDate.Date == ReportDate.Date && s.ShiftType == "Day");
+                if (day == null) return 0;
+                decimal surplus = Math.Max(0, day.EndingCash - 1200);
+                decimal returnToBag = Math.Min(surplus, day.BackupBagAmount);
+                return day.EndingCash - returnToBag - day.EnvelopeAmount;
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error checking existing entry: {ex.Message}");
-        }
-    }
-
-    private void ResetFields()
-    {
-        BarSales = null;
-        LottoSales = null;
-        LottoCommission = null;
-        LottoCashBonus = null;
-        LottoClaimsBonus = null;
-        TicketImageUrl = null;
-        Notes = null;
-        IsEditingExisting = false;
-    }
-
-    private void StartEditing()
-    {
-        IsEditingExisting = true;
-        
-        BarSales = ExistingBarEntry?.TotalSales > 0 ? ExistingBarEntry.TotalSales : null;
-        LottoSales = ExistingLottoEntry?.TotalSales > 0 ? ExistingLottoEntry.TotalSales : null;
-        
-        if (ExistingLottoEntry != null)
-        {
-            LottoCommission = ExistingLottoEntry.Commission > 0 ? ExistingLottoEntry.Commission : null;
-            LottoCashBonus = ExistingLottoEntry.CashBonus > 0 ? ExistingLottoEntry.CashBonus : null;
-            LottoClaimsBonus = ExistingLottoEntry.ClaimsBonus > 0 ? ExistingLottoEntry.ClaimsBonus : null;
-            TicketImageUrl = ExistingLottoEntry.TicketImageUrl;
-        }
-        else
-        {
-            LottoCommission = null;
-            LottoCashBonus = null;
-            LottoClaimsBonus = null;
-            TicketImageUrl = null;
-        }
-
-        Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
-    }
-
-
-    private void PrepareNewSubmission()
-    {
-        Submitted = false;
-        ApplyBusinessDayLogic();
-        ShowDatePicker = false;
-        _ = CheckExisting();
+            return 1200;
+        } catch { return 1200; }
     }
 
     private async Task HandleSubmit()
     {
-        // Validate Bar Sales is present
-        if (BarSales == null)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", "Bar Sales is required. Please enter '0' if there were no sales.");
+        if (BarSales == null || TotalHours == null || (!IsRentalHall && LottoSales == null)) {
+            _validationError = "Required fields are missing. Please ensure all fields are filled out.";
+            _showValidation = true;
             return;
         }
 
-        // Validate at least something interesting is happening (sanity check)
-        if ((BarSales ?? 0) <= 0 && (LottoSales ?? 0) <= 0 && (LottoCommission ?? 0) <= 0)
-        {
-             // Optional: Warn if everything is zero?
-             // For now, just relying on BarSales check is enough for the user request.
-        }
-
         IsSubmitting = true;
-        try
-        {
-            await Task.Delay(500); // UI Polish
+        try {
             using var db = await DbFactory.CreateDbContextAsync();
-
-            // 1. Bar Sales (Main logic)
-            if (ExistingBarEntry != null)
-            {
-                // UPDATE
+            if (ExistingBarEntry != null) {
                 var entry = await db.BarSaleEntries.FindAsync(ExistingBarEntry.Id);
-                if (entry != null)
-                {
-                    // [SECURITY] Enforce 2-Hour Edit Window & Ownership
-                    var cutoff = DateTime.UtcNow.AddHours(-2);
-                    var isOwner = (entry.CreatedBy == CurrentUser?.Username) || (entry.CreatedBy == null && entry.ModifiedBy == CurrentUser?.Username);
-                    
-                    if (entry.CreatedAt < cutoff || !isOwner)
-                    {
-                         await JSRuntime.InvokeVoidAsync("alert", "Security Error: Report is locked or access denied.");
-                         return;
-                    }
-
-                    // Tracking change
-                    if (entry.TotalSales != (BarSales ?? 0))
-                    {
-                        var oldVal = entry.TotalSales;
-                        entry.OriginalTotalSales ??= entry.TotalSales; // Keep very first value if not set
-                        entry.ModifiedBy = CurrentUser?.Username;
-                        entry.ModifiedDate = DateTime.UtcNow;
-
-                        AuditLogger.Log("Bar Sales Correction", CurrentUser?.UserId, null, 
-                            $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Changed from ${oldVal:N2} to ${BarSales:N2}");
-                    }
-                    
-                    entry.TotalSales = BarSales ?? 0;
-                    entry.Notes = Notes;
+                if (entry != null) {
+                    entry.TotalSales = BarSales ?? 0; entry.TotalHours = TotalHours; entry.Notes = Notes;
+                    entry.ModifiedBy = CurrentUser?.Username; entry.ModifiedDate = DateTime.UtcNow;
                     await db.SaveChangesAsync();
                 }
-            }
-            else if ((BarSales ?? 0) > 0)
-            {
-                // NEW
-                var barEntry = new BarSaleEntry
-                {
-                    SaleDate = DateTime.Now,
-                    AdjustedSaleDate = ReportDate,
-                    TotalSales = BarSales ?? 0,
-                    Shift = ShiftType,
-                    Notes = Notes,
-                    CreatedBy = CurrentUser?.Username,
-                    CreatedAt = DateTime.UtcNow
-                };
-                db.BarSaleEntries.Add(barEntry);
+            } else {
+                db.BarSaleEntries.Add(new BarSaleEntry {
+                    SaleDate = DateTime.Now, AdjustedSaleDate = ReportDate, TotalSales = BarSales ?? 0,
+                    TotalHours = TotalHours, IsRentalHall = IsRentalHall, Shift = ShiftType, Notes = Notes,
+                    CreatedBy = CurrentUser?.Username, CreatedAt = DateTime.UtcNow
+                });
                 await db.SaveChangesAsync();
-                
-                AuditLogger.Log("Bar Sales Created", CurrentUser?.UserId, null, 
-                    $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Amount: ${BarSales:N2}");
             }
 
-            // 2. Lottery Sales
-            if (ExistingLottoEntry != null)
-            {
-                // UPDATE
-                // [SECURITY] Enforce 2-Hour Window
-                var cutoff = DateTime.UtcNow.AddHours(-2);
-                var isOwner = (ExistingLottoEntry.CreatedBy == CurrentUser?.Username) || (ExistingLottoEntry.EmployeeName == CurrentUser?.Username);
-                
-                // Use CreatedDate or ModifiedDate for window check roughly, but strictly it's usually creation time for the "shift"
-                if ((ExistingLottoEntry.CreatedDate < cutoff && ExistingLottoEntry.ModifiedDate < cutoff) || !isOwner)
-                {
-                     await JSRuntime.InvokeVoidAsync("alert", "Security Error: Report is locked or access denied.");
-                     return;
+            if (!IsRentalHall) {
+                if (ExistingLottoEntry != null) {
+                    ExistingLottoEntry.TotalSales = LottoSales ?? 0; ExistingLottoEntry.TotalPayouts = LottoCashes ?? 0;
+                    ExistingLottoEntry.NetDue = LottoNetDue ?? 0; ExistingLottoEntry.StartingCash = LottoOpeningCash ?? 0;
+                    ExistingLottoEntry.BackupBagAmount = LottoBackupBag ?? 0; ExistingLottoEntry.EndingCash = LottoCashCounted ?? 0;
+                    ExistingLottoEntry.EnvelopeAmount = LottoEnvelopeAmount; ExistingLottoEntry.Notes = Notes;
+                    LotteryRepo.Update(ExistingLottoEntry);
+                } else {
+                    LotteryRepo.Create(new LotteryShift {
+                        ShiftDate = ReportDate, EmployeeName = CurrentUser?.Username ?? "Unknown", ShiftType = ShiftType,
+                        TotalSales = LottoSales ?? 0, TotalPayouts = LottoCashes ?? 0, NetDue = LottoNetDue ?? 0,
+                        StartingCash = LottoOpeningCash ?? 0, BackupBagAmount = LottoBackupBag ?? 0, EndingCash = LottoCashCounted ?? 0,
+                        EnvelopeAmount = LottoEnvelopeAmount, Notes = Notes, CreatedBy = CurrentUser?.Username, CreatedDate = DateTime.UtcNow, Status = "Submitted"
+                    });
                 }
-
-                if (ExistingLottoEntry.TotalSales != (LottoSales ?? 0))
-                {
-                    var oldVal = ExistingLottoEntry.TotalSales;
-                    ExistingLottoEntry.OriginalTotalSales ??= ExistingLottoEntry.TotalSales;
-                    ExistingLottoEntry.ModifiedBy = CurrentUser?.Username;
-                    ExistingLottoEntry.ModifiedDate = DateTime.UtcNow;
-
-                    AuditLogger.Log("Lottery Sales Correction", CurrentUser?.UserId, null, 
-                        $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Changed from ${oldVal:N2} to ${LottoSales:N2}");
-                }
-
-                ExistingLottoEntry.TotalSales = LottoSales ?? 0;
-                ExistingLottoEntry.Commission = LottoCommission ?? 0;
-                ExistingLottoEntry.CashBonus = LottoCashBonus ?? 0;
-                ExistingLottoEntry.ClaimsBonus = LottoClaimsBonus ?? 0;
-                ExistingLottoEntry.Notes = Notes;
-                
-
-
-                ExistingLottoEntry.TicketImageUrl = TicketImageUrl;
-                
-                LotteryRepo.Update(ExistingLottoEntry);
-            }
-            else if ((LottoSales ?? 0) > 0 || (LottoCommission ?? 0) > 0 || (LottoCashBonus ?? 0) > 0 || (LottoClaimsBonus ?? 0) > 0 || TicketImageUrl != null)
-            {
-                // NEW
-                var lottoShift = new LotteryShift
-                {
-                    ShiftDate = ReportDate,
-                    EmployeeName = CurrentUser?.Username ?? "Unknown",
-                    ShiftType = ShiftType,
-                    TotalSales = LottoSales ?? 0,
-                    Commission = LottoCommission ?? 0,
-                    CashBonus = LottoCashBonus ?? 0,
-                    ClaimsBonus = LottoClaimsBonus ?? 0,
-                    OriginalTotalSales = LottoSales ?? 0,
-                    Notes = Notes,
-                    TicketImageUrl = TicketImageUrl,
-                    CreatedBy = CurrentUser?.Username,
-                    CreatedDate = DateTime.UtcNow,
-                    Status = "Submitted"
-                };
-                LotteryRepo.Create(lottoShift);
-                
-                AuditLogger.Log("Lottery Sales Created", CurrentUser?.UserId, null, 
-                    $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}, Amount: ${LottoSales:N2}");
             }
 
+            AuditLogger.Log(ExistingEntryFound ? "Shift Report Corrected" : "Shift Report Submitted", CurrentUser?.UserId, null, $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}");
             Submitted = true;
-            StateHasChanged();
-            
-            // Clear form values immediately to prevents stale data on return
-            ResetFields();
-            ExistingEntryFound = false;
-            ExistingBarEntry = null;
-            ExistingLottoEntry = null;
-
-            // Auto-redirect after delay
-            await Task.Delay(2000);
-            Navigation.NavigateTo("/mobile");
-        }
-        catch (Exception ex)
-        {
-            await JSRuntime.InvokeVoidAsync("alert", "Failed to record sales: " + ex.Message);
-        }
-        finally
-        {
+        } catch (Exception ex) {
+            _validationError = "Error saving report: " + ex.Message;
+        } finally {
             IsSubmitting = false;
         }
     }
-    // --- CAMERA & UPLOAD LOGIC ---
 
-
+    private void HandleCancel() => Navigation.NavigateTo("/mobile");
 }
