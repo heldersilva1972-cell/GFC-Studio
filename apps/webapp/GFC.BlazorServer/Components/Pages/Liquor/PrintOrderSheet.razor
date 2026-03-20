@@ -1,0 +1,304 @@
+@page "/liquor/print-order/{OrderId:int}"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavMgr
+
+<PageTitle>Print Liquor Order #@OrderId | GFC</PageTitle>
+
+<style>
+    /* Hide non-print elements */
+    @@media print {
+        .no-print, header, aside, .sidebar-overlay, .app-sidebar, .app-topbar {
+            display: none !important;
+        }
+        
+        main, .app-content, .content, .print-container {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+        }
+
+        @@page {
+            margin: 0.5in;
+        }
+    }
+
+    body {
+        background: white !important;
+        color: black !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .print-container {
+        padding: 40px;
+    }
+
+    .print-header {
+        border-bottom: 2px solid #000;
+        margin-bottom: 30px;
+        padding-bottom: 20px;
+    }
+
+    .print-header h1 {
+        margin: 0;
+        font-size: 24pt;
+        font-weight: 900;
+    }
+
+    .meta-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .meta-item label {
+        display: block;
+        font-size: 9pt;
+        font-weight: bold;
+        text-transform: uppercase;
+        color: #666;
+    }
+
+    .meta-item span {
+        font-size: 14pt;
+        font-weight: 700;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+
+    th, td {
+        border: 1px solid #000;
+        padding: 12px;
+        text-align: left;
+    }
+
+    th {
+        background-color: #f2f2f2 !important;
+        font-weight: bold;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .qty-cell {
+        width: 80px;
+        text-align: center;
+        font-size: 16pt;
+        font-weight: 900;
+    }
+
+    .total-section {
+        margin-top: 30px;
+        text-align: right;
+    }
+
+    .total-row {
+        margin-bottom: 10px;
+    }
+
+    .grand-total {
+        font-size: 20pt;
+        font-weight: 900;
+        border-top: 2px solid #000;
+        display: inline-block;
+        padding-top: 10px;
+    }
+
+    .no-print-toolbar {
+        padding: 15px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .check-box {
+        width: 20px;
+        height: 20px;
+        border: 1px solid #000;
+        display: inline-block;
+        vertical-align: middle;
+    }
+</style>
+
+<div class="no-print-toolbar no-print">
+    <div>
+        <strong>Print Preview:</strong> Order Sheet - @(_order?.Vendor?.Name)
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" onclick="window.print()">
+            <i class="bi bi-printer-fill me-2"></i> Print Sheet
+        </button>
+        <button class="btn btn-outline-secondary" @onclick='() => NavMgr.NavigateTo("/liquor/hub")'>
+            Back to Hub
+        </button>
+    </div>
+</div>
+
+@if (_order == null)
+{
+    @if (_notFound)
+    {
+        <div class="container py-5 text-center">
+            <h3>Order not found.</h3>
+            <p>The order you are looking for does not exist or has been removed.</p>
+            <button class="btn btn-primary" @onclick='() => NavMgr.NavigateTo("/liquor/hub")'>Back to Hub</button>
+        </div>
+    }
+    else
+    {
+        <div class="container py-5 text-center">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Preparing print document...</p>
+        </div>
+    }
+}
+else
+{
+    <div class="print-container">
+        <div class="print-header d-flex justify-content-between align-items-center">
+            <div>
+                <h1>ORDER SHEET</h1>
+                <p class="mb-0">GFC Liquor Inventory Management</p>
+            </div>
+            <div class="text-end">
+                <div style="font-size: 14pt; font-weight: 900;">Order ID: #@OrderId</div>
+                <div class="text-muted">Generated: @DateTime.Now.ToString("MMMM dd, yyyy HH:mm")</div>
+            </div>
+        </div>
+
+        <div class="meta-grid">
+            <div class="meta-item">
+                <label>VENDOR</label>
+                <span>@(_order.Vendor?.Name)</span>
+            </div>
+            <div class="meta-item text-end">
+                <label>ORDER DATE</label>
+                <span>@_order.OrderDate.ToString("MMMM dd, yyyy")</span>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th class="qty-cell">QTY</th>
+                    <th>PRODUCT</th>
+                    <th>BOTTLE SIZE</th>
+                    <th>EST. UNIT PRICE</th>
+                    <th>SUBTOTAL</th>
+                    <th class="no-print">RECEIVED?</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in _order.OrderItems)
+                {
+                    <tr>
+                        <td class="qty-cell">@item.Quantity</td>
+                        <td>
+                            <div class="fw-bold">@item.LiquorItem?.Name</div>
+                            @if (!string.IsNullOrEmpty(item.LiquorItem?.UpcCode))
+                            {
+                                <div class="extra-small text-muted" style="font-size: 8pt;">UPC: @item.LiquorItem.UpcCode</div>
+                            }
+                        </td>
+                        <td>@item.LiquorItem?.BottleSize</td>
+                        <td>@item.UnitPriceAtTimeOfOrder.ToString("C")</td>
+                        <td class="fw-bold">@((item.UnitPriceAtTimeOfOrder * item.Quantity).ToString("C"))</td>
+                        <td class="no-print text-center"><div class="check-box"></div></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="total-section">
+            <div class="total-row">
+                <label class="me-3 fw-bold">ITEMS TOTAL:</label>
+                <span>@_order.ItemsTotal.ToString("C")</span>
+            </div>
+            
+            @if (_order.Status == "Received")
+            {
+                 <div class="total-row">
+                    <label class="me-3">TAX PAID:</label>
+                    <span>@_order.TaxAmount.ToString("C")</span>
+                </div>
+                <div class="total-row">
+                    <label class="me-3">OTHER FEES:</label>
+                    <span>@_order.AdditionalCosts.ToString("C")</span>
+                </div>
+            }
+
+            <div class="grand-total">
+                <label class="me-3">TOTAL COST:</label>
+                <span>@_order.TotalCost.ToString("C")</span>
+            </div>
+        </div>
+
+        <div class="mt-5 pt-5 pb-5">
+            <div class="row">
+                <div class="col-6">
+                    <div style="border-top: 1px solid #000; width: 250px; margin-top: 40px; padding-top: 5px;">
+                        Ordered By: @(_order.User?.Username)
+                    </div>
+                </div>
+                <div class="col-6 text-end">
+                   <div style="border-top: 1px solid #000; width: 250px; margin-top: 40px; padding-top: 5px; margin-left: auto;">
+                        Received By: ____________________
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_order.InvoiceNumber))
+        {
+            <div class="mt-4 p-3 border">
+                <strong>INVOICE ATTACHED:</strong> @(_order.InvoiceNumber)
+                @if (_order.IsPaid)
+                {
+                    <span class="ms-3 badge bg-success text-white">PAID ON @(_order.PaidDate?.ToString("MM/dd/yyyy"))</span>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int OrderId { get; set; }
+    private LiquorOrder? _order;
+    private bool _notFound = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadOrderAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadOrderAsync()
+    {
+        var order = await LiquorService.GetOrderByIdAsync(OrderId);
+        if (order == null)
+        {
+            _notFound = true;
+        }
+        else
+        {
+            _order = order;
+        }
+    }
+}

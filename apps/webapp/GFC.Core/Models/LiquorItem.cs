@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
@@ -26,6 +28,14 @@ namespace GFC.Core.Models
 
         public string? ImageUrl { get; set; }
 
+        public int? VendorId { get; set; }
+
+        [ForeignKey("VendorId")]
+        public virtual LiquorVendor? Vendor { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal CurrentPrice { get; set; } = 0;
+
         [Required]
         public int CurrentStock { get; set; }
 
@@ -35,5 +45,8 @@ namespace GFC.Core.Models
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public virtual ICollection<LiquorOrderItem> OrderHistory { get; set; } = new List<LiquorOrderItem>();
     }
 }
+

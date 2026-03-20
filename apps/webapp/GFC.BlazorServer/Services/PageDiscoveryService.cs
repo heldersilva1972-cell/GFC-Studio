@@ -144,11 +144,14 @@ public class PageDiscoveryService
             normalized == "admin/system/alerts")
             return "SYSTEM";
 
+        // [LIQUOR]
+        if (normalized.StartsWith("liquor/") || normalized == "liquor" || normalized == "mobile/liquor/manage")
+            return "LIQUOR";
+
         // [MOBILE]
         if (normalized == "mobile" || normalized == "hub" || normalized.StartsWith("mobile/"))
         {
-            // Some mobile pages belong elsewhere based on sidebar
-            if (normalized == "mobile/manage-schedule" || normalized == "mobile/liquor/manage")
+            if (normalized == "mobile/manage-schedule")
                 return "BARTENDERS";
             return "MOBILE";
         }

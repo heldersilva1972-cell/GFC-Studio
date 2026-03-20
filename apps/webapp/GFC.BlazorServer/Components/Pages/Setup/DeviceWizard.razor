@@ -979,18 +979,30 @@
             var user = await UserService.GetUserAsync(userId);
             if (user != null)
             {
+                // Parse station setup flag
+                var uri = new Uri(Navigation.Uri);
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                var isStationParam = query["station"]?.ToLower() == "true";
+
                 // Read pinOnly if not already set (in case of redirect)
                 if (!_isPinOnly)
                 {
-                    var uri = new Uri(Navigation.Uri);
-                    var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
                     _isPinOnly = query["pinOnly"]?.ToLower() == "true";
                 }
 
-                // If user doesn't have a passcode yet, or if they are in PIN-only setup mode, start at Step 1
-                // [MODIFIED] Force Step 1 (PIN Setup) as required by the onboarding flow
-                CurrentStep = 1;
-                Logger.LogInformation("Starting at Step 1 (PIN Setup). Mode: {Mode}", _isPinOnly ? "PIN ONLY" : "FULL DEVICE");
+                if (isStationParam || _currentStation != null)
+                {
+                    // [MODIFIED] Shared Station Mode: Individuals don't need to re-set their PIN/Biometrics on high-trust shared machines.
+                    // This machine will be used by multiple users who all have their own PINs.
+                    CurrentStep = 3; 
+                    Logger.LogInformation("Starting at Step 3 (App Shortcut/PWA). Device is a Shared Station.");
+                }
+                else 
+                {
+                    // Regular onboarding (Mobile/Laptop) - Start at PIN Setup
+                    CurrentStep = 1;
+                    Logger.LogInformation("Starting at Step 1 (PIN Setup). Mode: {Mode}", _isPinOnly ? "PIN ONLY" : "FULL DEVICE");
+                }
                 
                 // [FIX] Force immediate draw for mobile
                 StateHasChanged(); 

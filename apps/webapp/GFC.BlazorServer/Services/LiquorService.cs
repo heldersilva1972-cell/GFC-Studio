@@ -23,13 +23,19 @@ namespace GFC.BlazorServer.Services
         public async Task<IEnumerable<LiquorItem>> GetAllItemsAsync()
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorItems.Where(i => i.IsActive).OrderBy(i => i.Name).ToListAsync();
+            return await db.LiquorItems
+                .Include(i => i.Vendor)
+                .Where(i => i.IsActive)
+                .OrderBy(i => i.Name)
+                .ToListAsync();
         }
 
         public async Task<LiquorItem?> GetItemByIdAsync(int id)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            return await db.LiquorItems.FindAsync(id);
+            return await db.LiquorItems
+                .Include(i => i.Vendor)
+                .FirstOrDefaultAsync(i => i.Id == id);
         }
 
         public async Task<LiquorItem?> GetItemByUpcAsync(string upc)
@@ -101,6 +107,53 @@ namespace GFC.BlazorServer.Services
             if (item != null)
             {
                 item.IsActive = false; // Soft delete
+                await db.SaveChangesAsync();
+            }
+        }
+
+        // Vendor Management
+        public async Task<IEnumerable<LiquorVendor>> GetAllVendorsAsync()
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.LiquorVendors.OrderBy(v => v.Name).ToListAsync();
+        }
+
+        public async Task<LiquorVendor?> GetVendorByIdAsync(int id)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.LiquorVendors.Include(v => v.Items).FirstOrDefaultAsync(v => v.Id == id);
+        }
+
+        public async Task<LiquorVendor> CreateVendorAsync(LiquorVendor vendor)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            db.LiquorVendors.Add(vendor);
+            await db.SaveChangesAsync();
+            return vendor;
+        }
+
+        public async Task UpdateVendorAsync(LiquorVendor vendor)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var existing = await db.LiquorVendors.FindAsync(vendor.Id);
+            if (existing != null)
+            {
+                db.Entry(existing).CurrentValues.SetValues(vendor);
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task DeleteVendorAsync(int id)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var vendor = await db.LiquorVendors.FindAsync(id);
+            if (vendor != null)
+            {
+                // check if items are linked
+                var hasItems = await db.LiquorItems.AnyAsync(i => i.VendorId == id && i.IsActive);
+                if (hasItems) throw new Exception("Cannot delete vendor while products are assigned to it.");
+                
+                db.LiquorVendors.Remove(vendor);
                 await db.SaveChangesAsync();
             }
         }
@@ -248,6 +301,105 @@ namespace GFC.BlazorServer.Services
                 .OrderByDescending(t => t.Timestamp)
                 .Take(count)
                 .ToListAsync();
+        }
+
+        // Order Management
+        public async Task<IEnumerable<LiquorOrder>> GetAllOrdersAsync()
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.LiquorOrders
+                .Include(o => o.Vendor)
+                .Include(o => o.User)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.LiquorItem)
+                .OrderByDescending(o => o.OrderDate)
+                .ToListAsync();
+        }
+
+        public async Task<LiquorOrder?> GetOrderByIdAsync(int id)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.LiquorOrders
+                .Include(o => o.Vendor)
+                .Include(o => o.User)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.LiquorItem)
+                .FirstOrDefaultAsync(o => o.Id == id);
+        }
+
+        public async Task<LiquorOrder> CreateOrderAsync(LiquorOrder order)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            order.Status = "Placed";
+            order.OrderDate = DateTime.UtcNow;
+            
+            db.LiquorOrders.Add(order);
+            await db.SaveChangesAsync();
+            return order;
+        }
+
+        public async Task UpdateOrderStatusAsync(int orderId, string status, string? invoiceNumber = null, decimal? taxAmount = null, decimal? additionalCosts = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var order = await db.LiquorOrders.FindAsync(orderId);
+            if (order != null)
+            {
+                order.Status = status;
+                if (invoiceNumber != null) order.InvoiceNumber = invoiceNumber;
+                if (taxAmount.HasValue) order.TaxAmount = taxAmount.Value;
+                if (additionalCosts.HasValue) order.AdditionalCosts = additionalCosts.Value;
+                
+                order.TotalCost = order.ItemsTotal + order.TaxAmount + order.AdditionalCosts;
+                
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task MarkOrderAsPaidAsync(int orderId, DateTime paidDate)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var order = await db.LiquorOrders.FindAsync(orderId);
+            if (order != null)
+            {
+                order.IsPaid = true;
+                order.PaidDate = paidDate;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task ReceiveOrderAsync(int orderId, int userId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var order = await db.LiquorOrders
+                .Include(o => o.OrderItems)
+                .FirstOrDefaultAsync(o => o.Id == orderId);
+
+            if (order == null) throw new Exception("Order not found");
+            if (order.Status == "Received") return; // Already processed
+
+            foreach (var orderItem in order.OrderItems)
+            {
+                var liquor = await db.LiquorItems.FindAsync(orderItem.LiquorItemId);
+                if (liquor != null)
+                {
+                    liquor.CurrentStock += orderItem.Quantity;
+                    
+                    // Log transaction
+                    var transaction = new LiquorTransaction
+                    {
+                        ItemId = liquor.Id,
+                        UserId = userId,
+                        ChangeAmount = orderItem.Quantity,
+                        TransactionType = "Restock",
+                        Notes = $"Order #{order.Id} Received (Invoice: {order.InvoiceNumber})",
+                        Timestamp = DateTime.UtcNow
+                    };
+                    db.LiquorTransactions.Add(transaction);
+                }
+            }
+
+            order.Status = "Received";
+            await db.SaveChangesAsync();
         }
 
         public async Task<LiquorNotificationRule?> GetNotificationRuleAsync(int userId)

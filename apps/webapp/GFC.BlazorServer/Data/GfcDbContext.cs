@@ -125,6 +125,9 @@ public class GfcDbContext : DbContext
     
     // Liquor Inventory System
     public DbSet<LiquorItem> LiquorItems => Set<LiquorItem>();
+    public DbSet<LiquorVendor> LiquorVendors => Set<LiquorVendor>();
+    public DbSet<LiquorOrder> LiquorOrders => Set<LiquorOrder>();
+    public DbSet<LiquorOrderItem> LiquorOrderItems => Set<LiquorOrderItem>();
     public DbSet<LiquorTransaction> LiquorTransactions => Set<LiquorTransaction>();
     public DbSet<LiquorNotificationRule> LiquorNotificationRules => Set<LiquorNotificationRule>();
     public DbSet<UserPageUsage> UserPageUsage => Set<UserPageUsage>();
@@ -784,6 +787,40 @@ public class GfcDbContext : DbContext
             entity.ToTable("LiquorNotificationRules");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.UserId);
+        });
+
+        modelBuilder.Entity<LiquorVendor>(entity =>
+        {
+            entity.ToTable("LiquorVendors");
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<LiquorOrder>(entity =>
+        {
+            entity.ToTable("LiquorOrders");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Vendor)
+                .WithMany(v => v.Orders)
+                .HasForeignKey(e => e.VendorId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LiquorOrderItem>(entity =>
+        {
+            entity.ToTable("LiquorOrderItems");
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Order)
+                .WithMany(o => o.OrderItems)
+                .HasForeignKey(e => e.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.LiquorItem)
+                .WithMany(i => i.OrderHistory)
+                .HasForeignKey(e => e.LiquorItemId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<UserPagePermission>(entity =>
