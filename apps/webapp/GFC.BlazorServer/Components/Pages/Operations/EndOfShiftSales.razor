@@ -18,6 +18,28 @@
 
 <div class="glass-page-container" id="root-container">
     <div class="page-content-wrapper animate-slide-up">
+        <NavigationLock ConfirmExternalNavigation="@HasUnsavedChanges" OnBeforeInternalNavigation="OnBeforeInternalNavigation" />
+
+        @if (_showUnsavedModal)
+        {
+            <div class="glass-modal-overlay">
+                <div class="glass-modal-card animate-zoom-in">
+                    <div class="glass-modal-header-icon warning">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                    </div>
+                    <h3 class="fw-black text-dark mb-2 text-uppercase">@_modalTitle</h3>
+                    <p class="text-muted mb-4 px-3">@_modalMessage</p>
+                    <div class="glass-modal-actions">
+                        <button type="button" class="btn-modal btn-modal-stay" @onclick="() => _showUnsavedModal = false">
+                            STAY HERE
+                        </button>
+                        <button type="button" class="btn-modal btn-modal-leave" @onclick="ProceedWithAction">
+                            DISCARD & CONTINUE
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
         
         <!-- HEADER SECTION -->
         <header class="shift-header mb-3">
@@ -234,7 +256,7 @@
                                             }
                                         </div>
                                         <button type="button" class='shift-btn-large w-100 hall-toggle-btn @(IsRentalHall ? "active" : "")' @onclick="ToggleRentalHall" disabled="@IsLocked">
-                                            <i class="bi bi-building-fill me-2"></i> RENTAL HALL BAR
+                                            <i class="bi @(IsRentalHall ? "bi-arrow-left-circle" : "bi-building-fill") me-2"></i> @(IsRentalHall ? "EXIT RENTAL HALL SALES" : "ENTER RENTAL HALL SALES")
                                         </button>
                                     </div>
                                 </div>
@@ -314,8 +336,12 @@
                                     <div class="col-md-4">
                                         <label class="form-label small fw-black text-muted text-uppercase mb-1">③ Net Due (Ticket)</label>
                                         <div class="input-group-modern @(LottoNetDue == null && _showValidation ? "border-danger" : "")">
-                                            <input type="text" class="form-input-modern text-primary" placeholder="0.00" id="lottoNetDueInput"
-                                                   inputmode="text" enterkeyhint="next"
+                                            <button type="button" class="btn-sign-toggle @(LottoNetDue < 0 ? "is-negative" : "")" 
+                                                    @onclick="ToggleLottoNetDueSign" title="Toggle Negative/Positive">
+                                                @(LottoNetDue < 0 ? "-" : "+")
+                                            </button>
+                                            <input type="text" class="form-input-modern text-primary ps-1" placeholder="0.00" id="lottoNetDueInput"
+                                                   inputmode="decimal" enterkeyhint="next"
                                                    @bind-value="LottoNetDue" @bind-value:event="oninput" 
                                                    @onkeydown="@(e => HandleKeyPress(e, "lottoOpeningCashInput"))"
                                                    disabled="@(IsLocked || string.IsNullOrEmpty(ShiftType))" />
@@ -603,6 +629,23 @@
         border-left: 4px solid var(--accent-primary);
         padding-left: 12px;
     }
+
+    .btn-sign-toggle { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 1.2rem; color: #64748b; margin-right: 4px; transition: all 0.2s; }
+    .btn-sign-toggle.is-negative { background: #fee2e2; border-color: #fecaca; color: #ef4444; }
+    .btn-sign-toggle:active { transform: scale(0.9); }
+
+    /* CUSTOM PROFESSIONAL MODAL */
+    .glass-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(12px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+    .glass-modal-card { background: white; border-radius: 32px; width: 100%; max-width: 450px; padding: 3rem 2rem; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); }
+    .glass-modal-header-icon { width: 90px; height: 90px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; font-size: 3rem; }
+    .glass-modal-header-icon.warning { background: #fff7ed; color: #f97316; border: 5px solid #ffedd5; }
+    .glass-modal-actions { display: flex; flex-direction: column; gap: 0.75rem; }
+    .btn-modal { width: 100%; border-radius: 20px; padding: 1.1rem; font-weight: 800; border: none; transition: all 0.2s; font-size: 1rem; letter-spacing: 0.02em; }
+    .btn-modal-stay { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4); }
+    .btn-modal-leave { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+    .btn-modal:hover { transform: translateY(-2px); filter: brightness(1.05); }
+    .animate-zoom-in { animation: modalZoom 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    @@keyframes modalZoom { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
     /* SIMULATOR STYLES PORTED */
     .sim-res-card {
@@ -1002,6 +1045,11 @@
     private bool IsLocked { get; set; } = false;
     private bool _isWithinGracePeriod { get; set; } = false;
     private bool _showValidation { get; set; } = false;
+    private bool _showUnsavedModal = false;
+    private string? _pendingNavigationUrl;
+    private string _modalTitle = "Unsaved Changes";
+    private string _modalMessage = "You have entered data. Leaving now will lose your progress.";
+    private Action? _onModalConfirm;
     private string? _validationError { get; set; }
     private bool IsRentalHall { get; set; } = false;
     private bool IsEarlyMorning => DateTime.Now.Hour < 5;
@@ -1040,6 +1088,17 @@
     private decimal? _originalLottoBackupBag;
     private decimal? _originalTotalHours;
     private string? _originalNotes;
+    private bool HasUnsavedChanges => 
+        !Loading && !Submitted && !string.IsNullOrEmpty(ShiftType) &&
+        (BarSales != _originalBarSales ||
+         LottoSales != _originalLottoSales ||
+         LottoCashes != _originalLottoPayouts ||
+         LottoNetDue != _originalLottoNetDue ||
+         LottoOpeningCash != _originalLottoOpeningCash ||
+         LottoBackupBag != _originalLottoBackupBag ||
+         LottoCashCounted != _originalLottoCashCounted ||
+         TotalHours != _originalTotalHours ||
+         Notes != _originalNotes);
 
     private BarSaleEntry? ExistingBarEntry { get; set; }
 
@@ -1141,10 +1200,26 @@
 
     private async Task ToggleRentalHall()
     {
+        if (IsRentalHall && HasUnsavedChanges)
+        {
+            _modalTitle = "Unsaved Rental Data";
+            _modalMessage = "You are about to exit the Rental Hall report. Any unsaved sales or notes will be lost. Continue?";
+            _onModalConfirm = () => {
+                ExecuteToggleRentalHall();
+            };
+            _showUnsavedModal = true;
+            return;
+        }
+
+        ExecuteToggleRentalHall();
+    }
+
+    private void ExecuteToggleRentalHall()
+    {
         IsRentalHall = !IsRentalHall;
         
         // Force update of submission flags (badges) for the new context
-        await UpdateShiftAvailability();
+        _ = UpdateShiftAvailability();
         
         if (IsRentalHall)
         {
@@ -1156,7 +1231,7 @@
         }
         
         // Check if anything exists for the new combo
-        await CheckExisting();
+        _ = CheckExisting();
 
         if (IsLocked)
         {
@@ -1570,6 +1645,38 @@
                 await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('{nextFieldId}').focus()");
             }
         }
+    }
+
+    private void ToggleLottoNetDueSign()
+    {
+        if (LottoNetDue != null)
+        {
+            LottoNetDue = -LottoNetDue;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (HasUnsavedChanges)
+        {
+            context.PreventNavigation();
+            _pendingNavigationUrl = context.TargetLocation;
+            _modalTitle = "Unsaved Changes";
+            _modalMessage = "You have sales data in progress. Leaving now will permanently discard your work.";
+            _onModalConfirm = () => {
+                Submitted = true;
+                Navigation.NavigateTo(_pendingNavigationUrl ?? "/");
+            };
+            _showUnsavedModal = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ProceedWithAction()
+    {
+        _showUnsavedModal = false;
+        _onModalConfirm?.Invoke();
     }
 
     private void GoToDashboard() => Navigation.NavigateTo("/");
