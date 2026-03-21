@@ -42,6 +42,14 @@ namespace GFC.Core.Models
         public bool IsPaid { get; set; }
         public DateTime? PaidDate { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? ActualPaidAmount { get; set; }
+
+        public int? PaidByUserId { get; set; }
+
+        [ForeignKey("PaidByUserId")]
+        public virtual AppUser? PaidByUser { get; set; }
+
         [Required]
         public int UserId { get; set; }
 

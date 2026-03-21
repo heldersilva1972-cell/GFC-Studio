@@ -1,0 +1,324 @@
+@page "/mobile/liquor/count"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@inject NavigationManager Navigation
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@attribute [Authorize]
+
+<PageTitle>Stock Count | Mobile</PageTitle>
+
+<div class="mobile-count-container">
+    <!-- TOP HEADER -->
+    <header class="fixed-header bg-white shadow-sm px-4 py-3 d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn btn-icon-round bg-light border-0" @onclick='() => Navigation.NavigateTo("/mobile/liquor/hub")'>
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <h5 class="mb-0 fw-black text-uppercase">STOCK COUNT</h5>
+        </div>
+        <div class="search-box">
+             <i class="bi bi-search"></i>
+             <input type="text" class="form-control rounded-pill border-0 bg-light" placeholder="Search bottle..." @bind="_searchTerm" @bind:event="oninput" />
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <div class="main-content-layout">
+        <!-- LEFT: Items List -->
+        <div class="items-pane @(_selectedItem != null ? "pane-shrunk" : "")">
+            <div class="p-3">
+                @if (_filteredItems == null)
+                {
+                    <div class="p-5 text-center"><div class="spinner-border text-primary"></div></div>
+                }
+                else
+                {
+                    @foreach (var item in _filteredItems)
+                    {
+                        <div class="item-count-card @(_counts.ContainsKey(item.Id) ? "is-counted" : "") @(_selectedItem?.Id == item.Id ? "is-selected" : "")" 
+                             @onclick="() => SelectItem(item)">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="info">
+                                    <div class="fw-black text-dark text-uppercase">@item.Name</div>
+                                    <div class="extra-small text-muted fw-bold">EXP: @item.CurrentStock @(item.IsUnitBased ? "Units" : "Bottles")</div>
+                                </div>
+                                <div class="count-display">
+                                    @if (_counts.TryGetValue(item.Id, out var actual))
+                                    {
+                                        <div class="badge @(actual == item.CurrentStock ? "bg-success" : "bg-danger") rounded-pill px-3">
+                                            @actual
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary fw-bold rounded-pill px-3" @onclick:stopPropagation="true" @onclick="() => MatchExpected(item)">MATCH</button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- RIGHT: Large Numpad Area (Visible when item is selected) -->
+        @if (_selectedItem != null)
+        {
+            <div class="numpad-pane animate-slide-up">
+                <div class="pane-header p-3 bg-light border-bottom d-flex justify-content-between">
+                    <div>
+                        <h6 class="mb-0 fw-black opacity-75">COUNTING:</h6>
+                        <div class="h5 fw-black text-dark mb-0">@_selectedItem.Name</div>
+                    </div>
+                    <button class="btn-close" @onclick="() => _selectedItem = null"></button>
+                </div>
+                
+                <div class="numpad-display p-4 text-center">
+                    <div class="display-value fw-black">@_currentEntry</div>
+                    <div class="text-muted small">@(_selectedItem.IsUnitBased ? "Units" : "Bottles")</div>
+                </div>
+
+                <div class="numpad-grid p-3">
+                    @for (int i = 1; i <= 9; i++)
+                    {
+                        var val = i;
+                        <button class="num-btn" @onclick="() => AppendDigit(val.ToString())">@val</button>
+                    }
+                    <button class="num-btn-gray" @onclick='() => _currentEntry = "0"'>C</button>
+                    <button class="num-btn" @onclick='() => AppendDigit("0")'>0</button>
+                    <button class="num-btn-red" @onclick="Backspace"><i class="bi bi-backspace"></i></button>
+                </div>
+                
+                <div class="p-3 d-grid gap-2">
+                    <button class="btn btn-success fw-black py-3 shadow-sm" @onclick="ConfirmCount">CONFIRM COUNT</button>
+                    <button class="btn btn-light border fw-bold" @onclick="MatchExpectedSelected">MATCH EXPECTED (@_selectedItem.CurrentStock)</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- FIXED BOTTOM SUMMARY -->
+    @if (_counts.Any() && _selectedItem == null)
+    {
+        <div class="fixed-bottom-bar bg-dark text-white p-3 shadow-lg animate-slide-up d-flex justify-content-between align-items-center">
+            <div class="small fw-bold">
+                 COUNTED: <span class="text-success">@_counts.Count</span> / @_filteredItems?.Count
+            </div>
+            <button class="btn btn-emerald btn-lg fw-black px-4 shadow" @onclick="SubmitReconciliation">
+                 SUBMIT RECONCILE
+            </button>
+        </div>
+    }
+</div>
+
+<style>
+    .mobile-count-container {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .fixed-header {
+        height: 80px;
+        z-index: 1000;
+    }
+
+    .search-box {
+        position: relative;
+        width: 180px;
+    }
+    .search-box i {
+        position: absolute;
+        left: 12px; top: 10px;
+        color: #94a3b8;
+    }
+    .search-box input {
+        padding-left: 35px;
+        height: 40px;
+    }
+
+    .main-content-layout {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+    }
+
+    .items-pane {
+        flex: 1;
+        overflow-y: auto;
+        padding-top: 20px;
+        padding-bottom: 100px;
+        transition: all 0.3s;
+    }
+
+    .pane-shrunk {
+        max-width: 40%;
+        opacity: 0.5;
+    }
+
+    .item-count-card {
+        background: white;
+        border-radius: 1rem;
+        padding: 1.25rem;
+        margin-bottom: 0.75rem;
+        border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        cursor: pointer;
+    }
+    .item-count-card.is-counted {
+        border-left: 5px solid #10b981;
+    }
+    .item-count-card.is-selected {
+        background: #f1f5f9;
+        border: 2px solid #3b82f6;
+    }
+
+    .numpad-pane {
+        width: 400px;
+        background: white;
+        box-shadow: -10px 0 40px rgba(0,0,0,0.1);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .display-value {
+        font-size: 4rem;
+        color: #1e293b;
+        line-height: 1;
+    }
+
+    .numpad-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        flex-grow: 1;
+    }
+
+    .num-btn, .num-btn-red, .num-btn-gray {
+        height: 70px;
+        border-radius: 12px;
+        font-size: 1.5rem;
+        font-weight: 800;
+        border: none;
+        transition: 0.1s;
+    }
+
+    .num-btn { background: #f1f5f9; color: #1e293b; }
+    .num-btn:active { background: #cbd5e1; }
+    
+    .num-btn-red { background: #fee2e2; color: #ef4444; }
+    .num-btn-gray { background: #e2e8f0; color: #64748b; }
+
+    .btn-emerald {
+        background: #10b981;
+        color: white;
+    }
+
+    /* Landscape Tablet Logic */
+    @@media (min-width: 900px) {
+        .items-pane {
+            max-width: 50%;
+        }
+        .pane-shrunk {
+            max-width: 50%;
+            opacity: 1;
+        }
+        .numpad-pane {
+            flex-grow: 1;
+            width: auto;
+        }
+    }
+
+    /* ANIMATIONS */
+    .animate-slide-up {
+        animation: slideUp 0.3s ease-out forwards;
+    }
+    @@keyframes slideUp {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+    }
+</style>
+
+@code {
+    private List<LiquorItem>? _items;
+    private List<LiquorItem>? _filteredItems => _items?
+        .Where(i => string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(i => i.Name)
+        .ToList();
+
+    private string _searchTerm = "";
+    private LiquorItem? _selectedItem;
+    private string _currentEntry = "0";
+    private Dictionary<int, int> _counts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var all = await LiquorService.GetAllItemsAsync();
+        _items = all.ToList();
+    }
+
+    private void SelectItem(LiquorItem item)
+    {
+        _selectedItem = item;
+        _currentEntry = _counts.TryGetValue(item.Id, out var val) ? val.ToString() : "0";
+    }
+
+    private void AppendDigit(string digit)
+    {
+        if (_currentEntry == "0") _currentEntry = digit;
+        else _currentEntry += digit;
+    }
+
+    private void Backspace()
+    {
+        if (_currentEntry.Length > 1) _currentEntry = _currentEntry[..^1];
+        else _currentEntry = "0";
+    }
+
+    private void ConfirmCount()
+    {
+        if (_selectedItem == null) return;
+        _counts[_selectedItem.Id] = int.Parse(_currentEntry);
+        _selectedItem = null;
+    }
+
+    private void MatchExpected(LiquorItem item)
+    {
+        _counts[item.Id] = item.CurrentStock;
+    }
+
+    private void MatchExpectedSelected()
+    {
+        if (_selectedItem == null) return;
+        _counts[_selectedItem.Id] = _selectedItem.CurrentStock;
+        _selectedItem = null;
+    }
+
+    private async Task SubmitReconciliation()
+    {
+        if (!_counts.Any()) return;
+
+        // In a real app, I'd loop through and apply adjustments.
+        // For now, I'll show a confirm then navigate back.
+        bool ok = await JSRuntime.InvokeAsync<bool>("confirm", $"Submit counts for {_counts.Count} items?");
+        if (!ok) return;
+
+        foreach (var entry in _counts)
+        {
+            var item = _items?.FirstOrDefault(i => i.Id == entry.Key);
+            if (item != null && entry.Value != item.CurrentStock)
+            {
+                int delta = entry.Value - item.CurrentStock;
+                // Use default admin user ID 1 for now
+                await LiquorService.AdjustStockAsync(item.Id, 1, delta, "Manual Reconciliation");
+            }
+        }
+
+        Navigation.NavigateTo("/mobile/liquor/hub");
+    }
+}

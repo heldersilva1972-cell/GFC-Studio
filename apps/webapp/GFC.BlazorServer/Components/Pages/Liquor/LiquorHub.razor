@@ -2,6 +2,8 @@
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using GFC.BlazorServer.Auth
 @attribute [Authorize]
 @inject ILiquorService LiquorService
 @inject IJSRuntime JSRuntime
@@ -41,17 +43,30 @@
             <i class="bi bi-cart-plus"></i> Ordering List
         </button>
         <button class="pill-item @(_activeTab == "active" ? "active" : "")" @onclick='() => _activeTab = "active"'>
-            <i class="bi bi-box-seam"></i> Pending Arrival
-            @if (_pendingOrders?.Any() == true)
+            <i class="bi bi-truck"></i> Pending Arrival
+            @if (_pendingOrders.Any())
             {
-                <span class="pill-badge bg-primary">@_pendingOrders.Count()</span>
+                <span class="pill-badge bg-primary">@_pendingOrders.Count</span>
+            }
+        </button>
+        <button class="pill-item @(_activeTab == "unpaid" ? "active" : "")" @onclick='() => _activeTab = "unpaid"'>
+            <i class="bi bi-cash-stack"></i> Unpaid Invoices
+            @if (_historyOrders.Any(o => !o.IsPaid))
+            {
+                <span class="pill-badge bg-danger">@_historyOrders.Count(o => !o.IsPaid)</span>
             }
         </button>
         <button class="pill-item @(_activeTab == "history" ? "active" : "")" @onclick='() => _activeTab = "history"'>
-            <i class="bi bi-receipt"></i> Order History
+            <i class="bi bi-file-earmark-spreadsheet"></i> Order History
+        </button>
+        <button class="pill-item @(_activeTab == "count" ? "active" : "")" @onclick='() => _activeTab = "count"'>
+            <i class="bi bi-clipboard-check"></i> Stock Check
+        </button>
+        <button class="pill-item @(_activeTab == "analytics" ? "active" : "")" @onclick='() => _activeTab = "analytics"'>
+            <i class="bi bi-bar-chart-line"></i> Analytics & Stats
         </button>
         <button class="pill-item @(_activeTab == "setup" ? "active" : "")" @onclick='() => _activeTab = "setup"'>
-            <i class="bi bi-gear-fill"></i> System Setup
+            <i class="bi bi-gear"></i> Setup
         </button>
     </div>
 
@@ -64,7 +79,106 @@
     }
     else
     {
-        @if (_activeTab == "ordering")
+        @if (_activeTab == "count")
+        {
+            <div class="count-view animate-fade-in p-3">
+                <div class="row g-4">
+                    <!-- Split Pane: List vs Detail -->
+                    <div class="col-lg-7">
+                        <div class="card border-0 shadow-sm rounded-4 h-100 overflow-hidden bg-white">
+                            <div class="card-header bg-white p-4 border-0 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h5 class="fw-black mb-0 text-uppercase tracking-wider">STOCK RECONCILE</h5>
+                                    <div class="extra-small text-muted fw-bold">Tap a bottle to enter physical count</div>
+                                </div>
+                                <div class="search-box-pill border rounded-pill px-3 bg-light d-flex align-items-center">
+                                    <i class="bi bi-search text-muted me-2"></i>
+                                    <input type="text" class="border-0 bg-transparent py-2 px-1" placeholder="Search..." @bind="_searchTerm" @bind:event="oninput" style="outline:none; width: 140px;" />
+                                </div>
+                            </div>
+                            <div class="card-body p-0 scroll-y-hub" style="max-height: 550px;">
+                                <div class="list-group list-group-flush">
+                                    @foreach (var item in _items.Where(i => string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Name))
+                                    {
+                                        <div class="list-group-item list-group-item-action border-0 mb-1 rounded-3 mx-2 @(_selectedCountItem?.Id == item.Id ? "bg-primary text-white shadow-lg selected-count-hub" : "") @(_stockCounts.ContainsKey(item.Id) ? "border-start border-4 border-success-subtle" : "")" 
+                                             @onclick="() => SelectCountItem(item)" style="cursor: pointer;">
+                                            <div class="d-flex justify-content-between align-items-center p-2">
+                                                <div>
+                                                    <div class="fw-black text-uppercase @(_selectedCountItem?.Id == item.Id ? "text-white" : "text-dark")">@item.Name</div>
+                                                    <div class="extra-small @(_selectedCountItem?.Id == item.Id ? "text-white opacity-75" : "text-muted fw-bold")">Expected: @item.CurrentStock @item.BottleSize</div>
+                                                </div>
+                                                <div class="d-flex gap-2">
+                                                    @if (_stockCounts.TryGetValue(item.Id, out var val))
+                                                    {
+                                                        <span class="badge rounded-pill @(val == item.CurrentStock ? "bg-white text-success" : "bg-white text-danger") px-3 py-2 fw-black">@val</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-sm btn-outline-primary fw-bold rounded-pill px-3" @onclick:stopPropagation="true" @onclick="() => MatchExpectedStock(item)">MATCH</button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Numpad Entry -->
+                    <div class="col-lg-5">
+                       @if (_selectedCountItem != null)
+                        {
+                            <div class="card border-0 shadow-lg rounded-4 p-4 text-center animate-slide-up sticky-top bg-white" style="top: 20px;">
+                                <h6 class="text-muted fw-bold small text-uppercase mb-1">RECORDING COUNT</h6>
+                                <h4 class="fw-black text-dark mb-4">@_selectedCountItem.Name</h4>
+
+                                <div class="display-value-hub h1 fw-black text-primary mb-4 p-4 bg-light rounded-4 border shadow-inner" style="font-size: 4rem;">
+                                    @_countEntry
+                                </div>
+
+                                <div class="row g-2 mb-4">
+                                    @foreach (var key in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "DEL" })
+                                    {
+                                        <div class="col-4">
+                                            <button class="btn btn-lg w-100 fw-black @(key == "DEL" ? "btn-danger-light" : (key == "C" ? "btn-secondary-light" : "btn-light border")) shadow-sm" 
+                                                    style="height: 80px; font-size: 1.8rem;" 
+                                                    @onclick="() => HandleNumpad(key)">@key</button>
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-primary btn-lg fw-black py-3 rounded-pill shadow-lg" @onclick="ConfirmSingleCount">SAVE BOTTLE COUNT</button>
+                                    <button class="btn btn-link text-muted fw-bold text-decoration-none" @onclick="() => _selectedCountItem = null">Cancel Selection</button>
+                                </div>
+                            </div>
+                        }
+                        else if (_stockCounts.Any())
+                        {
+                            <div class="card border-0 shadow rounded-4 p-5 text-center text-white bg-gradient-success-hub">
+                                <i class="bi bi-clipboard2-check-fill display-2 mb-3"></i>
+                                <h2 class="fw-black mb-1">@_stockCounts.Count Items Auditied</h2>
+                                <p class="opacity-75 mb-4 px-3">Pressing the button below will permanently adjust the shelf inventory totals in the master hub.</p>
+                                <button class="btn btn-white btn-lg fw-black w-100 py-3 rounded-pill shadow-lg text-success" @onclick="SubmitFullReconciliation" style="background: white;">
+                                    CONFIRM RECONCILIATION
+                                </button>
+                                <button class="btn btn-link text-white-50 text-decoration-none mt-3 small fw-bold" @onclick="() => _stockCounts.Clear()">Clear and restart audit</button>
+                            </div>
+                        }
+                        else
+                        {
+                             <div class="card border-0 shadow-sm rounded-4 p-5 text-center bg-white h-100 d-flex flex-column justify-content-center opacity-75">
+                                 <i class="bi bi-hand-index-thumb display-1 text-muted opacity-25 mb-3"></i>
+                                 <h5 class="fw-bold text-muted">Awaiting Item Selection</h5>
+                                 <p class="small text-muted px-4">Tap a product from the list to start physical reconciliation.</p>
+                             </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_activeTab == "ordering")
         {
             <div class="ordering-view animate-fade-in">
                 <div class="row">
@@ -79,50 +193,134 @@
                         }
                         else
                         {
-                            @foreach (var vendorGroup in _items.Where(i => i.VendorId.HasValue).GroupBy(i => i.Vendor))
-                            {
-                                <div class="vendor-block mb-4">
-                                    <div class="vendor-header d-flex justify-content-between align-items-center mb-3">
-                                        <h3 class="h5 fw-black m-0 text-uppercase tracking-wider">@(vendorGroup.Key?.Name ?? "Unassigned")</h3>
-                                        <div class="badge bg-light text-muted border px-3">@vendorGroup.Count() Items</div>
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4 bg-white p-3 rounded-4 shadow-sm">
+                                <div class="d-flex align-items-center gap-3 flex-grow-1" style="max-width: 500px;">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-transparent border-0 pe-1">
+                                            <i class="bi bi-search text-muted"></i>
+                                        </span>
+                                        <input type="text" class="form-control border-0 bg-transparent ps-1" 
+                                               placeholder="Search products..." @bind="_searchTerm" @bind:event="oninput" />
                                     </div>
-                                    
-                                    <div class="row g-3">
-                                        @foreach (var item in vendorGroup.OrderBy(i => i.Name))
-                                        {
-                                            <div class="col-md-6">
-                                                <div class="order-item-card @(item.CurrentStock <= item.MinStockLimit ? "low-stock" : "")">
-                                                    <div class="d-flex align-items-center gap-3">
-                                                        <div class="item-img shadow-sm">
-                                                            @if (!string.IsNullOrEmpty(item.ImageUrl))
-                                                            {
-                                                                <img src="@item.ImageUrl" alt="@item.Name" />
-                                                            }
-                                                            else
-                                                            {
-                                                                <i class="bi bi-bottle"></i>
-                                                            }
-                                                        </div>
-                                                        <div class="flex-grow-1">
-                                                            <div class="fw-black mb-0">@item.Name</div>
-                                                            <div class="extra-small text-muted d-flex align-items-center gap-2">
-                                                                <span>@item.BottleSize</span>
-                                                                <span class="dot"></span>
-                                                                <span class="@(item.CurrentStock <= item.MinStockLimit ? "text-danger fw-bold" : "")">Stock: @item.CurrentStock</span>
-                                                            </div>
-                                                            <div class="mt-1 fw-bold text-success small">@item.CurrentPrice.ToString("C")</div>
-                                                        </div>
-                                                        <div class="quantity-control">
-                                                            <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, -1)">-</button>
-                                                            <input type="number" class="qty-input" value="@GetCartQuantity(item.Id)" @oninput="e => SetCartQuantity(item.Id, e.Value)" />
-                                                            <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, 1)">+</button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }
+                                    @if (!_isAlphabeticalView)
+                                    {
+                                        <div class="vr mx-2"></div>
+                                        <select class="form-select form-select-sm rounded-pill border-2" style="width: 150px;" @bind="_filterVendorId">
+                                            <option value="0">All Vendors</option>
+                                            @foreach (var v in _vendors)
+                                            {
+                                                <option value="@v.Id">@v.Name</option>
+                                            }
+                                        </select>
+                                    }
+                                    <div class="vr mx-2"></div>
+                                    <div class="row g-0 rounded-pill border bg-light p-1" style="min-width: 280px; height: 38px;">
+                                        <div class="col-6">
+                                            <button class="btn btn-sm w-100 h-100 rounded-pill border-0 @(!_isAlphabeticalView ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none") text-uppercase fw-bold" style="font-size: 0.65rem;" @onclick="() => _isAlphabeticalView = false">BY VENDOR</button>
+                                        </div>
+                                        <div class="col-6">
+                                            <button class="btn btn-sm w-100 h-100 rounded-pill border-0 @(_isAlphabeticalView ? "btn-primary shadow-sm" : "btn-link text-muted text-decoration-none") text-uppercase fw-bold" style="font-size: 0.65rem;" @onclick="() => _isAlphabeticalView = true">BY PRODUCT</button>
+                                        </div>
                                     </div>
                                 </div>
+                                <div class="badge bg-primary rounded-pill px-3">@_items.Count(i => (_isAlphabeticalView || _filterVendorId == 0 || i.VendorId == _filterVendorId) && (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))) Products</div>
+                            </div>
+                            
+                            @if (_isAlphabeticalView)
+                            {
+                                <div class="row g-3 animate-fade-in">
+                                    @foreach (var item in _items.Where(i => i.VendorId.HasValue && (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))).OrderBy(i => i.Name))
+                                    {
+                                        <div class="col-md-6">
+                                            <div class="order-item-card @(item.CurrentStock <= item.MinStockLimit ? "low-stock" : "") @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
+                                                <div class="d-flex align-items-center gap-3">
+                                                  <div class="product-info flex-grow-1">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <div>
+                                                            <h5 class="fw-black mb-0 text-dark">@item.Name</h5>
+                                                            <div class="small text-muted d-flex align-items-center gap-2">
+                                                                <span>@item.BottleSize</span>
+                                                                @if (item.PackSize > 1)
+                                                                {
+                                                                    <span class="badge bg-light text-dark border extra-small">Case of @item.PackSize</span>
+                                                                }
+                                                                <span class="dot"></span>
+                                                                <span>@item.CurrentPrice.ToString("C")</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="stock-pill @(item.CurrentStock == 0 ? "empty" : (item.CurrentStock <= item.MinStockLimit ? "low" : "ok"))">
+                                                            <div class="stock-label">STOCK</div>
+                                                            <div class="stock-number">@item.CurrentStock</div>
+                                                        </div>
+                                                    </div>
+                                                  </div>
+                                                  <div class="quantity-control px-2 @(GetCartQuantity(item.Id) > 0 && GetCartQuantity(item.Id) < item.MinimumOrderQuantity ? "border border-danger rounded-3" : "")">
+                                                      <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, -1)">-</button>
+                                                      <input type="number" class="qty-input" value="@GetCartQuantity(item.Id)" @oninput="e => SetCartQuantity(item.Id, e.Value)" />
+                                                      <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, 1)">+</button>
+                                                  </div>
+                                                </div>
+                                                @if (GetCartQuantity(item.Id) > 0 && GetCartQuantity(item.Id) < item.MinimumOrderQuantity)
+                                                {
+                                                    <div class="text-danger extra-small fw-bold text-end pe-2 mt-1 pulse-animation">
+                                                        <i class="bi bi-info-circle"></i> MIN ORDER: @item.MinimumOrderQuantity
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                @foreach (var vendorGroup in _items.Where(i => i.VendorId.HasValue && (_filterVendorId == 0 || i.VendorId == _filterVendorId) && (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))).GroupBy(i => i.Vendor))
+                                {
+                                    <div class="vendor-block mb-4">
+                                        <div class="vendor-header d-flex justify-content-between align-items-center mb-3">
+                                            <h3 class="h5 fw-black m-0 text-uppercase tracking-wider">@(vendorGroup.Key?.Name ?? "Unassigned")</h3>
+                                            <div class="badge bg-light text-muted border px-3">@vendorGroup.Count() Items</div>
+                                        </div>
+                                        <div class="row g-3">
+                                            @foreach (var item in vendorGroup.OrderBy(i => i.Name))
+                                            {
+                                                <div class="col-md-6">
+                                                    <div class="order-item-card @(item.CurrentStock <= item.MinStockLimit ? "low-stock" : "") @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
+                                                        <div class="d-flex align-items-center gap-3">
+                                                            <div class="product-info flex-grow-1">
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <div>
+                                                                        <h5 class="fw-black mb-0 text-dark">@item.Name</h5>
+                                                                        <div class="small text-muted d-flex align-items-center gap-2">
+                                                                            <span>@item.BottleSize</span>
+                                                                            @if (item.PackSize > 1) { <span class="badge bg-light text-dark border extra-small">Case of @item.PackSize</span> }
+                                                                            <span class="dot"></span>
+                                                                            <span>@item.CurrentPrice.ToString("C")</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="stock-pill @(item.CurrentStock == 0 ? "empty" : (item.CurrentStock <= item.MinStockLimit ? "low" : "ok"))">
+                                                                        <div class="stock-label">STOCK</div>
+                                                                        <div class="stock-number">@item.CurrentStock</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="quantity-control px-2 @(GetCartQuantity(item.Id) > 0 && GetCartQuantity(item.Id) < item.MinimumOrderQuantity ? "border border-danger rounded-3" : "")">
+                                                                <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, -1)">-</button>
+                                                                <input type="number" class="qty-input" value="@GetCartQuantity(item.Id)" onfocus="this.select()" @oninput="e => SetCartQuantity(item.Id, e.Value)" />
+                                                                <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, 1)">+</button>
+                                                            </div>
+                                                        </div>
+                                                        @if (GetCartQuantity(item.Id) > 0 && GetCartQuantity(item.Id) < item.MinimumOrderQuantity)
+                                                        {
+                                                            <div class="text-danger extra-small fw-bold text-end pe-2 mt-1 pulse-animation">
+                                                                <i class="bi bi-info-circle"></i> MIN ORDER: @item.MinimumOrderQuantity
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
                             }
                         }
                     </div>
@@ -135,44 +333,73 @@
                                         <i class="bi bi-cart4 me-2"></i> Current Order
                                     </h5>
                                 </div>
-                                <div class="card-body p-4">
+                                <div class="card-body p-0">
                                     @if (!_cart.Any(v => v.Value > 0))
                                     {
-                                        <div class="text-center py-4 text-muted">
+                                        <div class="text-center py-5 text-muted">
                                             <i class="bi bi-cart-x display-6 mb-2 opacity-50"></i>
                                             <p class="small mb-0">Your order is currently empty.</p>
                                         </div>
                                     }
                                     else
                                     {
-                                        <div class="cart-items-list mb-4">
-                                            @foreach (var entry in _cart.Where(e => e.Value > 0))
+                                        var cartItems = _cart.Where(e => e.Value > 0)
+                                            .Select(e => new { Item = _items.FirstOrDefault(i => i.Id == e.Key), Qty = e.Value })
+                                            .Where(x => x.Item != null)
+                                            .OrderBy(x => x.Item!.Vendor?.Name)
+                                            .ToList();
+
+                                        <div class="cart-scroll-area p-4" style="max-height: 500px; overflow-y: auto;">
+                                            @foreach (var vGroup in cartItems.GroupBy(x => x.Item!.Vendor))
                                             {
-                                                var item = _items.FirstOrDefault(i => i.Id == entry.Key);
-                                                if (item != null)
-                                                {
-                                                    <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-light">
-                                                        <div class="small fw-semibold text-truncate me-2">@item.Name <span class="text-muted fw-normal">(@entry.Value)</span></div>
-                                                        <div class="small fw-bold">@((item.CurrentPrice * entry.Value).ToString("C"))</div>
+                                                <div class="vendor-cart-group mb-4 pb-3 border-bottom border-light">
+                                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                                        <span class="extra-small fw-black text-uppercase text-primary tracking-wider">@vGroup.Key?.Name</span>
+                                                        @if (vGroup.Sum(x => x.Qty * x.Item!.CurrentPrice) < GetVendorMin(vGroup.Key))
+                                                        {
+                                                            <span class="badge bg-danger pulse-animation" style="font-size: 0.6rem;">
+                                                                WAIT! NEED @((GetVendorMin(vGroup.Key) - vGroup.Sum(x => x.Qty * x.Item!.CurrentPrice)).ToString("C")) MORE
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge bg-success" style="font-size: 0.6rem;">MIN MET</span>
+                                                        }
                                                     </div>
-                                                }
+                                                    @foreach (var x in vGroup)
+                                                    {
+                                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                                            <div class="small text-muted flex-grow-1">
+                                                                <span class="fw-bold text-dark">@x.Qty ×</span> @x.Item!.Name
+                                                            </div>
+                                                            <div class="small fw-bold">@((x.Item.CurrentPrice * x.Qty).ToString("C"))</div>
+                                                        </div>
+                                                    }
+                                                    <div class="d-flex justify-content-between mt-2 pt-2 border-top border-light opacity-75">
+                                                        <span class="extra-small fw-bold">@vGroup.Key?.Name Total</span>
+                                                        <span class="small fw-black">@vGroup.Sum(x => x.Qty * x.Item!.CurrentPrice).ToString("C")</span>
+                                                    </div>
+                                                </div>
                                             }
                                         </div>
-                                        
-                                        <div class="cart-summary bg-light rounded-3 p-3 mb-4">
-                                            <div class="d-flex justify-content-between mb-1">
-                                                <span class="small text-muted">Items Total</span>
-                                                <span class="small fw-bold">@GetCartTotal().ToString("C")</span>
-                                            </div>
-                                            <div class="d-flex justify-content-between">
+                                        <div class="cart-summary bg-light p-4">
+                                            <div class="d-flex justify-content-between mb-3">
                                                 <span class="text-muted fw-bold">Grand Total</span>
-                                                <span class="h5 fw-black text-primary mb-0">@GetCartTotal().ToString("C")</span>
+                                                <span class="h4 fw-black text-primary mb-0">@GetCartTotal().ToString("C")</span>
                                             </div>
+                                            @{ var canOrderAll = cartItems.GroupBy(x => x.Item!.Vendor).All(g => g.Sum(x => x.Qty * x.Item!.CurrentPrice) >= GetVendorMin(g.Key)); }
+                                            <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg" 
+                                                    @onclick="SubmitOrderAsync" 
+                                                    disabled="@(!canOrderAll)">
+                                                PLACE ALL ORDERS
+                                            </button>
+                                            @if (!canOrderAll)
+                                            {
+                                                <div class="extra-small text-danger text-center mt-2 fw-bold">
+                                                    <i class="bi bi-info-circle"></i> Some vendors haven't met their minimum order.
+                                                </div>
+                                            }
                                         </div>
-                                        
-                                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="SubmitOrderAsync">
-                                            PLACE ORDER(S)
-                                        </button>
                                     }
                                 </div>
                             </div>
@@ -210,7 +437,7 @@
                                                 <div class="fw-bold">@order.OrderDate.ToString("MMM dd, yyyy")</div>
                                             </div>
                                             <div class="text-end">
-                                                <div class="extra-small text-muted text-uppercase fw-bold">Est. Total</div>
+                                                <div class="extra-small text-muted text-uppercase fw-bold">Order Value</div>
                                                 <div class="h5 fw-black text-dark mb-0">@order.TotalCost.ToString("C")</div>
                                             </div>
                                         </div>
@@ -242,6 +469,64 @@
                 }
             </div>
         }
+        else if (_activeTab == "unpaid")
+        {
+            <div class="history-view animate-fade-in">
+                <div class="card border-0 shadow-sm rounded-4 overflow-hidden border-top border-4 border-danger">
+                    <div class="card-header bg-white p-4 border-0 pb-0">
+                         <h4 class="fw-black mb-1">Open Bills & Unpaid Invoices</h4>
+                         <p class="small text-muted mb-0">These orders have arrived, but the club still owes the vendor for them.</p>
+                    </div>
+                    <div class="table-responsive p-4">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th class="ps-4">Date</th>
+                                    <th>Vendor</th>
+                                    <th>Invoice #</th>
+                                    <th>Invoice Total</th>
+                                    <th>Payment Status</th>
+                                    <th class="text-end pe-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var order in _historyOrders.Where(o => !o.IsPaid))
+                                {
+                                    <tr>
+                                        <td class="ps-4">
+                                            <div class="fw-bold">@order.OrderDate.ToString("MMM dd, yyyy")</div>
+                                            <div class="extra-small text-muted">Placed by @order.User?.Username</div>
+                                        </td>
+                                        <td><span class="fw-bold">@order.Vendor?.Name</span></td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(order.InvoiceNumber))
+                                            {
+                                                <span class="badge bg-light text-dark border fw-bold px-3">@order.InvoiceNumber</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted small">N/A</span>
+                                            }
+                                        </td>
+                                        <td class="fw-black text-dark">@order.TotalCost.ToString("C")</td>
+                                        <td>
+                                             <button class="btn btn-outline-danger btn-sm rounded-pill px-3 fw-bold border-2" @onclick="() => OpenPaymentModal(order)">
+                                                 Mark as Paid
+                                              </button>
+                                         </td>
+                                        <td class="text-end pe-4">
+                                            <button class="btn btn-sm btn-icon border-0" title="Print Sheet" @onclick="() => PrintOrder(order.Id)">
+                                                <i class="bi bi-printer"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
         else if (_activeTab == "history")
         {
             <div class="history-view animate-fade-in">
@@ -253,14 +538,13 @@
                                     <th class="ps-4">Date</th>
                                     <th>Vendor</th>
                                     <th>Invoice #</th>
-                                    <th>Status</th>
-                                    <th>Total Paid</th>
+                                    <th>Invoice Total</th>
                                     <th>Payment Status</th>
                                     <th class="text-end pe-4">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var order in _historyOrders)
+                                @foreach (var order in _historyOrders.Where(o => o.IsPaid))
                                 {
                                     <tr>
                                         <td class="ps-4">
@@ -278,26 +562,22 @@
                                                 <span class="text-muted small">N/A</span>
                                             }
                                         </td>
-                                        <td>
-                                            <span class='badge rounded-pill @(order.Status == "Received" ? "bg-success-subtle text-success" : "bg-warning-subtle text-warning")'>
-                                                @order.Status
-                                            </span>
-                                        </td>
                                         <td class="fw-black text-dark">@order.TotalCost.ToString("C")</td>
                                         <td>
-                                            @if (order.IsPaid)
-                                            {
-                                                <div class="text-success small fw-bold d-flex align-items-center gap-1">
-                                                    <i class="bi bi-check-circle-fill"></i> Paid @order.PaidDate?.ToString("MM/dd/yy")
-                                                </div>
-                                            }
-                                            else
-                                            {
-                                                <button class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3" @onclick="() => MarkAsPaidAsync(order.Id)">
-                                                    Mark as Paid
-                                                </button>
-                                            }
-                                        </td>
+                                             <div class="d-flex flex-column align-items-center">
+                                                 <div class="badge bg-success-subtle text-success border border-success rounded-pill px-3 py-1">
+                                                     <i class="bi bi-check-circle-fill me-1"></i> Paid @(order.PaidDate?.ToString("MM/dd/yy"))
+                                                 </div>
+                                                 @if (order.PaidByUser != null)
+                                                 {
+                                                     <div class="extra-small text-muted mt-1">By @order.PaidByUser.Username</div>
+                                                 }
+                                                 @if (order.ActualPaidAmount.HasValue)
+                                                 {
+                                                     <div class="extra-small fw-bold text-success">@order.ActualPaidAmount.Value.ToString("C")</div>
+                                                 }
+                                             </div>
+                                         </td>
                                         <td class="text-end pe-4">
                                             <button class="btn btn-sm btn-icon border-0" title="Print Sheet" @onclick="() => PrintOrder(order.Id)">
                                                 <i class="bi bi-printer"></i>
@@ -314,23 +594,250 @@
                 </div>
             </div>
         }
+        else if (_activeTab == "analytics")
+        {
+            <div class="analytics-view animate-fade-in">
+                <!-- Summary Stats -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-primary text-white">
+                            <h6 class="extra-small uppercase-tracking opacity-75 fw-bold mb-1">Cash on Shelves</h6>
+                            <h2 class="fw-black mb-0">@_items.Sum(i => i.CurrentStock * i.CurrentPrice).ToString("C0")</h2>
+                            <div class="small opacity-75 mt-2">@_items.Sum(i => i.CurrentStock) Bottles on hand</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-success text-white">
+                            <h6 class="extra-small uppercase-tracking opacity-75 fw-bold mb-1">Total Drink Value</h6>
+                            <h2 class="fw-black mb-0">
+                                @{
+                                    var totalRev = _items.Sum(i => {
+                                        var oz = GetOuncesFromSize(i.BottleSize);
+                                        if (oz == 0 || i.PourSize == 0) return 0;
+                                        return (decimal)(oz / (double)i.PourSize) * i.CurrentStock * i.RetailPrice;
+                                    });
+                                }
+                                @totalRev.ToString("C0")
+                            </h2>
+                            <div class="small opacity-75 mt-2">Potential Revenue if all sold</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-white border">
+                            <h6 class="extra-small uppercase-tracking fw-bold mb-1 text-muted">Total Possible Profit</h6>
+                            <h2 class="fw-black mb-0 text-dark">
+                                 @(((_items.Sum(i => {
+                                    if (i.IsUnitBased) {
+                                        var rev = i.CurrentStock * i.PackSize * i.RetailPrice;
+                                        var cost = i.CurrentStock * i.CurrentPrice;
+                                        return rev - cost;
+                                    }
+                                    var oz = GetOuncesFromSize(i.BottleSize);
+                                    if (oz == 0 || i.PourSize == 0) return 0;
+                                    var pours = (decimal)(oz / (double)i.PourSize);
+                                    var rev_pour = i.CurrentStock * pours * i.RetailPrice;
+                                    var cost_pour = i.CurrentStock * i.CurrentPrice;
+                                    return rev_pour - cost_pour;
+                                }))).ToString("C0"))
+                            </h2>
+                             @{
+                                var activeItems = _items.Where(i => i.RetailPrice > 0).ToList();
+                                var avgMargin = activeItems.Any() ? (int)activeItems.Average(i => {
+                                    var oz = GetOuncesFromSize(i.BottleSize);
+                                    var costPerOz = i.CurrentPrice / (decimal)(oz > 0 ? oz : 1);
+                                    var costPerPour = costPerOz * (decimal)i.PourSize;
+                                    return (1 - (costPerPour / i.RetailPrice)) * 100;
+                                }) : 0;
+                            }
+                            <div class="small text-muted mt-2 d-flex align-items-center gap-1">
+                                <i class="bi bi-graph-up text-success"></i>
+                                Average Margin: <span class="fw-bold">@avgMargin%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-white border">
+                             <h6 class="extra-small uppercase-tracking fw-bold mb-1 text-muted">Stock Health</h6>
+                             <h2 class="fw-black mb-0 text-danger">@_items.Count(i => i.CurrentStock <= i.MinStockLimit)</h2>
+                             <div class="small text-muted mt-2">Brands below minimum limit</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-7">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                             <h5 class="fw-black mb-4">Category Breakdown</h5>
+                             <div class="table-responsive">
+                                 <table class="table table-sm align-middle">
+                                     <thead class="bg-light">
+                                         <tr class="extra-small text-muted">
+                                             <th>Category</th>
+                                             <th class="text-center">Items</th>
+                                             <th class="text-end">Value</th>
+                                             <th class="text-end">Avg. Drink Cost</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         @foreach (var cat in _items.GroupBy(i => i.Category).OrderByDescending(g => g.Sum(x => x.CurrentStock * x.CurrentPrice)))
+                                         {
+                                             <tr>
+                                                 <td class="fw-bold">@cat.Key</td>
+                                                 <td class="text-center">@cat.Count()</td>
+                                                 <td class="text-end fw-black">@cat.Sum(x => x.CurrentStock * x.CurrentPrice).ToString("C0")</td>
+                                                 <td class="text-end">
+                                                     @{
+                                                         var avgCost = cat.Average(i => {
+                                                             var oz = GetOuncesFromSize(i.BottleSize);
+                                                             return (double)(i.CurrentPrice / (decimal)(oz > 0 ? oz : 1)) * (double)i.PourSize;
+                                                         });
+                                                     }
+                                                     @avgCost.ToString("C2")
+                                                 </td>
+                                             </tr>
+                                         }
+                                     </tbody>
+                                 </table>
+                             </div>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                         <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                             <h5 class="fw-black mb-4">Vendor Inventory Value</h5>
+                             <div class="list-group list-group-flush">
+                                 @foreach (var vGroup in _items.GroupBy(i => i.Vendor?.Name ?? "No Vendor").OrderByDescending(g => g.Sum(x => x.CurrentStock * x.CurrentPrice)).Take(5))
+                                 {
+                                     var totalVal = _items.Sum(i => i.CurrentStock * i.CurrentPrice);
+                                     var groupVal = vGroup.Sum(x => x.CurrentStock * x.CurrentPrice);
+                                     <div class="list-group-item px-0 py-2 border-0 d-flex justify-content-between">
+                                         <span class="text-muted">@vGroup.Key</span>
+                                         <span class="fw-bold">@groupVal.ToString("C0")</span>
+                                     </div>
+                                     <div class="progress" style="height: 4px;">
+                                         <div class="progress-bar" style="width: @(totalVal > 0 ? (groupVal / totalVal * 100).ToString("F0") : "0")%"></div>
+                                     </div>
+                                 }
+                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm rounded-4 p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h5 class="fw-black mb-0">Brand Profit Analysis</h5>
+                        <div class="btn-group btn-group-sm rounded-pill border shadow-sm p-1">
+                            <button class="btn btn-link text-decoration-none px-3 @(_statSortMode == "profit" ? "bg-dark text-white rounded-pill" : "text-muted")" @onclick='() => _statSortMode = "profit"'>By Profit</button>
+                            <button class="btn btn-link text-decoration-none px-3 @(_statSortMode == "value" ? "bg-dark text-white rounded-pill" : "text-muted")" @onclick='() => _statSortMode = "value"'>By Value</button>
+                            <button class="btn btn-link text-decoration-none px-3 @(_statSortMode == "name" ? "bg-dark text-white rounded-pill" : "text-muted")" @onclick='() => _statSortMode = "name"'>A-Z</button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="bg-light">
+                                <tr class="extra-small text-muted uppercase-tracking">
+                                    <th style="width: 5%;">#ID</th>
+                                    <th style="width: 25%;">Product</th>
+                                    <th class="text-center">Cost/Drink</th>
+                                    <th class="text-center">Price(Member)</th>
+                                    <th class="text-center">Profit/Drink</th>
+                                    <th class="text-center">Servings</th>
+                                    <th class="text-end">Margin Health</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    var sortedItems = _statSortMode switch {
+                                        "profit" => _items.OrderByDescending(i => i.RetailPrice > 0 ? (i.IsUnitBased ? (i.RetailPrice - (i.PackSize > 0 ? i.CurrentPrice / i.PackSize : 0)) : (i.RetailPrice - (i.CurrentPrice / (decimal)(GetOuncesFromSize(i.BottleSize) > 0 ? GetOuncesFromSize(i.BottleSize) : 1)) * i.PourSize)) : 0),
+                                        "value" => _items.OrderByDescending(i => i.CurrentStock * i.CurrentPrice),
+                                        _ => _items.OrderBy(i => i.Name)
+                                    };
+                                }
+                                @foreach (var item in sortedItems)
+                                {
+                                    decimal costPerPurSellUnit;
+                                    int unitsPerMainUnit;
+                                    decimal marginPercent;
+                                    decimal profitPerDrink;
+
+                                    if (item.IsUnitBased)
+                                    {
+                                        unitsPerMainUnit = item.PackSize;
+                                        costPerPurSellUnit = item.PackSize > 0 ? (item.CurrentPrice / item.PackSize) : 0;
+                                        profitPerDrink = item.RetailPrice - costPerPurSellUnit;
+                                        marginPercent = item.RetailPrice > 0 ? (profitPerDrink / item.RetailPrice) * 100 : 0;
+                                    }
+                                    else
+                                    {
+                                        var totalOz = GetOuncesFromSize(item.BottleSize);
+                                        var costPerOz = totalOz > 0 ? item.CurrentPrice / (decimal)totalOz : 0;
+                                        costPerPurSellUnit = costPerOz * item.PourSize;
+                                        profitPerDrink = item.RetailPrice - costPerPurSellUnit;
+                                        unitsPerMainUnit = (int)(totalOz / (double)(item.PourSize > 0 ? item.PourSize : 1));
+                                        marginPercent = item.RetailPrice > 0 ? (profitPerDrink / item.RetailPrice) * 100 : 0;
+                                    }
+
+                                     <tr>
+                                         <td class="text-muted extra-small">@item.Id</td>
+                                         <td>
+                                            <div class="fw-bold text-dark">@item.Name</div>
+                                            <div class="extra-small text-muted">@(item.IsUnitBased ? "Priced by Unit" : item.BottleSize) • @item.CurrentStock @(item.CurrentStock == 1 ? "bottle" : "bottles")</div>
+                                        </td>
+                                        <td class="text-center">@costPerPurSellUnit.ToString("C2")</td>
+                                        <td class="text-center fw-bold">@item.RetailPrice.ToString("C2")</td>
+                                        <td class="text-center text-success fw-bold">@profitPerDrink.ToString("C2")</td>
+                                        <td class="text-center">@unitsPerMainUnit @(item.IsUnitBased ? "" : "drinks")</td>
+                                        <td class="text-end">
+                                            @if (item.RetailPrice == 0)
+                                            {
+                                                <span class="badge bg-light text-muted border">No Price</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="d-flex align-items-center justify-content-end gap-2">
+                                                    <span class="extra-small fw-bold @(marginPercent < 75 ? "text-danger" : "text-success")">@marginPercent.ToString("F0")%</span>
+                                                    <div class="progress" style="width: 60px; height: 6px;">
+                                                        <div class="progress-bar @(marginPercent < 75 ? "bg-danger" : "bg-success")" style="width: @marginPercent%"></div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
         else if (_activeTab == "setup")
         {
             <div class="setup-view animate-fade-in">
                 <div class="row g-4">
-                    <div class="col-md-5">
+                    <div class="col-md-4">
                          <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
                             <h5 class="fw-black mb-3">Manage Vendors</h5>
                             <div class="d-flex gap-2 mb-4">
                                 <input type="text" class="form-control rounded-pill border-2" @bind="_newVendorName" placeholder="New Vendor Name..." />
-                                <button class="btn btn-primary rounded-pill px-4 fw-bold" @onclick="CreateVendorAsync">Add</button>
+                                <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @onclick="CreateVendorAsync">ADD</button>
                             </div>
                             
                             <div class="list-group list-group-flush">
                                 @foreach (var v in _vendors)
                                 {
                                     <div class="list-group-item px-0 py-3 border-0 bg-transparent d-flex justify-content-between align-items-center">
-                                        <div class="fw-bold">@v.Name</div>
+                                        <div class="flex-grow-1">
+                                            <input type="text" class="form-control form-control-sm border-0 fw-black text-primary bg-transparent p-0 mb-1" 
+                                                   style="font-size: 1.1rem; box-shadow: none;"
+                                                   @bind="v.Name" @bind:event="oninput" 
+                                                   @bind:after="() => LiquorService.UpdateVendorAsync(v)" />
+                                            <div class="d-flex align-items-center gap-2">
+                                                <label class="extra-small fw-bold text-muted">Min Order $:</label>
+                                                <input type="number" class="form-control form-control-sm border-2 rounded-pill text-center" style="width: 85px;" step="1" 
+                                                       value="@((int)v.MinimumOrderAmount)" 
+                                                       @onchange="e => HandleVendorMinOrderChange(v, e.Value)" />
+                                            </div>
+                                        </div>
                                         <button class="btn btn-sm text-danger border-0" @onclick="() => DeleteVendorAsync(v.Id)">
                                             <i class="bi bi-trash3"></i>
                                         </button>
@@ -347,29 +854,70 @@
                             </div>
                             <div class="row g-2 mb-3">
                                 <div class="col-6">
-                                    <label class="small fw-bold text-muted mb-1">Bottle Size</label>
+                                    <label class="small fw-bold text-muted mb-1">Bottle/Can Size</label>
                                     <select class="form-select rounded-pill border-2" @bind="_newItem.BottleSize">
                                         <option value="50ml">50ml</option>
+                                        <option value="355ml">355ml</option>
                                         <option value="375ml">375ml</option>
                                         <option value="750ml">750ml</option>
                                         <option value="1L">1L</option>
                                         <option value="1.75L">1.75L</option>
+                                        <option value="12oz">12oz (Beer)</option>
+                                        <option value="16oz">16oz (Beer)</option>
+                                        <option value="10oz">10oz</option>
+                                        <option value="187ml">187ml</option>
                                     </select>
                                 </div>
                                 <div class="col-6">
-                                    <label class="small fw-bold text-muted mb-1">Initial Price</label>
-                                    <input type="number" class="form-control rounded-pill border-2" @bind="_newItem.CurrentPrice" step="0.01" />
+                                    <label class="small fw-bold text-muted mb-1">Pack Size</label>
+                                    <input type="number" class="form-control rounded-pill border-2" onfocus="this.select()" @bind="_newItem.PackSize" placeholder="1=Btl, 24=Case" />
                                 </div>
                             </div>
-                             <div class="mb-4">
-                                <label class="small fw-bold text-muted mb-1">Primary Vendor</label>
-                                <select class="form-select rounded-pill border-2" @bind="_newItem.VendorId">
-                                    <option value="">-- No Vendor --</option>
-                                    @foreach (var v in _vendors)
-                                    {
-                                        <option value="@v.Id">@v.Name</option>
-                                    }
-                                </select>
+                            <div class="row g-2 mb-3">
+                                <div class="col-12">
+                                     <div class="form-check form-switch bg-light p-3 rounded-pill border ms-0">
+                                        <input class="form-check-input ms-0 me-2" type="checkbox" id="isUnitBased" @bind="_newItem.IsUnitBased">
+                                        <label class="form-check-label fw-bold text-dark small" for="isUnitBased">
+                                            Sold by Unit (e.g., Red Bull, High Noon, Beer)
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-3">
+                                <div class="col-4">
+                                    <label class="small fw-bold text-muted mb-1">Bottle/Case Cost</label>
+                                    <input type="number" class="form-control rounded-pill border-2" onfocus="this.select()" @bind="_newItem.CurrentPrice" step="0.01" />
+                                </div>
+                                <div class="col-4">
+                                    <label class="small fw-bold text-muted mb-1">Drink Price</label>
+                                    <input type="number" class="form-control rounded-pill border-2" onfocus="this.select()" @bind="_newItem.RetailPrice" step="0.01" />
+                                </div>
+                                @if (!_newItem.IsUnitBased)
+                                {
+                                    <div class="col-4">
+                                        <label class="small fw-bold text-muted mb-1">Shot Size (oz)</label>
+                                        <input type="number" class="form-control rounded-pill border-2" onfocus="this.select()" @bind="_newItem.PourSize" step="0.1" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="col-4">
+                                         <label class="small fw-bold text-muted mb-1 opacity-50">Shot Size</label>
+                                         <div class="form-control rounded-pill border-0 bg-transparent text-muted small pt-2">N/A (Unit)</div>
+                                    </div>
+                                }
+                            </div>
+                            <div class="row g-2 mb-4">
+                                <div class="col-12">
+                                    <label class="small fw-bold text-muted mb-1">Primary Vendor</label>
+                                    <select class="form-select rounded-pill border-2" @bind="_newItem.VendorId">
+                                        <option value="">-- No Vendor --</option>
+                                        @foreach (var v in _vendors)
+                                        {
+                                            <option value="@v.Id">@v.Name</option>
+                                        }
+                                    </select>
+                                </div>
                             </div>
                             <button class="btn btn-primary w-100 rounded-pill fw-black py-2 shadow-sm" @onclick="CreateItemAsync">
                                 CREATE PRODUCT
@@ -377,40 +925,76 @@
                          </div>
                     </div>
                     
-                    <div class="col-md-7">
+                    <div class="col-md-8">
                         <div class="card border-0 shadow-sm rounded-4 p-4">
                             <h5 class="fw-black mb-3">Item Mapping & Pricing</h5>
                             <p class="small text-muted mb-4">Assign vendors to your items and set the current purchase price.</p>
                             
-                            <div class="table-responsive">
-                                 <table class="table table-hover align-middle">
-                                    <thead>
-                                        <tr class="small text-muted uppercase-tracking">
-                                            <th>Product</th>
-                                            <th>Vendor</th>
-                                            <th>Current Price</th>
+                            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                                 <table class="table table-hover align-middle mb-0">
+                                    <thead class="sticky-top bg-white shadow-sm" style="z-index: 5;">
+                                        <tr class="small text-muted uppercase-tracking border-bottom">
+                                            <th style="width: 5%;">#ID</th>
+                                            <th style="width: 25%;">Product</th>
+                                            <th style="width: 20%;">Vendor</th>
+                                            <th class="text-center">Bottle Cost</th>
+                                            <th class="text-center">Drink Price</th>
+                                            <th class="text-center">Shot Size</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var item in _items)
                                         {
                                             <tr>
-                                                <td class="fw-bold">@item.Name <span class="text-muted fw-normal">(@item.BottleSize)</span></td>
+                                                <td class="align-middle text-muted extra-small">
+                                                    @item.Id
+                                                </td>
                                                 <td>
-                                                    <select class="form-select form-select-sm" @onchange='e => UpdateItemVendor(item, e.Value)'>
+                                                    <div class="d-flex align-items-middle gap-3">
+                                                        <button class="btn btn-sm btn-icon text-primary py-0 px-1" @onclick="() => OpenEditModal(item)">
+                                                            <i class="bi bi-pencil-square"></i>
+                                                        </button>
+                                                        <div>
+                                                            <div class="fw-bold">@item.Name</div>
+                                                            <div class="extra-small text-muted">@item.BottleSize</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td class="align-middle" style="min-width: 140px;">
+                                                    <select class="form-select form-select-sm rounded-pill border-2" 
+                                                            value="@item.VendorId" 
+                                                            @onchange="e => UpdateItemVendor(item, e.Value)">
                                                         <option value="">-- No Vendor --</option>
                                                         @foreach (var v in _vendors)
                                                         {
-                                                            <option value="@v.Id" selected="@(item.VendorId == v.Id)">@v.Name</option>
+                                                            <option value="@v.Id">@v.Name</option>
                                                         }
                                                     </select>
                                                 </td>
-                                                <td>
-                                                    <div class="input-group input-group-sm" style="width: 120px;">
-                                                        <span class="input-group-text bg-white border-end-0">$</span>
-                                                        <input type="number" class="form-control border-start-0 ps-0" step="0.01" 
-                                                               @bind="item.CurrentPrice" @bind:after="() => LiquorService.UpdateItemAsync(item)" />
+                                                <td class="align-middle px-1">
+                                                    <div class="input-group input-group-sm mx-auto" style="max-width: 100px;">
+                                                        <span class="input-group-text p-1">$</span>
+                                                        <input type="number" class="form-control px-1 text-center" onfocus="this.select()" @bind="item.CurrentPrice" @bind:event="oninput" 
+                                                               @bind:after="() => LiquorService.UpdateItemAsync(item)" step="0.01" />
                                                     </div>
+                                                </td>
+                                                <td class="align-middle px-1">
+                                                    <div class="input-group input-group-sm mx-auto" style="max-width: 100px;">
+                                                        <span class="input-group-text p-1">$</span>
+                                                        <input type="number" class="form-control px-1 text-center" onfocus="this.select()" @bind="item.RetailPrice" @bind:event="oninput"
+                                                               @bind:after="() => LiquorService.UpdateItemAsync(item)" step="0.01" />
+                                                    </div>
+                                                </td>
+                                                <td class="align-middle text-center px-1">
+                                                    @if (!item.IsUnitBased)
+                                                    {
+                                                        <input type="number" class="form-control form-control-sm text-center mx-auto" onfocus="this.select()" @bind="item.PourSize" @bind:event="oninput"
+                                                               @bind:after="() => LiquorService.UpdateItemAsync(item)" step="0.1" style="width: 65px;" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted extra-small">UNIT</span>
+                                                    }
                                                 </td>
                                             </tr>
                                         }
@@ -422,16 +1006,202 @@
                 </div>
             </div>
         }
+        else if (_activeTab == "setup")
+        {
+            <div class="setup-section animate-fade-in">
+                <div class="row g-3 px-3 mb-4">
+                    <div class="col-auto">
+                        <button class="btn btn-sm rounded-pill px-4 py-2 @(_activeSetupTab == "products" ? "btn-dark shadow" : "btn-light border") fw-bold text-uppercase" 
+                                style="font-size: 0.75rem;" @onclick='() => _activeSetupTab = "products"'>Products</button>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-sm rounded-pill px-4 py-2 @(_activeSetupTab == "vendors" ? "btn-dark shadow" : "btn-light border") fw-bold text-uppercase" 
+                                style="font-size: 0.75rem;" @onclick='() => _activeSetupTab = "vendors"'>Vendors</button>
+                    </div>
+                </div>
+
+                @if (_activeSetupTab == "products")
+                {
+                    <div class="card border-0 shadow-sm rounded-4 overflow-hidden animate-slide-up">
+                        <div class="card-header bg-white p-4 border-0 d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="fw-black mb-0 text-uppercase tracking-wider">PRODUCT CATALOG</h5>
+                                <div class="extra-small text-muted fw-bold">Manage your bar inventory listings</div>
+                            </div>
+                            <button class="btn btn-primary rounded-pill px-4 fw-black shadow-sm" @onclick="OpenAddModal">
+                                <i class="bi bi-plus-lg me-2"></i>ADD PRODUCT
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="bg-light border-0">
+                                        <tr>
+                                            <th class="ps-4 py-3 small fw-black text-muted text-uppercase ls-1">Product</th>
+                                            <th class="py-3 small fw-black text-muted text-uppercase ls-1">Vendor</th>
+                                            <th class="py-3 small fw-black text-muted text-uppercase ls-1">Size</th>
+                                            <th class="py-3 small fw-black text-muted text-uppercase ls-1">Pack</th>
+                                            <th class="py-3 small fw-black text-muted text-uppercase ls-1 text-center">Price</th>
+                                            <th class="pe-4 py-3 small fw-black text-muted text-uppercase ls-1 text-end">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="border-0">
+                                        @foreach (var item in _items.OrderBy(i => i.Name))
+                                        {
+                                            <tr>
+                                                <td class="ps-4">
+                                                    <div class="fw-bold">@item.Name</div>
+                                                    <div class="extra-small text-muted font-monospace">@item.UpcCode</div>
+                                                </td>
+                                                <td><span class="badge bg-light text-dark border fw-bold">@(item.Vendor?.Name ?? "No Vendor")</span></td>
+                                                <td class="small fw-bold">@item.BottleSize</td>
+                                                <td class="small fw-bold">@item.PackSize</td>
+                                                <td class="text-center fw-black">@item.CurrentPrice.ToString("C")</td>
+                                                <td class="pe-4 text-end">
+                                                    <button class="btn btn-icon-sm" @onclick="() => OpenEditModal(item)">
+                                                        <i class="bi bi-pencil text-muted"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (_activeSetupTab == "vendors")
+                {
+                    <div class="row g-3 animate-slide-up">
+                        @foreach (var v in _vendors)
+                        {
+                            <div class="col-md-4">
+                                <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                                    <div class="d-flex justify-content-between align-items-start mb-3">
+                                        <div class="rounded-circle bg-light d-flex align-items-center justify-content-center" style="width: 48px; height: 48px;">
+                                            <i class="bi bi-truck text-dark fs-5"></i>
+                                        </div>
+                                        <div class="form-check form-switch p-0">
+                                             <input class="form-check-input ms-0" type="checkbox" checked />
+                                        </div>
+                                    </div>
+                                    <h5 class="fw-black text-dark mb-1">@v.Name</h5>
+                                    <div class="extra-small text-muted fw-black text-uppercase tracking-wider mb-3">AUTHORIZED VENDOR</div>
+                                    
+                                    <div class="mt-auto border-top pt-3">
+                                        <div class="d-flex align-items-center gap-2 mb-2">
+                                            <i class="bi bi-wallet2 text-muted small"></i>
+                                            <span class="small fw-bold">Min Order: @v.MinimumOrderAmount.ToString("C")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
     }
 </div>
 
+@if (_itemToEdit != null)
+{
+    <div class="modal-backdrop-modern animate-fade-in">
+        <div class="modal-card animate-slide-up shadow-lg">
+            <div class="modal-header bg-primary text-white py-4">
+                <h3 class="mb-0 fw-black text-uppercase tracking-wider">EDIT PRODUCT</h3>
+                <button class="btn-close btn-close-white" @onclick="() => _itemToEdit = null"></button>
+            </div>
+            <div class="modal-body p-4">
+                 <div class="mb-3">
+                    <label class="small fw-bold text-muted mb-1">Product Name</label>
+                    <input type="text" class="form-control rounded-pill border-2" @bind="_itemToEdit.Name" />
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="small fw-bold text-muted mb-1">Bottle/Can Size</label>
+                        <select class="form-select rounded-pill border-2" @bind="_itemToEdit.BottleSize">
+                            <option value="50ml">50ml</option>
+                            <option value="355ml">355ml</option>
+                            <option value="375ml">375ml</option>
+                            <option value="750ml">750ml</option>
+                            <option value="1L">1L</option>
+                            <option value="1.75L">1.75L</option>
+                            <option value="12oz">12oz (Beer)</option>
+                            <option value="16oz">16oz (Beer)</option>
+                            <option value="10oz">10oz</option>
+                            <option value="187ml">187ml</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="small fw-bold text-muted mb-1">Min Stock Limit</label>
+                        <input type="number" class="form-control rounded-pill border-2" @bind="_itemToEdit.MinStockLimit" />
+                    </div>
+                </div>
+                 <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="small fw-bold text-muted mb-1">Min Order Qty</label>
+                        <input type="number" class="form-control rounded-pill border-2 text-center" step="1"
+                               value="@((int)_itemToEdit.MinimumOrderQuantity)" 
+                               @oninput="e => { if(int.TryParse(e.Value?.ToString(), out var res)) _itemToEdit.MinimumOrderQuantity = res; }" />
+                    </div>
+                    <div class="col-6">
+                        <label class="small fw-bold text-muted mb-1">Pack Size (e.g. 24)</label>
+                        <input type="number" class="form-control rounded-pill border-2" @bind="_itemToEdit.PackSize" />
+                    </div>
+                </div>
+                 <div class="mb-3">
+                    <div class="form-check form-switch bg-light p-3 rounded-pill border">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" id="edit-isUnitBased" @bind="_itemToEdit.IsUnitBased">
+                        <label class="form-check-label fw-bold text-dark small" for="edit-isUnitBased">
+                            Item is sold by individual UNIT instead of OUNCES
+                        </label>
+                    </div>
+                </div>
+                 <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="small fw-bold text-muted mb-1">Drink Price (Sale)</label>
+                        <input type="number" class="form-control rounded-pill border-2" @bind="_itemToEdit.RetailPrice" step="0.01" />
+                    </div>
+                    @if (!_itemToEdit.IsUnitBased)
+                    {
+                        <div class="col-6">
+                            <label class="small fw-bold text-muted mb-1">Shot Size (oz)</label>
+                            <input type="number" class="form-control rounded-pill border-2" @bind="_itemToEdit.PourSize" step="0.1" />
+                        </div>
+                    }
+                </div>
+                 <div class="mb-4">
+                    <label class="small fw-bold text-muted mb-1">Primary Vendor</label>
+                    <select class="form-select rounded-pill border-2" @bind="_itemToEdit.VendorId">
+                        <option value="">-- No Vendor --</option>
+                        @foreach (var v in _vendors)
+                        {
+                            <option value="@v.Id">@v.Name</option>
+                        }
+                    </select>
+                </div>
+                 <div class="mb-4">
+                    <div class="form-check form-switch px-4">
+                        <input class="form-check-input" type="checkbox" @bind="_itemToEdit.IsActive" id="itemActiveCheck">
+                        <label class="form-check-label fw-bold" for="itemActiveCheck">Product is Active (uncheck to hide from lists)</label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer d-flex gap-2 p-4">
+                <button class="btn btn-light rounded-pill flex-grow-1 fw-bold" @onclick="() => _itemToEdit = null">CANCEL</button>
+                <button class="btn btn-primary rounded-pill flex-grow-1 fw-black" @onclick="SaveEditAsync">SAVE CHANGES</button>
+            </div>
+        </div>
+    </div>
+}
 <!-- Receipt Modal -->
 @if (_orderToReceive != null)
 {
     <div class="modal-backdrop-modern animate-fade-in">
         <div class="modal-card animate-slide-up shadow-lg">
-            <div class="modal-header bg-success text-white">
-                <h5 class="mb-0 fw-black">Receive Order from @(_orderToReceive.Vendor?.Name)</h5>
+            <div class="modal-header bg-success text-white py-4">
+                <h3 class="mb-0 fw-black text-uppercase tracking-wider">RECEIVING: @(_orderToReceive.Vendor?.Name)</h3>
                 <button class="btn-close btn-close-white" @onclick="() => _orderToReceive = null"></button>
             </div>
             <div class="modal-body p-4">
@@ -442,24 +1212,23 @@
                         <label class="small fw-bold text-muted mb-1">Invoice Number</label>
                         <input type="text" class="form-control fw-bold" @bind="_receiveInvoiceNumber" placeholder="INV-0000..." />
                     </div>
-                    <div class="col-md-3">
-                        <label class="small fw-bold text-muted mb-1">Tax Amount</label>
-                        <input type="number" class="form-control fw-bold" @bind="_receiveTax" step="0.01" />
-                    </div>
-                    <div class="col-md-3">
-                        <label class="small fw-bold text-muted mb-1">Other Fees</label>
-                        <input type="number" class="form-control fw-bold" @bind="_receiveMisc" step="0.01" />
+                    <div class="col-md-6">
+                        <label class="small fw-bold text-muted mb-1">Actual Total Amount (Due on Invoice)</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control fw-bold text-dark text-center" onfocus="this.select()" @bind="_receiveTotalDue" step="0.01" />
+                        </div>
                     </div>
                 </div>
 
                 <div class="p-3 bg-light rounded-3 mb-4">
                     <div class="d-flex justify-content-between mb-1">
-                        <span class="text-muted">Items Total</span>
+                        <span class="text-muted">Expected Order Cost</span>
                         <span class="fw-bold">@_orderToReceive.ItemsTotal.ToString("C")</span>
                     </div>
-                    <div class="d-flex justify-content-between h5 fw-black text-dark">
-                        <span>Grand Total Bill</span>
-                        <span>@((_orderToReceive.ItemsTotal + _receiveTax + _receiveMisc).ToString("C"))</span>
+                    <div class="d-flex justify-content-between h3 fw-black text-dark mb-0">
+                        <span>Invoice Amount</span>
+                        <span>@(_receiveTotalDue.ToString("C"))</span>
                     </div>
                 </div>
 
@@ -469,7 +1238,56 @@
             </div>
             <div class="modal-footer p-3 bg-light d-flex gap-2">
                 <button class="btn btn-light border fw-bold flex-grow-1" @onclick="() => _orderToReceive = null">Cancel</button>
-                <button class="btn btn-success fw-black flex-grow-1 shadow-sm" @onclick="ConfirmReceiptAsync">CONFIRM RECEIVE</button>
+                <button class="btn btn-success fw-black flex-grow-1 shadow-sm" 
+                        @onclick="ConfirmReceiptAsync" 
+                        disabled="@(string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0)">
+                    @((string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0) ? "ENTER INVOICE TO CONFIRM" : "CONFIRM RECEIVE")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Payment Modal -->
+@if (_orderToPay != null)
+{
+    <div class="modal-backdrop-modern animate-fade-in">
+        <div class="modal-card animate-slide-up shadow-lg border-danger border-top border-5">
+            <div class="modal-header bg-white py-4 d-flex justify-content-between align-items-center">
+                <div>
+                     <h3 class="mb-0 fw-black text-uppercase text-danger">CONFIRM PAYMENT</h3>
+                     <div class="small text-muted">Invoice #@(_orderToPay.InvoiceNumber ?? "N/A") from @_orderToPay.Vendor?.Name</div>
+                </div>
+                <button class="btn-close" @onclick="() => _orderToPay = null"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="small fw-bold text-muted mb-1">Check/Entry Date</label>
+                        <input type="date" class="form-control fw-bold" @bind="_paidDate" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="small fw-bold text-muted mb-1">Actual Amount Paid</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control fw-bold text-dark text-center" onfocus="this.select()" @bind="_actualPaidAmount" step="0.01" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-light rounded-4 text-center mb-0">
+                    <div class="extra-small text-muted text-uppercase fw-bold mb-1">Invoice Total Due</div>
+                    <div class="h2 fw-black text-dark">@_orderToPay.TotalCost.ToString("C")</div>
+                </div>
+                
+                <div class="text-center mt-3 mb-0">
+                    <i class="bi bi-person-check-fill text-primary"></i> 
+                    <span class="extra-small fw-bold text-muted">WILL BE LOGGED AS PAID BY: <span class="text-primary">@_currentUser?.Username</span></span>
+                </div>
+            </div>
+            <div class="modal-footer p-3 bg-light d-flex gap-2">
+                <button class="btn btn-light border fw-bold flex-grow-1" @onclick="() => _orderToPay = null">Cancel</button>
+                <button class="btn btn-danger fw-black flex-grow-1 shadow-sm" @onclick="ConfirmPaymentAsync">CONFIRM PAYMENT</button>
             </div>
         </div>
     </div>
@@ -524,6 +1342,25 @@
         margin-left: 5px;
     }
 
+    .stock-pill {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-width: 60px;
+        padding: 5px 10px;
+        border-radius: 12px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+    }
+
+    .stock-pill.ok { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+    .stock-pill.low { background: #fffbeb; border-color: #fef3c7; color: #b45309; }
+    .stock-pill.empty { background: #fef2f2; border-color: #fee2e2; color: #b91c1c; }
+
+    .stock-label { font-size: 0.6rem; font-weight: 800; opacity: 0.7; letter-spacing: 0.05em; }
+    .stock-number { font-size: 1.25rem; font-weight: 900; line-height: 1.1; }
+
     .order-item-card {
         background: #fff;
         padding: 15px;
@@ -535,6 +1372,12 @@
 
     .order-item-card.low-stock {
         border-left: 4px solid #ef4444;
+    }
+
+    .order-item-card.selected-for-order {
+        background: #f0f7ff;
+        border: 2px solid #0d6efd;
+        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.1);
     }
 
     .item-img {
@@ -569,7 +1412,15 @@
         outline: none;
     }
 
-    .qty-input::-webkit-inner-spin-button { display: none; }
+    /* Hide spin buttons for all number inputs */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    input[type=number] {
+        -moz-appearance: textfield;
+    }
 
     .btn-icon {
         width: 24px;
@@ -612,11 +1463,39 @@
     }
 
     .tracking-wider { letter-spacing: 0.1em; }
+
+    /* Count View Styles */
+    .scroll-y-hub::-webkit-scrollbar { width: 4px; }
+    .scroll-y-hub::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    
+    .selected-count-hub { transform: scale(1.02); transition: all 0.2s; z-index: 10; }
+    
+    .display-value-hub {
+        text-shadow: 0 4px 12px rgba(13, 110, 253, 0.1);
+        min-height: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .bg-gradient-success-hub {
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+
+    .shadow-inner {
+        box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+    }
 </style>
 
 @code {
+    // Route parameters
+    [Parameter][SupplyParameterFromQuery] public string? Tab { get; set; }
+
     private bool _isLoading = true;
     private string _activeTab = "ordering";
+    private string _activeSetupTab = "products";
+    private string _statSortMode = "profit";
+    private string _searchQuery = "";
     private List<LiquorItem> _items = new();
     private List<LiquorVendor> _vendors = new();
     private List<LiquorOrder> _pendingOrders = new();
@@ -625,18 +1504,33 @@
     private Dictionary<int, int> _cart = new(); // ItemId -> Quantity
     private AppUser? _currentUser;
     
-    // Setup state
-    private string _newVendorName = "";
-    private LiquorItem _newItem = new() { Name = "", BottleSize = "750ml", MinStockLimit = 6, IsActive = true };
+    // Count State
+    private Dictionary<int, int> _stockCounts = new();
+    private LiquorItem? _selectedCountItem;
+    private string _countEntry = "0";
     
-    // Receipt state
+    // Setup state
+    private List<LiquorOrder> _recentOrders = new();
+    private LiquorItem _newItem = new() { Name = "", BottleSize = "750ml", MinStockLimit = 6, IsActive = true };
+    private string _newVendorName = "";
+    private int _filterVendorId = 0;
+    private string _searchTerm = "";
+    private bool _isAlphabeticalView = false;
     private LiquorOrder? _orderToReceive;
     private string _receiveInvoiceNumber = "";
-    private decimal _receiveTax = 0;
-    private decimal _receiveMisc = 0;
+    private decimal _receiveTotalDue = 0;
+
+    private LiquorOrder? _orderToPay;
+    private decimal _actualPaidAmount = 0;
+    private DateTime _paidDate = DateTime.Now;
+
+    // Edit state
+    private LiquorItem? _itemToEdit;
 
     protected override async Task OnInitializedAsync()
     {
+        if (!string.IsNullOrEmpty(Tab)) _activeTab = Tab;
+        
         await LoadUserDataAsync();
         await RefreshDataAsync();
     }
@@ -673,6 +1567,63 @@
         
         _isLoading = false;
         StateHasChanged();
+    }
+
+    // -- Stock Count Logic --
+
+    private void SelectCountItem(LiquorItem item)
+    {
+        _selectedCountItem = item;
+        _countEntry = _stockCounts.ContainsKey(item.Id) ? _stockCounts[item.Id].ToString() : "0";
+    }
+
+    private void MatchExpectedStock(LiquorItem item)
+    {
+        _stockCounts[item.Id] = item.CurrentStock;
+        StateHasChanged();
+    }
+
+    private void HandleNumpad(string key)
+    {
+        if (key == "C") _countEntry = "0";
+        else if (key == "DEL") 
+        {
+            if (_countEntry.Length > 1) _countEntry = _countEntry.Substring(0, _countEntry.Length -1);
+            else _countEntry = "0";
+        }
+        else
+        {
+            if (_countEntry == "0") _countEntry = key;
+            else if (_countEntry.Length < 4) _countEntry += key;
+        }
+    }
+
+    private void ConfirmSingleCount()
+    {
+        if (_selectedCountItem == null) return;
+        if (int.TryParse(_countEntry, out var val))
+        {
+            _stockCounts[_selectedCountItem.Id] = val;
+            _selectedCountItem = null;
+            _countEntry = "0";
+        }
+    }
+
+    private async Task SubmitFullReconciliation()
+    {
+        if (!_stockCounts.Any() || _currentUser == null) return;
+        
+        var auditEntries = _stockCounts.Select(kvp => new GFC.Core.Models.StockReconcileEntry 
+        { 
+            ItemId = kvp.Key, 
+            ActualCount = kvp.Value 
+        }).ToList();
+
+        await LiquorService.ReconcileStockAsync(auditEntries, _currentUser.UserId);
+        
+        _stockCounts.Clear();
+        await RefreshDataAsync();
+        _activeTab = "ordering"; // Head back to see what's low now
     }
 
     // -- Ordering Logic --
@@ -717,45 +1668,56 @@
 
         if (!cartByVendor.Any()) return;
 
-        bool anyCreated = false;
-
         foreach (var vendorGroup in cartByVendor)
         {
-            var order = new LiquorOrder
-            {
-                VendorId = vendorGroup.Key!.Value,
-                UserId = _currentUser.UserId,
-                Status = "Placed",
-                OrderDate = DateTime.UtcNow,
-                ItemsTotal = 0
-            };
-
-            foreach (var cartItem in vendorGroup)
-            {
-                var item = _items.First(i => i.Id == cartItem.Key);
-                order.OrderItems.Add(new LiquorOrderItem
-                {
-                    LiquorItemId = item.Id,
-                    Quantity = cartItem.Value,
-                    UnitPriceAtTimeOfOrder = item.CurrentPrice
-                });
-                order.ItemsTotal += item.CurrentPrice * cartItem.Value;
-            }
-            
-            order.TotalCost = order.ItemsTotal;
-            await LiquorService.CreateOrderAsync(order);
-            anyCreated = true;
+            var vendorId = vendorGroup.Key!.Value;
+            var vendorItems = vendorGroup.Select(e => _items.First(i => i.Id == e.Key)).ToList();
+            await PlaceVendorOrderAsync(_vendors.FirstOrDefault(v => v.Id == vendorId), vendorItems);
         }
+        
+        _cart.Clear();
+        await RefreshDataAsync();
+        _activeTab = "active";
+        await JSRuntime.InvokeVoidAsync("alert", "Orders placed successfully.");
+    }
 
-        if (anyCreated)
+    private async Task PlaceVendorOrderAsync(LiquorVendor? vendor, List<LiquorItem> items)
+    {
+        if (vendor == null || _currentUser == null) return;
+        
+        var order = new LiquorOrder
         {
-            _cart.Clear();
-            await RefreshDataAsync();
-            _activeTab = "active";
+            VendorId = vendor.Id,
+            UserId = _currentUser.UserId,
+            Status = "Placed",
+            OrderDate = DateTime.UtcNow,
+            ItemsTotal = 0
+        };
+
+        foreach (var item in items)
+        {
+            var qty = GetCartQuantity(item.Id);
+            if (qty <= 0) continue;
             
-            // Ask for print in a simple way for now
-            await JSRuntime.InvokeVoidAsync("alert", "Orders placed successfully. You can print the order sheets from the Pending or History tabs.");
+            order.OrderItems.Add(new LiquorOrderItem
+            {
+                LiquorItemId = item.Id,
+                Quantity = qty,
+                UnitPriceAtTimeOfOrder = item.CurrentPrice
+            });
+            order.ItemsTotal += item.CurrentPrice * qty;
         }
+
+        if (!order.OrderItems.Any()) return;
+        
+        order.TotalCost = order.ItemsTotal;
+        await LiquorService.CreateOrderAsync(order);
+        
+        // Clean partial cart for this vendor
+        foreach(var item in items) { _cart.Remove(item.Id); }
+        
+        await RefreshDataAsync();
+        _activeTab = "active";
     }
 
     // -- Receiving Logic --
@@ -764,28 +1726,43 @@
     {
         _orderToReceive = order;
         _receiveInvoiceNumber = "";
-        _receiveTax = 0;
-        _receiveMisc = 0;
+        _receiveTotalDue = order.ItemsTotal; // Default to expected total
     }
 
     private async Task ConfirmReceiptAsync()
     {
         if (_orderToReceive == null || _currentUser == null) return;
         
+        // Final sanity check for mandatory fields
+        if (string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0) return;
+        
+        // Calculate discrepancy (Tax + Fees)
+        var additionalCosts = _receiveTotalDue - _orderToReceive.ItemsTotal;
+        
         // 1. Update order meta
-        await LiquorService.UpdateOrderStatusAsync(_orderToReceive.Id, "Received", _receiveInvoiceNumber, _receiveTax, _receiveMisc);
+        await LiquorService.UpdateOrderStatusAsync(_orderToReceive.Id, "Received", _receiveInvoiceNumber, 0, additionalCosts);
         
         // 2. Process stock arrival
         await LiquorService.ReceiveOrderAsync(_orderToReceive.Id, _currentUser.UserId);
         
         _orderToReceive = null;
         await RefreshDataAsync();
-        _activeTab = "history";
+        _activeTab = "unpaid";
     }
 
-    private async Task MarkAsPaidAsync(int orderId)
+    private void OpenPaymentModal(LiquorOrder order)
     {
-        await LiquorService.MarkOrderAsPaidAsync(orderId, DateTime.Now);
+        _orderToPay = order;
+        _actualPaidAmount = order.TotalCost;
+        _paidDate = DateTime.Now;
+    }
+
+    private async Task ConfirmPaymentAsync()
+    {
+        if (_orderToPay == null || _currentUser == null) return;
+        
+        await LiquorService.MarkOrderAsPaidAsync(_orderToPay.Id, _paidDate, _actualPaidAmount, _currentUser.UserId);
+        _orderToPay = null;
         await RefreshDataAsync();
     }
 
@@ -798,6 +1775,16 @@
         await LiquorService.CreateVendorAsync(new LiquorVendor { Name = _newVendorName });
         _newVendorName = "";
         await RefreshDataAsync();
+    }
+
+    private void OpenAddModal()
+    {
+        _itemToEdit = new LiquorItem { Name = "", BottleSize = "750ml", MinStockLimit = 6, IsActive = true };
+    }
+
+    private void OpenEditModal(LiquorItem item)
+    {
+        _itemToEdit = item;
     }
 
     private async Task DeleteVendorAsync(int id)
@@ -829,6 +1816,22 @@
         }
     }
 
+
+    private async Task SaveEditAsync()
+    {
+        if (_itemToEdit == null) return;
+        try
+        {
+            await LiquorService.UpdateItemAsync(_itemToEdit);
+            _itemToEdit = null;
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", ex.Message);
+        }
+    }
+
     private async Task UpdateItemVendor(LiquorItem item, object? val)
     {
         if (int.TryParse(val?.ToString(), out var vendorId))
@@ -842,6 +1845,15 @@
         await LiquorService.UpdateItemAsync(item);
     }
 
+    private async Task HandleVendorMinOrderChange(LiquorVendor vendor, object? val)
+    {
+        if (decimal.TryParse(val?.ToString(), out var amt))
+        {
+            vendor.MinimumOrderAmount = Math.Floor(amt);
+            await LiquorService.UpdateVendorAsync(vendor);
+        }
+    }
+
     private void PrintOrder(int orderId)
     {
         NavMgr.NavigateTo($"/liquor/print-order/{orderId}");
@@ -851,5 +1863,30 @@
     {
         // For now just show print or alert, could do a full details modal
         PrintOrder(order.Id);
+    }
+
+    private decimal GetVendorMin(LiquorVendor? vendor)
+    {
+        if (vendor == null) return 0;
+        // Look up the vendor in our fresh list to ensure we have the latest Min Order amount
+        var freshVendor = _vendors.FirstOrDefault(v => v.Id == vendor.Id);
+        return freshVendor?.MinimumOrderAmount ?? 0;
+    }
+
+    private double GetOuncesFromSize(string? size)
+    {
+        if (string.IsNullOrEmpty(size)) return 0;
+        var s = size.ToLower().Replace(" ", "");
+        if (s.Contains("750ml")) return 25.36;
+        if (s == "1l" || s.Contains("1000ml")) return 33.81;
+        if (s.Contains("1.75l")) return 59.17;
+        if (s.Contains("375ml")) return 12.68;
+        if (s.Contains("50ml")) return 1.69;
+        if (s.Contains("355ml")) return 12.0;
+        if (s.Contains("187ml")) return 6.32;
+        if (s.Contains("12oz")) return 12.0;
+        if (s.Contains("16oz")) return 16.0;
+        if (s.Contains("10oz")) return 10.0;
+        return 0;
     }
 }

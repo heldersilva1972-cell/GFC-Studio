@@ -1,0 +1,204 @@
+@page "/mobile/liquor/unpaid"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@inject NavigationManager Navigation
+@inject ILiquorService LiquorService
+@attribute [Authorize]
+
+<PageTitle>Unpaid Invoices | Mobile</PageTitle>
+
+<div class="mobile-unpaid-container">
+    <!-- HEADER -->
+    <header class="fixed-header bg-white shadow-sm px-4 py-3">
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn btn-icon-round bg-light border-0" @onclick='() => Navigation.NavigateTo("/mobile/liquor/hub")'>
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <div>
+                <h5 class="mb-0 fw-black text-uppercase">UNPAID INVOICES</h5>
+                <div class="extra-small text-muted fw-bold">Confirm Vendor Payments</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="hub-scroll-area p-4" style="margin-top: 80px; padding-bottom: 120px;">
+        @if (_unpaidOrders == null)
+        {
+            <div class="p-5 text-center"><div class="spinner-border text-danger"></div></div>
+        }
+        else if (!_unpaidOrders.Any())
+        {
+            <div class="empty-state p-5 text-center">
+                <i class="bi bi-check2-circle display-4 text-success opacity-25"></i>
+                <h6 class="mt-3 fw-bold text-muted">All caught up!</h6>
+                <p class="small text-muted">No outstanding bills to pay.</p>
+            </div>
+        }
+        else
+        {
+            <div class="row g-3">
+                @foreach (var order in _unpaidOrders)
+                {
+                    <div class="col-12 col-md-6">
+                        <div class="unpaid-card animate-entrance shadow-sm p-4 rounded-4 border-0">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="badge bg-light text-dark border fw-bold">#@order.InvoiceNumber</span>
+                                <span class="extra-small fw-bold text-muted">@order.OrderDate.ToString("MMM dd")</span>
+                            </div>
+                            <h5 class="fw-black mb-1">@order.Vendor?.Name</h5>
+                            <div class="extra-small text-muted mb-3">Placed by @order.User?.Username</div>
+                            
+                            <div class="amount-strip p-3 bg-light rounded-3 mb-3 d-flex justify-content-between align-items-center">
+                                <span class="text-muted small fw-bold">TOTAL DUE:</span>
+                                <span class="h4 fw-black text-danger mb-0">@order.TotalCost.ToString("C")</span>
+                            </div>
+
+                            <button class="btn btn-danger btn-lg w-100 fw-black rounded-pill shadow-sm py-3" 
+                                    @onclick="() => OpenPayment(order)">
+                                <i class="bi bi-cash-coin me-2"></i> MARK AS PAID
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </main>
+
+    <!-- PAYMENT MODAL (MOBILE) -->
+    @if (_orderToPay != null)
+    {
+        <div class="modal-backdrop-custom" @onclick="() => _orderToPay = null"></div>
+        <div class="bottom-sheet">
+            <div class="sheet-handle"></div>
+            <div class="p-4">
+                <h5 class="fw-black text-danger text-uppercase mb-1">Confirm Payment</h5>
+                <div class="small text-muted mb-4">Invoice #@_orderToPay.InvoiceNumber</div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-6">
+                         <label class="extra-small fw-bold text-muted mb-1 text-uppercase">Check Date</label>
+                         <input type="date" class="form-control form-control-lg fw-bold" @bind="_paidDate" />
+                    </div>
+                    <div class="col-6">
+                         <label class="extra-small fw-bold text-muted mb-1 text-uppercase">Amount Paid</label>
+                         <input type="number" class="form-control form-control-lg fw-bold text-center" @bind="_paidAmount" step="0.01" />
+                    </div>
+                </div>
+
+                <div class="p-4 bg-light rounded-4 text-center mb-4">
+                    <div class="extra-small text-muted text-uppercase fw-bold mb-1">Total Due</div>
+                    <div class="h3 fw-black text-dark">@_orderToPay.TotalCost.ToString("C")</div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-danger btn-lg fw-black py-3 rounded-pill shadow" @onclick="ConfirmPayment">
+                        CONFIRM PAYMENT
+                    </button>
+                    <button class="btn btn-light btn-lg fw-bold rounded-pill" @onclick="() => _orderToPay = null">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .mobile-unpaid-container {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: #fdfdfd;
+        overflow-y: auto;
+    }
+
+    .fixed-header {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: 80px;
+        z-index: 1000;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+    }
+
+    .unpaid-card {
+        background: white;
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+
+    .amount-strip {
+        border-right: 4px solid #ef4444;
+    }
+
+    /* MODAL */
+    .modal-backdrop-custom {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 2000;
+        backdrop-filter: blur(2px);
+    }
+    .bottom-sheet {
+        position: fixed;
+        left: 10px; right: 10px; bottom: 10px;
+        background: white;
+        border-radius: 2rem;
+        z-index: 2001;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-shadow: 0 -20px 40px rgba(0,0,0,0.2);
+        animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .sheet-handle {
+        width: 40px; height: 5px; background: #eee;
+        border-radius: 5px; margin: 15px auto;
+    }
+
+    @@keyframes slideUp {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+    }
+    
+    .animate-entrance {
+        animation: entrance 0.4s ease-out forwards;
+        opacity: 0;
+    }
+    @@keyframes entrance {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+</style>
+
+@code {
+    private List<LiquorOrder>? _unpaidOrders;
+    private LiquorOrder? _orderToPay;
+    private DateTime _paidDate = DateTime.Now;
+    private decimal _paidAmount = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        var all = await LiquorService.GetAllOrdersAsync();
+        _unpaidOrders = all.Where(o => !o.IsPaid && o.Status == "Received").ToList();
+    }
+
+    private void OpenPayment(LiquorOrder order)
+    {
+        _orderToPay = order;
+        _paidAmount = order.TotalCost;
+        _paidDate = DateTime.Now;
+    }
+
+    private async Task ConfirmPayment()
+    {
+        if (_orderToPay == null) return;
+        
+        // Use default admin user ID 1 for mobile for now
+        await LiquorService.MarkOrderAsPaidAsync(_orderToPay.Id, _paidDate, _paidAmount, 1);
+        _orderToPay = null;
+        await LoadData();
+    }
+}

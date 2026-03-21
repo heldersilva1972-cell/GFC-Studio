@@ -14,6 +14,8 @@ namespace GFC.Core.Models
         [Required]
         [StringLength(200)]
         public string Name { get; set; } = string.Empty;
+        
+        public decimal MinimumOrderAmount { get; set; } = 0;
 
         public virtual ICollection<LiquorItem> Items { get; set; } = new List<LiquorItem>();
         public virtual ICollection<LiquorOrder> Orders { get; set; } = new List<LiquorOrder>();

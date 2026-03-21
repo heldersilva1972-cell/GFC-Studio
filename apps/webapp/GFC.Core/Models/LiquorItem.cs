@@ -42,6 +42,18 @@ namespace GFC.Core.Models
         [Required]
         public int MinStockLimit { get; set; } = 2;
 
+        public int MinimumOrderQuantity { get; set; } = 1;
+
+        public int PackSize { get; set; } = 1;
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal RetailPrice { get; set; } = 0;
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal PourSize { get; set; } = 1.5m;
+
+        public bool IsUnitBased { get; set; } = false; // Sold by unit (Can, Bottle, Pack) vs By Ounce (Liquor)
+
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

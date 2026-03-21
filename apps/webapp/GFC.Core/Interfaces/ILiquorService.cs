@@ -1,4 +1,5 @@
 using GFC.Core.Models;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -32,13 +33,16 @@ namespace GFC.Core.Interfaces
         Task<LiquorOrder?> GetOrderByIdAsync(int id);
         Task<LiquorOrder> CreateOrderAsync(LiquorOrder order);
         Task UpdateOrderStatusAsync(int orderId, string status, string? invoiceNumber = null, decimal? taxAmount = null, decimal? additionalCosts = null);
-        Task MarkOrderAsPaidAsync(int orderId, DateTime paidDate);
+        Task MarkOrderAsPaidAsync(int orderId, DateTime paidDate, decimal paidAmount, int paidByUserId);
         Task ReceiveOrderAsync(int orderId, int userId);
 
         // Notification Rules
         Task<LiquorNotificationRule?> GetNotificationRuleAsync(int userId);
         Task UpsertNotificationRuleAsync(LiquorNotificationRule rule);
         Task<IEnumerable<LiquorNotificationRule>> GetSubscribedUsersAsync();
+
+        // Inventory Audit (Reconciliation)
+        Task ReconcileStockAsync(IEnumerable<GFC.Core.Models.StockReconcileEntry> entries, int userId);
 
         // Analytics
         Task<List<ProductTrendDTO>> GetProductTrendsAsync(int daysLookback = 30);

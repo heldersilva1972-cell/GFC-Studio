@@ -310,6 +310,7 @@ namespace GFC.BlazorServer.Services
             return await db.LiquorOrders
                 .Include(o => o.Vendor)
                 .Include(o => o.User)
+                .Include(o => o.PaidByUser)
                 .Include(o => o.OrderItems)
                     .ThenInclude(oi => oi.LiquorItem)
                 .OrderByDescending(o => o.OrderDate)
@@ -355,7 +356,7 @@ namespace GFC.BlazorServer.Services
             }
         }
 
-        public async Task MarkOrderAsPaidAsync(int orderId, DateTime paidDate)
+        public async Task MarkOrderAsPaidAsync(int orderId, DateTime paidDate, decimal paidAmount, int paidByUserId)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var order = await db.LiquorOrders.FindAsync(orderId);
@@ -363,6 +364,8 @@ namespace GFC.BlazorServer.Services
             {
                 order.IsPaid = true;
                 order.PaidDate = paidDate;
+                order.ActualPaidAmount = paidAmount;
+                order.PaidByUserId = paidByUserId;
                 await db.SaveChangesAsync();
             }
         }
@@ -528,6 +531,55 @@ namespace GFC.BlazorServer.Services
             }
         }
 
+
+        public async Task ReconcileStockAsync(IEnumerable<GFC.Core.Models.StockReconcileEntry> entries, int userId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            
+            foreach (var entry in entries)
+            {
+                var item = await db.LiquorItems.FindAsync(entry.ItemId);
+                if (item == null) continue;
+
+                var oldStock = item.CurrentStock;
+                var delta = entry.ActualCount - oldStock;
+                
+                if (delta == 0) continue; // No change needed
+
+                // Update system stock
+                item.CurrentStock = entry.ActualCount;
+
+                // Log as reconciliation transaction
+                var transaction = new LiquorTransaction
+                {
+                    ItemId = item.Id,
+                    UserId = userId,
+                    ChangeAmount = delta,
+                    TransactionType = "Reconcile",
+                    Notes = $"Physical Inventory: {entry.ActualCount} (Adjusted from {oldStock})",
+                    Timestamp = DateTime.UtcNow
+                };
+
+                db.LiquorTransactions.Add(transaction);
+
+                // Quick notification check if it's now low
+                if (delta < 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var scope = _scopeFactory.CreateScope();
+                            var scopedLiquorService = (LiquorService)scope.ServiceProvider.GetRequiredService<ILiquorService>();
+                            await scopedLiquorService.CheckAndNotifyAsync(item.Id);
+                        }
+                        catch { /* Fire and forget */ }
+                    });
+                }
+            }
+
+            await db.SaveChangesAsync();
+        }
 
         public async Task<List<ProductTrendDTO>> GetProductTrendsAsync(int daysLookback = 30)
         {
