@@ -55,6 +55,7 @@ namespace GFC.Core.Models
         public bool IsUnitBased { get; set; } = false; // Sold by unit (Can, Bottle, Pack) vs By Ounce (Liquor)
 
         public bool IsActive { get; set; } = true;
+        public bool IsBeer { get; set; } = false;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

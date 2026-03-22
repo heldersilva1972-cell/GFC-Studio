@@ -44,7 +44,7 @@ namespace GFC.BlazorServer.Services
             return await db.LiquorItems.FirstOrDefaultAsync(i => i.UpcCode == upc && i.IsActive);
         }
 
-        public async Task<LiquorItem> CreateItemAsync(LiquorItem item)
+        public async Task<LiquorItem> CreateItemAsync(LiquorItem item, int? userId)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             
@@ -59,6 +59,22 @@ namespace GFC.BlazorServer.Services
             {
                 db.LiquorItems.Add(item);
                 await db.SaveChangesAsync();
+
+                // Log Creation if userId is provided
+                if (userId.HasValue && userId > 0)
+                {
+                    var transaction = new LiquorTransaction
+                    {
+                        ItemId = item.Id,
+                        UserId = userId.Value,
+                        ChangeAmount = item.CurrentStock,
+                        TransactionType = "Creation",
+                        Notes = $"Item Created: Initial Stock @ {item.CurrentStock}",
+                        Timestamp = DateTime.UtcNow
+                    };
+                    db.LiquorTransactions.Add(transaction);
+                    await db.SaveChangesAsync();
+                }
             }
             catch (DbUpdateException ex)
             {
@@ -68,36 +84,67 @@ namespace GFC.BlazorServer.Services
             return item;
         }
 
-        public async Task UpdateItemAsync(LiquorItem item)
+        public async Task UpdateItemAsync(LiquorItem item, int? userId)
+        {
+            await BulkSaveLiquorItemsAsync(new List<LiquorItem> { item }, userId);
+        }
+
+        public async Task BulkSaveLiquorItemsAsync(IEnumerable<LiquorItem> items, int? userId = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            
-            // Check for duplicate UPC on OTHER items
-            if (!string.IsNullOrEmpty(item.UpcCode))
+            var timestamp = DateTime.UtcNow;
+
+            foreach (var item in items)
             {
-                var exists = await db.LiquorItems.AnyAsync(i => i.UpcCode == item.UpcCode && i.Id != item.Id && i.IsActive);
-                if (exists) throw new Exception($"The UPC code '{item.UpcCode}' is already assigned to another product.");
+                var existing = await db.LiquorItems.AsNoTracking().FirstOrDefaultAsync(i => i.Id == item.Id);
+                if (existing == null) continue;
+
+                // Detect Changes
+                bool costChanged = existing.CurrentPrice != item.CurrentPrice;
+                bool priceChanged = existing.RetailPrice != item.RetailPrice;
+                bool minStockChanged = existing.MinStockLimit != item.MinStockLimit;
+                bool vendorChanged = existing.VendorId != item.VendorId;
+                bool nameChanged = existing.Name != item.Name;
+                bool sizeChanged = existing.BottleSize != item.BottleSize;
+
+                if (!costChanged && !priceChanged && !minStockChanged && !vendorChanged && !nameChanged && !sizeChanged) continue;
+
+                try
+                {
+                    db.LiquorItems.Update(item);
+                    
+                    if (userId.HasValue && userId > 0)
+                    {
+                        var auditNotes = new List<string>();
+                        if (costChanged) auditNotes.Add($"Bottle Cost: {existing.CurrentPrice:C} -> {item.CurrentPrice:C}");
+                        if (priceChanged) auditNotes.Add($"Drink Price: {existing.RetailPrice:C} -> {item.RetailPrice:C}");
+                        if (minStockChanged) auditNotes.Add($"Min: {existing.MinStockLimit} -> {item.MinStockLimit}");
+                        if (vendorChanged) auditNotes.Add("Vendor Updated");
+                        if (nameChanged) auditNotes.Add($"Name: {existing.Name} -> {item.Name}");
+
+                        if (auditNotes.Any())
+                        {
+                            var transaction = new LiquorTransaction
+                            {
+                                ItemId = item.Id,
+                                UserId = userId.Value,
+                                ChangeAmount = 0,
+                                TransactionType = "Update",
+                                Notes = string.Join(" | ", auditNotes),
+                                Timestamp = timestamp
+                            };
+                            db.LiquorTransactions.Add(transaction);
+                        }
+                    }
+                }
+                catch (DbUpdateException ex)
+                {
+                    var innerMessage = ex.InnerException?.Message ?? ex.Message;
+                    throw new Exception($"Bulk update for item '{item.Name}' failed: {innerMessage}");
+                }
             }
 
-            var existing = await db.LiquorItems.FindAsync(item.Id);
-            if (existing != null)
-            {
-            try 
-            {
-                // Safety: Entry tracking check
-                db.Entry(existing).CurrentValues.SetValues(item);
-                await db.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex)
-            {
-                var innerMessage = ex.InnerException?.Message ?? ex.Message;
-                throw new Exception($"Liquor Update Failed: {innerMessage}");
-            }
-            }
-            else
-            {
-                throw new Exception("Item not found in database.");
-            }
+            await db.SaveChangesAsync();
         }
 
         public async Task DeleteItemAsync(int id)

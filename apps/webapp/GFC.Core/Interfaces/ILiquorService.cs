@@ -11,8 +11,9 @@ namespace GFC.Core.Interfaces
         Task<IEnumerable<LiquorItem>> GetAllItemsAsync();
         Task<LiquorItem?> GetItemByIdAsync(int id);
         Task<LiquorItem?> GetItemByUpcAsync(string upc);
-        Task<LiquorItem> CreateItemAsync(LiquorItem item);
-        Task UpdateItemAsync(LiquorItem item);
+        Task<LiquorItem> CreateItemAsync(LiquorItem item, int? userId = null);
+        Task UpdateItemAsync(LiquorItem item, int? userId = null);
+        Task BulkSaveLiquorItemsAsync(IEnumerable<LiquorItem> items, int? userId = null);
         Task DeleteItemAsync(int id);
 
         // Vendor Management

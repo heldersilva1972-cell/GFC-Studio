@@ -28,5 +28,8 @@ namespace GFC.Core.Models
         [Required]
         [Column(TypeName = "decimal(18,2)")]
         public decimal UnitPriceAtTimeOfOrder { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal BottleFeeAtTimeOfOrder { get; set; } = 0;
     }
 }
