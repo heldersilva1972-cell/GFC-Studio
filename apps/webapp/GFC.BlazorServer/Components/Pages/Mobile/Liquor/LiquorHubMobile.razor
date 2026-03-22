@@ -138,7 +138,7 @@
             }
             else if (_activeTab == "count")
             {
-                <div class="count-view animate-entrance h-100 d-flex flex-column">
+                <div class="count-view animate-entrance d-flex flex-column" style="height: calc(100vh - 110px);">
                     <div class="audit-summary-bar bg-white border-bottom p-2 px-4 d-flex justify-content-between align-items-center mb-2 rounded-4 shadow-sm" style="min-height: 70px;">
                         <div class="d-flex align-items-center gap-4">
                             <div class="d-flex flex-column">
@@ -171,7 +171,7 @@
                                 </div>
                             </div>
                             <div class="p-0 scroll-y-hub flex-grow-1" style="overflow-y: auto;">
-                                @foreach (var item in _items.Where(i => string.IsNullOrEmpty(_searchQuery) || i.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)))
+                                @foreach (var item in _items.Where(i => string.IsNullOrEmpty(_searchQuery) || i.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Name))
                                 {
                                     bool isAdjusted = _stockCounts.ContainsKey(item.Id);
                                     var currentVal = isAdjusted ? _stockCounts[item.Id] : item.CurrentStock;
@@ -404,53 +404,63 @@
                     }
                     else
                     {
-                         <div class="row g-4">
-                            @foreach (var order in _activeOrders)
-                            {
-                                <div class="col-12 col-md-6 col-xl-4">
-                                    <div class="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
-                                        <div class="card-header bg-light border-0 p-3 d-flex justify-content-between align-items-center">
-                                            <div class="fw-black text-uppercase tracking-wider small text-primary">@(order.Vendor?.Name ?? "Unknown Vendor")</div>
-                                            <div class="badge bg-primary rounded-pill extra-small px-3">@order.Status</div>
-                                        </div>
-                                        <div class="card-body p-4">
-                                            <div class="d-flex justify-content-between mb-3 border-bottom pb-3">
-                                                <div>
-                                                    <div class="extra-small text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">Date Placed</div>
-                                                    <div class="fw-bold small">@order.OrderDate.ToString("MMM dd, yyyy")</div>
-                                                </div>
-                                                <div class="text-end">
-                                                    <div class="extra-small text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">Order Value</div>
-                                                    <div class="h5 fw-black text-dark mb-0">@(order.TotalCost > 0 ? order.TotalCost.ToString("C") : order.ItemsTotal.ToString("C"))</div>
-                                                </div>
+                        @foreach (var dateGroup in _activeOrders.GroupBy(o => o.OrderDate.ToString("yyyy-MM-dd HH:mm")).OrderByDescending(g => g.Key))
+                        {
+                            var groupDate = dateGroup.First().OrderDate.ToLocalTime();
+                            <div class="d-flex justify-content-between align-items-center mb-3 mt-4 px-1">
+                                <h6 class="fw-black text-uppercase text-dark mb-0" style="font-size: 0.8rem;">Batch: @groupDate.ToString("MMM dd • h:mm tt")</h6>
+                                <button class="btn btn-sm btn-outline-primary rounded-pill fw-bold" @onclick='async () => await JS.InvokeVoidAsync("open", $"/liquor/print-batch/{dateGroup.Key.Replace(" ", "T")}", "_blank")'>
+                                    <i class="bi bi-printer me-1"></i>PRINT
+                                </button>
+                            </div>
+                            <div class="row g-4 mb-3">
+                                @foreach (var order in dateGroup)
+                                {
+                                    <div class="col-12 col-md-6 col-xl-4">
+                                        <div class="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
+                                            <div class="card-header bg-light border-0 p-3 d-flex justify-content-between align-items-center">
+                                                <div class="fw-black text-uppercase tracking-wider small text-primary">@(order.Vendor?.Name ?? "Unknown Vendor")</div>
+                                                <div class="badge bg-primary rounded-pill extra-small px-3">@order.Status</div>
                                             </div>
-                                            
-                                            <div class="small fw-bold text-muted mb-2">Order Items:</div>
-                                            <div class="list-group list-group-flush mb-4 overflow-auto" style="max-height: 150px;">
-                                                @foreach (var oi in order.OrderItems)
-                                                {
-                                                    <div class="list-group-item px-0 py-1 border-0 bg-transparent d-flex justify-content-between align-items-center">
-                                                        <span class="small fw-bold">@oi.Quantity&times; <span class="fw-normal">@oi.LiquorItem?.Name</span></span>
-                                                        <span class="extra-small text-muted">@((oi.UnitPriceAtTimeOfOrder * oi.Quantity).ToString("C"))</span>
+                                            <div class="card-body p-4">
+                                                <div class="d-flex justify-content-between mb-3 border-bottom pb-3">
+                                                    <div>
+                                                        <div class="extra-small text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">Date Placed</div>
+                                                        <div class="fw-bold small">@order.OrderDate.ToString("MMM dd, yyyy")</div>
                                                     </div>
-                                                }
-                                            </div>
+                                                    <div class="text-end">
+                                                        <div class="extra-small text-muted text-uppercase fw-bold" style="font-size: 0.6rem;">Order Value</div>
+                                                        <div class="h5 fw-black text-dark mb-0">@(order.TotalCost > 0 ? order.TotalCost.ToString("C") : order.ItemsTotal.ToString("C"))</div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="small fw-bold text-muted mb-2">Order Items:</div>
+                                                <div class="list-group list-group-flush mb-4 overflow-auto" style="max-height: 150px;">
+                                                    @foreach (var oi in order.OrderItems)
+                                                    {
+                                                        <div class="list-group-item px-0 py-1 border-0 bg-transparent d-flex justify-content-between align-items-center">
+                                                            <span class="small fw-bold">@oi.Quantity&times; <span class="fw-normal">@oi.LiquorItem?.Name</span></span>
+                                                            <span class="extra-small text-muted">@((oi.UnitPriceAtTimeOfOrder * oi.Quantity).ToString("C"))</span>
+                                                        </div>
+                                                    }
+                                                </div>
 
-                                            <div class="d-flex gap-2">
-                                                @{ var currentOrder = order; }
-                                                <button class="btn btn-outline-primary rounded-pill fw-bold border-2 px-3" title="Print Order Sheet" 
-                                                        @onclick='async () => await JS.InvokeVoidAsync("open", $"/liquor/print-order/{currentOrder.Id}", "_blank")'>
-                                                    <i class="bi bi-printer"></i>
-                                                </button>
-                                                <button class="btn btn-success flex-grow-1 rounded-pill fw-black py-3 shadow-sm" @onclick="() => StartReceiptAsync(currentOrder)">
-                                                    MARK AS RECEIVED
-                                                </button>
+                                                <div class="d-flex gap-2">
+                                                    @{ var currentOrder = order; }
+                                                    <button class="btn btn-outline-primary rounded-pill fw-bold border-2 px-3" title="Print Order Sheet" 
+                                                            @onclick='async () => await JS.InvokeVoidAsync("open", $"/liquor/print-order/{currentOrder.Id}", "_blank")'>
+                                                        <i class="bi bi-printer"></i>
+                                                    </button>
+                                                    <button class="btn btn-success flex-grow-1 rounded-pill fw-black py-3 shadow-sm" @onclick="() => StartReceiptAsync(currentOrder)">
+                                                        MARK AS RECEIVED
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            }
-                        </div>
+                                }
+                            </div>
+                        }
                     }
                 </div>
             }
@@ -502,13 +512,22 @@
                 var totalProfit = totalRevenue - totalShelf;
 
                 <div class="analytics-view animate-entrance pb-5 px-4 scroll-y-hub" style="height: calc(100vh - 160px); overflow-y: auto; -webkit-overflow-scrolling: touch;">
-                    <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h5 class="fw-black text-uppercase mb-0">Financial Intelligence</h5>
-                        <div class="badge bg-primary-subtle text-primary rounded-pill px-3 py-2 fw-bold small">SYNCED WITH MASTER</div>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-black text-uppercase mb-0 tracking-wider">Financial Intelligence</h5>
+                        <div class="row g-0 rounded-pill border bg-light p-1" style="min-width: 200px;">
+                            <div class="col-6">
+                                <button class="btn btn-sm w-100 rounded-pill @(_analyticsSubTab == "overview" ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.6rem;" @onclick='() => _analyticsSubTab = "overview"'>OVERVIEW</button>
+                            </div>
+                            <div class="col-6">
+                                <button class="btn btn-sm w-100 rounded-pill @(_analyticsSubTab == "yearly" ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.6rem;" @onclick='() => _analyticsSubTab = "yearly"'>YEARLY</button>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- TRIPLE HEADER CARDS (NOW QUAD) -->
-                    <div class="row g-3 mb-4">
+                    @if (_analyticsSubTab == "overview")
+                    {
+                        <!-- TRIPLE HEADER CARDS (NOW QUAD) -->
+                        <div class="row g-3 mb-4">
                          <div class="col-md-3">
                             <div class="card rounded-4 border-0 shadow-sm p-4 h-100 text-white" style="background: #2563eb;">
                                 <div class="extra-small opacity-75 fw-bold text-uppercase mb-2">Cash on Shelves</div>
@@ -657,50 +676,269 @@
                             </table>
                         </div>
                     </div>
-                </div>
+                }
+                else if (_analyticsSubTab == "yearly")
+                {
+                    <div class="card rounded-4 border-0 shadow-sm p-4 bg-white mb-4">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+                            <h6 class="fw-black text-uppercase mb-0">Purchases By Year</h6>
+                            <select class="form-select form-select-sm fw-bold w-auto" @bind="_analyticsYear">
+                                @{ var distinctY = _orderHistory.Where(o => o.IsPaid).Select(o => o.OrderDate.Year).Distinct().OrderByDescending(y => y).ToList(); }
+                                @if(!distinctY.Any()) { distinctY.Add(DateTime.Now.Year); }
+                                @foreach (var y in distinctY)
+                                {
+                                    <option value="@y">@y</option>
+                                }
+                            </select>
+                        </div>
+                        
+                        @{
+                            var yearlyOrders = _orderHistory.Where(o => o.OrderDate.Year == _analyticsYear && o.IsPaid).ToList();
+                            var totalSpent = yearlyOrders.Sum(o => o.TotalCost);
+                            var totalBottles = yearlyOrders.SelectMany(o => o.OrderItems).Sum(i => i.Quantity);
+                            
+                            var itemStats = yearlyOrders.SelectMany(o => o.OrderItems)
+                                .GroupBy(i => i.LiquorItemId)
+                                .Select(g => new { 
+                                    Item = _items.FirstOrDefault(x => x.Id == g.Key), 
+                                    TotalQty = g.Sum(x => x.Quantity), 
+                                    TotalSpent = g.Sum(x => x.Quantity * x.UnitPriceAtTimeOfOrder) 
+                                })
+                                .Where(x => x.Item != null)
+                                .OrderByDescending(x => x.TotalSpent)
+                                .ToList();
+                        }
+                        
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <div class="p-3 bg-light rounded-4 border text-center shadow-inner h-100">
+                                    <h6 class="extra-small text-muted fw-bold text-uppercase mb-1">Total Spent</h6>
+                                    <h4 class="fw-black mb-0 text-danger">@totalSpent.ToString("C0")</h4>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="p-3 bg-light rounded-4 border text-center shadow-inner h-100">
+                                    <h6 class="extra-small text-muted fw-bold text-uppercase mb-1">Total Bottles</h6>
+                                    <h4 class="fw-black mb-0 text-primary">@totalBottles</h4>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0" style="font-size: 0.75rem;">
+                                <thead class="bg-light">
+                                    <tr class="extra-small text-muted text-uppercase tracking-wider">
+                                        <th class="ps-2">Product Name</th>
+                                        <th class="text-center">Qty</th>
+                                        <th class="text-end pe-2">Capital</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (!itemStats.Any())
+                                    {
+                                        <tr><td colspan="3" class="text-center py-4 text-muted fw-bold">No orders found for @_analyticsYear.</td></tr>
+                                    }
+                                    @foreach (var stat in itemStats)
+                                    {
+                                        <tr>
+                                            <td class="fw-bold text-dark ps-2">
+                                                @stat.Item.Name
+                                                <div class="extra-small text-muted fw-normal">@stat.Item.BottleSize</div>
+                                            </td>
+                                            <td class="text-center fw-black">@stat.TotalQty</td>
+                                            <td class="text-end fw-black text-primary pe-2">@stat.TotalSpent.ToString("C")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+            </div>
             }
             else if (_activeTab == "history")
             {
                 <div class="history-view animate-entrance">
-                    <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="fw-black text-uppercase mb-0">Activity History</h5>
                         <div class="row g-0 rounded-pill border bg-light p-1" style="min-width: 240px;">
-                            <div class="col-6">
-                                <button class="btn btn-sm w-100 rounded-pill @(_isOrderingHistory ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.65rem;" @onclick="() => _isOrderingHistory = true">ORDERS</button>
+                            <div class="col-4">
+                                <button class="btn btn-sm w-100 rounded-pill @(_historySubTab == "orders" ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.6rem;" @onclick='() => _historySubTab = "orders"'>ORDERS</button>
                             </div>
-                            <div class="col-6">
-                                <button class="btn btn-sm w-100 rounded-pill @(!_isOrderingHistory ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.65rem;" @onclick="() => _isOrderingHistory = false">ACTIVITY LOG</button>
+                            <div class="col-4">
+                                <button class="btn btn-sm w-100 rounded-pill @(_historySubTab == "purchases" ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.6rem;" @onclick='() => _historySubTab = "purchases"'>PRODUCTS</button>
+                            </div>
+                            <div class="col-4">
+                                <button class="btn btn-sm w-100 rounded-pill @(_historySubTab == "activity" ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.6rem;" @onclick='() => _historySubTab = "activity"'>LOG</button>
                             </div>
                         </div>
                     </div>
 
+                    @if (_historySubTab == "orders")
+                    {
+                        <div class="d-flex flex-wrap gap-2 mb-3 bg-light p-2 rounded-4 border">
+                            <select class="form-select form-select-sm w-auto fw-bold" @bind="_historyYearFilter">
+                                <option value="0">All Yrs</option>
+                                @foreach (var year in _orderHistory.Select(o => o.OrderDate.Year).Distinct().OrderByDescending(y => y))
+                                {
+                                    <option value="@year">@year</option>
+                                }
+                            </select>
+                            <select class="form-select form-select-sm w-auto fw-bold" @bind="_historyVendorFilter" style="max-width: 140px;">
+                                <option value="0">All Vendors</option>
+                                @foreach (var v in _vendors.OrderBy(v => v.Name))
+                                {
+                                    <option value="@v.Id">@v.Name</option>
+                                }
+                            </select>
+                            <div class="input-group input-group-sm flex-nowrap" style="width: auto; flex-grow: 1;">
+                                <input type="text" class="form-control fw-bold" placeholder="Product..." @bind="_historyProductSearch" @bind:event="oninput" />
+                                <button class="btn btn-white border px-2 fw-bold" @onclick="() => { _historyYearFilter = 0; _historyVendorFilter = 0; _historyProductSearch = string.Empty; }"><i class="bi bi-x"></i></button>
+                            </div>
+                        </div>
+                    }
+
                     <div class="scroll-y-hub" style="max-height: 70vh; overflow-y: auto;">
-                        @if (_isOrderingHistory)
+                        @if (_historySubTab == "orders")
                         {
-                            @if (!_orderHistory.Any())
+                            var filteredMobileHistory = _orderHistory.AsEnumerable();
+                            if (_historyYearFilter > 0) filteredMobileHistory = filteredMobileHistory.Where(o => o.OrderDate.Year == _historyYearFilter);
+                            if (_historyVendorFilter > 0) filteredMobileHistory = filteredMobileHistory.Where(o => o.VendorId == _historyVendorFilter);
+                            if (!string.IsNullOrWhiteSpace(_historyProductSearch))
+                            {
+                                filteredMobileHistory = filteredMobileHistory.Where(o => o.OrderItems.Any(i => i.LiquorItem != null && i.LiquorItem.Name.Contains(_historyProductSearch, StringComparison.OrdinalIgnoreCase)));
+                            }
+                            @if (!filteredMobileHistory.Any())
                             {
                                 <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-muted">
                                     <i class="bi bi-clock-history display-1 mb-3 opacity-25"></i>
-                                    <h5 class="fw-bold">No Order History</h5>
-                                    <p class="small mb-0">Completed orders will appear here.</p>
+                                    <h5 class="fw-bold">No Orders Found</h5>
+                                    <p class="small mb-0">No completed orders match these filters.</p>
                                 </div>
                             }
-                            @foreach (var order in _orderHistory)
+                            @foreach (var order in filteredMobileHistory.OrderByDescending(o => o.OrderDate))
                             {
+                                bool isExpanded = _expandedHistoryOrders.Contains(order.Id);
                                 var vendor = _vendors.FirstOrDefault(v => v.Id == order.VendorId);
-                                <div class="card rounded-4 border-0 shadow-sm p-3 mb-3 border-start border-5 border-success">
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <div class="extra-small text-muted fw-bold text-uppercase mb-1">RECEIVED @order.OrderDate.ToString("MMM dd, yyyy")</div>
-                                            <h6 class="fw-black mb-0">@(vendor?.Name ?? "Unknown Vendor")</h6>
-                                            <div class="small text-muted">@order.OrderItems.Count items | @(order.IsPaid ? "PAID" : "UNPAID")</div>
-                                        </div>
-                                        <div class="text-end">
-                                            <div class="fw-black text-primary">ID #@order.Id</div>
-                                            <div class="extra-small text-success fw-bold uppercase"><i class="bi bi-check-circle"></i> ARCHIVED</div>
+                                <div class="card rounded-4 border-0 shadow-sm mb-3 border-start border-5 border-success overflow-hidden">
+                                    <div class="p-3" @onclick="() => ToggleHistoryOrder(order.Id)">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <div>
+                                                <div class="extra-small text-muted fw-bold text-uppercase mb-1">RECEIVED @order.OrderDate.ToString("MMM dd, yyyy")</div>
+                                                <h6 class="fw-black mb-0 text-truncate" style="max-width: 180px;">@(vendor?.Name ?? "Unknown Vendor")</h6>
+                                                <div class="small text-muted">@order.OrderItems.Count items | @(order.IsPaid ? "PAID" : "UNPAID")</div>
+                                            </div>
+                                            <div class="text-end">
+                                                <div class="fw-black text-primary">ID #@order.Id</div>
+                                                <i class="bi @(isExpanded ? "bi-chevron-up" : "bi-chevron-down") text-muted fw-bold"></i>
+                                            </div>
                                         </div>
                                     </div>
+                                    @if (isExpanded)
+                                    {
+                                        <div class="bg-light p-3 border-top pb-2 shadow-inner">
+                                            <div class="d-flex justify-content-between align-items-end mb-2">
+                                                <div class="fw-black text-uppercase extra-small text-muted">Order Contents</div>
+                                                <div class="fw-bold text-dark" style="font-size: 0.8rem;">TOTAL: @order.TotalCost.ToString("C")</div>
+                                            </div>
+                                            <div class="d-flex flex-column gap-2 mb-3">
+                                                @foreach(var item in order.OrderItems)
+                                                {
+                                                    bool matchesSearch = !string.IsNullOrWhiteSpace(_historyProductSearch) && 
+                                                                       item.LiquorItem?.Name.Contains(_historyProductSearch, StringComparison.OrdinalIgnoreCase) == true;
+                                                    
+                                                    <div class="card rounded-3 border-0 shadow-sm p-2 @(matchesSearch ? "border-start border-3 border-primary bg-primary-subtle" : "bg-white")">
+                                                        <div class="d-flex justify-content-between align-items-center">
+                                                            <div>
+                                                                <div class="fw-bold" style="font-size: 0.85rem;">@item.LiquorItem?.Name</div>
+                                                                <div class="text-muted" style="font-size: 0.7rem;">@item.LiquorItem?.BottleSize | @item.UnitPriceAtTimeOfOrder.ToString("C")</div>
+                                                            </div>
+                                                            <div class="text-end ms-2">
+                                                                <div class="fw-black">@item.Quantity &times;</div>
+                                                                <div class="fw-bold text-primary" style="font-size: 0.8rem;">@((item.Quantity * item.UnitPriceAtTimeOfOrder).ToString("C"))</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-primary w-100 rounded-pill fw-bold" @onclick="() => PrintOrder(order.Id)"><i class="bi bi-printer me-2"></i> Print Order Sheet</button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                         <div class="px-3 pb-3">
+                                            <button class="btn btn-sm btn-outline-primary w-100 rounded-pill fw-bold" @onclick="() => PrintOrder(order.Id)"><i class="bi bi-printer me-2"></i> Print Order Sheet</button>
+                                         </div>
+                                    }
                                 </div>
+                            }
+                        }
+                        else if (_historySubTab == "purchases")
+                        {
+                            var purchaseCounts = _orderHistory.Where(o => o.IsPaid)
+                                .SelectMany(o => o.OrderItems)
+                                .GroupBy(i => i.LiquorItemId)
+                                .ToDictionary(g => g.Key, g => g.Sum(i => i.Quantity));
+                                
+                            <div class="d-flex flex-wrap gap-2 mb-3 bg-light p-2 rounded-4 border">
+                                <div class="input-group input-group-sm flex-nowrap w-100">
+                                    <select class="form-select form-select-sm fw-bold w-100" @bind="_historyPurchaseProductId">
+                                        <option value="0">-- Select Product to View --</option>
+                                        @foreach (var item in _items.Where(i => purchaseCounts.ContainsKey(i.Id)).OrderBy(i => i.Name))
+                                        {
+                                            <option value="@item.Id">@item.Name (Qty: @purchaseCounts[item.Id])</option>
+                                        }
+                                    </select>
+                                    <button class="btn btn-white border px-3 fw-bold" @onclick="() => _historyPurchaseProductId = 0" title="Clear Search"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                            </div>
+
+                            @if (_historyPurchaseProductId == 0)
+                            {
+                                <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-muted">
+                                    <i class="bi bi-box-seam display-1 mb-3 opacity-25"></i>
+                                    <h5 class="fw-bold">No Product Selected</h5>
+                                    <p class="small mb-0">Select a product above to view its order history.</p>
+                                </div>
+                            }
+                            else
+                            {
+                                var purchaseExhibits = _orderHistory
+                                    .Where(o => o.IsPaid)
+                                    .SelectMany(o => o.OrderItems.Where(i => i.LiquorItemId == _historyPurchaseProductId).Select(i => new { Order = o, Item = i }))
+                                    .OrderByDescending(x => x.Order.OrderDate)
+                                    .ToList();
+
+                                if (!purchaseExhibits.Any())
+                                {
+                                    <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-danger">
+                                        <i class="bi bi-search display-1 mb-3 opacity-25"></i>
+                                        <h5 class="fw-bold">No Records</h5>
+                                        <p class="small mb-0">This product has no completed purchase history.</p>
+                                    </div>
+                                }
+                                
+                                @foreach(var record in purchaseExhibits)
+                                {
+                                    <div class="card rounded-4 border-0 shadow-sm p-3 mb-3 border-start border-5 border-primary">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <div>
+                                                <div class="extra-small text-muted fw-bold text-uppercase mb-1">RECEIVED @record.Order.OrderDate.ToString("MMM dd, yyyy")</div>
+                                                <h6 class="fw-black mb-0 text-truncate" style="max-width: 180px;">@(record.Order.Vendor?.Name ?? "Unknown Vendor")</h6>
+                                                <div class="small text-muted">Invoice: #@record.Order.InvoiceNumber</div>
+                                            </div>
+                                            <div class="text-end">
+                                                <div class="fw-black">@record.Item.Quantity &times;</div>
+                                                <div class="extra-small fw-bold text-muted">@@@record.Item.UnitPriceAtTimeOfOrder.ToString("C")</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-light p-2 rounded-3 mt-2 mb-2 d-flex justify-content-between align-items-center">
+                                            <span class="fw-bold extra-small text-muted text-uppercase">Subtotal</span>
+                                            <span class="fw-black text-primary fs-6">@((record.Item.Quantity * record.Item.UnitPriceAtTimeOfOrder).ToString("C"))</span>
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-primary w-100 rounded-pill fw-bold" @onclick="() => PrintOrder(record.Order.Id)"><i class="bi bi-receipt me-2"></i> View Full Invoice</button>
+                                    </div>
+                                }
                             }
                         }
                         else
@@ -1023,8 +1261,9 @@
                 </div>
 
                 <div class="p-4 bg-primary text-white rounded-4 shadow-sm mb-4">
-                    <div class="extra-small opacity-75 fw-black text-uppercase mb-1" style="font-size: 0.6rem;">Grand Total (Including Bottle Fees)</div>
+                    <div class="extra-small opacity-75 fw-bold text-uppercase mb-1" style="font-size: 0.6rem;">Estimated Grand Total</div>
                     <h2 class="fw-black mb-0">@_orderSummary.Sum(s => s.Total).ToString("C")</h2>
+                    <div class="fw-bold mt-1" style="font-size: 0.55rem; color: rgba(255,255,255,0.8);">*Estimate only. Excludes taxes, fees, and returned empties.</div>
                 </div>
                 
                 <div class="d-flex flex-column gap-3">
@@ -1450,7 +1689,9 @@
     private List<LiquorOrder> _unpaidOrders = new();
     private List<LiquorOrder> _orderHistory = new();
     private List<LiquorTransaction> _auditHistory = new();
-    private bool _isOrderingHistory = true;
+    private string _historySubTab = "orders";
+    private string _analyticsSubTab = "overview";
+    private int _analyticsYear = DateTime.Now.Year;
 
     // Safety Guard State
     private bool _showExitConfirm = false;
@@ -1595,6 +1836,21 @@
     private bool _showOrderConfirm = false;
     private List<OrderConfirmationSummary> _orderSummary = new();
     private int? _singleOrderVendorId = null;
+    
+    // History Filters
+    private int _historyYearFilter = 0;
+    private int _historyVendorFilter = 0;
+    private string _historyProductSearch = "";
+    private int _historyPurchaseProductId = 0;
+    private HashSet<int> _expandedHistoryOrders = new();
+    
+    private void ToggleHistoryOrder(int orderId)
+    {
+        if (_expandedHistoryOrders.Contains(orderId))
+            _expandedHistoryOrders.Remove(orderId);
+        else
+            _expandedHistoryOrders.Add(orderId);
+    }
 
     private LiquorOrder? _orderToReceive;
     private string _receiveInvoiceNumber = "";
@@ -1609,6 +1865,11 @@
         public string VendorName { get; set; } = "";
         public int ItemCount { get; set; }
         public decimal Total { get; set; }
+    }
+
+    private async Task PrintOrder(int id)
+    {
+        await JS.InvokeVoidAsync("open", $"/liquor/print-order/{id}", "_blank");
     }
 
     private void NavigateToPortal()

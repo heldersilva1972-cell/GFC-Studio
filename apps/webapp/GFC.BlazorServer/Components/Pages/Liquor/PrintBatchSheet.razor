@@ -1,0 +1,289 @@
+@page "/liquor/print-batch/{BatchDateStr}"
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavMgr
+@layout GFC.BlazorServer.Components.Layout.EmptyLayout
+
+<PageTitle>Print Liquor Order Batch | GFC</PageTitle>
+
+<style>
+    /* Hide non-print elements */
+    @@media print {
+        .no-print {
+            display: none !important;
+        }
+        
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+        }
+
+        @@page {
+            margin: 0.5in;
+        }
+    }
+
+    body {
+        background: white !important;
+        color: black !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .print-container {
+        padding: 20px;
+    }
+    
+    @@media print {
+        .print-container {
+            padding: 0;
+        }
+    }
+
+    .print-header {
+        border-bottom: 2px solid #000;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+    }
+
+    .print-header h1 {
+        margin: 0;
+        font-size: 16pt;
+        font-weight: 900;
+    }
+
+    .batch-meta {
+        margin-bottom: 15px;
+    }
+
+    .list-table {
+        width: 100%;
+        margin-bottom: 15px;
+        border-collapse: collapse;
+    }
+
+    .list-table td {
+        padding: 2px 0;
+        border: none;
+        border-bottom: 1px dashed #ccc;
+        font-size: 9pt;
+        line-height: 1.1;
+        vertical-align: middle;
+    }
+
+    .qty-badge {
+        font-weight: 900;
+        width: 60px;
+    }
+
+    .item-name {
+        font-weight: bold;
+    }
+
+    .item-meta {
+        color: #666;
+        font-size: 9pt;
+        margin-left: 5px;
+        font-style: italic;
+        font-weight: normal;
+    }
+
+    .item-price {
+        font-weight: bold;
+        text-align: right;
+        width: 80px;
+    }
+
+    .total-section {
+        text-align: right;
+        font-size: 10pt;
+        font-weight: bold;
+    }
+
+    .grand-total {
+        font-size: 14pt;
+        font-weight: 900;
+        border-top: 2px solid #000;
+        display: inline-block;
+        padding-top: 5px;
+        margin-top: 10px;
+    }
+
+    .no-print-toolbar {
+        padding: 15px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .vendor-title {
+        font-size: 11pt;
+        font-weight: 900;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 3px;
+    }
+
+    .vendors-grid {
+        column-count: 2;
+        column-gap: 40px;
+        margin-top: 10px;
+    }
+
+    .vendor-block {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        -webkit-column-break-inside: avoid;
+        margin-bottom: 25px;
+        display: inline-block;
+        width: 100%;
+    }
+
+    .check-box {
+        width: 20px;
+        height: 20px;
+        border: 1px solid #000;
+        display: inline-block;
+        vertical-align: middle;
+    }
+</style>
+
+<div class="no-print-toolbar no-print">
+    <div>
+        <strong>Print Preview:</strong> Delivery Sheet - @(ParseBatchDate()?.ToString("MMMM dd, yyyy") ?? BatchDateStr)
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" onclick="window.print()">
+            <i class="bi bi-printer-fill me-2"></i> Print Sheet
+        </button>
+        <button class="btn btn-outline-secondary" onclick="window.close()">
+            Close Window
+        </button>
+    </div>
+</div>
+
+@if (_isLoading)
+{
+    <div class="container py-5 text-center">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted">Preparing delivery sheet...</p>
+    </div>
+}
+else if (!_batchOrders.Any())
+{
+    <div class="container py-5 text-center">
+        <h3>No orders found.</h3>
+        <p>No active orders were placed on this date.</p>
+        <button class="btn btn-primary" onclick="window.close()">Close Window</button>
+    </div>
+}
+else
+{
+    <div class="print-container">
+        <div class="print-header d-flex justify-content-between align-items-center">
+            <div>
+                <h1>DELIVERY SHEET</h1>
+                <p class="mb-0">GFC Liquor Inventory Management</p>
+            </div>
+            <div class="text-end">
+                <div style="font-size: 10pt;" class="text-muted">Generated: @DateTime.Now.ToString("MM/dd/yyyy HH:mm")</div>
+            </div>
+        </div>
+
+        <div class="batch-meta">
+            <label class="text-muted fw-bold small text-uppercase d-block mb-1">ORDERS PLACED ON</label>
+            <span>@(ParseBatchDate()?.ToString("dddd, MMMM dd, yyyy"))</span>
+        </div>
+
+        @{
+            var grandTotal = 0m;
+        }
+
+        <div class="vendors-grid">
+            @foreach (var order in _batchOrders.OrderBy(o => o.Vendor?.Name))
+            {
+                grandTotal += order.TotalCost;
+                <div class="vendor-block">
+                    <div class="vendor-title">@order.Vendor?.Name</div>
+                    <table class="list-table">
+                        <tbody>
+                            @foreach (var item in order.OrderItems)
+                            {
+                                <tr>
+                                    <td class="qty-badge">@item.Quantity&times;</td>
+                                    <td class="item-name">
+                                        @item.LiquorItem?.Name 
+                                        <span class="item-meta">(@item.LiquorItem?.BottleSize)</span>
+                                    </td>
+                                    <td class="item-price">@((item.UnitPriceAtTimeOfOrder * item.Quantity).ToString("C"))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    
+                    <div class="total-section">
+                        VENDOR TOTAL: <span>@order.TotalCost.ToString("C")</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="text-end mt-5">
+            <div class="grand-total">
+                <label class="me-3">GRAND TOTAL FOR THIS BATCH:</label>
+                <span>@grandTotal.ToString("C")</span>
+            </div>
+        </div>
+        
+        <div class="mt-5 pt-5 pb-5 no-print">
+            <div class="text-center text-muted small">
+                End of document.
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string BatchDateStr { get; set; } = "";
+    
+    private List<LiquorOrder> _batchOrders = new();
+    private bool _isLoading = true;
+
+    private DateTime? ParseBatchDate()
+    {
+        if (DateTime.TryParse(BatchDateStr.Replace("T", " "), out var d)) return d;
+        return null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadBatchOrdersAsync();
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadBatchOrdersAsync()
+    {
+        var targetDate = ParseBatchDate();
+        if (targetDate == null) return;
+
+        // Fetch all placed orders
+        var allOrders = await LiquorService.GetAllOrdersAsync();
+        
+        // Filter by the parsed date (matching year, month, day, hour, and minute)
+        _batchOrders = allOrders
+            .Where(o => o.Status == "Placed" && o.OrderDate.ToString("yyyy-MM-dd HH:mm") == targetDate.Value.ToString("yyyy-MM-dd HH:mm"))
+            .ToList();
+    }
+}
