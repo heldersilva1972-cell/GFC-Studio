@@ -2,119 +2,555 @@
 @using Microsoft.AspNetCore.Authorization
 @using GFC.Core.Interfaces
 @using GFC.Core.Models
+@using GFC.BlazorServer.Auth
 @inject NavigationManager Navigation
 @inject ILiquorService LiquorService
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @attribute [Authorize]
 
 <PageTitle>Liquor HUB | Mobile</PageTitle>
 
 <div class="mobile-hub-container">
-    <!-- HEADER -->
-    <div class="fixed-top-header">
-        <div class="d-flex align-items-center gap-3 p-4 bg-white border-bottom animate-entrance">
-            <button class="btn btn-icon-round bg-light border-0" @onclick='() => Navigation.NavigateTo("/mobile")'>
-                <i class="bi bi-house-door-fill text-muted"></i>
-            </button>
+    <header class="tablet-header d-flex justify-content-between align-items-center p-4 bg-white border-bottom shadow-sm fixed-top" style="height: 100px; z-index: 1050;">
+        <div class="d-flex align-items-center gap-3">
+            <div class="app-logo-mark rounded-3 bg-dark d-flex align-items-center justify-content-center h-100 shadow-sm" style="width: 50px; height: 50px; min-width: 50px;">
+                <span class="text-white fw-900 fs-4">GFC</span>
+            </div>
+            <div class="d-flex flex-column" style="line-height: 1.1;">
+                <span class="fw-900 text-dark fs-5 mb-0" style="letter-spacing: -0.02em;">MEMBERSHIP</span>
+                <span class="extra-small text-muted fw-black text-uppercase" style="font-size: 0.6rem;">Control Center</span>
+            </div>
+            <div class="vr mx-3 ms-4 opacity-25"></div>
             <div>
-                <h4 class="mb-0 fw-black text-uppercase tracking-wider">LIQUOR HUB</h4>
-                <div class="extra-small text-muted fw-bold">BAR & INVENTORY MANAGEMENT</div>
+                <h4 class="fw-black mb-0 text-uppercase tracking-wider">LIQUOR HUB</h4>
+                <div class="extra-small text-muted fw-bold text-uppercase">
+                    @if (_activeTab == null) { <span class="text-primary"><i class="bi bi-speedometer2"></i> DASHBOARD</span> }
+                    else { <span class="text-success"><i class="bi bi-chevron-right"></i> @_activeTab.ToUpper() TOOL</span> }
+                </div>
             </div>
         </div>
-    </div>
+        
+        <div class="d-flex align-items-center gap-3">
+             <div class="text-end d-none d-md-block">
+                <div class="fw-black small">@_currentUser?.Username</div>
+                <div class="extra-small text-muted">ID: @_currentUser?.UserId</div>
+            </div>
+            <div class="vr mx-2"></div>
+            <button class="btn btn-light rounded-pill px-4 fw-black text-primary border-0" @onclick='() => SetTab(null)'>
+                <i class="bi bi-house-door-fill me-1"></i> HOME
+            </button>
+        </div>
+    </header>
 
-    <!-- MAIN SCROLL AREA -->
+    <!-- MAIN HUB AREA -->
     <main class="hub-scroll-area p-4">
         <div class="container-fluid" style="margin-top: 100px; padding-bottom: 120px;">
-            
-            <div class="welcome-banner mb-4 animate-entrance emerald-gradient rounded-4 p-4 shadow-sm text-white">
-                <h5 class="fw-bold mb-1">Stock Dashboard</h5>
-                <p class="small mb-0 opacity-75">Select a task below to manage bar inventory.</p>
-            </div>
-
-            <div class="mobile-app-grid">
-                <!-- ROW 1 -->
-                <div class="app-card animate-entrance stagger-1" @onclick='() => Navigation.NavigateTo("/liquor/hub?Tab=ordering")'>
-                    <div class="icon-orb emerald">
-                        <i class="bi bi-cart-plus-fill"></i>
-                    </div>
-                    <div class="card-content">
-                        <h6 class="fw-black mb-0">ORDERING LIST</h6>
-                        <p class="extra-small text-muted mb-0">Build your next vendor order</p>
-                    </div>
+            @if (_activeTab == null)
+            {
+                <div class="welcome-banner mb-4 animate-entrance emerald-gradient rounded-4 p-4 shadow-sm text-white">
+                    <h5 class="fw-bold mb-1">Stock Dashboard</h5>
+                    <p class="small mb-0 opacity-75">Select a task below to manage bar inventory.</p>
                 </div>
 
-                <div class="app-card animate-entrance stagger-1" @onclick='() => Navigation.NavigateTo("/liquor/hub?Tab=active")'>
-                    <div class="icon-orb blue">
-                        <i class="bi bi-truck"></i>
+                <div class="mobile-app-grid">
+                    <div class="app-card animate-entrance stagger-1" @onclick='() => SetTab("ordering")'>
+                        <div class="icon-orb emerald"><i class="bi bi-cart-plus-fill"></i></div>
+                        <div class="card-content">
+                            <h6 class="fw-black mb-0">ORDERING LIST</h6>
+                            <p class="extra-small text-muted mb-0">Build your next vendor order</p>
+                        </div>
                     </div>
-                    <div class="card-content">
-                        <h6 class="fw-black mb-0">RECEIVE ORDER</h6>
-                        <p class="extra-small text-muted mb-0">Mark shipments into inventory</p>
+
+                    <div class="app-card animate-entrance stagger-1" @onclick='() => SetTab("receiving")'>
+                        <div class="icon-orb blue"><i class="bi bi-truck"></i></div>
+                        <div class="card-content">
+                            <h6 class="fw-black mb-0">RECEIVE ORDER</h6>
+                            <p class="extra-small text-muted mb-0">Mark shipments into inventory</p>
+                        </div>
+                    </div>
+
+                    <div class="app-card animate-entrance stagger-2" @onclick='() => SetTab("unpaid")'>
+                        <div class="icon-orb red">
+                            @if (_unpaidCount > 0)
+                            {
+                                <span class="badge rounded-pill bg-danger border border-white pulse-badge">@_unpaidCount</span>
+                            }
+                            <i class="bi bi-cash-stack"></i>
+                        </div>
+                        <div class="card-content">
+                            <h6 class="fw-black mb-0">UNPAID INVOICES</h6>
+                            <p class="extra-small text-muted mb-0">Confirm vendor check payments</p>
+                        </div>
+                    </div>
+
+                    <div class="app-card animate-entrance stagger-2" @onclick='() => SetTab("count")'>
+                        <div class="icon-orb indigo"><i class="bi bi-clipboard-check-fill"></i></div>
+                        <div class="card-content">
+                            <h6 class="fw-black mb-0">STOCK COUNT</h6>
+                            <p class="extra-small text-muted mb-0">Reconcile physical inventory</p>
+                        </div>
+                    </div>
+
+                    <div class="app-card animate-entrance stagger-3" @onclick='() => SetTab("history")'>
+                        <div class="icon-orb amber"><i class="bi bi-clock-history"></i></div>
+                        <div class="card-content">
+                            <h6 class="fw-black mb-0">VIEW HISTORY</h6>
+                            <p class="extra-small text-muted mb-0">Audit logs & past orders</p>
+                        </div>
+                    </div>
+
+                    <div class="app-card animate-entrance stagger-3" @onclick='() => SetTab("setup")'>
+                        <div class="icon-orb purple"><i class="bi bi-gear-fill"></i></div>
+                        <div class="card-content">
+                            <h6 class="fw-black mb-0">HUB SETUP</h6>
+                            <p class="extra-small text-muted mb-0">Product alerts & Vendor settings</p>
+                        </div>
                     </div>
                 </div>
+            }
+            else if (_activeTab == "count")
+            {
+                <div class="count-view animate-entrance h-100 d-flex flex-column">
+                    <div class="audit-summary-bar bg-white border-bottom p-2 px-4 d-flex justify-content-between align-items-center mb-2 rounded-4 shadow-sm" style="min-height: 70px;">
+                        <div class="d-flex align-items-center gap-4">
+                            <div class="d-flex flex-column">
+                                <span class="extra-small text-muted fw-black text-uppercase" style="font-size: 0.55rem;">Audit Progress</span>
+                                <span class="fw-black mb-0" style="font-size: 0.9rem;">@(_stockCounts.Count) BOTTLES</span>
+                            </div>
+                            <div class="vr opacity-25" style="height: 25px;"></div>
+                            <div class="d-flex flex-column">
+                                <span class="extra-small text-muted fw-black text-uppercase" style="font-size: 0.55rem;">Correction</span>
+                                @{ var net = _stockCounts.Sum(kvp => kvp.Value - _items.First(i => i.Id == kvp.Key).CurrentStock); }
+                                <span class="fw-black mb-0 @(net < 0 ? "text-danger" : net > 0 ? "text-success" : "text-muted")" style="font-size: 0.9rem;">
+                                    @(net > 0 ? "+" : "")@net
+                                </span>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-light px-3 py-2 rounded-pill fw-bold text-muted small" @onclick="() => _stockCounts.Clear()">RESET</button>
+                            <button class="btn btn-primary px-4 py-2 rounded-pill fw-black shadow-sm" @onclick="SubmitFullReconciliation" disabled="@(!_stockCounts.Any())" style="font-size: 0.85rem;">
+                                <i class="bi bi-cloud-upload me-2"></i>SAVE CHANGES
+                            </button>
+                        </div>
+                    </div>
 
-                <!-- ROW 2 -->
-                <div class="app-card animate-entrance stagger-2" @onclick='() => Navigation.NavigateTo("/liquor/hub?Tab=unpaid")'>
-                    <div class="icon-orb red">
-                        @if (_unpaidCount > 0)
+                    <div class="flex-grow-1 overflow-hidden d-flex flex-column">
+                        <div class="card rounded-4 border-0 shadow-sm overflow-hidden d-flex flex-column h-100">
+                            <div class="p-2 bg-white border-bottom shadow-sm">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control bg-light border-0 fw-bold py-2" placeholder="Quick find bottle..." @bind="_searchQuery" @bind:event="oninput" />
+                                </div>
+                            </div>
+                            <div class="p-0 scroll-y-hub flex-grow-1" style="overflow-y: auto;">
+                                @foreach (var item in _items.Where(i => string.IsNullOrEmpty(_searchQuery) || i.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    bool isAdjusted = _stockCounts.ContainsKey(item.Id);
+                                    var currentVal = isAdjusted ? _stockCounts[item.Id] : item.CurrentStock;
+                                    var diff = isAdjusted ? (currentVal - item.CurrentStock) : 0;
+
+                                    <div class='d-flex align-items-stretch border-bottom @(isAdjusted ? "selected-for-audit" : "")' style="min-height: 80px;">
+                                        <div class='p-2 px-3 d-flex align-items-center gap-3 flex-grow-1 @(isAdjusted ? "bg-transparent" : "bg-white")'>
+                                            <div class="stock-pill @(item.CurrentStock <= 0 ? "empty" : item.CurrentStock <= item.MinStockLimit ? "low" : "ok")" style="min-width: 50px; padding: 2px 5px;">
+                                                <div class="stock-label" style="font-size: 0.45rem;">SYS</div>
+                                                <div class="stock-number" style="font-size: 0.9rem;">@item.CurrentStock</div>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <div class="fw-black text-uppercase mb-0 fs-6 lh-sm">@item.Name</div>
+                                                <div class="extra-small text-muted fw-bold" style="font-size: 0.55rem;">SIZE: @item.BottleSize | LIMIT: @item.MinStockLimit</div>
+                                            </div>
+                                        </div>
+
+                                        <div class="d-flex align-items-center bg-light border-start px-3 gap-3" style="min-width: 280px;">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <button class="btn btn-white shadow-sm border rounded-circle p-0 d-flex align-items-center justify-content-center" 
+                                                        style="width: 36px; height: 36px;" @onclick="() => AdjustSessionCount(item.Id, -1)">
+                                                    <i class="bi bi-dash-lg fs-6 fw-bold"></i>
+                                                </button>
+                                                
+                                                <div class="bg-white border rounded-3 shadow-inner px-3 py-1 text-center" style="min-width: 70px;">
+                                                    <div class="extra-small text-muted fw-bold text-uppercase mb-0" style="font-size: 0.45rem;">ACTUAL</div>
+                                                    <div class="fw-black mb-0 @(isAdjusted ? "text-primary" : "")" style="font-size: 1.1rem;">@currentVal</div>
+                                                </div>
+
+                                                <button class="btn btn-white shadow-sm border rounded-circle p-0 d-flex align-items-center justify-content-center" 
+                                                        style="width: 36px; height: 36px;" @onclick="() => AdjustSessionCount(item.Id, 1)">
+                                                    <i class="bi bi-plus-lg fs-6 fw-bold"></i>
+                                                </button>
+                                            </div>
+
+                                            <div class="text-end" style="min-width: 60px;">
+                                                <div class="extra-small text-muted fw-bold text-uppercase mb-0" style="font-size: 0.45rem;">ADJ</div>
+                                                <div class="fw-black mb-0 @(diff < 0 ? "text-danger" : diff > 0 ? "text-success" : "text-muted")" style="font-size: 0.9rem;">
+                                                    @(diff > 0 ? "+" : "")@diff
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (_activeTab == "ordering")
+            {
+                <div class="ordering-view animate-entrance">
+                    <div class="d-flex justify-content-between align-items-center mb-4 bg-white p-3 rounded-4 shadow-sm">
+                         <div class="input-group w-50">
+                            <span class="input-group-text bg-light border-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" class="form-control bg-light border-0" placeholder="Search bottles..." @bind="_searchTerm" @bind:event="oninput" />
+                        </div>
+                        <div class="row g-0 rounded-pill border bg-light p-1" style="min-width: 200px;">
+                            <div class="col-6">
+                                <button class="btn btn-sm w-100 rounded-pill @(_isAlphabeticalView ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-bold" style="font-size: 0.6rem;" @onclick="() => _isAlphabeticalView = true">LIST</button>
+                            </div>
+                            <div class="col-6">
+                                <button class="btn btn-sm w-100 rounded-pill @(!_isAlphabeticalView ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-bold" style="font-size: 0.6rem;" @onclick="() => _isAlphabeticalView = false">VENDOR</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-4">
+                        <div class="col-lg-8">
+                            <div class="scroll-y-hub" style="max-height: 65vh; overflow-y: auto; padding-right: 1.5rem;">
+                                @if (_isAlphabeticalView)
+                                {
+                                    <div class="row g-3">
+                                        @foreach (var item in _items.Where(i => string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Name))
+                                        {
+                                            <div class="col-md-6">
+                                                <div class="card rounded-4 border-0 shadow-sm mb-3 overflow-hidden @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
+                                                    <div class="p-3 d-flex align-items-center justify-content-between">
+                                                        <div class="d-flex align-items-center gap-3 flex-grow-1">
+                                                            <div class="flex-grow-1">
+                                                                <h5 class="fw-black mb-0">@item.Name</h5>
+                                                                <div class="extra-small text-muted">@item.BottleSize | @item.CurrentPrice.ToString("C")</div>
+                                                            </div>
+                                                            <div class="stock-pill @(item.CurrentStock <= 0 ? "empty" : item.CurrentStock <= item.MinStockLimit ? "low" : "ok")">
+                                                                <div class="stock-label">STOCK</div>
+                                                                <div class="stock-number">@item.CurrentStock</div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="d-flex align-items-center gap-2 ms-3">
+                                                            <button class="btn btn-icon-round bg-light border-0" @onclick='() => AddToCart(item.Id, -1)'>-</button>
+                                                            <div class="fw-black px-3 fs-5">@(GetCartQuantity(item.Id))</div>
+                                                            <button class="btn btn-primary btn-icon-round border-0 text-white shadow-sm" @onclick='() => AddToCart(item.Id, 1)'>+</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    @foreach (var vendor in _vendors.OrderBy(v => v.Name))
+                                    {
+                                        var vendorItems = _items.Where(i => i.VendorId == vendor.Id && (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))).ToList();
+                                        if (vendorItems.Any())
+                                        {
+                                            <div class="mb-5">
+                                                <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
+                                                    <h3 class="fw-black text-uppercase text-primary mb-0">@vendor.Name</h3>
+                                                    <div class="badge bg-primary-subtle text-primary rounded-pill">@vendorItems.Count PRODUCTS</div>
+                                                </div>
+                                                <div class="row g-3">
+                                                    @foreach (var item in vendorItems.OrderBy(i => i.Name))
+                                                    {
+                                                        <div class="col-md-6">
+                                                            <div class="card rounded-4 border-0 shadow-sm mb-3 overflow-hidden @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
+                                                                <div class="p-3 d-flex align-items-center justify-content-between">
+                                                                    <div class="d-flex align-items-center gap-3 flex-grow-1">
+                                                                        <div class="flex-grow-1">
+                                                                            <h5 class="fw-black mb-0">@item.Name</h5>
+                                                                            <div class="extra-small text-muted">@item.BottleSize | @item.CurrentPrice.ToString("C")</div>
+                                                                        </div>
+                                                                        <div class="stock-pill @(item.CurrentStock <= 0 ? "empty" : item.CurrentStock <= item.MinStockLimit ? "low" : "ok")">
+                                                                            <div class="stock-label">STOCK</div>
+                                                                            <div class="stock-number">@item.CurrentStock</div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="d-flex align-items-center gap-2 ms-3">
+                                                                        <button class="btn btn-icon-round bg-light border-0" @onclick='() => AddToCart(item.Id, -1)'>-</button>
+                                                                        <div class="fw-black px-3 fs-5">@(GetCartQuantity(item.Id))</div>
+                                                                        <button class="btn btn-primary btn-icon-round border-0 text-white shadow-sm" @onclick='() => AddToCart(item.Id, 1)'>+</button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    }
+                                }
+                            </div>
+                        </div>
+                        <div class="col-lg-4">
+                            <div class="card rounded-4 border-0 shadow-sm bg-white p-4">
+                                <h5 class="fw-black text-uppercase mb-4">Quick Cart</h5>
+                                
+                                <div class="scroll-y-hub mb-4" style="max-height: 40vh; overflow-y: auto;">
+                                    @foreach (var vendor in _vendors.OrderBy(v => v.Name))
+                                    {
+                                        var vendorCart = _items.Where(i => i.VendorId == vendor.Id && _cart.ContainsKey(i.Id) && _cart[i.Id] > 0).ToList();
+                                        if (vendorCart.Any())
+                                        {
+                                            decimal vTotal = vendorCart.Sum(i => i.CurrentPrice * _cart[i.Id]);
+                                            decimal min = GetVendorMin(vendor);
+                                            <div class="vendor-cart-card p-3 rounded-4 bg-light mb-3">
+                                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                                    <span class="fw-black text-uppercase extra-small text-primary">@vendor.Name</span>
+                                                    @if (vTotal < min)
+                                                    {
+                                                        <span class="badge bg-danger pulse-animation" style="font-size: 0.55rem;">
+                                                            WAIT! NEED @((min - vTotal).ToString("C")) MORE
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-success" style="font-size: 0.55rem;">MIN MET</span>
+                                                    }
+                                                </div>
+                                                <div class="mb-3">
+                                                    @foreach (var item in vendorCart)
+                                                    {
+                                                        <div class="d-flex justify-content-between extra-small mb-1">
+                                                            <span class="text-muted">@_cart[item.Id] &times; @item.Name</span>
+                                                            <span class="fw-bold">@((item.CurrentPrice * _cart[item.Id]).ToString("C"))</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                                <button class="btn btn-white w-100 rounded-pill fw-black btn-sm shadow-sm text-primary mb-2" @onclick="() => CreateOrderAsync(vendor.Id)" disabled="@(vTotal < min)">PLACE ORDER</button>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+
+                                @if (_cart.Any(v => v.Value > 0))
+                                {
+                                    var canOrderAll = _vendors.Where(v => _items.Any(i => i.VendorId == v.Id && _cart.ContainsKey(i.Id) && _cart[i.Id] > 0))
+                                                              .All(v => _items.Where(i => i.VendorId == v.Id && _cart.ContainsKey(i.Id) && _cart[i.Id] > 0).Sum(i => i.CurrentPrice * _cart[i.Id]) >= GetVendorMin(v));
+
+                                    <div class="border-top pt-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="text-muted fw-bold small text-uppercase">Grand Total</span>
+                                            <h3 class="fw-black mb-0">@GetCartTotal().ToString("C")</h3>
+                                        </div>
+                                        <button class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-lg" @onclick="PlaceAllOrders" disabled="@(!canOrderAll)">PLACE ALL ORDERS</button>
+                                        @if (!canOrderAll)
+                                        {
+                                            <div class="extra-small text-danger text-center mt-2 fw-bold">
+                                                <i class="bi bi-info-circle"></i> Some vendors haven't met their minimum order.
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="text-center p-5 opacity-25">
+                                        <i class="bi bi-cart-x display-1 mb-3"></i>
+                                        <p class="small mb-0">Current order is empty</p>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (_activeTab == "receiving")
+            {
+                <div class="receiving-view animate-entrance">
+                    <h5 class="fw-black text-uppercase mb-4">Active Orders</h5>
+                    @if (!_activeOrders.Any())
+                    {
+                        <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-muted">
+                            <i class="bi bi-check-all display-1 mb-3 opacity-25"></i>
+                            <h5 class="fw-bold">All caught up!</h5>
+                            <p class="small mb-0">No pending shipments to receive.</p>
+                        </div>
+                    }
+                    <div class="row g-3">
+                        @foreach (var order in _activeOrders)
                         {
-                            <span class="badge rounded-pill bg-danger border border-white pulse-badge">@_unpaidCount</span>
+                            var vendor = _vendors.FirstOrDefault(v => v.Id == order.VendorId);
+                            <div class="col-md-6">
+                                <div class="card rounded-4 border-0 shadow-sm p-4 overflow-hidden">
+                                     <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <span class="badge bg-info-subtle text-info rounded-pill px-3">PLACED @order.OrderDate.ToString("MMM dd")</span>
+                                        <span class="fw-black text-uppercase">#ORD-@order.Id</span>
+                                    </div>
+                                    <h5 class="fw-black mb-1">@(vendor?.Name ?? "Unknown Vendor")</h5>
+                                    <p class="text-muted small mb-4">@order.OrderItems.Count items in this shipment</p>
+                                    <button class="btn btn-primary w-100 py-3 rounded-pill fw-bold shadow" @onclick="() => MarkReceived(order.Id)">MARK RECEIVED</button>
+                                </div>
+                            </div>
                         }
-                        <i class="bi bi-cash-stack"></i>
-                    </div>
-                    <div class="card-content">
-                        <h6 class="fw-black mb-0">UNPAID INVOICES</h6>
-                        <p class="extra-small text-muted mb-0">Confirm vendor check payments</p>
                     </div>
                 </div>
+            }
+            else if (_activeTab == "unpaid")
+            {
+                <div class="unpaid-view animate-entrance">
+                    <h5 class="fw-black text-uppercase mb-4">Unpaid Invoices</h5>
+                    @if (!_unpaidOrders.Any())
+                    {
+                        <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-muted">
+                            <i class="bi bi-wallet2 display-1 mb-3 opacity-25"></i>
+                            <h5 class="fw-bold">No Pending Payments</h5>
+                            <p class="small mb-0">All received invoices have been settled.</p>
+                        </div>
+                    }
+                    <div class="row g-3">
+                        @foreach (var order in _unpaidOrders)
+                        {
+                            var vendor = _vendors.FirstOrDefault(v => v.Id == order.VendorId);
+                            <div class="col-md-6">
+                                <div class="card rounded-4 border-0 shadow-sm p-4 border-start border-5 border-danger">
+                                     <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <span class="badge bg-danger-subtle text-danger rounded-pill px-3">UNPAID</span>
+                                        <span class="fw-black text-uppercase">#INV-@order.Id</span>
+                                    </div>
+                                    <h5 class="fw-black mb-1">@(vendor?.Name ?? "Unknown Vendor")</h5>
+                                    <p class="text-muted small mb-4">RECEIVED @order.OrderDate.ToString("MMM dd")</p>
+                                    <button class="btn btn-outline-danger w-100 py-3 rounded-pill fw-bold" @onclick="() => MarkPaid(order.Id)">CONFIRM PAYMENT</button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (_activeTab == "history")
+            {
+                <div class="history-view animate-entrance">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h5 class="fw-black text-uppercase mb-0">Activity History</h5>
+                        <div class="row g-0 rounded-pill border bg-light p-1" style="min-width: 240px;">
+                            <div class="col-6">
+                                <button class="btn btn-sm w-100 rounded-pill @(_isOrderingHistory ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.65rem;" @onclick="() => _isOrderingHistory = true">ORDERS</button>
+                            </div>
+                            <div class="col-6">
+                                <button class="btn btn-sm w-100 rounded-pill @(!_isOrderingHistory ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-900" style="font-size: 0.65rem;" @onclick="() => _isOrderingHistory = false">CORRECTIONS</button>
+                            </div>
+                        </div>
+                    </div>
 
-                <div class="app-card animate-entrance stagger-2" @onclick='() => Navigation.NavigateTo("/liquor/hub?Tab=count")'>
-                    <div class="icon-orb indigo">
-                        <i class="bi bi-clipboard-check-fill"></i>
-                    </div>
-                    <div class="card-content">
-                        <h6 class="fw-black mb-0">STOCK COUNT</h6>
-                        <p class="extra-small text-muted mb-0">Reconcile physical inventory</p>
+                    <div class="scroll-y-hub" style="max-height: 70vh; overflow-y: auto;">
+                        @if (_isOrderingHistory)
+                        {
+                            @if (!_orderHistory.Any())
+                            {
+                                <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-muted">
+                                    <i class="bi bi-clock-history display-1 mb-3 opacity-25"></i>
+                                    <h5 class="fw-bold">No Order History</h5>
+                                    <p class="small mb-0">Completed orders will appear here.</p>
+                                </div>
+                            }
+                            @foreach (var order in _orderHistory)
+                            {
+                                var vendor = _vendors.FirstOrDefault(v => v.Id == order.VendorId);
+                                <div class="card rounded-4 border-0 shadow-sm p-3 mb-3 border-start border-5 border-success">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <div class="extra-small text-muted fw-bold text-uppercase mb-1">RECEIVED @order.OrderDate.ToString("MMM dd, yyyy")</div>
+                                            <h6 class="fw-black mb-0">@(vendor?.Name ?? "Unknown Vendor")</h6>
+                                            <div class="small text-muted">@order.OrderItems.Count items | @(order.IsPaid ? "PAID" : "UNPAID")</div>
+                                        </div>
+                                        <div class="text-end">
+                                            <div class="fw-black text-primary">ID #@order.Id</div>
+                                            <div class="extra-small text-success fw-bold uppercase"><i class="bi bi-check-circle"></i> ARCHIVED</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            @if (!_auditHistory.Any())
+                            {
+                                <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-muted">
+                                    <i class="bi bi-clipboard-check display-1 mb-3 opacity-25"></i>
+                                    <h5 class="fw-bold">No Audit History</h5>
+                                    <p class="small mb-0">Perform a Stock Count to see logs here.</p>
+                                </div>
+                            }
+                            @foreach (var log in _auditHistory.OrderByDescending(t => t.Timestamp))
+                            {
+                                <div class="card rounded-4 border-0 shadow-sm p-3 mb-2 border-start border-5 @(log.ChangeAmount < 0 ? "border-danger" : "border-success")">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex align-items-center gap-2 mb-1">
+                                                <span class="badge @(log.ChangeAmount < 0 ? "bg-danger" : "bg-success") rounded-pill" style="font-size: 0.6rem;">
+                                                    @(log.ChangeAmount > 0 ? "+" : "")@log.ChangeAmount BOTTLES
+                                                </span>
+                                                <span class="extra-small text-muted fw-bold">@log.Timestamp.ToLocalTime().ToString("MMM dd h:mm tt")</span>
+                                            </div>
+                                            <h6 class="fw-black mb-0">@(log.Item?.Name ?? "Unknown Product")</h6>
+                                            <p class="extra-small text-muted mb-0">Log: @log.Notes</p>
+                                        </div>
+                                        <div class="text-end ms-3">
+                                            <div class="fw-black text-dark" style="font-size: 0.7rem;">@log.User?.Username</div>
+                                            <div class="extra-small text-muted">AUDITOR</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        }
                     </div>
                 </div>
-
-                <!-- ROW 3 -->
-                <div class="app-card animate-entrance stagger-3" @onclick='() => Navigation.NavigateTo("/liquor/hub?Tab=history")'>
-                    <div class="icon-orb amber">
-                        <i class="bi bi-journal-text"></i>
-                    </div>
-                    <div class="card-content">
-                        <h6 class="fw-black mb-0">ORDER HISTORY</h6>
-                        <p class="extra-small text-muted mb-0">View all completed orders</p>
-                    </div>
+            }
+            else
+            {
+                 <div class="welcome-banner mb-4 animate-entrance bg-primary rounded-4 p-5 shadow-lg text-white text-center">
+                    <i class="bi bi-info-circle display-1 mb-4 opacity-50"></i>
+                    <h3 class="fw-black mb-2">Detailed Hub Config</h3>
+                    <p class="opacity-75 mb-4">Setup and detailed history are available in the master hub. <br/>Use this tablet for fast field operations.</p>
+                    <button class="btn btn-white btn-lg rounded-pill px-5 fw-bold text-primary" @onclick="() => _activeTab = null" style="background:white;">Return to Dashboard</button>
                 </div>
-
-                <div class="app-card animate-entrance stagger-3" @onclick='() => Navigation.NavigateTo("/liquor/hub?Tab=setup")'>
-                    <div class="icon-orb purple">
-                        <i class="bi bi-gear-fill"></i>
-                    </div>
-                    <div class="card-content">
-                        <h6 class="fw-black mb-0">HUB SETUP</h6>
-                        <p class="extra-small text-muted mb-0">Product alerts & Vendor settings</p>
-                    </div>
-                </div>
-            </div>
+            }
         </div>
     </main>
 
     <!-- FOOTER NAV -->
     <div class="fixed-bottom-nav">
         <div class="d-flex justify-content-around align-items-center py-3 bg-white border-top">
-             <button class="nav-item-mobile active">
+             <button class="nav-item-mobile @(_activeTab == null ? "active" : "")" @onclick='() => SetTab(null)'>
                  <i class="bi bi-grid-fill"></i>
                  <span>Dashboard</span>
              </button>
-             <button class="nav-item-mobile" @onclick='() => Navigation.NavigateTo("/mobile")'>
+             <button class="nav-item-mobile" @onclick="NavigateToPortal">
                  <i class="bi bi-chevron-left"></i>
                  <span>Back to Portal</span>
              </button>
         </div>
     </div>
+
+    <!-- PREMIUM SAFETY MODAL -->
+    @if (_showExitConfirm)
+    {
+        <div class="safety-modal-backdrop animate-entrance">
+            <div class="safety-modal-card p-5 rounded-4 shadow-lg text-center bg-white border">
+                <div class="icon-orb red mx-auto mb-4" style="width: 80px; height: 80px; font-size: 2.5rem;">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <h3 class="fw-black text-uppercase mb-3">Unsaved Changes Detected</h3>
+                <p class="text-muted mb-5 px-3">
+                    You have pending inventory adjustments that have not been submitted. <br/>
+                    <strong>Navigating away will discard all current session data.</strong>
+                </p>
+                <div class="d-flex flex-column gap-3">
+                    <button class="btn btn-primary btn-lg rounded-pill fw-black py-3 shadow-sm" @onclick="CancelExit">
+                        <i class="bi bi-arrow-left me-2"></i>GO BACK TO AUDIT
+                    </button>
+                    <button class="btn btn-outline-danger btn-lg rounded-pill fw-bold border-2" @onclick="ConfirmExit">
+                        DISCARD & EXIT
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 <style>
@@ -209,15 +645,72 @@
          background: none; border: none;
          display: flex; flex-direction: column;
          align-items: center; gap: 4px;
-         color: #64748b;
+         color: #1e293b; /* HIGH CONTRAST DARK SLATE */
          font-size: 0.75rem;
-         font-weight: 700;
+         font-weight: 800; /* BOLDER */
          padding: 0 1rem;
     }
-    .nav-item-mobile.active { color: #10b981; }
+    .nav-item-mobile.active { color: #059669; font-weight: 900; }
     .nav-item-mobile i { font-size: 1.25rem; }
 
-    .tracking-wider { letter-spacing: 1px; }
+    .text-muted { color: #475569 !important; } /* BETTER GRAY FOR CONTRAST */
+    .extra-small { font-size: 0.65rem; color: #1e293b; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
+    h5, h6 { color: #000000 !important; }
+    .fw-black { font-weight: 950 !important; } /* REMOVED COLOR OVERRIDE */
+    .fw-900 { font-weight: 900 !important; }
+
+    .stock-pill {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-width: 60px;
+        padding: 5px 10px;
+        border-radius: 12px;
+        background: #f8fafc;
+        border: 2px solid #e2e8f0;
+    }
+
+    .stock-pill.ok { background: #f0fdf4; border-color: #22c55e; color: #166534; }
+    .stock-pill.low { background: #fffbeb; border-color: #f59e0b; color: #78350f; }
+    .stock-pill.empty { background: #fef2f2; border-color: #ef4444; color: #7f1d1d; }
+
+    .stock-label { font-size: 0.55rem; font-weight: 900; opacity: 0.8; letter-spacing: 0.05em; text-transform: uppercase; }
+    .stock-number { font-size: 1.15rem; font-weight: 900; line-height: 1; color: #000000 !important; }
+
+    /* SELECTION HIGHLIGHT FIX */
+    .card.selected-for-order, .selected-for-audit {
+        background: #eff6ff !important; /* VIBRANT LIGHT BLUE */
+        border-left: 6px solid #2563eb !important; /* THICK LEFT BORDER INDICATOR */
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1) !important;
+        transition: all 0.2s ease;
+    }
+    
+    .selected-for-audit {
+        border-bottom: 1px solid #bfdbfe !important;
+    }
+    
+    .display-value-hub {
+        text-shadow: 0 4px 12px rgba(13, 110, 253, 0.1);
+        min-height: 120px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid #0d6efd !important;
+    }
+
+    .numpad-hub button { font-weight: 900 !important; color: #000000 !important; }
+
+    .bg-gradient-success-hub {
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+
+    .shadow-inner {
+        box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+    }
+    
+    .border-dashed { border: 2px dashed #94a3b8 !important; }
 
     /* ANIMATIONS */
     .animate-entrance {
@@ -232,14 +725,266 @@
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
     }
+    /* MODAL STYLES */
+    .safety-modal-backdrop {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(8px);
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+    }
+
+    .safety-modal-card {
+        max-width: 500px;
+        width: 100%;
+        border: 2px solid rgba(255,255,255,0.1);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
 </style>
 
 @code {
+    private bool _isLoading = true;
+    private string? _activeTab = null; 
+    private List<LiquorItem> _items = new();
+    private List<LiquorVendor> _vendors = new();
     private int _unpaidCount = 0;
+
+    // Feature state mirrored from desktop hub for logic parity
+    private Dictionary<int, int> _cart = new(); 
+    private Dictionary<int, int> _stockCounts = new();
+    private LiquorItem? _selectedCountItem;
+    private string _countEntry = "0";
+    private string _searchQuery = "";
+    private string _searchTerm = "";
+    private int _filterVendorId = 0;
+    private bool _isAlphabeticalView = true;
+    private List<LiquorOrder> _activeOrders = new();
+    private List<LiquorOrder> _unpaidOrders = new();
+    private List<LiquorOrder> _orderHistory = new();
+    private List<LiquorTransaction> _auditHistory = new();
+    private bool _isOrderingHistory = true;
+
+    // Safety Guard State
+    private bool _showExitConfirm = false;
+    private string? _pendingTab = null;
+    private bool _isExitingToPortal = false;
+
+    private AppUser? _currentUser;
 
     protected override async Task OnInitializedAsync()
     {
-        var orders = await LiquorService.GetAllOrdersAsync();
-        _unpaidCount = orders.Count(o => !o.IsPaid && o.Status == "Received");
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+             var userIdStr = user.FindFirst("UserId")?.Value ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+             if (int.TryParse(userIdStr, out var userId))
+             {
+                 _currentUser = new AppUser { Username = user.Identity.Name ?? "Staff", UserId = userId };
+             }
+        }
+        await RefreshDataAsync();
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        _isLoading = true;
+        var allItems = await LiquorService.GetAllItemsAsync();
+        _items = allItems.ToList();
+        
+        var allVendors = await LiquorService.GetAllVendorsAsync();
+        _vendors = allVendors.ToList();
+        
+        var allOrders = (await LiquorService.GetAllOrdersAsync()).OrderByDescending(o => o.OrderDate).ToList();
+        _activeOrders = allOrders.Where(o => o.Status == "Placed").ToList();
+        _unpaidOrders = allOrders.Where(o => o.Status == "Received" && !o.IsPaid).ToList();
+        _orderHistory = allOrders.Where(o => o.Status == "Received").ToList();
+        _unpaidCount = _unpaidOrders.Count;
+        
+        var allTransactions = await LiquorService.GetRecentTransactionsAsync(100);
+        _auditHistory = allTransactions.Where(t => t.TransactionType == "Reconcile" || t.TransactionType == "Adjustment").ToList();
+        
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private void NavigateToPortal()
+    {
+        bool hasUnsavedChanges = (_activeTab == "ordering" && _cart.Any()) || 
+                                 (_activeTab == "count" && _stockCounts.Any());
+                                 
+        if (hasUnsavedChanges)
+        {
+            _isExitingToPortal = true;
+            _pendingTab = null;
+            _showExitConfirm = true;
+            StateHasChanged();
+            return;
+        }
+        
+        Navigation.NavigateTo("/mobile");
+    }
+
+    private void SetTab(string? tab) 
+    {
+        // Safety Guard: Check for unsaved changes before switching
+        if (_activeTab != null && (tab != _activeTab))
+        {
+            bool hasUnsavedChanges = (_activeTab == "ordering" && _cart.Any()) || 
+                                     (_activeTab == "count" && _stockCounts.Any());
+                                     
+            if (hasUnsavedChanges)
+            {
+                _pendingTab = tab;
+                _isExitingToPortal = false;
+                _showExitConfirm = true;
+                StateHasChanged();
+                return;
+            }
+        }
+
+        ProcessTabSwitch(tab);
+    }
+
+    private void CancelExit()
+    {
+        _showExitConfirm = false;
+        _pendingTab = null;
+        _isExitingToPortal = false;
+    }
+
+    private void ConfirmExit()
+    {
+        _showExitConfirm = false;
+        
+        if (_isExitingToPortal)
+        {
+             Navigation.NavigateTo("/mobile");
+        }
+        else
+        {
+            ProcessTabSwitch(_pendingTab);
+        }
+    }
+
+    private void ProcessTabSwitch(string? tab)
+    {
+        _activeTab = tab;
+        _searchQuery = "";
+        _searchTerm = "";
+        StateHasChanged();
+    }
+
+    // -- Ordering Logic --
+    private int GetCartQuantity(int itemId) => _cart.ContainsKey(itemId) ? _cart[itemId] : 0;
+    private void AddToCart(int itemId, int qty) { if (_cart.ContainsKey(itemId)) _cart[itemId] += qty; else _cart[itemId] = qty; if (_cart[itemId] <= 0) _cart.Remove(itemId); }
+    private decimal GetCartTotal()
+    {
+        decimal total = 0;
+        foreach (var entry in _cart.Where(e => e.Value > 0))
+        {
+            var item = _items.FirstOrDefault(i => i.Id == entry.Key);
+            if (item != null) total += item.CurrentPrice * entry.Value;
+        }
+        return total;
+    }
+
+    private decimal GetVendorMin(LiquorVendor? vendor)
+    {
+        if (vendor == null) return 0;
+        var freshVendor = _vendors.FirstOrDefault(v => v.Id == vendor.Id);
+        return freshVendor?.MinimumOrderAmount ?? 0;
+    }
+    private async Task CreateOrderAsync(int vendorId)
+    {
+        if (_currentUser == null) return;
+        var vendorItemsInCart = _items.Where(i => i.VendorId == vendorId && _cart.ContainsKey(i.Id)).ToList();
+        if (!vendorItemsInCart.Any()) return;
+        
+        var orderItems = vendorItemsInCart.Select(i => new LiquorOrderItem { 
+            LiquorItemId = i.Id, 
+            Quantity = _cart[i.Id], 
+            UnitPriceAtTimeOfOrder = i.CurrentPrice 
+        }).ToList();
+
+        decimal total = orderItems.Sum(oi => oi.UnitPriceAtTimeOfOrder * oi.Quantity);
+
+        var order = new LiquorOrder { 
+            VendorId = vendorId, 
+            OrderDate = DateTime.Now, 
+            Status = "Placed", 
+            IsPaid = false, 
+            ItemsTotal = total,
+            TotalCost = total,
+            UserId = _currentUser.UserId,
+            OrderItems = orderItems 
+        };
+
+        await LiquorService.CreateOrderAsync(order);
+        foreach (var item in vendorItemsInCart) _cart.Remove(item.Id);
+        await RefreshDataAsync();
+    }
+
+    private async Task PlaceAllOrders()
+    {
+        if (!_cart.Any()) return;
+        
+        var vendorIds = _items.Where(i => _cart.ContainsKey(i.Id) && i.VendorId.HasValue)
+                             .Select(i => i.VendorId!.Value)
+                             .Distinct()
+                             .ToList();
+
+        foreach (var vId in vendorIds)
+        {
+            await CreateOrderAsync(vId);
+        }
+        
+        _activeTab = "receiving"; // Switch to receiving view so they see the placed orders
+        StateHasChanged();
+    }
+
+    // -- Receiving & Payments --
+    private async Task MarkReceived(int orderId) { await LiquorService.UpdateOrderStatusAsync(orderId, "Received"); await RefreshDataAsync(); }
+    private async Task MarkPaid(int orderId) 
+    { 
+        if (_currentUser == null) return;
+        var order = _unpaidOrders.FirstOrDefault(o => o.Id == orderId);
+        if (order == null) return;
+        await LiquorService.MarkOrderAsPaidAsync(orderId, DateTime.Now, order.TotalCost, _currentUser.UserId); 
+        await RefreshDataAsync(); 
+    }
+
+    // -- Stock Count Logic (Inline Session Workflow) --
+    private void AdjustSessionCount(int itemId, int delta)
+    {
+        if (!_stockCounts.ContainsKey(itemId))
+        {
+            var item = _items.FirstOrDefault(i => i.Id == itemId);
+            if (item == null) return;
+            _stockCounts[itemId] = item.CurrentStock;
+        }
+
+        _stockCounts[itemId] += delta;
+        if (_stockCounts[itemId] < 0) _stockCounts[itemId] = 0;
+        StateHasChanged();
+    }
+
+    private async Task SubmitFullReconciliation()
+    {
+        if (!_stockCounts.Any() || _currentUser == null) return;
+        
+        var auditEntries = _stockCounts.Select(kvp => new GFC.Core.Models.StockReconcileEntry { 
+            ItemId = kvp.Key, 
+            ActualCount = kvp.Value 
+        }).ToList();
+        
+        await LiquorService.ReconcileStockAsync(auditEntries, _currentUser.UserId); 
+        _stockCounts.Clear();
+        await RefreshDataAsync();
+        _activeTab = null;
     }
 }
