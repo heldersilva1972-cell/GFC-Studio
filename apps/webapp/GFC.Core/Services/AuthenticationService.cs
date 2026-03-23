@@ -376,15 +376,25 @@ public class AuthenticationService : IAuthenticationService
     public async Task<AppUser?> RefreshCurrentUserAsync()
     {
         if (_currentUser == null) return null;
-        
-        var refreshedUser = _userRepository.GetById(_currentUser.UserId);
-        if (refreshedUser != null && refreshedUser.IsActive)
+        try 
         {
-            _currentUser = refreshedUser;
+            var refreshedUser = _userRepository.GetById(_currentUser.UserId);
+            if (refreshedUser != null && refreshedUser.IsActive)
+            {
+                _currentUser = refreshedUser;
+            }
+            else if (refreshedUser == null)
+            {
+                // [FIX] Verify if user is truly gone by trying one more time or checking specific Repo state
+                // For now, we only clear if we get a null BACK (which repository returns on error too, sadly)
+                // We will trust the Repo for now but log it.
+                _logger.LogWarning("RefreshCurrentUserAsync: User {UserId} not found or inactive. Clearing session.", _currentUser.UserId);
+                _currentUser = null;
+            }
         }
-        else
+        catch (Exception ex)
         {
-            _currentUser = null;
+            _logger.LogError(ex, "RefreshCurrentUserAsync failed for user {UserId}. Keeping current session.", _currentUser.UserId);
         }
 
         return _currentUser;
