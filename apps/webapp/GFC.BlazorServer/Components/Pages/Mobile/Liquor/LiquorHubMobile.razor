@@ -6,10 +6,19 @@
 @inject NavigationManager Navigation
 @inject ILiquorService LiquorService
 @inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IUserManagementService UserService
 @inject IJSRuntime JS
 @attribute [Authorize]
 
 <PageTitle>Liquor HUB | Mobile</PageTitle>
+
+@if (!string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger m-4" style="z-index: 9999; position: relative;">
+        <h4>CRASH DETECTED</h4>
+        <pre>@_errorMessage</pre>
+    </div>
+}
 
 <div class="mobile-hub-container">
     <header class="tablet-header d-flex justify-content-between align-items-center p-4 bg-white border-bottom shadow-sm fixed-top" style="height: 100px; z-index: 1050;">
@@ -66,6 +75,8 @@
                     </div>
 
                 <div class="mobile-app-grid">
+                    @if (HasAccessToTab("insight"))
+                    {
                     <div class="app-card animate-entrance stagger-1" @onclick='() => SetTab("analytics")'>
                         <div class="icon-orb purple"><i class="bi bi-graph-up-arrow"></i></div>
                         <div class="card-content">
@@ -73,7 +84,10 @@
                             <p class="extra-small text-muted mb-0">Usage & Trends</p>
                         </div>
                     </div>
+                    }
 
+                    @if (HasAccessToTab("ordering"))
+                    {
                     <div class="app-card animate-entrance stagger-1" @onclick='() => SetTab("ordering")'>
                         <div class="icon-orb emerald"><i class="bi bi-cart-plus-fill"></i></div>
                         <div class="card-content">
@@ -81,7 +95,10 @@
                             <p class="extra-small text-muted mb-0">Build vendor orders</p>
                         </div>
                     </div>
+                    }
 
+                    @if (HasAccessToTab("receive"))
+                    {
                     <div class="app-card animate-entrance stagger-1" @onclick='() => SetTab("receiving")'>
                         <div class="icon-orb blue">
                             @if (_activeOrders.Count > 0)
@@ -95,7 +112,10 @@
                             <p class="extra-small text-muted mb-0">Mark shipments into inventory</p>
                         </div>
                     </div>
+                    }
 
+                    @if (HasAccessToTab("unpaid"))
+                    {
                     <div class="app-card animate-entrance stagger-2" @onclick='() => SetTab("unpaid")'>
                         <div class="icon-orb red">
                             @if (_unpaidCount > 0)
@@ -109,7 +129,10 @@
                             <p class="extra-small text-muted mb-0">Confirm vendor check payments</p>
                         </div>
                     </div>
+                    }
 
+                    @if (HasAccessToTab("count"))
+                    {
                     <div class="app-card animate-entrance stagger-2" @onclick='() => SetTab("count")'>
                         <div class="icon-orb indigo"><i class="bi bi-clipboard-check-fill"></i></div>
                         <div class="card-content">
@@ -117,7 +140,10 @@
                             <p class="extra-small text-muted mb-0">Reconcile physical inventory</p>
                         </div>
                     </div>
+                    }
 
+                    @if (HasAccessToTab("history"))
+                    {
                     <div class="app-card animate-entrance stagger-3" @onclick='() => SetTab("history")'>
                         <div class="icon-orb amber"><i class="bi bi-clock-history"></i></div>
                         <div class="card-content">
@@ -125,7 +151,10 @@
                             <p class="extra-small text-muted mb-0">Audit logs & past orders</p>
                         </div>
                     </div>
+                    }
 
+                    @if (HasAccessToTab("setup"))
+                    {
                     <div class="app-card animate-entrance stagger-3" @onclick='() => SetTab("setup")'>
                         <div class="icon-orb blue"><i class="bi bi-gear-fill"></i></div>
                         <div class="card-content">
@@ -133,6 +162,7 @@
                             <p class="extra-small text-muted mb-0">Products & Settings</p>
                         </div>
                     </div>
+                    }
                 </div>
             </div>
             }
@@ -1711,62 +1741,97 @@
     private List<ProductTrendDTO> _trends = new();
 
     private AppUser? _currentUser;
+    private HashSet<string> _userRoutes = new();
+
+    private string? _errorMessage;
 
     protected override async Task OnInitializedAsync()
     {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var user = authState.User;
-        if (user.Identity?.IsAuthenticated == true)
+        try 
         {
-             var userIdStr = user.FindFirst("UserId")?.Value 
-                          ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                          ?? user.FindFirst("sub")?.Value;
-                          
-             if (int.TryParse(userIdStr, out var userId))
-             {
-                 _currentUser = new AppUser { Username = user.Identity.Name ?? "Staff", UserId = userId };
-             }
-             else
-             {
-                 // Fallback: try to find any claim that looks like an ID
-                 var idClaim = user.Claims.FirstOrDefault(c => c.ValueType == System.Security.Claims.ClaimValueTypes.Integer || c.Type.Contains("id", StringComparison.OrdinalIgnoreCase));
-                 if (idClaim != null && int.TryParse(idClaim.Value, out var fallbackId))
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                 var userIdStr = user.FindFirst("UserId")?.Value 
+                              ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                              ?? user.FindFirst("sub")?.Value;
+                              
+                 if (int.TryParse(userIdStr, out var userId))
                  {
-                     _currentUser = new AppUser { Username = user.Identity.Name ?? "Staff", UserId = fallbackId };
+                     _currentUser = new AppUser { Username = user.Identity.Name ?? "Staff", UserId = userId };
                  }
-             }
+                 else
+                 {
+                     // Fallback: try to find any claim that looks like an ID
+                     var idClaim = user.Claims.FirstOrDefault(c => c.ValueType == System.Security.Claims.ClaimValueTypes.Integer || c.Type.Contains("id", StringComparison.OrdinalIgnoreCase));
+                     if (idClaim != null && int.TryParse(idClaim.Value, out var fallbackId))
+                     {
+                         _currentUser = new AppUser { Username = user.Identity.Name ?? "Staff", UserId = fallbackId };
+                     }
+                 }
+                 
+                 if (_currentUser != null)
+                 {
+                     var dbUser = await UserService.GetUserAsync(_currentUser.UserId);
+                     if (dbUser != null) {
+                         _currentUser.IsAdmin = dbUser.IsAdmin;
+                     }
+                     var permissions = UserService.GetUserPagePermissions(_currentUser.UserId);
+                     _userRoutes = permissions.Select(p => p.Page?.PageRoute?.ToLower() ?? "").ToHashSet();
+                 }
+            }
+            await RefreshDataAsync();
+        } 
+        catch (Exception ex) 
+        {
+            _errorMessage = $"OnInitializedAsync Error: {ex.Message}\n\nStack:\n{ex.StackTrace}";
         }
-        await RefreshDataAsync();
+    }
+
+    private bool HasAccessToTab(string routeSuffix)
+    {
+        if (_currentUser?.IsAdmin == true) return true;
+        return _userRoutes.Contains($"/mobile/liquor/hub/{routeSuffix}");
     }
 
     private async Task RefreshDataAsync()
     {
-        _isLoading = true;
-        var allItems = await LiquorService.GetAllItemsAsync();
-        _items = allItems.ToList();
-        
-        var allVendors = await LiquorService.GetAllVendorsAsync();
-        _vendors = allVendors.ToList();
-        
-        var allOrders = (await LiquorService.GetAllOrdersAsync()).OrderByDescending(o => o.OrderDate).ToList();
-        _activeOrders = allOrders.Where(o => o.Status == "Placed").ToList();
-        _unpaidOrders = allOrders.Where(o => o.Status == "Received" && !o.IsPaid).ToList();
-        _orderHistory = allOrders.Where(o => o.Status == "Received").ToList();
-        _unpaidCount = _unpaidOrders.Count;
-        
-        var allTransactions = await LiquorService.GetRecentTransactionsAsync(100);
-        _auditHistory = allTransactions.ToList();
-        
-        _trends = await LiquorService.GetProductTrendsAsync(30);
-
-        if (_currentUser != null)
+        try 
         {
-            _notifRule = (await LiquorService.GetNotificationRuleAsync(_currentUser.UserId)) 
-                         ?? new LiquorNotificationRule { UserId = _currentUser.UserId };
-        }
+            _isLoading = true;
+            var allItems = await LiquorService.GetAllItemsAsync();
+            _items = allItems.ToList();
+            
+            var allVendors = await LiquorService.GetAllVendorsAsync();
+            _vendors = allVendors.ToList();
+            
+            var allOrders = (await LiquorService.GetAllOrdersAsync()).OrderByDescending(o => o.OrderDate).ToList();
+            _activeOrders = allOrders.Where(o => o.Status == "Placed").ToList();
+            _unpaidOrders = allOrders.Where(o => o.Status == "Received" && !o.IsPaid).ToList();
+            _orderHistory = allOrders.Where(o => o.Status == "Received").ToList();
+            _unpaidCount = _unpaidOrders.Count;
+            
+            var allTransactions = await LiquorService.GetRecentTransactionsAsync(100);
+            _auditHistory = allTransactions.ToList();
+            
+            _trends = await LiquorService.GetProductTrendsAsync(30);
 
-        _isLoading = false;
-        StateHasChanged();
+            if (_currentUser != null)
+            {
+                _notifRule = (await LiquorService.GetNotificationRuleAsync(_currentUser.UserId)) 
+                             ?? new LiquorNotificationRule { UserId = _currentUser.UserId };
+            }
+
+            _isLoading = false;
+            StateHasChanged();
+        } 
+        catch (Exception ex) 
+        {
+            _errorMessage += $"\n\nRefreshDataAsync Error: {ex.Message}\n\nStack:\n{ex.StackTrace}";
+            _isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private double GetOuncesFromSize(string? size)
