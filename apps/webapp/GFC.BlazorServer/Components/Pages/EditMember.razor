@@ -347,13 +347,24 @@ else if (_memberForm != null)
                             <label class="form-label">Status <span class="text-danger">*</span></label>
                             <InputSelect class="form-select form-control-modern" @bind-Value="_memberForm.Status" @onchange="MarkAsChanged" disabled="@_saving">
                                 <option value="">-- Select Status --</option>
-                                <option value="GUEST">Guest</option>
-                                <option value="REGULAR">Regular</option>
-                                <option value="REGULAR-NP">Regular (NP)</option>
-                                <option value="LIFE">Life</option>
-                                <option value="INACTIVE">Inactive</option>
-                                <option value="DECEASED">Deceased</option>
-                                <option value="REJECTED">Rejected</option>
+                                @if (_wasLifeMember)
+                                {
+                                    <option value="LIFE">Life</option>
+                                    <option value="DECEASED">Deceased</option>
+                                }
+                                else
+                                {
+                                    <option value="GUEST">Guest</option>
+                                    <option value="REGULAR">Regular</option>
+                                    <option value="REGULAR-NP">Regular (NP)</option>
+                                    @if (CanTransitionToLife())
+                                    {
+                                        <option value="LIFE">Life</option>
+                                    }
+                                    <option value="INACTIVE">Inactive</option>
+                                    <option value="DECEASED">Deceased</option>
+                                    <option value="REJECTED">Rejected</option>
+                                }
                             </InputSelect>
                             <ValidationMessage For="@(() => _memberForm.Status)" />
                         </div>
@@ -602,6 +613,7 @@ else if (_memberForm != null)
     private List<string> _states = new();
     private List<string> _postalCodes = new();
     private bool _isReactivating = false;
+    private bool _wasLifeMember = false;
 
     // Date picker backing fields
     private int _dobMonth = 0;
@@ -754,6 +766,9 @@ else if (_memberForm != null)
                 DateOfDeath = _member.DateOfDeath,
                 ShowOnWebsite = _member.ShowOnWebsite
             };
+
+            // Capture if they were already a Life Member to restrict future changes
+            _wasLifeMember = _memberForm.Status.Equals("LIFE", StringComparison.OrdinalIgnoreCase);
 
             // Initialize date components
             if (_memberForm.DateOfBirth.HasValue)
@@ -1131,6 +1146,25 @@ else if (_memberForm != null)
     private void GoToRecordDues()
     {
         NavManager.NavigateTo($"/dues?action=pay&memberId={MemberId}");
+    }
+
+    private bool CanTransitionToLife()
+    {
+        if (_memberForm == null) return false;
+        
+        // We use a temporary member object to check eligibility against the CURRENT form values.
+        // We set status to "REGULAR" for the check because IsLifeEligible() only returns true for Regular members
+        // (i.e., it checks if they are eligible to BECOME Life).
+        var checkMember = new Member
+        {
+            MemberID = MemberId,
+            Status = "REGULAR", 
+            DateOfBirth = _memberForm.DateOfBirth,
+            RegularSince = _memberForm.RegularSince,
+            AcceptedDate = _memberForm.AcceptedDate
+        };
+        
+        return MemberStatusHelper.IsLifeEligible(checkMember, HistoryRepository);
     }
 
     private void UpdateDateOfBirth()
