@@ -985,130 +985,33 @@
 
                 @if (_analyticsSubTab == "overview")
                 {
-                    <!-- Summary Stats -->
-                <div class="row g-3 mb-4">
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-primary text-white">
-                            <h6 class="extra-small uppercase-tracking opacity-75 fw-bold mb-1">Cash on Shelves</h6>
-                            <h2 class="fw-black mb-0">@_items.Sum(i => i.CurrentStock * i.CurrentPrice).ToString("C0")</h2>
-                            <div class="small opacity-75 mt-2">@_items.Sum(i => i.CurrentStock) Bottles on hand</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-success text-white">
-                            <h6 class="extra-small uppercase-tracking opacity-75 fw-bold mb-1">Total Drink Value</h6>
-                            <h2 class="fw-black mb-0">
-                                @{
-                                    var totalRev = _items.Sum(i => {
-                                        var oz = GetOuncesFromSize(i.BottleSize);
-                                        if (oz == 0 || i.PourSize == 0) return 0;
-                                        return (decimal)(oz / (double)i.PourSize) * i.CurrentStock * i.RetailPrice;
-                                    });
-                                }
-                                @totalRev.ToString("C0")
-                            </h2>
-                            <div class="small opacity-75 mt-2">Potential Revenue if all sold</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-white border">
-                            <h6 class="extra-small uppercase-tracking fw-bold mb-1 text-muted">Total Possible Profit</h6>
-                            <h2 class="fw-black mb-0 text-dark">
-                                 @(((_items.Sum(i => {
-                                    if (i.IsUnitBased) {
-                                        var rev = i.CurrentStock * i.PackSize * i.RetailPrice;
-                                        var cost = i.CurrentStock * i.CurrentPrice;
-                                        return rev - cost;
-                                    }
-                                    var oz = GetOuncesFromSize(i.BottleSize);
-                                    if (oz == 0 || i.PourSize == 0) return 0;
-                                    var pours = (decimal)(oz / (double)i.PourSize);
-                                    var rev_pour = i.CurrentStock * pours * i.RetailPrice;
-                                    var cost_pour = i.CurrentStock * i.CurrentPrice;
-                                    return rev_pour - cost_pour;
-                                }))).ToString("C0"))
-                            </h2>
-                             @{
-                                var activeItems = _items.Where(i => i.RetailPrice > 0).ToList();
-                                var avgMargin = activeItems.Any() ? (int)activeItems.Average(i => {
-                                    var oz = GetOuncesFromSize(i.BottleSize);
-                                    var costPerOz = i.CurrentPrice / (decimal)(oz > 0 ? oz : 1);
-                                    var costPerPour = costPerOz * (decimal)i.PourSize;
-                                    return (1 - (costPerPour / i.RetailPrice)) * 100;
-                                }) : 0;
-                            }
-                            <div class="small text-muted mt-2 d-flex align-items-center gap-1">
-                                <i class="bi bi-graph-up text-success"></i>
-                                Average Margin: <span class="fw-bold">@avgMargin%</span>
+                    <!-- Vendor Inventory Breakdown (Top Hero) -->
+                    <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 border-top border-4 border-primary">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <div>
+                                <h5 class="fw-black mb-1">VENDOR INVENTORY VALUE</h5>
+                                <p class="small text-muted mb-0">Total cost of inventory currently held per vendor.</p>
+                            </div>
+                            <div class="text-end">
+                                <div class="extra-small text-muted fw-bold">TOTAL ASSETS</div>
+                                <div class="h3 fw-black text-primary mb-0">@_items.Sum(i => i.CurrentStock * i.CurrentPrice).ToString("C0")</div>
                             </div>
                         </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-white border">
-                             <h6 class="extra-small uppercase-tracking fw-bold mb-1 text-muted">Stock Health</h6>
-                             <h2 class="fw-black mb-0 text-danger">@_items.Count(i => i.CurrentStock <= i.MinStockLimit)</h2>
-                             <div class="small text-muted mt-2">Brands below minimum limit</div>
+                        
+                        <div class="row g-3">
+                            @foreach (var vGroup in _items.GroupBy(i => i.Vendor?.Name ?? "No Vendor").OrderByDescending(g => g.Sum(x => x.CurrentStock * x.CurrentPrice)).Take(6))
+                            {
+                                var groupVal = vGroup.Sum(x => x.CurrentStock * x.CurrentPrice);
+                                if (groupVal <= 0) continue;
+                                <div class="col-md-2">
+                                    <div class="p-3 border rounded-4 bg-light h-100 shadow-inner">
+                                        <div class="extra-small text-muted fw-bold text-truncate mb-1">@vGroup.Key</div>
+                                        <div class="h5 fw-black text-dark mb-0">@groupVal.ToString("C0")</div>
+                                    </div>
+                                </div>
+                            }
                         </div>
                     </div>
-                </div>
-
-                <div class="row g-3 mb-4">
-                    <div class="col-md-7">
-                        <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
-                             <h5 class="fw-black mb-4">Category Breakdown</h5>
-                             <div class="table-responsive">
-                                 <table class="table table-sm align-middle">
-                                     <thead class="bg-light">
-                                         <tr class="extra-small text-muted">
-                                             <th>Category</th>
-                                             <th class="text-center">Items</th>
-                                             <th class="text-end">Value</th>
-                                             <th class="text-end">Avg. Drink Cost</th>
-                                         </tr>
-                                     </thead>
-                                     <tbody>
-                                         @foreach (var cat in _items.GroupBy(i => i.Category).OrderByDescending(g => g.Sum(x => x.CurrentStock * x.CurrentPrice)))
-                                         {
-                                             <tr>
-                                                 <td class="fw-bold">@cat.Key</td>
-                                                 <td class="text-center">@cat.Count()</td>
-                                                 <td class="text-end fw-black">@cat.Sum(x => x.CurrentStock * x.CurrentPrice).ToString("C0")</td>
-                                                 <td class="text-end">
-                                                     @{
-                                                         var avgCost = cat.Average(i => {
-                                                             var oz = GetOuncesFromSize(i.BottleSize);
-                                                             return (double)(i.CurrentPrice / (decimal)(oz > 0 ? oz : 1)) * (double)i.PourSize;
-                                                         });
-                                                     }
-                                                     @avgCost.ToString("C2")
-                                                 </td>
-                                             </tr>
-                                         }
-                                     </tbody>
-                                 </table>
-                             </div>
-                        </div>
-                    </div>
-                    <div class="col-md-5">
-                         <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
-                             <h5 class="fw-black mb-4">Vendor Inventory Value</h5>
-                             <div class="list-group list-group-flush">
-                                 @foreach (var vGroup in _items.GroupBy(i => i.Vendor?.Name ?? "No Vendor").OrderByDescending(g => g.Sum(x => x.CurrentStock * x.CurrentPrice)).Take(5))
-                                 {
-                                     var totalVal = _items.Sum(i => i.CurrentStock * i.CurrentPrice);
-                                     var groupVal = vGroup.Sum(x => x.CurrentStock * x.CurrentPrice);
-                                     <div class="list-group-item px-0 py-2 border-0 d-flex justify-content-between">
-                                         <span class="text-muted">@vGroup.Key</span>
-                                         <span class="fw-bold">@groupVal.ToString("C0")</span>
-                                     </div>
-                                     <div class="progress" style="height: 4px;">
-                                         <div class="progress-bar" style="width: @(totalVal > 0 ? (groupVal / totalVal * 100).ToString("F0") : "0")%"></div>
-                                     </div>
-                                 }
-                             </div>
-                        </div>
-                    </div>
-                </div>
 
                 <div class="card border-0 shadow-sm rounded-4 p-4">
                     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -1459,23 +1362,19 @@
                                 CREATE PRODUCT
                             </button>
 
-                            <hr class="my-4" />
-                            
-                            <div class="p-3 bg-light rounded-4 border-2 border-dashed">
-                                <h6 class="fw-bold mb-2">Master Tools</h6>
-                                <div class="d-grid gap-2">
-                                    <button class="btn btn-primary w-100 rounded-pill fw-black shadow-sm" @onclick="BatchUpdateItems" disabled="@_isSaving">
-                                       @if (_isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> <span>SAVING...</span> }
-                                       else { <span>SAVE ALL CHANGES</span> }
-                                    </button>
-                                </div>
-                            </div>
+
                          </div>
                     </div>
                     
                     <div class="col-md-8">
                         <div class="card border-0 shadow-sm rounded-4 p-4">
-                            <h5 class="fw-black mb-3">Item Mapping & Pricing</h5>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <h5 class="fw-black text-uppercase">Item Mapping & Pricing</h5>
+                                <button class="btn btn-primary rounded-pill px-4 fw-black shadow-sm" @onclick="BatchUpdateItems" disabled="@_isSaving">
+                                    @if (_isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> <span>SAVING...</span> }
+                                    else { <span>SAVE ALL CHANGES</span> }
+                                </button>
+                            </div>
                             <p class="small text-muted mb-4">Assign vendors to your items and set the current purchase price.</p>
                             
                             <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
