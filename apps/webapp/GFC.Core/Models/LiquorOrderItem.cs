@@ -31,5 +31,9 @@ namespace GFC.Core.Models
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal BottleFeeAtTimeOfOrder { get; set; } = 0;
+
+        public bool IsBackordered { get; set; } = false;
+
+        public bool IsResolved { get; set; } = false;
     }
 }

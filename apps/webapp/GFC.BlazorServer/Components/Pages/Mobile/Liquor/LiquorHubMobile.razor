@@ -89,7 +89,13 @@
                     @if (HasAccessToTab("ordering"))
                     {
                     <div class="app-card animate-entrance stagger-1" @onclick='() => SetTab("ordering")'>
-                        <div class="icon-orb emerald"><i class="bi bi-cart-plus-fill"></i></div>
+                        <div class="icon-orb emerald">
+                            @if (_items.Any(i => i.CurrentStock <= i.MinStockLimit))
+                            {
+                                <span class="badge rounded-pill bg-danger border border-white pulse-badge">@_items.Count(i => i.CurrentStock <= i.MinStockLimit)</span>
+                            }
+                            <i class="bi bi-cart-plus-fill"></i>
+                        </div>
                         <div class="card-content">
                             <h6 class="fw-black mb-0">ORDERING</h6>
                             <p class="extra-small text-muted mb-0">Build vendor orders</p>
@@ -138,6 +144,23 @@
                         <div class="card-content">
                             <h6 class="fw-black mb-0">STOCK COUNT</h6>
                             <p class="extra-small text-muted mb-0">Reconcile physical inventory</p>
+                        </div>
+                    </div>
+                    }
+
+                    @if (HasAccessToTab("history"))
+                    {
+                    <div class="app-card animate-entrance stagger-2" @onclick='() => SetTab("backorders")'>
+                        <div class="icon-orb amber">
+                            @if (_pendingBackorders.Count > 0)
+                            {
+                                <span class="badge rounded-pill bg-warning text-dark border border-white pulse-badge">@_pendingBackorders.Count</span>
+                            }
+                            <i class="bi bi-clock-history"></i>
+                        </div>
+                        <div class="card-content">
+                            <h6 class="fw-black mb-0">BACKORDERS</h6>
+                            <p class="extra-small text-muted mb-0">Track & receive owed items</p>
                         </div>
                     </div>
                     }
@@ -194,14 +217,18 @@
 
                     <div class="flex-grow-1 overflow-hidden d-flex flex-column">
                         <div class="card rounded-4 border-0 shadow-sm overflow-hidden d-flex flex-column h-100">
-                            <div class="p-2 bg-white border-bottom shadow-sm">
-                                <div class="input-group">
+                            <div class="p-2 bg-white border-bottom shadow-sm d-flex align-items-center gap-2">
+                                <div class="input-group flex-grow-1">
                                     <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
                                     <input type="text" class="form-control bg-light border-0 fw-bold py-2" placeholder="Quick find bottle..." onfocus="this.select()" @bind="_searchQuery" @bind:event="oninput" />
                                 </div>
+                                <div class="d-flex bg-light rounded-pill p-1 border">
+                                    <button class="btn btn-xs rounded-pill px-2 fw-black @(!_filterBeerOnly ? "btn-dark shadow-sm" : "text-muted")" style="font-size: 0.55rem;" @onclick="() => _filterBeerOnly = false">ALL</button>
+                                    <button class="btn btn-xs rounded-pill px-2 fw-black @(_filterBeerOnly ? "btn-amber shadow-sm" : "text-muted")" style="font-size: 0.55rem;" @onclick="() => _filterBeerOnly = true">BEER</button>
+                                </div>
                             </div>
                             <div class="p-0 scroll-y-hub flex-grow-1" style="overflow-y: auto;">
-                                @foreach (var item in _items.Where(i => string.IsNullOrEmpty(_searchQuery) || i.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Name))
+                                @foreach (var item in _items.Where(i => (string.IsNullOrEmpty(_searchQuery) || i.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)) && (!_filterBeerOnly || i.IsBeer)).OrderBy(i => i.Name))
                                 {
                                     bool isAdjusted = _stockCounts.ContainsKey(item.Id);
                                     var currentVal = isAdjusted ? _stockCounts[item.Id] : item.CurrentStock;
@@ -254,11 +281,16 @@
             else if (_activeTab == "ordering")
             {
                 <div class="ordering-view animate-entrance">
-                    <div class="d-flex justify-content-between align-items-center mb-4 bg-white p-3 rounded-4 shadow-sm">
-                         <div class="input-group w-50">
+                    <div class="d-flex justify-content-between align-items-center mb-4 bg-white p-3 rounded-4 shadow-sm gap-2">
+                         <div class="input-group flex-grow-1">
                             <span class="input-group-text bg-light border-0"><i class="bi bi-search text-muted"></i></span>
                             <input type="text" class="form-control bg-light border-0" placeholder="Search bottles..." onfocus="this.select()" @bind="_searchTerm" @bind:event="oninput" />
                         </div>
+                        <div class="d-flex bg-light rounded-pill p-1 border">
+                             <button class="btn btn-sm rounded-pill px-3 fw-black @(!_filterBeerOnly ? "btn-white shadow-sm" : "text-muted")" style="font-size: 0.6rem;" @onclick="() => _filterBeerOnly = false">ALL</button>
+                             <button class="btn btn-sm rounded-pill px-3 fw-black @(_filterBeerOnly ? "btn-amber shadow-sm" : "text-muted")" style="font-size: 0.6rem;" @onclick="() => _filterBeerOnly = true">BEER</button>
+                        </div>
+                        <div class="vr mx-1 opacity-25"></div>
                         <div class="row g-0 rounded-pill border bg-light p-1" style="min-width: 200px;">
                             <div class="col-6">
                                 <button class="btn btn-sm w-100 rounded-pill @(_isAlphabeticalView ? "btn-primary shadow-sm" : "btn-link text-muted") text-uppercase fw-bold" style="font-size: 0.6rem;" @onclick="() => _isAlphabeticalView = true">LIST</button>
@@ -275,7 +307,7 @@
                                 @if (_isAlphabeticalView)
                                 {
                                     <div class="row g-3">
-                                        @foreach (var item in _items.Where(i => string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)).OrderBy(i => i.Name))
+                                        @foreach (var item in _items.Where(i => (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)) && (!_filterBeerOnly || i.IsBeer)).OrderBy(i => i.Name))
                                         {
                                             <div class="col-md-6">
                                                 <div class="card rounded-4 border-0 shadow-sm mb-3 overflow-hidden @(GetCartQuantity(item.Id) > 0 ? "selected-for-order" : "")">
@@ -305,7 +337,7 @@
                                 {
                                     @foreach (var vendor in _vendors.OrderBy(v => v.Name))
                                     {
-                                        var vendorItems = _items.Where(i => i.VendorId == vendor.Id && (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))).ToList();
+                                        var vendorItems = _items.Where(i => i.VendorId == vendor.Id && (string.IsNullOrEmpty(_searchTerm) || i.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)) && (!_filterBeerOnly || i.IsBeer)).ToList();
                                         if (vendorItems.Any())
                                         {
                                             <div class="mb-5">
@@ -489,6 +521,55 @@
                                         </div>
                                     </div>
                                 }
+                            </div>
+                        }
+                    }
+                </div>
+            }
+            else if (_activeTab == "backorders")
+            {
+                <div class="backorders-view animate-entrance pb-5">
+                    <h5 class="fw-black text-uppercase mb-4 flex-grow-1 d-flex align-items-center">
+                        <i class="bi bi-clock-history me-2 text-warning"></i> Pending Backorders
+                    </h5>
+                    
+                    @if (!_pendingBackorders.Any())
+                    {
+                        <div class="card rounded-4 border-0 shadow-sm p-5 text-center bg-light text-muted">
+                            <i class="bi bi-check-circle display-1 mb-3 opacity-25"></i>
+                            <h5 class="fw-bold">No Backorders</h5>
+                            <p class="small mb-0">All vendor items have been fulfilled.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var vendorGroup in _pendingBackorders.GroupBy(oi => oi.Order?.Vendor?.Name ?? "Unknown Vendor"))
+                        {
+                            <div class="mb-4">
+                                <h6 class="fw-black text-uppercase text-muted extra-small mb-3 tracking-wider">@vendorGroup.Key</h6>
+                                <div class="row g-3">
+                                    @foreach (var oi in vendorGroup)
+                                    {
+                                        <div class="col-12">
+                                            <div class="card border-0 shadow-sm rounded-4 p-4 overflow-hidden position-relative">
+                                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                                    <div>
+                                                        <div class="fw-black text-dark fs-5">@oi.LiquorItem?.Name</div>
+                                                        <div class="extra-small text-muted fw-bold">ORDERED: @oi.Order?.OrderDate.ToString("MMM dd, yyyy")</div>
+                                                    </div>
+                                                    <div class="text-end">
+                                                        <div class="fw-black text-primary display-6">@oi.Quantity&times;</div>
+                                                        <div class="extra-small text-muted fw-bold text-uppercase">Owed</div>
+                                                    </div>
+                                                </div>
+                                                <button class="btn btn-warning w-100 rounded-pill fw-black py-3 mt-2 shadow-sm" 
+                                                        @onclick="() => ResolveBackorder(oi)">
+                                                    RECEIVE NOW
+                                                </button>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
                             </div>
                         }
                     }
@@ -1132,29 +1213,83 @@
                                 <h5 class="fw-black text-uppercase mb-0">Manage Vendors</h5>
                                 <button class="btn-close" @onclick="() => _showVendorModal = false"></button>
                             </div>
-                            <p class="extra-small text-muted mb-3">Add and configure vendor order minimums.</p>
                             
-                            <div class="input-group mb-4">
-                                <input type="text" class="form-control rounded-start-pill border-end-0 bg-light fw-bold" placeholder="New Vendor Name..." @bind="_newVendorName" />
-                                <button class="btn btn-primary rounded-end-pill px-4 fw-black" @onclick="AddNewVendor">ADD</button>
+                            <!-- Add New Vendor Section -->
+                            <div class="bg-light p-3 rounded-4 mb-4 border border-primary-subtle">
+                                <h6 class="fw-black text-uppercase small text-primary mb-3"><i class="bi bi-plus-circle me-1"></i> Register New Vendor</h6>
+                                <div class="row g-2">
+                                    <div class="col-12">
+                                        <input type="text" class="form-control rounded-pill border-0 shadow-sm fw-bold px-3 mb-1" placeholder="Vendor Company Name..." @bind="_newVendorName" />
+                                    </div>
+                                    <div class="col-8">
+                                        <input type="text" class="form-control rounded-pill border-0 shadow-sm extra-small fw-bold px-3" placeholder="Contact Person Name" @bind="_newVendorContact" />
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="bg-white rounded-pill shadow-sm d-flex align-items-center px-2 py-1" style="height: 38px;">
+                                            <span class="text-muted fw-black me-1" style="font-size: 0.55rem; white-space: nowrap;">MIN $</span>
+                                            <input type="number" class="form-control border-0 p-0 extra-small fw-bold text-center" style="background: transparent;" @bind="_newVendorMinOrder" />
+                                        </div>
+                                    </div>
+                                    <div class="col-5">
+                                        <input type="tel" class="form-control rounded-pill border-0 shadow-sm extra-small fw-bold px-3" placeholder="Phone" @bind="_newVendorPhone" />
+                                    </div>
+                                    <div class="col-7">
+                                        <input type="email" class="form-control rounded-pill border-0 shadow-sm extra-small fw-bold px-3" placeholder="Email Address" @bind="_newVendorEmail" />
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" class="form-control rounded-pill-start border-0 shadow-sm extra-small fw-bold px-3" placeholder="Website URL" @bind="_newVendorWebsite" />
+                                            <button class="btn btn-primary rounded-pill-end px-4 fw-black" @onclick="AddNewVendor">ADD</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-
+ 
                             <div class="vendor-list-scroll scroll-y-hub p-2 bg-light rounded-4" style="max-height: 400px; overflow-y: auto;">
                                 @foreach(var vendor in _vendors)
                                 {
-                                    <div class="mb-3 px-3 py-2 bg-white rounded-3 shadow-sm border">
+                                    <div class="mb-3 px-3 py-3 bg-white rounded-4 shadow-sm border border-light">
                                         <div class="d-flex justify-content-between align-items-center mb-2">
-                                            <h6 class="fw-black text-uppercase mb-0 small">@vendor.Name</h6>
-                                            <button class="btn btn-link text-danger p-0" @onclick="() => DeleteVendor(vendor.Id)"><i class="bi bi-trash3"></i></button>
+                                            <h6 class="fw-black text-uppercase mb-0 small text-dark">@vendor.Name</h6>
+                                            <button class="btn btn-link text-danger p-0 border-0" @onclick="() => DeleteVendor(vendor.Id)"><i class="bi bi-trash3"></i></button>
                                         </div>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <span class="extra-small text-muted fw-bold" style="font-size: 0.55rem;">Min Order $:</span>
-                                            <input type="number" class="form-control form-control-sm rounded-3 border-0 bg-light fw-bold" style="width: 80px; font-size: 0.7rem;" onfocus="this.select()" @bind="vendor.MinimumOrderAmount" />
+                                        
+                                        <div class="row g-2">
+                                            <div class="col-8">
+                                                <div class="bg-light rounded-pill d-flex align-items-center px-2 py-1">
+                                                    <i class="bi bi-person-badge text-muted me-2" style="font-size: 0.7rem;"></i>
+                                                    <input type="text" class="form-control border-0 bg-transparent p-0 extra-small fw-bold" placeholder="Contact Person" @bind="vendor.ContactName" />
+                                                </div>
+                                            </div>
+                                            <div class="col-4">
+                                                <div class="bg-light rounded-pill d-flex align-items-center px-2 py-1">
+                                                    <span class="text-muted fw-black me-1" style="font-size: 0.5rem; white-space: nowrap;">MIN $</span>
+                                                    <input type="number" class="form-control border-0 bg-transparent p-0 extra-small fw-bold text-center" onfocus="this.select()" @bind="vendor.MinimumOrderAmount" />
+                                                </div>
+                                            </div>
+                                            <div class="col-5">
+                                                <div class="bg-light rounded-pill d-flex align-items-center px-2 py-1">
+                                                    <i class="bi bi-telephone text-muted me-2" style="font-size: 0.7rem;"></i>
+                                                    <input type="tel" class="form-control border-0 bg-transparent p-0 extra-small fw-bold" placeholder="Phone" @bind="vendor.PhoneNumber" />
+                                                </div>
+                                            </div>
+                                            <div class="col-7">
+                                                <div class="bg-light rounded-pill d-flex align-items-center px-2 py-1">
+                                                    <i class="bi bi-envelope text-muted me-2" style="font-size: 0.7rem;"></i>
+                                                    <input type="email" class="form-control border-0 bg-transparent p-0 extra-small fw-bold" placeholder="Email Address" @bind="vendor.Email" />
+                                                </div>
+                                            </div>
+                                            <div class="col-12">
+                                                <div class="bg-light rounded-pill d-flex align-items-center px-2 py-1">
+                                                    <i class="bi bi-globe text-muted me-2" style="font-size: 0.7rem;"></i>
+                                                    <input type="text" class="form-control border-0 bg-transparent p-0 extra-small fw-bold" placeholder="Website URL" @bind="vendor.Website" />
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 }
                             </div>
-                            <button class="btn btn-dark w-100 py-3 rounded-pill fw-black mt-4" @onclick="BatchUpdateVendors">SAVE VENDOR SETTINGS</button>
+                            <button class="btn btn-dark w-100 py-3 rounded-pill fw-black mt-4 shadow" @onclick="BatchUpdateVendors">SAVE VENDOR SETTINGS</button>
                         </div>
                     </div>
                 }
@@ -1327,6 +1462,33 @@
 
                 <div class="row g-3 mb-4">
                     <div class="col-12">
+                        <label class="small fw-black text-muted mb-2 text-uppercase tracking-wider">Review Items (@_orderToReceive.OrderItems.Count)</label>
+                        <div class="card rounded-4 border-0 shadow-inner bg-light overflow-hidden">
+                            <div class="list-group list-group-flush overflow-auto" style="max-height: 200px;">
+                                @foreach (var oi in _orderToReceive.OrderItems)
+                                {
+                                    <div class="list-group-item bg-transparent d-flex justify-content-between align-items-center py-2 px-3 border-light @(oi.IsBackordered ? "opacity-50" : "")">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <div class="fw-black text-dark" style="min-width: 30px;">@oi.Quantity&times;</div>
+                                            <div>
+                                                <div class="fw-bold small @(oi.IsBackordered ? "text-decoration-line-through text-muted" : "")">@oi.LiquorItem?.Name</div>
+                                                @if (oi.IsBackordered)
+                                                {
+                                                    <span class="badge bg-warning text-dark extra-small rounded-pill px-2">BACKORDERED</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-sm @(oi.IsBackordered ? "btn-outline-primary" : "btn-outline-warning") rounded-pill px-3 fw-bold" 
+                                                @onclick="() => oi.IsBackordered = !oi.IsBackordered">
+                                            @(oi.IsBackordered ? "UNDO" : "BACKORDER")
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-12">
                         <label class="small fw-black text-muted mb-1 text-uppercase tracking-wider">Invoice Number</label>
                         <input type="text" class="form-control rounded-pill border-2 fw-black text-dark py-3" 
                                @bind="_receiveInvoiceNumber" @bind:event="oninput" placeholder="INV-0000..." />
@@ -1338,7 +1500,10 @@
                             <input type="number" class="form-control border-0 fw-black text-dark py-3" onfocus="this.select()" 
                                    @bind="_receiveTotalDue" @bind:event="oninput" step="0.01" />
                         </div>
-                        <div class="extra-small text-muted mt-2 ps-3 fw-bold">Default: @(_orderToReceive.ItemsTotal.ToString("C")) (Calculated)</div>
+                        @{
+                            var receivedTotal = _orderToReceive.OrderItems.Where(i => !i.IsBackordered).Sum(i => i.UnitPriceAtTimeOfOrder * i.Quantity);
+                        }
+                        <div class="extra-small text-muted mt-2 ps-3 fw-bold">Default (Received): @(receivedTotal.ToString("C"))</div>
                     </div>
                 </div>
 
@@ -1407,6 +1572,27 @@
                         @(_actualPaidAmount <= 0 ? "ENTER AMOUNT" : "CONFIRM PAYMENT")
                     </button>
                 </div>
+            </div>
+        </div>
+    }
+
+    <!-- SUCCESS MODAL -->
+    @if (_showSuccessModal)
+    {
+        <div class="safety-modal-backdrop animate-entrance" style="z-index: 9999;">
+            <div class="card border-0 shadow-lg rounded-4 p-4 text-center bg-white safety-modal-card" style="max-width: 400px;">
+                <div class="mb-4">
+                    <div class="icon-orb emerald mx-auto" style="width: 80px; height: 80px; font-size: 2.5rem;">
+                        <i class="bi bi-check-circle-fill"></i>
+                    </div>
+                </div>
+                
+                <h3 class="fw-black text-dark mb-2 text-uppercase tracking-wider">@_successTitle</h3>
+                <p class="text-muted fw-bold mb-4">@_successMessage</p>
+                
+                <button class="btn btn-success w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="CloseSuccess">
+                    GREAT, THANKS!
+                </button>
             </div>
         </div>
     }
@@ -1722,9 +1908,28 @@
     private string _historySubTab = "orders";
     private string _analyticsSubTab = "overview";
     private int _analyticsYear = DateTime.Now.Year;
+    private List<LiquorOrderItem> _pendingBackorders = new();
 
     // Safety Guard State
     private bool _showExitConfirm = false;
+    private bool _showSuccessModal = false;
+    private string _successTitle = "";
+    private string _successMessage = "";
+
+    private void TriggerSuccess(string title, string message)
+    {
+        _successTitle = title;
+        _successMessage = message;
+        _showSuccessModal = true;
+        StateHasChanged();
+    }
+
+    private void CloseSuccess()
+    {
+        _showSuccessModal = false;
+        StateHasChanged();
+    }
+
     private string? _pendingTab = null;
     private bool _isExitingToPortal = false;
 
@@ -1811,6 +2016,8 @@
             _unpaidOrders = allOrders.Where(o => o.Status == "Received" && !o.IsPaid).ToList();
             _orderHistory = allOrders.Where(o => o.Status == "Received").ToList();
             _unpaidCount = _unpaidOrders.Count;
+
+            _pendingBackorders = (await LiquorService.GetPendingBackordersAsync()).ToList();
             
             var allTransactions = await LiquorService.GetRecentTransactionsAsync(100);
             _auditHistory = allTransactions.ToList();
@@ -2137,23 +2344,37 @@
         // Final sanity check for mandatory fields
         if (string.IsNullOrWhiteSpace(_receiveInvoiceNumber) || _receiveTotalDue <= 0) return;
         
-        // Calculate discrepancy (Tax + Fees)
-        var additionalCosts = _receiveTotalDue - _orderToReceive.ItemsTotal;
+        // Calculate discrepancy (Tax + Fees) on RECEIVED items only
+        var receivedItemsTotal = _orderToReceive.OrderItems.Where(i => !i.IsBackordered).Sum(i => i.UnitPriceAtTimeOfOrder * i.Quantity);
+        var additionalCosts = _receiveTotalDue - receivedItemsTotal;
         
+        // 0. Save backorder status
+        var backorderedIds = _orderToReceive.OrderItems.Where(i => i.IsBackordered).Select(i => i.Id).ToList();
+        await LiquorService.UpdateOrderItemsBackorderAsync(_orderToReceive.Id, backorderedIds);
+
         // 1. Update order meta
         await LiquorService.UpdateOrderStatusAsync(_orderToReceive.Id, "Received", _receiveInvoiceNumber, 0, additionalCosts);
         
-        // 2. Process stock arrival
+        // 2. Process stock arrival (Skips backordered items based on updated DB state)
         await LiquorService.ReceiveOrderAsync(_orderToReceive.Id, _currentUser.UserId);
         
         _orderToReceive = null;
         await RefreshDataAsync();
         
-        // Confirmation Alert
-        await JS.InvokeVoidAsync("alert", "Order marked as RECEIVED! Inventory has been updated.");
+        // Custom Confirmation
+        TriggerSuccess("ORDER RECEIVED", "Stock levels have been updated and the invoice recorded.");
         
         _activeTab = null; // Back to Dashboard
         StateHasChanged();
+    }
+
+    private async Task ResolveBackorder(LiquorOrderItem oi)
+    {
+        if (_currentUser == null) return;
+        
+        await LiquorService.ResolveBackorderAsync(oi.Id, _currentUser.UserId);
+        await RefreshDataAsync();
+        TriggerSuccess("BACKORDER RESOLVED", $"{oi.LiquorItem?.Name} has been received into inventory.");
     }
 
     private async Task MarkReceived(int orderId) { 
@@ -2178,16 +2399,33 @@
 
     // -- Setup Tool Logic (NEW Master Hub Parity) --
     private string _newVendorName = "";
+    private string _newVendorContact = "";
+    private int _newVendorMinOrder = 300;
+    private string _newVendorPhone = "";
+    private string _newVendorEmail = "";
+    private string _newVendorWebsite = "";
     private LiquorItem _newItem = new();
     private bool _showVendorModal = false;
     private bool _showAddItemModal = false;
     private bool _isEditMode = false;
-
+    private bool _filterBeerOnly = false;
     private async Task AddNewVendor()
     {
         if (string.IsNullOrEmpty(_newVendorName)) return;
-        await LiquorService.CreateVendorAsync(new LiquorVendor { Name = _newVendorName, MinimumOrderAmount = 300 });
+        await LiquorService.CreateVendorAsync(new LiquorVendor { 
+            Name = _newVendorName, 
+            MinimumOrderAmount = _newVendorMinOrder,
+            ContactName = _newVendorContact,
+            PhoneNumber = _newVendorPhone,
+            Email = _newVendorEmail,
+            Website = _newVendorWebsite
+        });
         _newVendorName = "";
+        _newVendorContact = "";
+        _newVendorMinOrder = 300;
+        _newVendorPhone = "";
+        _newVendorEmail = "";
+        _newVendorWebsite = "";
         await RefreshDataAsync();
     }
 

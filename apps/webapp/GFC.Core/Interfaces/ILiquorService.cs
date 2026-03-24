@@ -36,6 +36,9 @@ namespace GFC.Core.Interfaces
         Task UpdateOrderStatusAsync(int orderId, string status, string? invoiceNumber = null, decimal? taxAmount = null, decimal? additionalCosts = null);
         Task MarkOrderAsPaidAsync(int orderId, DateTime paidDate, decimal paidAmount, int paidByUserId);
         Task ReceiveOrderAsync(int orderId, int userId);
+        Task UpdateOrderItemsBackorderAsync(int orderId, List<int> backorderedOrderItemIds);
+        Task<IEnumerable<LiquorOrderItem>> GetPendingBackordersAsync();
+        Task ResolveBackorderAsync(int orderItemId, int userId);
 
         // Notification Rules
         Task<LiquorNotificationRule?> GetNotificationRuleAsync(int userId);

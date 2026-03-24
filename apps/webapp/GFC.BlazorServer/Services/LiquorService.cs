@@ -429,6 +429,8 @@ namespace GFC.BlazorServer.Services
 
             foreach (var orderItem in order.OrderItems)
             {
+                if (orderItem.IsBackordered) continue;
+
                 var liquor = await db.LiquorItems.FindAsync(orderItem.LiquorItemId);
                 if (liquor != null)
                 {
@@ -449,6 +451,66 @@ namespace GFC.BlazorServer.Services
             }
 
             order.Status = "Received";
+            await db.SaveChangesAsync();
+        }
+
+        public async Task UpdateOrderItemsBackorderAsync(int orderId, List<int> backorderedOrderItemIds)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var order = await db.LiquorOrders
+                .Include(o => o.OrderItems)
+                .FirstOrDefaultAsync(o => o.Id == orderId);
+
+            if (order != null)
+            {
+                foreach (var item in order.OrderItems)
+                {
+                    item.IsBackordered = backorderedOrderItemIds.Contains(item.Id);
+                }
+                await db.SaveChangesAsync();
+            }
+        }
+
+        public async Task<IEnumerable<LiquorOrderItem>> GetPendingBackordersAsync()
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            return await db.LiquorOrderItems
+                .Include(oi => oi.LiquorItem)
+                .Include(oi => oi.Order)
+                    .ThenInclude(o => o!.Vendor)
+                .Where(oi => oi.IsBackordered && !oi.IsResolved)
+                .OrderByDescending(oi => oi.Order!.OrderDate)
+                .ToListAsync();
+        }
+
+        public async Task ResolveBackorderAsync(int orderItemId, int userId)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var orderItem = await db.LiquorOrderItems
+                .Include(oi => oi.Order)
+                .FirstOrDefaultAsync(oi => oi.Id == orderItemId);
+
+            if (orderItem == null || orderItem.IsResolved) return;
+
+            var liquor = await db.LiquorItems.FindAsync(orderItem.LiquorItemId);
+            if (liquor != null)
+            {
+                liquor.CurrentStock += orderItem.Quantity;
+                
+                // Log transaction
+                var transaction = new LiquorTransaction
+                {
+                    ItemId = liquor.Id,
+                    UserId = userId,
+                    ChangeAmount = orderItem.Quantity,
+                    TransactionType = "Restock",
+                    Notes = $"Backorder from Order #{orderItem.OrderId} Received",
+                    Timestamp = DateTime.UtcNow
+                };
+                db.LiquorTransactions.Add(transaction);
+            }
+
+            orderItem.IsResolved = true;
             await db.SaveChangesAsync();
         }
 
