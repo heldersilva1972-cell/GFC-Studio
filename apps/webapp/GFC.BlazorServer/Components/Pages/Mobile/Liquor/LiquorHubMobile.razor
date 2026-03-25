@@ -8,6 +8,11 @@
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject IUserManagementService UserService
 @inject IJSRuntime JS
+@inject GFC.Core.Interfaces.IMediaAssetService MediaService
+@using SixLabors.ImageSharp
+@using SixLabors.ImageSharp.Processing
+@using SixLabors.ImageSharp.Formats.Jpeg
+@implements IDisposable
 @attribute [Authorize]
 
 <PageTitle>Liquor HUB | Mobile</PageTitle>
@@ -1262,12 +1267,98 @@
                                 <h5 class="fw-black text-uppercase mb-0">@(_isEditMode ? "Edit Liquor Item" : "Add New Liquor Item")</h5>
                                 <button class="btn-close" @onclick="CloseItemModal"></button>
                             </div>
-                            <p class="extra-small text-muted mb-3">@(_isEditMode ? "Update the product details and reorder limits." : "Create a new product record from scratch.")</p>
+                            
+                            @if (_isLiveCameraMode)
+                            {
+                                <div class="camera-mode-container mb-4 animate-entrance bg-dark rounded-4 overflow-hidden border border-2 border-primary shadow-lg p-2">
+                                    <div id="live-camera-feed" class="w-100 rounded-3 shadow-inner" style="aspect-ratio: 4/3; background: black; overflow: hidden;"></div>
+                                    <div class="camera-controls mt-2 d-flex gap-2 justify-content-center p-2">
+                                        <button class="btn btn-primary rounded-pill px-5 py-3 fw-black shadow-lg" @onclick="CaptureLivePhoto">
+                                            <i class="bi bi-camera-fill me-2 fs-5"></i> CAPTURE
+                                        </button>
+                                        <button class="btn btn-light rounded-pill px-4 fw-black text-muted" @onclick="StopLiveCamera">
+                                            CLOSE
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="compact-header d-flex gap-3 mb-4 align-items-center">
+                                    <!-- PHOTO BOX -->
+                                    <div class="compact-photo-box shadow-sm rounded-4 border-2 border-dashed bg-light d-flex align-items-center justify-content-center cursor-pointer position-relative overflow-hidden" 
+                                         style="width: 100px; height: 100px; transition: transform 0.2s; min-width: 100px;" 
+                                         @onclick="StartLiveCamera">
+                                        @if (!string.IsNullOrEmpty(_newItem.ImageUrl))
+                                        {
+                                            <img src="@_newItem.ImageUrl" class="w-100 h-100 object-fit-cover" />
+                                            <button class="btn btn-sm btn-dark rounded-circle position-absolute top-0 start-0 m-1 opacity-75" style="width: 24px; height: 24px; border: none; font-size: 0.8rem;" @onclick:stopPropagation="true" @onclick='() => _newItem.ImageUrl = null'>
+                                                <i class="bi bi-x"></i>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <div class="text-center text-muted opacity-50">
+                                                <i class="bi bi-camera-fill fs-2 d-block"></i>
+                                                <span class="extra-small fw-black text-uppercase">Add Photo</span>
+                                            </div>
+                                        }
+
+                                        @if (_isUploadingImage)
+                                        {
+                                            <div class="upload-loader position-absolute inset-0 bg-white bg-opacity-75 d-flex align-items-center justify-content-center">
+                                                <div class="spinner-border spinner-border-sm text-primary"></div>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- NAME INPUT -->
+                                    <div class="flex-grow-1">
+                                        <label class="extra-small text-muted fw-bold mb-1 text-uppercase tracking-wider">Product Name / Brand</label>
+                                        <input type="text" class="form-control form-control-lg rounded-3 bg-light border-0 fw-black fs-4 text-dark" 
+                                               placeholder="e.g. Grey Goose" @bind="_newItem.Name" />
+                                        
+                                        <!-- Hidden InputFile helpers -->
+                                        <div class="d-none">
+                                            <InputFile id="photo-upload" OnChange="HandleFileSelected" accept="image/*" />
+                                        </div>
+                                        <div class="mt-2 d-flex gap-2">
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill fw-bold extra-small py-1 px-3" 
+                                                    @onclick='() => JS.InvokeVoidAsync("LiquorScanner.triggerClick", "photo-upload")'>
+                                                <i class="bi bi-upload me-1"></i> UPLOAD FROM GALLERY
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(_error))
+                            {
+                                <div class="alert alert-danger rounded-4 py-3 small fw-bold mb-3 d-flex align-items-center gap-2">
+                                    <i class="bi bi-exclamation-octagon-fill"></i> @_error
+                                </div>
+                            }
 
                             <div class="row g-3">
                                 <div class="col-12">
-                                    <label class="extra-small text-muted fw-bold mb-1">Product Name</label>
-                                    <input type="text" class="form-control rounded-3 bg-light border-0 fw-bold" placeholder="e.g. Grey Goose" @bind="_newItem.Name" />
+                                    <label class="extra-small text-muted fw-bold mb-1 text-uppercase tracking-wider">UPC Barcode</label>
+                                    <div class="input-group shadow-sm rounded-pill overflow-hidden border border-2 border-light">
+                                        <span class="input-group-text bg-white border-0 fw-black text-muted"><i class="bi bi-upc"></i></span>
+                                        <input type="text" class="form-control border-0 fw-black text-dark py-3 font-monospace" placeholder="Scan or type UPC..." @bind="_newItem.UpcCode" />
+                                        <button class="btn btn-primary px-4 fw-black" @onclick="StartBarcodeScan">
+                                            <i class="bi bi-upc-scan me-2"></i> SCAN
+                                        </button>
+                                    </div>
+                                    
+                                    @if (_isModalScannerActive)
+                                    {
+                                        <div class="scanner-container-modal animate-entrance mt-3 bg-dark rounded-4 overflow-hidden border border-2 border-danger shadow-lg p-1">
+                                            <div id="modal-scanner-viewport" class="w-100 rounded-3" style="aspect-ratio: 16/9; background: black;"></div>
+                                            <button class="btn btn-danger btn-sm w-100 mt-2 rounded-pill fw-black py-2" @onclick="StopModalScanner">
+                                                CANCEL SCAN
+                                            </button>
+                                        </div>
+                                    }
                                 </div>
                                 <div class="col-6">
                                     <label class="extra-small text-muted fw-bold mb-1">Bottle/Can Size</label>
@@ -1308,11 +1399,18 @@
                                 </div>
                                 <div class="col-6">
                                     <label class="extra-small text-muted fw-bold mb-1">Min Stock</label>
-                                    <input type="number" class="form-control rounded-3 bg-light border-0 fw-bold" onfocus="this.select()" @bind="_newItem.MinStockLimit" />
+                                    <div class="input-group shadow-sm rounded-pill overflow-hidden border border-2 border-light">
+                                        <span class="input-group-text bg-white border-0 fw-black text-muted"><i class="bi bi-exclamation-triangle-fill text-warning"></i></span>
+                                        <input type="number" class="form-control border-0 fw-black text-dark py-2" onfocus="this.select()" @bind="_newItem.MinStockLimit" />
+                                    </div>
+                                    <p class="extra-small text-muted mt-1 mb-0 px-2 fw-bold" style="line-height: 1;">Notifies when stock hits this number.</p>
                                 </div>
                                 <div class="col-6">
                                     <label class="extra-small text-muted fw-bold mb-1 text-uppercase">BOTTLE / CASE COST ($)</label>
-                                    <input type="number" class="form-control rounded-3 bg-light border-0 fw-bold" onfocus="this.select()" @bind="_newItem.CurrentPrice" step="0.01" />
+                                    <div class="input-group shadow-sm rounded-pill overflow-hidden border border-2 border-light">
+                                        <span class="input-group-text bg-white border-0 fw-black text-muted">$</span>
+                                        <input type="number" class="form-control border-0 fw-black text-dark py-2" onfocus="this.select()" @bind="_newItem.CurrentPrice" step="0.01" />
+                                    </div>
                                 </div>
                                 <div class="col-6">
                                     <label class="extra-small text-muted fw-bold mb-1">Min Order Qty</label>
@@ -1320,7 +1418,10 @@
                                 </div>
                                 <div class="col-6">
                                     <label class="extra-small text-muted fw-bold mb-1">Drink Price (Sale) ($)</label>
-                                    <input type="number" class="form-control rounded-3 bg-light border-0 fw-bold" onfocus="this.select()" @bind="_newItem.RetailPrice" step="0.01" />
+                                    <div class="input-group shadow-sm rounded-pill overflow-hidden border border-2 border-emerald">
+                                        <span class="input-group-text bg-white border-0 fw-black text-success">$</span>
+                                        <input type="number" class="form-control border-0 fw-black text-dark py-2" onfocus="this.select()" @bind="_newItem.RetailPrice" step="0.01" />
+                                    </div>
                                 </div>
                                 @if (!_newItem.IsUnitBased)
                                 {
@@ -1330,7 +1431,7 @@
                                     </div>
                                 }
                                 <div class="col-12 mt-2">
-                                     <div class="d-flex flex-column gap-2 px-4">
+                                     <div class="d-flex flex-column gap-2 px-4 bg-light p-3 rounded-4 border">
                                         <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between mb-2">
                                             <div>
                                                 <h6 class="fw-black text-uppercase mb-0" style="font-size: 0.7rem;">Product is Active</h6>
@@ -1342,14 +1443,17 @@
                                         <div class="form-check form-switch p-0 d-flex align-items-center justify-content-between">
                                             <div>
                                                 <h6 class="fw-black text-uppercase mb-0 text-primary" style="font-size: 0.7rem;">Product is Beer</h6>
-                                                <p class="extra-small text-muted mb-0" style="font-size: 0.55rem; line-height: 1;">Adds $0.05 bottle return fee per unit on orders</p>
+                                                <p class="extra-small text-muted mb-0" style="font-size: 0.55rem; line-height: 1;">Adds bottle return fee on orders</p>
                                             </div>
                                             <input class="form-check-input ms-0" type="checkbox" style="width: 40px; height: 20px;" @bind="_newItem.IsBeer">
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            <button class="btn btn-success w-100 py-3 rounded-pill fw-black mt-4 shadow" @onclick="SaveItemAsync">@(_isEditMode ? "UPDATE PRODUCT RECORD" : "CREATE PRODUCT")</button>
+                            <button class="btn btn-success w-100 py-3 rounded-pill fw-black mt-4 shadow ripple-btn" @onclick="SaveItemAsync" disabled="@(_isSaving || _isUploadingImage)">
+                                @if (_isSaving) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                                @(_isEditMode ? "UPDATE PRODUCT RECORD" : "CREATE PRODUCT")
+                            </button>
                         </div>
                     </div>
                 }
@@ -2513,5 +2617,175 @@
         _stockCounts.Clear();
         await RefreshDataAsync();
         _activeTab = null;
+    }
+
+    // --- PHOTO LOGIC (Ported from Legacy Manager) ---
+    private bool _isLiveCameraMode = false;
+    private bool _isUploadingImage = false;
+    private string? _error;
+
+    private async Task StartLiveCamera()
+    {
+        try {
+            _isLiveCameraMode = true;
+            _error = null;
+            StateHasChanged();
+            
+            await Task.Delay(300); // Give DOM time to render
+            await JS.InvokeVoidAsync("LiquorScanner.startLiveCamera", "live-camera-feed");
+        }
+        catch (Exception ex)
+        {
+            _isLiveCameraMode = false;
+            _error = "Camera startup failed. Please ensure you have granted camera permissions.";
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopLiveCamera()
+    {
+        try {
+            _isLiveCameraMode = false;
+            await JS.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+            StateHasChanged();
+        } catch { }
+    }
+
+    private async Task CaptureLivePhoto()
+    {
+        if (_isUploadingImage) return;
+        
+        _isUploadingImage = true;
+        StateHasChanged();
+
+        try
+        {
+            string? dataUrl = await JS.InvokeAsync<string>("LiquorScanner.takeSnapshot");
+
+            if (!string.IsNullOrEmpty(dataUrl))
+            {
+                _newItem.ImageUrl = dataUrl;
+                _isLiveCameraMode = false;
+                StateHasChanged();
+
+                // Convert DataURL to bytes for actual upload
+                var parts = dataUrl.Split(',');
+                var base64Data = parts[1];
+                var bytes = Convert.FromBase64String(base64Data);
+                
+                using var stream = new MemoryStream(bytes);
+                await ProcessAndUploadImage(stream, "LiveCapture.jpg");
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = "Capture Error: " + ex.Message;
+        }
+        finally
+        {
+            _isUploadingImage = false;
+            _isLiveCameraMode = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        _isUploadingImage = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            // 1. Show local preview
+            var resizedFile = await file.RequestImageFileAsync("image/jpeg", 400, 400);
+            using var previewStream = resizedFile.OpenReadStream(1024 * 1024 * 5);
+            var buffer = new byte[resizedFile.Size];
+            await previewStream.ReadAsync(buffer);
+            var base64 = Convert.ToBase64String(buffer);
+            _newItem.ImageUrl = $"data:image/jpeg;base64,{base64}";
+            StateHasChanged();
+
+            // 2. High Res Upload
+            using var fullStream = new MemoryStream();
+            await file.OpenReadStream(1024 * 1024 * 20).CopyToAsync(fullStream);
+            fullStream.Position = 0;
+            
+            await ProcessAndUploadImage(fullStream, file.Name);
+        }
+        catch (Exception ex)
+        {
+            _error = "Image Processing Error: " + ex.Message;
+        }
+        finally
+        {
+            _isUploadingImage = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProcessAndUploadImage(Stream inputData, string fileName)
+    {
+        try
+        {
+            using var image = await SixLabors.ImageSharp.Image.LoadAsync(inputData);
+            
+            // Standardize size
+            int maxWidth = 800;
+            if (image.Width > maxWidth)
+            {
+                image.Mutate(x => x.Resize(new ResizeOptions { Mode = ResizeMode.Max, Size = new SixLabors.ImageSharp.Size(maxWidth, maxWidth) }));
+            }
+
+            using var compressedStream = new MemoryStream();
+            await image.SaveAsync(compressedStream, new JpegEncoder { Quality = 85 });
+            compressedStream.Position = 0;
+
+            var asset = await MediaService.CreateMediaAssetAsync(compressedStream, $"{Guid.NewGuid()}_{fileName}", "LiquorReference", "System");
+            if (asset != null)
+            {
+                _newItem.ImageUrl = $"/uploads/{asset.StoredFileName}";
+            }
+        }
+        catch (Exception ex)
+        {
+             _error = "Upload Error: " + ex.Message;
+        }
+    }
+
+    // --- BARCODE SCANNER ---
+    private bool _isModalScannerActive = false;
+
+    private async Task StartBarcodeScan()
+    {
+        _isModalScannerActive = true;
+        _error = null;
+        StateHasChanged();
+        await Task.Delay(200);
+        await JS.InvokeVoidAsync("LiquorScanner.start", "modal-scanner-viewport", DotNetObjectReference.Create(this), "OnModalScanSuccess");
+    }
+
+    private async Task StopModalScanner()
+    {
+        _isModalScannerActive = false;
+        await JS.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnModalScanSuccess(string decodedText)
+    {
+        _newItem.UpcCode = decodedText;
+        _isModalScannerActive = false;
+        StateHasChanged();
+        _ = JS.InvokeVoidAsync("LiquorScanner.stopAllCameras");
+    }
+
+    public void Dispose()
+    {
+        try { _ = JS.InvokeVoidAsync("LiquorScanner.stopAllCameras"); } catch { }
     }
 }
