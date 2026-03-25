@@ -156,17 +156,15 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
 
                 if (!string.IsNullOrEmpty(token))
                 {
-                    // [REFINED AUTO-LOGIN] 
-                    // Trust the token if: 
-                    // a) It came from a cookie (server-side context exists)
-                    // b) It is a shared station (station machines are always high-trust for local sessions)
-                    // c) We can verify it against the cache/DB
+                    // [SECURITY] AUTO-LOGIN POLICY
+                    // 1. Never auto-login if GFC_StationIdentity is present (shared machines must use PIN)
+                    // 2. Only allow auto-login for personal devices (Context exists & no station flag)
                     
-                    bool shouldRestore = context != null || isSharedStation;
+                    bool shouldRestore = context != null && !isSharedStation;
                     
-                    if (!shouldRestore)
+                    if (!shouldRestore && !isSharedStation)
                     {
-                         // Final fallback: check local storage intent if this is a random interactive re-eval
+                         // [FALLBACK] Personal devices reaching state re-eval without SSR context
                          try {
                             var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
                             shouldRestore = !string.IsNullOrEmpty(intentToken) && intentToken == token;
