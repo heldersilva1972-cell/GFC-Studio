@@ -118,10 +118,6 @@
                                 <h3 class="product-title">@item.Name</h3>
                                 <div class="product-meta">
                                     <span class="size">@item.BottleSize</span>
-                                    <span class="dot"></span>
-                                    <span class="product-upc">
-                                        <i class="bi bi-upc"></i> @(string.IsNullOrEmpty(item.UpcCode) ? "--" : item.UpcCode)
-                                    </span>
                                 </div>
                                 
                                 @if (_isReceivingMode)
@@ -139,7 +135,8 @@
                                             
                                             <input type="number" class="form-control shipment-input"
                                                    value="@(_pendingRestock.ContainsKey(item.Id) ? _pendingRestock[item.Id] : 0)" 
-                                                   @onchange="@(e => SetPendingRestock(item.Id, e.Value))" />
+                                                   @onchange="@(e => SetPendingRestock(item.Id, e.Value))"
+                                                   onfocus="this.setSelectionRange(0, 999); this.select();" />
                                             
                                             <button class="btn btn-step-pill active" @onclick="() => AdjustPendingRestock(item.Id, 1)">
                                                 <i class="bi bi-plus"></i>
@@ -269,7 +266,7 @@
                             </div>
                             <div class="reconcile-input-wrapper shadow-sm border @(diff != 0 ? "border-primary" : "")">
                                 <button class="btn-step" @onclick="() => entry.ActualStart--"><i class="bi bi-dash-lg"></i></button>
-                                <input type="number" class="reconcile-input" @bind="entry.ActualStart" />
+                                <input type="number" class="reconcile-input" @bind="entry.ActualStart" onfocus="this.setSelectionRange(0, 999); this.select();" />
                                 <button class="btn-step" @onclick="() => entry.ActualStart++"><i class="bi bi-plus-lg"></i></button>
                             </div>
                         </div>
@@ -457,26 +454,19 @@
 
                 <!-- DETAILS GRID -->
                 <div class="details-grid">
-                    <!-- Row 1: Size & UPC -->
                     <div class="row g-3 mb-3">
-                        <div class="col-4">
-                            <label class="small fw-bold text-muted mb-1">Size</label>
-                            <select class="form-select fw-bold" @bind="_editingItem.BottleSize">
+                        <div class="col-12">
+                            <label class="small fw-black text-muted text-uppercase mb-2 ls-1">Bottle/Can Size</label>
+                            <select class="form-select form-select-lg fw-bold rounded-3" @bind="_editingItem.BottleSize">
+                                <option value="">-- Choose Size --</option>
                                 <option value="50ml">50ml</option>
                                 <option value="375ml">375ml</option>
                                 <option value="750ml">750ml</option>
                                 <option value="1L">1L</option>
                                 <option value="1.75L">1.75L</option>
+                                <option value="12oz">12oz (Can/Bottle)</option>
+                                <option value="16oz">16oz (Pint)</option>
                             </select>
-                        </div>
-                        <div class="col-8">
-                            <label class="small fw-bold text-muted mb-1">UPC Barcode</label>
-                            <div class="input-group">
-                                <input type="text" class="form-control fw-bold font-monospace" @bind="_editingItem.UpcCode" placeholder="Scan..." />
-                                <button class="btn btn-light border" @onclick="StartBarcodeScan">
-                                    <i class="bi bi-upc-scan"></i>
-                                </button>
-                            </div>
                         </div>
                     </div>
 
@@ -493,7 +483,7 @@
                                 
                                 <div class="modern-stepper bg-white shadow-sm border mb-3">
                                     <button class="py-3" style="width: 60px;" @onclick="() => { if(_editingItem.CurrentStock > 0) _editingItem.CurrentStock--; }"><i class="bi bi-dash-lg"></i></button>
-                                    <input type="number" class="fs-2 fw-black" @bind="_editingItem.CurrentStock" />
+                                    <input type="number" class="fs-2 fw-black" @bind="_editingItem.CurrentStock" onfocus="this.setSelectionRange(0, 999); this.select();" />
                                     <button class="py-3" style="width: 60px;" @onclick="() => _editingItem.CurrentStock++"><i class="bi bi-plus-lg"></i></button>
                                 </div>
 
@@ -507,7 +497,7 @@
                                 <label class="small fw-black text-muted text-uppercase mb-2 ls-1">Low Stock Alert Threshold</label>
                                 <div class="modern-stepper bg-white shadow-sm border border-warning border-opacity-25" style="height: 50px;">
                                     <button style="width: 50px;" @onclick="() => { if(_editingItem.MinStockLimit > 0) _editingItem.MinStockLimit--; }"><i class="bi bi-dash"></i></button>
-                                    <input type="number" class="fw-bold" @bind="_editingItem.MinStockLimit" />
+                                    <input type="number" class="fw-bold" @bind="_editingItem.MinStockLimit" onfocus="this.setSelectionRange(0, 999); this.select();" />
                                     <button style="width: 50px;" @onclick="() => _editingItem.MinStockLimit++"><i class="bi bi-plus"></i></button>
                                 </div>
                                 <p class="small text-muted mt-2 mb-0">System will notify you when stock falls to or below this number.</p>
@@ -516,15 +506,6 @@
                     </div>
                 </div>
 
-                @if (_isModalScannerActive)
-                {
-                    <div class="scanner-container-modal animate-entrance mt-2">
-                        <div id="modal-scanner-viewport" class="scanner-frame"></div>
-                        <button class="btn btn-danger btn-sm w-100 mt-2 rounded-pill" @onclick="StopModalScanner">
-                            Close Scanner
-                        </button>
-                    </div>
-                }
             </div>
 
             <div class="modal-footer-modern gap-3">
@@ -1420,7 +1401,7 @@
 
     private void OpenAddModal()
     {
-        _editingItem = new LiquorItem { BottleSize = "750ml", Category = "Whiskey", CurrentStock = 1, MinStockLimit = 2 };
+        _editingItem = new LiquorItem { Name = "", BottleSize = "", Category = "Liquor", CurrentStock = 0, MinStockLimit = 0 };
         _showEditModal = true;
         _modalClosing = false;
     }
@@ -1450,7 +1431,6 @@
         _modalClosing = true;
         await Task.Delay(250); // wait for animation
         _showEditModal = false;
-        _isModalScannerActive = false;
         _isLiveCameraMode = false;
         await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
         StateHasChanged();
@@ -1731,36 +1711,6 @@
         {
              await JSRuntime.InvokeVoidAsync("alert", $"Processing Error: {ex.Message}");
         }
-    }
-
-    // --- BARCODE SCANNER ---
-
-    private bool _isModalScannerActive = false;
-
-    private async Task StartBarcodeScan()
-    {
-        _isModalScannerActive = true;
-        StateHasChanged();
-        // Give the DOM a moment to render the viewport
-        await Task.Delay(200);
-        await JSRuntime.InvokeVoidAsync("LiquorScanner.start", "modal-scanner-viewport", DotNetObjectReference.Create(this), "OnModalScanSuccess");
-    }
-
-    private async Task StopModalScanner()
-    {
-        _isModalScannerActive = false;
-        await JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
-        StateHasChanged();
-    }
-
-    [JSInvokable]
-    public void OnModalScanSuccess(string decodedText)
-    {
-        _editingItem.UpcCode = decodedText;
-        _isModalScannerActive = false;
-        StateHasChanged();
-        // Background cleanup
-        _ = JSRuntime.InvokeVoidAsync("LiquorScanner.stopAllCameras");
     }
 
     private string GetStockClass(int stock, int limit)
