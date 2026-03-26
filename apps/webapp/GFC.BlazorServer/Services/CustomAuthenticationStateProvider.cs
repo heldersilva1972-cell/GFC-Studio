@@ -315,13 +315,19 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             // 1. Tell the server to log out (clears internal state in the AuthenticationService)
             await _authenticationService.LogoutAsync(tokenToClear);
             
-            // 2. Clear auto-login preference but KEEP device trust cookie
-            // Clearing the trust token causes the 'Access Shield' to block the device in public locations.
-            // We only clear the localStorage reference to stop auto-login attempts.
+            // 2. Clear auto-login preference AND device trust cookie
+            // [FIX] We MUST clear the cookie to stop the auto-login loop reported by the user.
+            // Even in public locations, the /login page remains accessible via PublicPaths in DeviceGuardMiddleware.
             try 
             {
+                // [FIX] Robust cookie clearing to prevent auto-login loops.
+                // We use multiple deletion strategies for the trust token.
                 await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-                // [FIX] window.setCookie("GFC_DeviceTrustToken", "", -1) REMOVED to preserve trust
+                await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+                
+                // Backup cookie deletion via JS inline command to ensure common paths are caught. 
+                // GFC_DeviceTrustToken is sometimes set with "/" path, so we match it.
+                await _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';");
             }
             catch { /* Not interactive or JS not ready */ }
 

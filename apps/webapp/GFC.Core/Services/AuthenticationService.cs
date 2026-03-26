@@ -361,11 +361,23 @@ public class AuthenticationService : IAuthenticationService
 
     public async Task LogoutAsync(string? deviceToken = null)
     {
-        // [MODIFIED] Do NOT delete/revoke the device trust token on logout.
-        // This allows the device to remain trusted for the 'Access Shield' 
-        // and enables auto-login when the user returns later.
+        // [MODIFIED] Properly revoke the device trust token on logout.
+        // This ensures the token can no longer be used for auto-login,
+        // fixing the infinite login loop reported by users.
+        if (!string.IsNullOrEmpty(deviceToken))
+        {
+            var device = await _trustedDeviceRepository.GetByTokenAsync(deviceToken);
+            if (device != null && !device.IsStation)
+            {
+                // [FIX] Revoke the session token unconditionally on logout, 
+                // UNLESS it is a permanent Station Identity token.
+                device.IsRevoked = true;
+                await _trustedDeviceRepository.UpdateAsync(device);
+                _logger.LogInformation("Revoked user session token {Token} during logout.", deviceToken);
+            }
+        }
+
         _currentUser = null;
-        await Task.CompletedTask;
     }
 
     public AppUser? GetCurrentUser()

@@ -583,4 +583,19 @@ public class DeviceTrustService : IDeviceTrustService
     {
         CustomAuthenticationStateProvider.InvalidateAll();
     }
+
+    public async Task UpdateDeviceAsync(TrustedDevice device)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            context.TrustedDevices.Update(device);
+            await context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update device {DeviceId}", device.Id);
+            throw;
+        }
+    }
 }

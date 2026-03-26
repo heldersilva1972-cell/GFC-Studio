@@ -99,6 +99,20 @@
                                    @bind="_deviceName" placeholder="e.g., John's iPhone" />
                             <div class="form-text">Helps identify the device in the system</div>
                         </div>
+
+                        <div class="mb-3">
+                            <label for="setupMode" class="form-label fw-bold">Setup Mode</label>
+                            <select class="form-select" id="setupMode" @bind="_setupMode">
+                                <option value="Auto">Auto (Private Device)</option>
+                                <option value="Station">Station (Shared Terminal)</option>
+                                <option value="PIN">PIN Only (Shared Terminal User)</option>
+                            </select>
+                            <div class="form-text text-primary fw-bold">
+                                @if (_setupMode == "Auto") { <span><i class="bi bi-person-check"></i> Standard login for private smartphones/laptops.</span> }
+                                else if (_setupMode == "Station") { <span><i class="bi bi-display"></i> Permanent shared device. No auto-login allowed.</span> }
+                                else if (_setupMode == "PIN") { <span><i class="bi bi-key"></i> PIN/Passcode only. For users on a shared station.</span> }
+                            </div>
+                        </div>
                         
                         @if (!string.IsNullOrEmpty(_errorMessage))
                         {
@@ -160,6 +174,7 @@
     private string _errorMessage = "";
     private string _selectedUserEmail = "";
     private string _expirationTime = "";
+    private string _setupMode = "Auto";
     
     private async Task GenerateLink()
     {
@@ -190,18 +205,28 @@
             
             if (DeviceInviteService == null) throw new Exception("Invite service not available");
 
+            // Use Setup Mode to pre-configure TargetDeviceName if user didn't specify one
+            string finalDeviceName = _deviceName;
+            if (string.IsNullOrWhiteSpace(finalDeviceName))
+            {
+                finalDeviceName = _setupMode; // Auto, Station, or PIN
+            }
+
             var token = await DeviceInviteService.CreateInviteTokenAsync(
                 _selectedUserId, 
-                _deviceName ?? "New Device",
+                finalDeviceName,
                 durationHours
             );
             
-            // Build full invite URL using query-based token + native flag
+            // Build full invite URL using query-based token + flags
             var baseUrl = UrlHelper != null 
                 ? await UrlHelper.GetBaseUrlAsync() 
                 : Navigation?.BaseUri.TrimEnd('/') ?? "";
                 
             _generatedLink = $"{baseUrl.TrimEnd('/')}/setup/device?token={token}&native=true";
+            
+            if (_setupMode == "Station") _generatedLink += "&station=true";
+            if (_setupMode == "PIN") _generatedLink += "&pinOnly=true";
             
             // Calculate expiration time
             var expiresAt = DateTime.UtcNow.AddHours(_expirationHours);
@@ -257,6 +282,7 @@
         _errorMessage = "";
         _selectedUserEmail = "";
         _expirationTime = "";
+        _setupMode = "Auto";
     }
     
     private async Task Close()

@@ -234,6 +234,10 @@
     [SupplyParameterFromQuery(Name = "station")]
     public bool IsStation { get; set; }
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "pinOnly")]
+    public bool IsPinOnly { get; set; }
+
     private bool _isProcessing = true;
     private string? _error;
     private bool _success;
@@ -400,6 +404,16 @@
                 return;
             }
 
+            // [AUTO-DETECTION] If query params are missing (e.g. manually typed code), infer mode from the invite
+            if (!IsPinOnly && _validatedInvite.TargetDeviceName == "PIN")
+            {
+                IsPinOnly = true;
+            }
+            if (!IsStation && _validatedInvite.TargetDeviceName == "Station")
+            {
+                IsStation = true;
+            }
+
             if (IsStation && !_stationConfirmed)
             {
                 // Auto-fill the name if the admin pre-named it (and it's not the generic "Station" mode name)
@@ -439,6 +453,25 @@
                 }
             }
 
+            // [PIN-ONLY FAST PATH]
+            // For PIN-only flows, we do NOT create a new device trust token.
+            // The user is already on the shared station (verified above). We just
+            // mark the invite as used and send them directly to the PIN wizard.
+            if (IsPinOnly)
+            {
+                await InviteService.MarkTokenAsUsedAsync(Token);
+                _onboardedUserId = _validatedInvite.UserId;
+
+                // Log them in as that user for the wizard, then redirect.
+                await AuthStateProvider.LoginWithUserAsync(_onboardedUserId);
+                
+                _isProcessing = false;
+                StateHasChanged();
+                
+                NavigationManager.NavigateTo("/setup/wizard?setup=enroll&pinOnly=true", false);
+                return;
+            }
+
             // Create actual Device Trust Token
             var userAgent = await JSRuntime.InvokeAsync<string>("eval", "navigator.userAgent");
             var ipAddress = "detected-at-auth"; // Will be updated during first login or via middleware
@@ -446,7 +479,9 @@
             var duration = await SettingsService.GetTrustedDeviceDurationDaysAsync();
 
             string trustToken;
-            bool forceStationMode = IsStation || (_validatedInvite?.TargetStationId.HasValue ?? false);
+            // [FIX] Station mode is ONLY triggered by the &station=true URL param, NOT by TargetStationId.
+            // PIN-only invites also have a TargetStationId (for verification), but must NOT create a station token.
+            bool forceStationMode = IsStation;
 
             if (forceStationMode)
             {

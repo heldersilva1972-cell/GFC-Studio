@@ -266,7 +266,8 @@
                                 <th>Station Name</th>
                                 <th>Network Address</th>
                                 <th>Last Authorization</th>
-                                <th class="text-end">Status</th>
+                                <th class="text-center">Status</th>
+                                <th class="text-end">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -283,10 +284,15 @@
                                     </td>
                                     <td><code class="text-primary bg-light px-2 py-1 rounded">@station.IpAddress</code></td>
                                     <td><span class="text-muted small">@station.LastUsedUtc.ToLocalTime().ToString("MMM dd, h:mm tt")</span></td>
-                                    <td class="text-end">
+                                    <td class="text-center">
                                         <span class="badge bg-success-subtle text-success border border-success border-opacity-25 rounded-pill px-3">
                                             <i class="bi bi-shield-check me-1"></i>Secure
                                         </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-danger px-3 rounded-pill" @onclick="() => RevokeStation(station)">
+                                            <i class="bi bi-trash3 me-1"></i>Revoke
+                                        </button>
                                     </td>
                                 </tr>
                             }
@@ -1835,7 +1841,17 @@
         _generatingQuickLink = true;
         try
         {
-            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, _isStationSetup ? _quickStationName : _onboardMode, 24, _isPinOnlySetup ? _selectedStationId : null);
+            // Use station name if it's a PIN invite for a specific station
+            string targetDeviceName = _onboardMode;
+            if (_isStationSetup) {
+                targetDeviceName = _quickStationName;
+            }
+            else if (_isPinOnlySetup && _selectedStationId > 0) {
+                var station = _activeStations.FirstOrDefault(s => s.Id == _selectedStationId);
+                targetDeviceName = station?.StationName ?? "PIN Device";
+            }
+
+            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, targetDeviceName, 24, _isPinOnlySetup ? _selectedStationId : null);
             _quickInviteToken = token;
             var baseUrl = await UrlHelper.GetBaseUrlAsync();
             
@@ -1914,6 +1930,26 @@
         catch (Exception ex)
         {
             await ToastService.ShowError("Failed to sync stations: " + ex.Message);
+        }
+    }
+
+    private async Task RevokeStation(TrustedDevice station)
+    {
+        if (station == null) return;
+        
+        try
+        {
+            // Update the record to be revoked
+            station.IsRevoked = true;
+            await DeviceTrustService.UpdateDeviceAsync(station);
+            
+            // Immediately sync the UI
+            await RefreshStations();
+            await ToastService.ShowSuccess($"Station '{station.StationName}' has been revoked.");
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error revoking station: {ex.Message}");
         }
     }
 }

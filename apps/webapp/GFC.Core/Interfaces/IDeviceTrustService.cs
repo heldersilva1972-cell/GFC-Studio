@@ -33,4 +33,5 @@ public interface IDeviceTrustService
     void InvalidateUserSession(int userId);
     void InvalidateTokenSession(string token);
     void InvalidateAllUserSessions();
+    Task UpdateDeviceAsync(TrustedDevice device);
 }
