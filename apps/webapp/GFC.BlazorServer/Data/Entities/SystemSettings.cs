@@ -150,6 +150,9 @@ public class SystemSettings
     public TimeSpan NightShiftStartTime { get; set; } = new TimeSpan(18, 0, 0);
     public TimeSpan NightShiftEndTime { get; set; } = new TimeSpan(2, 0, 0);
 
+    public bool LiquorEmailEnabled { get; set; } = false;
+    public string? LiquorEmailSignature { get; set; }
+
     // Sign-in Number Draw tracking
     public DateTime? LastSignInDrawExportUtc { get; set; }
 }

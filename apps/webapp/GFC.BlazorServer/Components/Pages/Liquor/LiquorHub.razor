@@ -9,6 +9,7 @@
 @inject IJSRuntime JSRuntime
 @inject NavigationManager NavMgr
 @inject CustomAuthenticationStateProvider AuthStateProvider
+@inject IBlazorSystemSettingsService SystemSettingsService
 
 <PageTitle>Liquor Hub | GFC</PageTitle>
 
@@ -887,14 +888,43 @@
                                                 }
                                             </div>
 
-                                            <div class="d-flex gap-2">
-                                                <button class="btn btn-outline-primary rounded-pill fw-bold border-2" title="Print Order Sheet" @onclick="() => PrintOrder(order.Id)">
-                                                    <i class="bi bi-printer"></i>
-                                                </button>
-                                                <button class="btn btn-success flex-grow-1 rounded-pill fw-black py-2 shadow-sm" @onclick="() => StartReceiptAsync(order)">
-                                                    MARK AS RECEIVED
-                                                </button>
-                                            </div>
+                                             <div class="d-flex align-items-center justify-content-between mb-4 mt-3 pt-3 border-top">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    @if (order.IsEmailed)
+                                                    {
+                                                        <div class="badge bg-success-subtle text-success rounded-pill px-3 border border-success extra-small fw-black" title="Last sent: @(order.LastEmailedDate?.ToString("MM/dd HH:mm"))">
+                                                            <i class="bi bi-envelope-check-fill me-1"></i> EMAILED
+                                                        </div>
+                                                    }
+                                                    else if (!string.IsNullOrEmpty(order.Vendor?.Email))
+                                                    {
+                                                        <div class="badge bg-light text-muted rounded-pill px-3 border extra-small fw-black">
+                                                            <i class="bi bi-envelope-slash me-1"></i> LOGGED ONLY
+                                                        </div>
+                                                    }
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(order.Vendor?.Email))
+                                                {
+                                                    <button class="btn btn-sm btn-link text-primary text-decoration-none fw-black p-0 extra-small" @onclick="() => ResendOrderEmailAsync(order)">
+                                                        <i class="bi bi-send-fill me-1"></i> RESEND EMAIL
+                                                    </button>
+                                                }
+                                             </div>
+
+                                             <div class="d-flex gap-2">
+                                                 <button class="btn btn-outline-primary rounded-pill fw-bold border-2" title="Print Order Sheet" @onclick="() => PrintOrder(order.Id)">
+                                                     <i class="bi bi-printer"></i>
+                                                 </button>
+                                                 @if (!string.IsNullOrEmpty(order.Vendor?.Email))
+                                                 {
+                                                     <button class="btn btn-outline-primary rounded-pill fw-bold border-2 ms-0" title="Email Order Again" @onclick="() => ResendOrderEmailAsync(order)">
+                                                         <i class="bi bi-envelope"></i>
+                                                     </button>
+                                                 }
+                                                 <button class="btn btn-success flex-grow-1 rounded-pill fw-black py-2 shadow-sm" @onclick="() => StartReceiptAsync(order)">
+                                                     MARK AS RECEIVED
+                                                 </button>
+                                             </div>
                                         </div>
                                     </div>
                                 </div>
@@ -949,11 +979,17 @@
                                                  Mark as Paid
                                               </button>
                                          </td>
-                                        <td class="text-end pe-4">
-                                            <button class="btn btn-sm btn-icon border-0" title="Print Sheet" @onclick="() => PrintOrder(order.Id)">
-                                                <i class="bi bi-printer"></i>
-                                            </button>
-                                        </td>
+                                        <td class="text-end pe-4 d-flex align-items-center justify-content-end gap-2">
+                                             @if (!string.IsNullOrEmpty(order.Vendor?.Email))
+                                             {
+                                                 <button class="btn btn-sm btn-icon border-0 @(order.IsEmailed ? "text-success" : "text-muted")" title="Resend Email" @onclick="() => ResendOrderEmailAsync(order)">
+                                                     <i class="bi @(order.IsEmailed ? "bi-envelope-check" : "bi-envelope")"></i>
+                                                 </button>
+                                             }
+                                             <button class="btn btn-sm btn-icon border-0" title="Print Sheet" @onclick="() => PrintOrder(order.Id)">
+                                                 <i class="bi bi-printer"></i>
+                                             </button>
+                                         </td>
                                     </tr>
                                 }
                             </tbody>
@@ -1044,10 +1080,16 @@
                                         <td>
                                             <div class="small fw-bold text-success"><i class="bi bi-check-circle-fill me-1"></i> @(order.PaidDate?.ToString("MM/dd/yy"))</div>
                                         </td>
-                                        <td class="text-end pe-3">
-                                            <button class="btn btn-sm btn-outline-primary rounded-pill border-2 fw-black me-3" @onclick="() => PrintOrder(order.Id)" @onclick:stopPropagation><i class="bi bi-printer"></i></button>
-                                            <i class="bi @(isExpanded ? "bi-chevron-up" : "bi-chevron-down") text-muted fw-bold"></i>
-                                        </td>
+                                        <td class="text-end pe-3 d-flex align-items-center justify-content-end gap-2">
+                                             @if (!string.IsNullOrEmpty(order.Vendor?.Email))
+                                             {
+                                                 <button class="btn btn-sm btn-icon border-0 @(order.IsEmailed ? "text-success" : "text-muted")" title="Resend Email" @onclick="() => ResendOrderEmailAsync(order)" @onclick:stopPropagation>
+                                                     <i class="bi @(order.IsEmailed ? "bi-envelope-check" : "bi-envelope")"></i>
+                                                 </button>
+                                             }
+                                             <button class="btn btn-sm btn-outline-primary rounded-pill border-2 fw-black" @onclick="() => PrintOrder(order.Id)" @onclick:stopPropagation><i class="bi bi-printer"></i></button>
+                                             <i class="bi @(isExpanded ? "bi-chevron-up" : "bi-chevron-down") text-muted fw-bold ms-3"></i>
+                                         </td>
                                     </tr>
                                     @if (isExpanded)
                                     {
@@ -1461,161 +1503,136 @@
                         </div>
                     </div>
                 }
-            </div>
-        }
+            </div> @* Closes the analytics-view div *@
+        } @* Closes else if (_activeTab == "analytics") *@
         else if (_activeTab == "setup")
         {
             <div class="setup-view animate-fade-in">
-                <div class="row g-4">
-                    <!-- FULL WIDTH: ITEM MAPPING & PRICING -->
-                    <div class="col-12">
-                        <div class="card border-0 shadow-sm rounded-4 p-4">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <div>
-                                    <h5 class="fw-black text-uppercase mb-1">Item Mapping & Pricing</h5>
-                                    <p class="small text-muted mb-0">Assign vendors to your items and set the current purchase price.</p>
+                <!-- SETUP SUB-TABS -->
+                <div class="d-flex gap-2 mb-4 bg-white p-2 rounded-pill shadow-sm sticky-top" style="top: 0px; z-index: 100; max-width: fit-content;">
+                    <button class="btn btn-sm rounded-pill px-4 fw-black @(_activeSetupTab == "items" ? "btn-primary shadow-sm" : "text-muted")" @onclick='() => _activeSetupTab = "items"'>
+                        <i class="bi bi-box-seam me-1"></i> PRODUCTS
+                    </button>
+                    <button class="btn btn-sm rounded-pill px-4 fw-black @(_activeSetupTab == "vendors" ? "btn-primary shadow-sm" : "text-muted")" @onclick='() => _activeSetupTab = "vendors"'>
+                        <i class="bi bi-person-badge me-1"></i> VENDORS
+                    </button>
+                    <button class="btn btn-sm rounded-pill px-4 fw-black @(_activeSetupTab == "email" ? "btn-primary shadow-sm" : "text-muted")" @onclick='() => _activeSetupTab = "email"'>
+                        <i class="bi bi-envelope-at me-1"></i> EMAIL SETUP
+                    </button>
+                </div>
+
+                @if (_activeSetupTab == "items")
+                {
+                    <div class="row g-4">
+                        <!-- FULL WIDTH: ITEM MAPPING & PRICING -->
+                        <div class="col-12">
+                            <div class="card border-0 shadow-sm rounded-4 p-4">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <div>
+                                        <h5 class="fw-black text-uppercase mb-1">Item Mapping & Pricing</h5>
+                                        <p class="small text-muted mb-0">Assign vendors to your items and set the current purchase price.</p>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                         <button class="btn btn-outline-primary px-4 rounded-pill fw-black" @onclick="() => _showPriceHistoryModal = true"><i class="bi bi-clock-history me-1"></i>PRICE LOG</button>
+                                         <button class="btn btn-outline-primary px-4 rounded-pill fw-black" @onclick='() => _activeSetupTab = "vendors"'>MANAGE VENDORS</button>
+                                         <button class="btn btn-success px-4 rounded-pill fw-black" @onclick="() => _showAddItemModal = true"><i class="bi bi-plus-lg me-1"></i>ADD NEW ITEM</button>
+                                         <div class="vr mx-2"></div>
+                                         <button class="btn btn-primary rounded-pill px-4 fw-black shadow-sm" @onclick="BatchUpdateItems" disabled="@_isSaving">
+                                            @if (_isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> <span>SAVING...</span> }
+                                            else { <span>SAVE ALL CHANGES</span> }
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="d-flex gap-2">
-                                     <button class="btn btn-outline-primary px-4 rounded-pill fw-black" @onclick="() => _showPriceHistoryModal = true"><i class="bi bi-clock-history me-1"></i>PRICE LOG</button>
-                                     <button class="btn btn-outline-primary px-4 rounded-pill fw-black" @onclick="() => _showVendorModal = true">MANAGE VENDORS</button>
-                                     <button class="btn btn-success px-4 rounded-pill fw-black" @onclick="() => _showAddItemModal = true"><i class="bi bi-plus-lg me-1"></i>ADD NEW ITEM</button>
-                                     <div class="vr mx-2"></div>
-                                     <button class="btn btn-primary rounded-pill px-4 fw-black shadow-sm" @onclick="BatchUpdateItems" disabled="@_isSaving">
-                                        @if (_isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> <span>SAVING...</span> }
-                                        else { <span>SAVE ALL CHANGES</span> }
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="table-responsive mt-3" style="max-height: 70vh; overflow-y: auto;">
-                                 <table class="table table-hover align-middle mb-0">
-                                    <thead class="sticky-top bg-white shadow-sm" style="z-index: 5;">
-                                        <tr class="small text-muted uppercase-tracking border-bottom">
-                                            <th style="width: 5%;">#ID</th>
-                                            <th style="width: 25%;">Product</th>
-                                            <th style="width: 15%;">Vendor</th>
-                                            <th class="text-center" style="width: 10%;">Min Stock</th>
-                                            <th class="text-center">Bottle / Case Cost</th>
-                                            <th class="text-center">Drink Price</th>
-                                            <th class="text-center" style="width: 10%;">Shot Size</th>
-                                            <th class="text-end pe-4" style="width: 8%;">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var item in _items.OrderBy(i => i.Name))
-                                        {
-                                            <tr>
-                                                <td class="text-muted fw-bold">@item.Id</td>
-                                                <td>
-                                                    <div class="fw-bold">@item.Name</div>
-                                                    <div class="extra-small text-muted">@item.BottleSize</div>
-                                                </td>
-                                                <td>
-                                                    <select class="form-select form-select-sm border-0 bg-light rounded-3 fw-bold" 
-                                                            style="font-size: 0.75rem;"
-                                                            @onchange="e => UpdateItemVendor(item, e.Value)">
-                                                        <option value="">-- No Vendor --</option>
-                                                        @foreach(var v in _vendors) { <option value="@v.Id" selected="@(item.VendorId == v.Id)">@v.Name</option> }
-                                                    </select>
-                                                </td>
-                                                <td class="text-center">
-                                                    <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 text-center fw-bold mx-auto" 
-                                                           style="width: 60px; font-size: 0.75rem;"
-                                                           onfocus="this.select();"
-                                                           @bind="item.MinStockLimit" @bind:event="oninput" 
-                                                           @bind:after="() => HandleItemUpdate(item)" />
-                                                </td>
-                                                <td class="text-end">
-                                                    <div class="input-group input-group-sm justify-content-end">
-                                                        <span class="input-group-text border-0 bg-transparent ps-0">$</span>
-                                                        <input type="number" class="form-control border-0 bg-light rounded-3 text-end fw-bold px-1" 
-                                                               style="width: 80px; font-size: 0.75rem;"
-                                                               onfocus="this.select();"
-                                                               @bind="item.CurrentPrice" @bind:event="oninput" 
-                                                               @bind:after="() => HandleItemUpdate(item)" step="0.01" />
-                                                    </div>
-                                                    @{ var costChange = GetPriceChangeInfo(item.Id, "Bottle Cost"); }
-                                                    @if (costChange != null)
-                                                    {
-                                                        <div class="extra-small mt-1 text-end" style="font-size: 0.55rem;">
-                                                            <span class="fw-black @(costChange.IsIncrease ? "text-danger" : "text-success")">@(costChange.Delta)</span>
-                                                            <span class="text-muted opacity-75 ms-1">(@costChange.Date)</span>
-                                                        </div>
-                                                    }
-                                                </td>
-                                                <td class="text-end">
-                                                    <div class="input-group input-group-sm justify-content-end">
-                                                        <span class="input-group-text border-0 bg-transparent ps-0">$</span>
-                                                        <input type="number" class="form-control border-0 bg-light rounded-3 text-end fw-bold px-1" 
-                                                               style="width: 80px; font-size: 0.75rem;"
-                                                               onfocus="this.select();"
-                                                               @bind="item.RetailPrice" @bind:event="oninput" 
-                                                               @bind:after="() => HandleItemUpdate(item)" step="0.01" />
-                                                    </div>
-                                                    @{ var priceChange = GetPriceChangeInfo(item.Id, "Drink Price"); }
-                                                    @if (priceChange != null)
-                                                    {
-                                                        <div class="extra-small mt-1 text-end" style="font-size: 0.55rem;">
-                                                            <span class="fw-black @(priceChange.IsIncrease ? "text-danger" : "text-success")">@(priceChange.Delta)</span>
-                                                            <span class="text-muted opacity-75 ms-1">(@priceChange.Date)</span>
-                                                        </div>
-                                                    }
-                                                </td>
-                                                <td class="text-center">
-                                                    @if (!item.IsUnitBased)
-                                                    {
+                                
+                                <div class="table-responsive mt-3" style="max-height: 70vh; overflow-y: auto;">
+                                     <table class="table table-hover align-middle mb-0">
+                                        <thead class="sticky-top bg-white shadow-sm" style="z-index: 5;">
+                                            <tr class="small text-muted uppercase-tracking border-bottom">
+                                                <th style="width: 5%;">#ID</th>
+                                                <th style="width: 25%;">Product</th>
+                                                <th style="width: 15%;">Vendor</th>
+                                                <th class="text-center" style="width: 10%;">Min Stock</th>
+                                                <th class="text-center">Bottle / Case Cost</th>
+                                                <th class="text-center">Drink Price</th>
+                                                <th class="text-center" style="width: 10%;">Shot Size</th>
+                                                <th class="text-end pe-4" style="width: 8%;">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var item in _items.OrderBy(i => i.Name))
+                                            {
+                                                <tr>
+                                                    <td class="text-muted fw-bold">@item.Id</td>
+                                                    <td>
+                                                        <div class="fw-bold">@item.Name</div>
+                                                        <div class="extra-small text-muted">@item.BottleSize</div>
+                                                    </td>
+                                                    <td>
+                                                        <select class="form-select form-select-sm border-0 bg-light rounded-3 fw-bold" 
+                                                                style="font-size: 0.75rem;"
+                                                                @onchange="e => UpdateItemVendor(item, e.Value)">
+                                                            <option value="">-- No Vendor --</option>
+                                                            @foreach(var v in _vendors) { <option value="@v.Id" selected="@(item.VendorId == v.Id)">@v.Name</option> }
+                                                        </select>
+                                                    </td>
+                                                    <td class="text-center">
                                                         <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 text-center fw-bold mx-auto" 
                                                                style="width: 60px; font-size: 0.75rem;"
                                                                onfocus="this.select();"
-                                                               @bind="item.PourSize" @bind:event="oninput" 
-                                                               @bind:after="() => HandleItemUpdate(item)" step="0.1" />
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="text-muted extra-small fw-bold">UNIT</span>
-                                                    }
-                                                </td>
-                                                <td class="text-end pe-3">
-                                                    <button class="btn btn-sm btn-icon bg-light-subtle rounded-3 border-0 text-dark" 
-                                                            style="width: 32px; height: 32px; font-size: 0.9rem;"
-                                                            title="Edit Product Info"
-                                                            @onclick="() => OpenEditModal(item)">
-                                                        <i class="bi bi-pencil-square"></i>
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
+                                                               @bind="item.MinStockLimit" @bind:event="oninput" />
+                                                    </td>
+                                                    <td class="text-center">
+                                                         <div class="input-group input-group-sm justify-content-center">
+                                                            <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
+                                                            <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-black text-center" 
+                                                                   style="max-width: 80px;"
+                                                                   onfocus="this.select();"
+                                                                   @bind="item.CurrentPrice" @bind:event="oninput" step="0.01" />
+                                                         </div>
+                                                    </td>
+                                                    <td class="text-center">
+                                                         <div class="input-group input-group-sm justify-content-center">
+                                                            <span class="input-group-text border-0 bg-transparent fw-bold">$</span>
+                                                            <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-black text-center" 
+                                                                   style="max-width: 80px;"
+                                                                   onfocus="this.select();"
+                                                                   @bind="item.RetailPrice" @bind:event="oninput" step="0.01" />
+                                                         </div>
+                                                    </td>
+                                                    <td class="text-center">
+                                                         <div class="input-group input-group-sm justify-content-center">
+                                                            <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-bold text-center" 
+                                                                   style="max-width: 60px;"
+                                                                   onfocus="this.select();"
+                                                                   @bind="item.PourSize" @bind:event="oninput" step="0.1" />
+                                                            <span class="input-group-text border-0 bg-transparent extra-small fw-bold">oz</span>
+                                                         </div>
+                                                    </td>
+                                                    <td class="text-end pe-4">
+                                                        <button class="btn btn-sm btn-icon text-danger border-0" @onclick="() => DeleteItemAsync(item.Id)">
+                                                            <i class="bi bi-trash3"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            <!-- MANAGE VENDORS MODAL -->
-            @if (_showVendorModal)
-            {
-                <div class="modal-backdrop-modern animate-fade-in shadow-lg">
-                    <div class="modal-card animate-slide-up shadow-lg" style="max-width: 650px; border: none;">
-                        <div class="modal-header bg-white py-4 d-flex justify-content-between align-items-center px-4 border-bottom border-2">
-                             <div class="d-flex align-items-center">
-                                <div class="bg-primary-subtle p-2 rounded-3 me-3">
-                                     <i class="bi bi-person-gear text-primary fs-4"></i>
-                                </div>
-                                <h4 class="mb-0 fw-black text-uppercase tracking-wider text-primary">MANAGE VENDORS</h4>
-                            </div>
-                            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-black" @onclick="() => _showVendorModal = false">CLOSE</button>
-                        </div>
-                        
-                        <div class="modal-body p-4 bg-light-subtle">
-                            <!-- New Vendor Form -->
-                            <div class="bg-white p-3 rounded-4 mb-4 border shadow-sm">
-                                <h6 class="extra-small text-muted fw-bold text-uppercase mb-2">Register New Vendor</h6>
-                                <input type="text" class="form-control rounded-pill border-2 mb-2" @bind="_newVendorName" placeholder="Vendor Company Name..." />
+                }
+                else if (_activeSetupTab == "vendors")
+                {
+                    <div class="row g-4">
+                        <div class="col-md-5">
+                            <div class="card border-0 shadow-sm rounded-4 p-4 sticky-top" style="top: 80px;">
+                                <h5 class="fw-black mb-1">ADD VENDOR</h5>
+                                <p class="small text-muted mb-4">Create a new partner for ordering.</p>
+                                
                                 <div class="row g-2 mb-2">
                                     <div class="col-8">
-                                        <input type="text" class="form-control rounded-pill border-2" @bind="_newVendorContact" placeholder="Contact Person Name" />
+                                        <input type="text" class="form-control form-control-sm rounded-pill border-2" @bind="_newVendorName" placeholder="Vendor Name" />
                                     </div>
                                     <div class="col-4">
                                          <div class="bg-light rounded-pill border-2 border d-flex align-items-center px-3 h-100">
@@ -1633,8 +1650,10 @@
                                     <button class="btn btn-primary rounded-pill-end px-4 fw-bold" @onclick="CreateVendorAsync">ADD VENDOR</button>
                                 </div>
                             </div>
+                        </div>
 
-                            <div class="scroll-y-hub p-1" style="max-height: 400px; overflow-y: auto;">
+                        <div class="col-md-7">
+                            <div class="scroll-y-hub p-1" style="max-height: 70vh; overflow-y: auto;">
                                 @foreach (var v in _vendors.OrderBy(v => v.Name))
                                 {
                                     <div class="px-3 py-3 border rounded-4 bg-white mb-3 shadow-sm border-start border-5 border-primary">
@@ -1653,10 +1672,15 @@
                                                 <input type="tel" class="form-control form-control-sm border-1 rounded-3 bg-light extra-small fw-bold" 
                                                        @bind="v.PhoneNumber" @bind:event="oninput" @bind:after="() => LiquorService.UpdateVendorAsync(v)" />
                                             </div>
-                                            <div class="col-8">
+                                            <div class="col-4">
                                                 <label class="extra-small fw-bold text-muted d-block mb-1">EMAIL</label>
                                                 <input type="email" class="form-control form-control-sm border-1 rounded-3 bg-light extra-small fw-bold" 
                                                        @bind="v.Email" @bind:event="oninput" @bind:after="() => LiquorService.UpdateVendorAsync(v)" />
+                                            </div>
+                                            <div class="col-4">
+                                                <label class="extra-small fw-bold text-muted d-block mb-1">MIN ORDER</label>
+                                                <input type="number" class="form-control form-control-sm border-1 rounded-3 bg-light extra-small fw-bold text-center" 
+                                                       @onchange='(e) => HandleVendorMinOrderChange(v, e.Value)' value="@v.MinimumOrderAmount" onfocus="this.select();" />
                                             </div>
                                         </div>
                                     </div>
@@ -1664,12 +1688,81 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            }
+                }
+                else if (_activeSetupTab == "email")
+                {
+                    <div class="card border-0 shadow-sm rounded-4 p-5 animate-slide-up">
+                         <div class="d-flex justify-content-between align-items-start mb-5 pb-4 border-bottom">
+                             <div>
+                                 <h4 class="fw-black text-uppercase mb-1 tracking-wider">Email Configuration</h4>
+                                 <p class="text-muted mb-0">Manage how orders are electronically dispatched to your brewery and liquor partners.</p>
+                             </div>
+                             <div class="text-end">
+                                 <button class="btn btn-primary rounded-pill px-5 py-3 fw-black shadow-lg" @onclick="SaveEmailSettingsAsync" disabled="@_isSavingSettings">
+                                     @if (_isSavingSettings) { <span class="spinner-border spinner-border-sm me-2"></span> <span>SAVING...</span> }
+                                     else { <i class="bi bi-cloud-check-fill me-2"></i> <span>SAVE EMAIL LOGIC</span> }
+                                 </button>
+                                 @if (_isSavingSettings) { <div class="extra-small text-primary fw-bold mt-2 animate-pulse">Synchronizing with system core...</div> }
+                             </div>
+                         </div>
 
+                         <div class="row g-5">
+                             <div class="col-lg-5">
+                                 <div class="card bg-light border-0 rounded-5 p-4 h-100">
+                                     <div class="d-flex justify-content-between align-items-center mb-4">
+                                         <div class="d-flex align-items-center gap-3">
+                                             <div class="bg-primary bg-opacity-10 p-3 rounded-4">
+                                                 <i class="bi bi-toggle-on text-primary fs-3"></i>
+                                             </div>
+                                             <div>
+                                                 <h6 class="fw-black text-uppercase mb-0">System Status</h6>
+                                                 <p class="extra-small text-muted fw-bold mb-0">Master switch for automation</p>
+                                             </div>
+                                         </div>
+                                         <div class="form-check form-switch fs-4">
+                                             <input class="form-check-input" type="checkbox" role="switch" @bind="_settings.LiquorEmailEnabled">
+                                         </div>
+                                     </div>
+                                     
+                                     <div class="alert @(_settings.LiquorEmailEnabled ? "alert-success" : "alert-warning") border-0 rounded-4 py-3 shadow-none">
+                                         <div class="d-flex align-items-center gap-3">
+                                             <i class="bi @(_settings.LiquorEmailEnabled ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") fs-4"></i>
+                                             <div class="extra-small fw-bold">
+                                                 @if (_settings.LiquorEmailEnabled) { <span>System is ARMED. Emails will be prepared for dispatch during the order flow.</span> }
+                                                 else { <span>System is COLD. Electronic dispatch is disabled; manual logging only.</span> }
+                                             </div>
+                                         </div>
+                                     </div>
+
+                                     <div class="mt-4">
+                                         <label class="extra-small fw-black text-muted text-uppercase mb-3 tracking-wider">Dispatch Preview</label>
+                                         <div class="p-3 bg-white rounded-4 border-2 border border-dashed text-center">
+                                             <i class="bi bi-file-earmark-pdf text-muted display-4 mb-2 d-xl-block"></i>
+                                             <p class="extra-small text-muted fw-bold mb-0">The order is sent as a clean HTML email with vendor references.</p>
+                                         </div>
+                                     </div>
+                                 </div>
+                             </div>
+
+                             <div class="col-lg-7">
+                                 <label class="extra-small fw-black text-muted text-uppercase mb-2 tracking-wider">Global Order Signature & Footer</label>
+                                 <p class="extra-small text-muted fw-bold mb-3">This message appears at the bottom of every order email sent to vendors.</p>
+                                 <textarea class="form-control rounded-4 border-2 p-4 fw-bold shadow-inner" 
+                                           style="min-height: 250px; font-family: 'Courier New', monospace; font-size: 0.9rem;" 
+                                           placeholder="Example: Regards, The GFC Management. Please deliver to side entrance..."
+                                           @bind="_settings.LiquorEmailSignature"></textarea>
+                                 <div class="d-flex justify-content-between mt-3">
+                                     <span class="extra-small text-muted fw-bold">Total Characters: @(_settings?.LiquorEmailSignature?.Length ?? 0)</span>
+                                     <span class="extra-small text-primary fw-black text-uppercase">HTML supported (limited)</span>
+                                 </div>
+                             </div>
+                         </div>
+                    </div>
+                }
+            </div>
         }
     }
-</div>
+}
 
 <!-- Receipt Modal -->
 @if (_orderToReceive != null)
@@ -1838,17 +1931,50 @@
                      <div class="display-6 fw-black">@_orderSummary.Sum(s => s.Total).ToString("C")</div>
                      <div class="fw-bold mt-1" style="font-size: 0.75rem; color: rgba(255,255,255,0.8);">*Estimate only. Excludes taxes, fees, and returned empties.</div>
                  </div>
-                 
-                 <div class="alert alert-info mt-4 border-0 py-3 rounded-4 shadow-sm">
-                      <div class="d-flex align-items-center gap-3">
-                         <i class="bi bi-info-circle-fill fs-4 text-primary"></i>
-                         <div class="small fw-bold text-dark">Confirming will split your cart into separate vendor orders and record them in "Pending Arrival".</div>
+                               <div class="alert alert-info mt-4 border-0 py-3 rounded-4 shadow-sm">
+                       <div class="d-flex align-items-center gap-3">
+                          <i class="bi bi-info-circle-fill fs-4 text-primary"></i>
+                          <div class="small fw-bold text-dark">Confirming will split your cart into separate vendor orders and record them in "Pending Arrival".</div>
+                       </div>
+                  </div>
+
+                  @if (_settings?.LiquorEmailEnabled == true)
+                  {
+                      <div class="card border-0 rounded-4 bg-light p-3 mt-3 shadow-sm border-start border-primary border-4">
+                          <div class="d-flex justify-content-between align-items-center mb-3">
+                              <div class="d-flex align-items-center gap-2">
+                                  <div class="bg-primary bg-opacity-10 p-2 rounded-3">
+                                      <i class="bi bi-envelope-paper-fill text-primary"></i>
+                                  </div>
+                                  <div>
+                                      <h6 class="fw-black text-uppercase mb-0 small">Direct Vendor Dispatch</h6>
+                                      <div class="extra-small text-muted fw-bold">Electronic order delivery</div>
+                                  </div>
+                              </div>
+                              <div class="form-check form-switch">
+                                  <input class="form-check-input" type="checkbox" role="switch" style="cursor: pointer;" @bind="_emailThisOrder">
+                                  <label class="form-check-label extra-small fw-black text-primary text-uppercase ms-1">Email Order</label>
+                              </div>
+                          </div>
+
+                          @if (_emailThisOrder)
+                          {
+                              <div class="animate-fade-in">
+                                  <label class="extra-small fw-black text-muted text-uppercase mb-2 tracking-wider">Special Instructions for Vendor</label>
+                                  <textarea class="form-control rounded-3 border-2 p-3 fw-bold bg-white" rows="3" 
+                                            placeholder="Example: Gate code is 1234, please leave by the side door..." 
+                                            @bind="_orderInstructions"></textarea>
+                                  <div class="extra-small text-primary mt-2 fw-bold">
+                                      <i class="bi bi-info-circle-fill"></i> This message will be included in the email body.
+                                  </div>
+                              </div>
+                          }
                       </div>
-                 </div>
-             </div>
-             <div class="modal-footer p-4 bg-light d-flex gap-3">
-                 <button class="btn btn-light border fw-bold flex-grow-1 rounded-pill py-3" @onclick="() => _showOrderConfirm = false">CANCEL & EDIT</button>
-                 <button class="btn btn-primary fw-black flex-grow-1 shadow rounded-pill py-3" @onclick="ConfirmAndPlaceOrders">@(_singleOrderVendorId.HasValue ? "CONFIRM & PLACE ORDER" : "CONFIRM & PLACE ALL ORDERS")</button>
+                  }
+              </div>
+              <div class="modal-footer p-4 bg-light d-flex gap-3">
+                  <button class="btn btn-light border fw-bold flex-grow-1 rounded-pill py-3" @onclick="() => _showOrderConfirm = false">CANCEL & EDIT</button>
+                  <button class="btn btn-primary fw-black flex-grow-1 shadow rounded-pill py-3" @onclick="ConfirmAndPlaceOrders">@(_singleOrderVendorId.HasValue ? "CONFIRM & PLACE ORDER" : "CONFIRM & PLACE ALL ORDERS")</button>
              </div>
          </div>
      </div>
@@ -2013,7 +2139,7 @@
          </div>
      </div>
  }
-
+</div>
 <style>
     .liquor-hub-container {
         padding: 20px;
@@ -2320,6 +2446,12 @@
     private List<OrderConfirmationSummary> _orderSummary = new();
     private List<LiquorOrderItem> _pendingBackorders = new();
 
+    // Email Setup State
+    private SystemSettings? _settings;
+    private bool _emailThisOrder = false;
+    private string _orderInstructions = "";
+    private bool _isSavingSettings = false;
+
     public class OrderConfirmationSummary
     {
         public string VendorName { get; set; } = "";
@@ -2352,6 +2484,7 @@
                  }
              }
         }
+        _settings = await SystemSettingsService.GetAsync();
         await RefreshDataAsync();
     }
 
@@ -2528,7 +2661,7 @@
                 .Where(i => i != null && i.VendorId == vendorId)
                 .ToList();
             
-            await PlaceVendorOrderAsync(_vendors.FirstOrDefault(v => v.Id == vendorId), vendorItems!);
+            await PlaceVendorOrderAsync(_vendors.FirstOrDefault(v => v.Id == vendorId), vendorItems!, _emailThisOrder);
             _singleOrderVendorId = null;
         }
         else
@@ -2542,9 +2675,13 @@
             {
                 var vendorId = vendorGroup.Key!.Value;
                 var vendorItems = vendorGroup.Select(e => _items.First(i => i.Id == e.Key)).ToList();
-                await PlaceVendorOrderAsync(_vendors.FirstOrDefault(v => v.Id == vendorId), vendorItems);
+                await PlaceVendorOrderAsync(_vendors.FirstOrDefault(v => v.Id == vendorId), vendorItems, _emailThisOrder);
             }
         }
+        
+        // Reset email state
+        _emailThisOrder = false;
+        _orderInstructions = "";
         
         await RefreshDataAsync();
         _activeTab = "active";
@@ -2557,7 +2694,7 @@
         await Task.CompletedTask;
     }
 
-    private async Task PlaceVendorOrderAsync(LiquorVendor? vendor, List<LiquorItem> items)
+    private async Task PlaceVendorOrderAsync(LiquorVendor? vendor, List<LiquorItem> items, bool sendEmail = false)
     {
         if (vendor == null || _currentUser == null) return;
         
@@ -2568,7 +2705,8 @@
             Status = "Placed",
             OrderDate = DateTime.UtcNow,
             ItemsTotal = 0,
-            AdditionalCosts = 0
+            AdditionalCosts = 0,
+            SpecialInstructions = _orderInstructions
         };
 
         foreach (var item in items)
@@ -2590,7 +2728,9 @@
         if (!order.OrderItems.Any()) return;
         
         order.TotalCost = order.ItemsTotal + order.AdditionalCosts;
-        await LiquorService.CreateOrderAsync(order);
+        
+        // Trigger create (this handles the email dispatch in background)
+        await LiquorService.CreateOrderAsync(order, sendEmail);
         
         // Clean partial cart for this vendor
         foreach(var item in items) { _cart.Remove(item.Id); }
@@ -2878,6 +3018,64 @@
             var totalOz = GetOuncesFromSize(i.BottleSize);
             var costPerOz = totalOz > 0 ? i.CurrentPrice / (decimal)totalOz : 0;
             return i.RetailPrice - (costPerOz * i.PourSize);
+        }
+    }
+    private async Task SaveEmailSettingsAsync()
+    {
+        if (_settings == null) return;
+        _isSavingSettings = true;
+        try {
+            await SystemSettingsService.UpdateAsync(_settings);
+            TriggerSuccess("SETTINGS SAVED", "Liquor Email Configuration has been updated.");
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error saving email settings: {ex.Message}");
+            TriggerError("SAVE FAILED", $"Configuration error: {ex.Message}");
+        }
+        finally {
+            _isSavingSettings = false;
+        }
+    }
+
+    private void TriggerError(string title, string message)
+    {
+        _successTitle = title;
+        _successMessage = message;
+        _showSuccessModal = true; 
+        StateHasChanged();
+    }
+
+    private async Task DeleteItemAsync(int id)
+    {
+        try {
+            await LiquorService.DeleteItemAsync(id);
+            await RefreshDataAsync();
+        } catch(Exception ex) {
+            TriggerError("DELETE FAILED", ex.Message);
+        }
+    }
+
+    private async Task ResendOrderEmailAsync(LiquorOrder order)
+    {
+        if (order.Vendor == null || string.IsNullOrEmpty(order.Vendor.Email))
+        {
+            TriggerError("MISSING EMAIL", "This vendor does not have a registered email address.");
+            return;
+        }
+
+        try 
+        {
+            // Re-fetch vendor to be sure we have the latest
+            var vendor = _vendors.FirstOrDefault(v => v.Id == order.VendorId);
+            if (vendor == null) return;
+
+            await LiquorService.ResendOrderEmailAsync(order.Id);
+            TriggerSuccess("EMAIL RESENT", $"The order form has been resent to {vendor.Email}");
+            await RefreshDataAsync();
+        }
+        catch (Exception ex)
+        {
+            TriggerError("SEND FAILED", $"SMTP Delivery failed: {ex.Message}");
         }
     }
 }

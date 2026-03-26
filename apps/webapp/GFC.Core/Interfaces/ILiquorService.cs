@@ -32,7 +32,8 @@ namespace GFC.Core.Interfaces
         // Order Management
         Task<IEnumerable<LiquorOrder>> GetAllOrdersAsync();
         Task<LiquorOrder?> GetOrderByIdAsync(int id);
-        Task<LiquorOrder> CreateOrderAsync(LiquorOrder order);
+        Task<LiquorOrder> CreateOrderAsync(LiquorOrder order, bool sendEmail = false);
+        Task ResendOrderEmailAsync(int orderId);
         Task UpdateOrderStatusAsync(int orderId, string status, string? invoiceNumber = null, decimal? taxAmount = null, decimal? additionalCosts = null);
         Task MarkOrderAsPaidAsync(int orderId, DateTime paidDate, decimal paidAmount, int paidByUserId);
         Task ReceiveOrderAsync(int orderId, int userId);

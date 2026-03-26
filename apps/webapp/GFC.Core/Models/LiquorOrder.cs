@@ -56,6 +56,10 @@ namespace GFC.Core.Models
         [ForeignKey("UserId")]
         public virtual AppUser? User { get; set; }
 
+        public bool IsEmailed { get; set; }
+        public DateTime? LastEmailedDate { get; set; }
+        public string? SpecialInstructions { get; set; }
+
         public virtual ICollection<LiquorOrderItem> OrderItems { get; set; } = new List<LiquorOrderItem>();
     }
 }

@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Mail;
 using GFC.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using GFC.BlazorServer.Data.Entities;
+using GFC.BlazorServer.Services;
 
 namespace GFC.BlazorServer.Services;
 
@@ -18,7 +20,7 @@ public class EmailService : IEmailService
         _logger = logger;
     }
 
-    public async Task SendEmailAsync(string recipientEmail, string subject, string body)
+    public async Task SendEmailAsync(string recipientEmail, string subject, string body, Dictionary<string, byte[]>? attachments = null)
     {
         var settings = await _settingsService.GetAsync();
 
@@ -28,9 +30,9 @@ public class EmailService : IEmailService
             return;
         }
 
-        if (string.IsNullOrEmpty(settings.SmtpHost) || string.IsNullOrEmpty(settings.SmtpFromAddress))
+        if (string.IsNullOrEmpty(settings.SmtpHost) || settings.SmtpPort <= 0)
         {
-            _logger.LogWarning("Email sending failed: SMTP Host or From Address not configured.");
+            _logger.LogWarning("Email sending failed: SMTP Host or Port not configured.");
             return;
         }
 
@@ -44,22 +46,29 @@ public class EmailService : IEmailService
 
             var mailMessage = new MailMessage
             {
-                From = new MailAddress(settings.SmtpFromAddress, settings.SmtpFromName ?? "GFC System"),
+                From = new MailAddress(settings.SmtpFromAddress ?? "noreply@liquorhub.com", settings.SmtpFromName ?? "Liquor Hub"),
                 Subject = subject,
                 Body = body,
-                IsBodyHtml = body.Contains("<") // Simple heuristic for HTML detection
+                IsBodyHtml = true
             };
 
             mailMessage.To.Add(recipientEmail);
 
+            if (attachments != null)
+            {
+                foreach (var attachment in attachments)
+                {
+                    mailMessage.Attachments.Add(new Attachment(new MemoryStream(attachment.Value), attachment.Key));
+                }
+            }
+
             await client.SendMailAsync(mailMessage);
-            _logger.LogInformation("Email successfully sent to {Recipient}", recipientEmail);
+            _logger.LogInformation($"Email sent successfully to {recipientEmail}");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email to {Recipient} via {Host}", recipientEmail, settings.SmtpHost);
-            // We don't necessarily want to crash the whole app if an email fails, 
-            // but we want to log it clearly.
+            _logger.LogError(ex, $"Failed to send email to {recipientEmail}");
+            throw;
         }
     }
 }

@@ -320,6 +320,11 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.NightShiftEndTime = settings.NightShiftEndTime;
 
         existingSettings.LastSignInDrawExportUtc = settings.LastSignInDrawExportUtc;
+        
+        // Liquor Specific Settings
+        existingSettings.LiquorEmailEnabled = settings.LiquorEmailEnabled;
+        existingSettings.LiquorEmailSignature = settings.LiquorEmailSignature;
+
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
         // Sync ShiftDefaults immediately
