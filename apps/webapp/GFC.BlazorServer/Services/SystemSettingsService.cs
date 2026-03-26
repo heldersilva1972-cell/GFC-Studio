@@ -325,6 +325,15 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         existingSettings.LiquorEmailEnabled = settings.LiquorEmailEnabled;
         existingSettings.LiquorEmailSignature = settings.LiquorEmailSignature;
 
+        // SMTP Settings
+        existingSettings.SmtpHost = settings.SmtpHost;
+        existingSettings.SmtpPort = settings.SmtpPort;
+        existingSettings.SmtpUsername = settings.SmtpUsername;
+        existingSettings.SmtpPassword = settings.SmtpPassword;
+        existingSettings.SmtpEnableSsl = settings.SmtpEnableSsl;
+        existingSettings.SmtpFromAddress = settings.SmtpFromAddress;
+        existingSettings.SmtpFromName = settings.SmtpFromName;
+
         existingSettings.LastUpdatedUtc = DateTime.UtcNow;
 
         // Sync ShiftDefaults immediately
