@@ -433,19 +433,33 @@ public class AuthenticationService : IAuthenticationService
 
     private async Task SafeLogLogin(string? username, int? userId, bool success, string? ipAddress, string? failureReason)
     {
-        try
+        // [PERFORMANCE] Fire-and-forget: Move DB logging to a background thread
+        // This prevents the login process from hanging while waiting for audit log persistence.
+        _ = Task.Run(() =>
         {
-            _loginHistoryRepository.LogLogin(new LoginHistory
+            try
             {
-                UserId = userId,
-                Username = username,
-                LoginDate = DateTime.UtcNow,
-                IpAddress = ipAddress,
-                LoginSuccessful = success,
-                FailureReason = failureReason
-            });
-        }
-        catch { }
+                // Capture local copies of parameters to prevent closure/disposal issues
+                var history = new LoginHistory
+                {
+                    UserId = userId,
+                    Username = username,
+                    LoginDate = DateTime.UtcNow,
+                    IpAddress = ipAddress,
+                    LoginSuccessful = success,
+                    FailureReason = failureReason
+                };
+                
+                _loginHistoryRepository.LogLogin(history);
+            }
+            catch (Exception ex)
+            {
+                // We cannot use _logger here easily if scoped, so we use Console.Error as last resort
+                // for background logging failures.
+                Console.Error.WriteLine($"[AuthService] Critical: Background login logging failed: {ex.Message}");
+            }
+        });
+
         await Task.CompletedTask;
     }
 

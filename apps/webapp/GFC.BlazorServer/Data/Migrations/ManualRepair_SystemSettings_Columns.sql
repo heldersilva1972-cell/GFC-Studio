@@ -107,15 +107,50 @@ BEGIN
     ALTER TABLE [dbo].[SystemSettings] ADD [AbsoluteSessionMaxMinutes] INT NOT NULL DEFAULT 1440;
 END
 
-IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'PrimaryDomain')
+-- Ensure Time Zone
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'SystemTimeZoneId')
 BEGIN
-    ALTER TABLE [dbo].[SystemSettings] ADD [PrimaryDomain] NVARCHAR(MAX) NULL;
+    ALTER TABLE [dbo].[SystemSettings] ADD [SystemTimeZoneId] NVARCHAR(MAX) NOT NULL DEFAULT 'Eastern Standard Time';
+END
+
+-- Ensure Shift Times
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'DayShiftStartTime')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [DayShiftStartTime] TIME NOT NULL DEFAULT '09:00:00';
+END
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'DayShiftEndTime')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [DayShiftEndTime] TIME NOT NULL DEFAULT '17:00:00';
+END
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'NightShiftStartTime')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [NightShiftStartTime] TIME NOT NULL DEFAULT '18:00:00';
+END
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'NightShiftEndTime')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [NightShiftEndTime] TIME NOT NULL DEFAULT '02:00:00';
+END
+
+-- Ensure Sign-in Draw tracking [FIX for "Never" status reverting]
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'LastSignInDrawExportUtc')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [LastSignInDrawExportUtc] DATETIME2 NULL;
+END
+
+-- Liquor Specific Settings
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'LiquorEmailEnabled')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [LiquorEmailEnabled] BIT NOT NULL DEFAULT 0;
+END
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = N'LiquorEmailSignature')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [LiquorEmailSignature] NVARCHAR(MAX) NULL;
 END
 
 -- Ensure at least one row exists
 IF NOT EXISTS (SELECT * FROM [dbo].[SystemSettings] WHERE Id = 1)
 BEGIN
-    INSERT INTO [dbo].[SystemSettings] (Id, LastUpdatedUtc, BackupMethod, BackupFrequencyHours, HostingEnvironment, TrustedDeviceDurationDays, MagicLinkEnabled, EnforceVpn, AccessMode, EnableOnboarding, SafeModeEnabled, IdleTimeoutMinutes, AbsoluteSessionMaxMinutes)
-    VALUES (1, GETUTCDATE(), 'External USB', 24, 'Dev', 30, 1, 0, 'Open', 0, 0, 20, 1440);
+    INSERT INTO [dbo].[SystemSettings] (Id, LastUpdatedUtc, BackupMethod, BackupFrequencyHours, HostingEnvironment, TrustedDeviceDurationDays, EnforceVpn, AccessMode, EnableOnboarding, SafeModeEnabled, IdleTimeoutMinutes, AbsoluteSessionMaxMinutes)
+    VALUES (1, GETUTCDATE(), 'External USB', 24, 'Dev', 30, 0, 'Open', 0, 0, 20, 1440);
 END
 GO

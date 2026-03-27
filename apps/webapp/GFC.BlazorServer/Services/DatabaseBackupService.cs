@@ -111,8 +111,39 @@ public class DatabaseBackupService : IDatabaseBackupService
             config.LastBackupTime = DateTime.Now;
             _configService.Save(config);
 
-            // Cleanup old backups
-            await CleanupOldBackupsAsync(config.RetentionDays, cancellationToken);
+            // [NEW] Secondary Backup Mirroring
+            if (!string.IsNullOrWhiteSpace(config.SecondaryBackupFolder))
+            {
+                try
+                {
+                    var driveRoot = Path.GetPathRoot(config.SecondaryBackupFolder);
+                    if (string.IsNullOrEmpty(driveRoot) || Directory.Exists(driveRoot))
+                    {
+                        if (!Directory.Exists(config.SecondaryBackupFolder))
+                        {
+                            Directory.CreateDirectory(config.SecondaryBackupFolder);
+                        }
+
+                        var secondaryPath = Path.Combine(config.SecondaryBackupFolder, backupFileName);
+                        File.Copy(backupFilePath, secondaryPath, true);
+                        _logger.LogInformation("Mirrored backup to secondary location: {SecondaryPath}", secondaryPath);
+                        
+                        // Cleanup secondary drive
+                        await CleanupFolderAsync(config.SecondaryBackupFolder, config.RetentionDays, cancellationToken);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Secondary drive for backups ({DriveRoot}) is not connected. Mirroring skipped.", driveRoot);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to mirror backup to secondary destination: {SecondaryPath}", config.SecondaryBackupFolder);
+                }
+            }
+
+            // Cleanup primary drive
+            await CleanupFolderAsync(config.BackupFolder, config.RetentionDays, cancellationToken);
 
             return (true, string.Empty);
         }
@@ -125,22 +156,27 @@ public class DatabaseBackupService : IDatabaseBackupService
 
     public async Task<bool> CleanupOldBackupsAsync(int retentionDays, CancellationToken cancellationToken = default)
     {
+        var config = _configService.Load();
+        if (string.IsNullOrWhiteSpace(config.BackupFolder)) return false;
+        
+        return await CleanupFolderAsync(config.BackupFolder, retentionDays, cancellationToken);
+    }
+
+    private async Task<bool> CleanupFolderAsync(string folderPath, int retentionDays, CancellationToken cancellationToken = default)
+    {
         try
         {
-            // Run file operations on a background thread to avoid blocking
+            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+            {
+                return false;
+            }
+
             return await Task.Run(() =>
             {
-                var config = _configService.Load();
-                
-                if (string.IsNullOrWhiteSpace(config.BackupFolder) || !Directory.Exists(config.BackupFolder))
-                {
-                    return false;
-                }
-
                 var cutoffDate = DateTime.Now.AddDays(-retentionDays);
-                var directory = new DirectoryInfo(config.BackupFolder);
+                var directory = new DirectoryInfo(folderPath);
                 var oldBackups = directory.GetFiles("*.bak")
-                    .Where(f => f.LastWriteTimeUtc < cutoffDate)
+                    .Where(f => f.LastWriteTime < cutoffDate)
                     .ToList();
 
                 if (oldBackups.Count == 0)
@@ -148,8 +184,8 @@ public class DatabaseBackupService : IDatabaseBackupService
                     return true;
                 }
 
-                _logger.LogInformation("Cleaning up {Count} old backup files (older than {CutoffDate})", 
-                    oldBackups.Count, cutoffDate);
+                _logger.LogInformation("Cleaning up {Count} old backup files in {Folder} (older than {CutoffDate})", 
+                    oldBackups.Count, folderPath, cutoffDate);
 
                 foreach (var file in oldBackups)
                 {
@@ -169,7 +205,7 @@ public class DatabaseBackupService : IDatabaseBackupService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error cleaning up old backups");
+            _logger.LogError(ex, "Error cleaning up old backups in {Path}", folderPath);
             return false;
         }
     }

@@ -46,6 +46,30 @@ public class UserManagementService : IUserManagementService
         _deviceTrustService = deviceTrustService;
     }
 
+    private void InvalidateGlobalSession(int userId)
+    {
+        try
+        {
+            // Clear local core caches first
+            _permissionCache.TryRemove(userId, out _);
+            _userPermissionsCache.TryRemove(userId, out _);
+            _deviceTrustService.InvalidateUserSession(userId);
+
+            // Use reflection to call the static method from the Blazor layer to clear the global memory cache
+            var authStateProviderType = Type.GetType("GFC.BlazorServer.Services.CustomAuthenticationStateProvider, GFC.BlazorServer");
+            if (authStateProviderType != null)
+            {
+                var invalidateMethod = authStateProviderType.GetMethod("InvalidateUser", 
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                invalidateMethod?.Invoke(null, new object[] { userId });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[UserManagement] Warning: Failed to invalidate global session for user {userId}: {ex.Message}");
+        }
+    }
+
     // ... (rest of methods)
 
     public void DeleteUser(int userId)
@@ -54,9 +78,7 @@ public class UserManagementService : IUserManagementService
         try
         {
             _deviceTrustService.ResetMobileSetupAsync(userId).GetAwaiter().GetResult();
-            _permissionCache.TryRemove(userId, out _);
-            _userPermissionsCache.TryRemove(userId, out _);
-            _deviceTrustService.InvalidateUserSession(userId);
+            InvalidateGlobalSession(userId);
         }
         catch (Exception ex)
         {
@@ -72,27 +94,7 @@ public class UserManagementService : IUserManagementService
         try
         {
             await _deviceTrustService.ResetMobileSetupAsync(userId);
-            _permissionCache.TryRemove(userId, out _);
-            _userPermissionsCache.TryRemove(userId, out _);
-            _deviceTrustService.InvalidateUserSession(userId);
-            
-            // [SECURITY FIX] Clear global token cache to prevent deleted users from auto-logging in
-            // This is critical - without this, orphaned device tokens can still authenticate
-            try
-            {
-                // Use reflection to call the static method from the Blazor layer
-                var authStateProviderType = Type.GetType("GFC.BlazorServer.Services.CustomAuthenticationStateProvider, GFC.BlazorServer");
-                if (authStateProviderType != null)
-                {
-                    var invalidateMethod = authStateProviderType.GetMethod("InvalidateUser", 
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                    invalidateMethod?.Invoke(null, new object[] { userId });
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[UserManagement] Warning: Failed to invalidate global token cache: {ex.Message}");
-            }
+            InvalidateGlobalSession(userId);
         }
         catch (Exception ex)
         {
@@ -353,6 +355,9 @@ public class UserManagementService : IUserManagementService
             user.PasswordChangeRequired = true; // Force change on next login
             passwordChanged = true;
         }
+        bool statusChanged = user.IsActive != isActive;
+        bool roleChanged = user.IsAdmin != isAdmin;
+
         user.IsAdmin = isAdmin;
         user.IsActive = isActive;
         user.MemberId = memberId;
@@ -364,6 +369,12 @@ public class UserManagementService : IUserManagementService
         if (passwordChanged)
         {
             _auditLogger.LogPasswordReset(updatedByUserId, user.UserId, updatedByUserId.HasValue && updatedByUserId.Value == user.UserId);
+        }
+
+        // [FIX] Invalidate session if status changed (deactivated) or role changed
+        if (statusChanged || roleChanged)
+        {
+            InvalidateGlobalSession(userId);
         }
     }
 
@@ -402,7 +413,17 @@ public class UserManagementService : IUserManagementService
         // Basic validation for passcode (e.g. 6-8 digits)
         if (string.IsNullOrWhiteSpace(newPassCode) || !newPassCode.All(char.IsDigit) || newPassCode.Length < 6)
         {
-            throw new InvalidOperationException("Passcode must be at least 6 digits.");
+            throw new InvalidOperationException("Passcode must be exactly 6 digits.");
+        }
+
+        // [FIX] Enforce complexity rules consistent with the user wizard
+        bool isRepeating = newPassCode.All(c => c == newPassCode[0]);
+        bool isSequentialInc = "0123456789".Contains(newPassCode);
+        bool isSequentialDec = "9876543210".Contains(newPassCode);
+
+        if (isRepeating || isSequentialInc || isSequentialDec)
+        {
+            throw new InvalidOperationException("This PIN is too easy to guess. Please choose a more complex combination.");
         }
 
         user.PassCodeHash = PasswordHelper.HashPassword(newPassCode);
@@ -411,6 +432,9 @@ public class UserManagementService : IUserManagementService
             user.PasswordChangeRequired = false;
         }
         _userRepository.UpdateUser(user);
+
+        // [FIX] Invalidate global in-memory cache to force security enforcement immediately
+        InvalidateGlobalSession(userId);
 
         var actorUserId = performedByUserId ?? userId;
         var isSelfService = actorUserId == userId;
@@ -429,7 +453,7 @@ public class UserManagementService : IUserManagementService
         _userRepository.UpdateUser(user);
 
         // [FIX] Invalidate global in-memory cache to force security enforcement on next request
-        _deviceTrustService.InvalidateUserSession(userId);
+        InvalidateGlobalSession(userId);
 
         var actorUserId = performedByUserId ?? userId;
         _auditLogger.LogPasswordReset(actorUserId, user.UserId, actorUserId == userId);

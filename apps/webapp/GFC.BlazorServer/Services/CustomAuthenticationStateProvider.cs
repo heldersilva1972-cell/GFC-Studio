@@ -224,6 +224,13 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             new Claim("IsAdmin", user.IsAdmin ? "true" : "false")
         };
  
+        // [NEW] Carry station identity in claims to avoid redundant JS checks in MainLayout
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext?.Request != null && httpContext.Request.Cookies.ContainsKey("GFC_StationIdentity"))
+        {
+            claims.Add(new Claim("IsStation", "true"));
+        }
+
         if (user.IsAdmin)
         {
             claims.Add(new Claim(ClaimTypes.Role, AppRoles.Admin));
@@ -320,14 +327,15 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
             // Even in public locations, the /login page remains accessible via PublicPaths in DeviceGuardMiddleware.
             try 
             {
-                // [FIX] Robust cookie clearing to prevent auto-login loops.
-                // We use multiple deletion strategies for the trust token.
-                await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
-                await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
-                
-                // Backup cookie deletion via JS inline command to ensure common paths are caught. 
-                // GFC_DeviceTrustToken is sometimes set with "/" path, so we match it.
-                await _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';");
+                // [PERFORMANCE] Clear multiple storage locations in parallel
+                var tasks = new List<Task>
+                {
+                    _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token").AsTask(),
+                    _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1).AsTask(),
+                    _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';").AsTask()
+                };
+
+                await Task.WhenAll(tasks);
             }
             catch { /* Not interactive or JS not ready */ }
 

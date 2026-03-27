@@ -235,17 +235,8 @@ else
             // 4. Start Background Monitors
             StartSystemMonitors();
             
-            // 5. Detect Station Mode (Lazy load for interactive check)
-            _ = Task.Run(async () => {
-                try {
-                    await Task.Delay(2000); // Wait for JS interactivity
-                    var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
-                    if (!string.IsNullOrEmpty(token)) {
-                        _isStation = await DeviceTrustService.IsStationTokenAsync(token);
-                        await InvokeAsync(StateHasChanged);
-                    }
-                } catch { }
-            });
+            // 5. Detection for Station Mode is now handled via claims for zero-latency UI response
+            // No startup delay required.
 
             AuthStateProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
             ThemeService.OnThemeChanged += StateHasChanged;
@@ -661,6 +652,10 @@ else
             _currentUsername = authState.User.Identity?.Name ?? "Unknown";
             
             _isAdmin = authState.User.IsInRole(AppRoles.Admin);
+            
+            // [NEW] Zero-latency station detection via claims
+            _isStation = authState.User.HasClaim("IsStation", "true");
+
             if (!_isAdmin)
             {
                 var currentUser = AuthStateProvider.GetCurrentUser();
@@ -699,7 +694,6 @@ else
             // and allows for high-speed auto-login next time the app opens.
             await AuthStateProvider.LogoutAsync();
 
-            await Task.Delay(100);
             await UpdateUserInfo();
             Navigation.NavigateTo("/login", forceLoad: true);
         }

@@ -11,6 +11,7 @@ public class BackupConfig
     public string ServerInstance { get; set; } = "localhost";
     public string DatabaseName { get; set; } = "ClubMembership";
     public string BackupFolder { get; set; } = @"C:\GFC_Backups\ClubMembership";
+    public string? SecondaryBackupFolder { get; set; } = @"F:\GFC_Data_Backup";
     public int RetentionDays { get; set; } = 30;
     public TimeSpan DailyBackupTime { get; set; } = new TimeSpan(2, 0, 0);
     public bool IsConfigured { get; set; }
