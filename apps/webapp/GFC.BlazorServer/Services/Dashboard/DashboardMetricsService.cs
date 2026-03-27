@@ -480,7 +480,12 @@ public class DashboardMetricsService : IDashboardMetricsService
         try
         {
             var settings = await _settingsService.GetAsync();
-            var lastExport = settings.LastSignInDrawExportUtc ?? DateTime.MinValue;
+            var lastExportRaw = settings.LastSignInDrawExportUtc ?? DateTime.MinValue;
+            
+            // Use a 60-second buffer to prevent "Reprint Required" from showing up immediately 
+            // after a print due to slight timestamp drifts or database clock differences.
+            var lastExportBuffered = lastExportRaw.AddSeconds(60);
+            
             var reasons = new List<string>();
 
             var members = await Task.Run(() => _memberRepository.GetAllMembers(), ct);
@@ -522,11 +527,11 @@ public class DashboardMetricsService : IDashboardMetricsService
                     if (!IsIncluded(m, isGracePeriodActive)) return false;
                     
                     // Was there a status change since last print?
-                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExport) return true;
+                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExportBuffered) return true;
                     
                     // Was there a payment since last print?
                     var dues = currentYearDues.FirstOrDefault(d => d.MemberID == m.MemberID);
-                    if (dues?.PaidDate != null && dues.PaidDate.Value > lastExport) return true;
+                    if (dues?.PaidDate != null && dues.PaidDate.Value > lastExportBuffered) return true;
                     
                     return false;
                 })
@@ -546,10 +551,10 @@ public class DashboardMetricsService : IDashboardMetricsService
                     
                     // If they were included in the last print, they need to be removed now.
                     // Case A: Status changed since last print
-                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExport) return true;
+                    if (m.StatusChangeDate.HasValue && m.StatusChangeDate.Value > lastExportBuffered) return true;
                     
                     // Case B: Grace period was active during last print, but is not now
-                    if (!isGracePeriodActive && graceEndDate.HasValue && lastExport < graceEndDate.Value)
+                    if (!isGracePeriodActive && graceEndDate.HasValue && lastExportRaw.Date < graceEndDate.Value.Date)
                     {
                         // Were they only in because of last year's dues?
                         if (prevPaidIds.Contains(m.MemberID) && !paidMemberIds.Contains(m.MemberID)) return true;
