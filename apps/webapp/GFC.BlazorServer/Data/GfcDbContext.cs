@@ -1,4 +1,6 @@
 // [MODIFIED]
+using System.Threading;
+using System.Threading.Tasks;
 using GFC.BlazorServer.Data.Entities;
 using GFC.Core.Models;
 using GFC.Core.Models.Diagnostics;
@@ -137,6 +139,13 @@ public class GfcDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // Standard "Gold Standard" Query Filter for Soft Deletes
+        modelBuilder.Entity<Member>().HasQueryFilter(m => !m.IsDeleted);
+        modelBuilder.Entity<BarSaleEntry>().HasQueryFilter(b => !b.IsDeleted);
+        modelBuilder.Entity<GFC.BlazorServer.Data.Entities.DuesPayment>().HasQueryFilter(d => !d.IsDeleted);
+        modelBuilder.Entity<StaffShift>().HasQueryFilter(s => !s.IsDeleted);
+        modelBuilder.Entity<ShiftReport>().HasQueryFilter(s => !s.IsDeleted);
 
         modelBuilder.Entity<ControllerDevice>()
             .ToTable("Controllers")
@@ -1131,5 +1140,35 @@ public class GfcDbContext : DbContext
                 Enabled = true
             }
         };
+    }
+
+    public override int SaveChanges()
+    {
+        UpdateTimestamps();
+        return base.SaveChanges();
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        UpdateTimestamps();
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void UpdateTimestamps()
+    {
+        var entries = ChangeTracker.Entries<BaseEntity>();
+        foreach (var entry in entries)
+        {
+            if (entry.State == EntityState.Added)
+            {
+                entry.Entity.CreatedAt = DateTime.UtcNow;
+                if (entry.Entity.GlobalId == Guid.Empty) 
+                    entry.Entity.GlobalId = Guid.NewGuid();
+            }
+            if (entry.State == EntityState.Modified)
+            {
+                entry.Entity.ModifiedAt = DateTime.UtcNow;
+            }
+        }
     }
 }

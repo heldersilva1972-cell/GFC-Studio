@@ -1,9 +1,9 @@
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+using GFC.Core.Models;
 
 namespace GFC.BlazorServer.Data.Entities;
 
-public class DuesPayment
+public class DuesPayment : BaseEntity
 {
     [Required]
     public int MemberId { get; set; }

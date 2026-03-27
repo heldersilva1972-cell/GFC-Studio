@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace GFC.Core.Models
 {
-    public class BarSaleEntry
+    public class BarSaleEntry : BaseEntity
     {
         [Key]
         public int Id { get; set; }
@@ -31,13 +31,5 @@ namespace GFC.Core.Models
 
         public decimal? TotalHours { get; set; }
         public bool IsRentalHall { get; set; }
-
-        public string? ModifiedBy { get; set; }
-
-        public DateTime? ModifiedDate { get; set; }
-
-        public string? CreatedBy { get; set; }
-
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

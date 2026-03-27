@@ -5,7 +5,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GFC.Core.Models
 {
-    public class StaffShift
+    public class StaffShift : BaseEntity
     {
         [Key]
         public int Id { get; set; }

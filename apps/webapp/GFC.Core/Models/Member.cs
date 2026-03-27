@@ -3,7 +3,7 @@ namespace GFC.Core.Models;
 /// <summary>
 /// Represents a club member with all personal and status information.
 /// </summary>
-public class Member
+public class Member : BaseEntity
 {
     public int MemberID { get; set; }
     public string Status { get; set; } = string.Empty; // REGULAR, GUEST, LIFE, INACTIVE
