@@ -20,6 +20,7 @@
 @inject IBlazorSystemSettingsService SystemSettingsService
 @inject IAuditLogRepository AuditLogRepository
 @inject IHistoryRepository HistoryRepository
+@inject IDataExportService DataExportService
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JS
 @inject ILogger<OperationsCenter> Logger
@@ -271,6 +272,9 @@
                                 </button>
                                 <button class="btn btn-outline-success" @onclick="RecordBackupManualLog">
                                     <i class="bi bi-check-circle-fill me-2"></i>Verify External Backup
+                                </button>
+                                <button class="btn btn-outline-info" @onclick="() => _showArchiveOptions = true">
+                                    <i class="bi bi-archive-fill me-2"></i>Modular Archive...
                                 </button>
                             </div>
                         </div>
@@ -710,6 +714,91 @@
     </div>
 }
 
+@if (_showArchiveOptions)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5); z-index: 1050;">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header border-0 bg-info text-white p-4">
+                    <h5 class="modal-title mb-0 d-flex align-items-center"><i class="bi bi-archive-fill me-3 fs-4"></i>Modular Database Archiver</h5>
+                    <button type="button" class="btn-close btn-close-white ms-auto" @onclick="() => _showArchiveOptions = false"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <p class="text-muted small mb-4">Select the modules you wish to move from the active database into a cold-storage archive. <strong>Note: Purged records are moved to /data/archives/.</strong></p>
+                    
+                    <div class="card border-0 shadow-sm rounded-3 mb-4">
+                        <div class="card-body p-3">
+                            <h6 class="text-uppercase x-small fw-bold text-muted mb-3">Archive Record Range</h6>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label x-small fw-bold text-dark mb-1">FROM:</label>
+                                    <input type="date" class="form-control border-0 bg-light" @bind="_archiveOptions.ArchiveFromDate" />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label x-small fw-bold text-dark mb-1">TO:</label>
+                                    <input type="date" class="form-control border-0 bg-light" @bind="_archiveOptions.ArchiveToDate" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="text-uppercase x-small fw-bold text-muted mb-3 letter-spacing-1">Configuration</h6>
+                    <div class="card border-0 shadow-sm rounded-3">
+                        <div class="list-group list-group-flush rounded-3">
+                            <div class="list-group-item d-flex align-items-center justify-content-between p-3 border-0">
+                                <div>
+                                    <div class="fw-bold small">Dues & Waivers</div>
+                                    <div class="x-small text-muted">Annual dues payments and member waivers.</div>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input ms-0" type="checkbox" role="switch" @bind="_archiveOptions.ArchiveDues">
+                                </div>
+                            </div>
+                            <div class="list-group-item d-flex align-items-center justify-content-between p-3 border-top">
+                                <div>
+                                    <div class="fw-bold small">Lottery Logs</div>
+                                    <div class="x-small text-muted">Historical lottery shift reconciliation data.</div>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input ms-0" type="checkbox" role="switch" @bind="_archiveOptions.ArchiveLottery">
+                                </div>
+                            </div>
+                            <div class="list-group-item d-flex align-items-center justify-content-between p-3 border-top">
+                                <div>
+                                    <div class="fw-bold small">Bar Sales</div>
+                                    <div class="x-small text-muted">Daily bar sales entry records.</div>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input ms-0" type="checkbox" role="switch" @bind="_archiveOptions.ArchiveBarSales">
+                                </div>
+                            </div>
+                            <div class="list-group-item d-flex align-items-center justify-content-between p-3 border-top">
+                                <div>
+                                    <div class="fw-bold small">Audit & History</div>
+                                    <div class="x-small text-muted">System logs and member modification history.</div>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input ms-0" type="checkbox" role="switch" @bind="_archiveOptions.ArchiveAuditLogs">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning border-0 rounded-3 mt-4 mb-0 small px-3 py-2">
+                        <i class="bi bi-shield-lock-fill me-2"></i>A full safety backup will be taken before archival.
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 bg-white d-flex justify-content-between">
+                    <button class="btn btn-light rounded-pill px-4 fw-bold text-muted" @onclick="() => _showArchiveOptions = false">Cancel</button>
+                    <button class="btn btn-info text-white rounded-pill px-4 fw-bold shadow-sm" @onclick="RunModularArchive">
+                        Start Selective Archival
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .spin { animation: spin 1s linear infinite; }
     @@keyframes spin { 100% {transform: rotate(360deg);} }
@@ -754,6 +843,8 @@
     private DateTime? _lastBackupTime;
     private IEnumerable<FileInfo> _availableBackups;
     private bool _isProcessingBackup = false;
+    private bool _showArchiveOptions = false;
+    private ArchiveOptions _archiveOptions = new();
 
     private string _healthBadgeClass => _healthStatus switch { DataHealthStatus.Healthy => "bg-success", DataHealthStatus.Warning => "bg-warning", DataHealthStatus.Critical => "bg-danger", _ => "bg-secondary" };
     private string _healthIcon => _healthStatus switch { DataHealthStatus.Healthy => "bi-shield-check", DataHealthStatus.Warning => "bi-exclamation-triangle", DataHealthStatus.Critical => "bi-shield-x", _ => "bi-question-circle" };
@@ -887,27 +978,42 @@
         finally { _isProcessingBackup = false; }
     }
 
-    private async Task RecordBackupManualLog() { await DataProtectionService.LogBackupCompletesAsync(0); await RefreshHubAsync(); _statusMessage = "Manual log updated."; }
-
-    private async Task ConfirmRestore(FileInfo backup)
+    private async Task RecordBackupManualLog() { 
+        await DataProtectionService.LogBackupCompletesAsync(0); 
+        await RefreshHubAsync(); 
+        _statusMessage = "Manual log updated."; 
+    }
+ 
+    private async Task ConfirmRestore(FileInfo file)
     {
-        if (await JS.InvokeAsync<bool>("confirm", "SYSTEM RESTORE: Overwrite current database?")) {
-            _isProcessingBackup = true; _statusMessage = "Restoring...";
-            try {
-                var result = await DatabaseBackupService.RestoreDatabaseAsync(backup.FullName);
-                if (result.Success) {
-                    await DataProtectionService.LogRestoreTestCompletedAsync(0);
-                    _statusMessage = "RESTORE SUCCESSFUL.";
-                    await RefreshHubAsync();
-                } else { 
-                    _error = $"Restore failed: {result.ErrorMessage}"; 
-                }
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"🚨 WARNING: This will overwrite the entire database with the backup from {file.LastWriteTime:g}.\n\nAll current data since then will be LOST.\n\nAre you absolutely sure?");
+        if (!confirmed) return;
+        
+        _isProcessingBackup = true;
+        _statusMessage = "Restoring database... Please wait.";
+        StateHasChanged();
+
+        try
+        {
+            var (success, error) = await DatabaseBackupService.RestoreDatabaseAsync(file.FullName);
+            if (success)
+            {
+                _statusMessage = "✅ Database restore completed successfully! The application may restart.";
+                await RefreshHubAsync();
             }
-            catch (Exception ex) { _error = ex.Message; }
-            finally { _isProcessingBackup = false; }
+            else { _error = $"Restore failed: {error}"; }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessingBackup = false;
+            StateHasChanged();
         }
     }
-
+ 
     private async Task DownloadRecoveryPackAsync()
     {
         _isGeneratingPack = true;
@@ -941,6 +1047,47 @@
         else
         {
             _error = "Failed to trigger system imaging. Ensure you are running with administrative privileges.";
+        }
+    }
+
+    private async Task RunModularArchive()
+    {
+        _showArchiveOptions = false;
+        _isProcessingBackup = true;
+        _statusMessage = "Starting Archival Process (Backing up first)...";
+        StateHasChanged();
+
+        try
+        {
+            // 1. Force a backup first
+            var backupResult = await DatabaseBackupService.ExecuteBackupAsync();
+            if (!backupResult.Success)
+            {
+                _error = "Archival Cancelled: Backup failed (" + backupResult.ErrorMessage + ")";
+                return;
+            }
+
+            // 2. Perform Archival
+            var (success, count, message) = await OperationsService.ArchiveModulesAsync(_archiveOptions);
+            
+            if (success)
+            {
+                _statusMessage = message;
+                await RefreshHubAsync();
+            }
+            else
+            {
+                _error = "Archival Error: " + message;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = "Error: " + ex.Message;
+        }
+        finally
+        {
+            _isProcessingBackup = false;
+            StateHasChanged();
         }
     }
 

@@ -15,14 +15,27 @@ namespace GFC.BlazorServer.Services.Operations
         Task<List<DiagnosticEntry>> RunDiagnosticsAsync();
         Task<IEnumerable<DriveDescriptor>> GetAvailableDrivesAsync();
         Task<bool> TriggerSystemImageAsync(string targetDriveLetter);
+        Task<(bool Success, int RecordsProcessed, string Message)> ArchiveModulesAsync(ArchiveOptions options);
+    }
+
+    public class ArchiveOptions
+    {
+        public bool ArchiveDues { get; set; }
+        public bool ArchiveLottery { get; set; }
+        public bool ArchiveBarSales { get; set; }
+        public bool ArchiveAuditLogs { get; set; }
+        public bool ArchiveMemberHistory { get; set; }
+        public DateTime ArchiveFromDate { get; set; } = DateTime.Today.AddYears(-5);
+        public DateTime ArchiveToDate { get; set; } = DateTime.Today.AddYears(-1);
+        public bool CreateExcelSnapshot { get; set; } = true;
     }
 
     public class DriveDescriptor
     {
         public string DriveLetter { get; set; }
         public string Label { get; set; }
-        public long FreeSpaceGb { get; set; }
-        public long TotalSpaceGb { get; set; }
+        public double FreeSpaceGb { get; set; }
+        public double TotalSpaceGb { get; set; }
         public bool IsSystem { get; set; }
     }
 
@@ -37,6 +50,10 @@ namespace GFC.BlazorServer.Services.Operations
         public bool IsReverseProxyDetected { get; set; }
         public bool IsHttps { get; set; }
         public bool CloudflaredRunning { get; set; }
+        public long MemoryUsageBytes { get; set; }
+        public double CpuUsagePercent { get; set; }
+        public long FreeSpaceBytes { get; set; }
+        public long TotalSizeBytes { get; set; }
     }
 
     public class PublicAccessInfo
@@ -57,6 +74,7 @@ namespace GFC.BlazorServer.Services.Operations
         public string Bindings { get; set; }
         public string AppPoolName { get; set; }
         public string DotNetHostingBundleVersion { get; set; }
+        public string OSVersion { get; set; }
     }
 
     public class DatabaseRecoveryInfo
@@ -76,6 +94,7 @@ namespace GFC.BlazorServer.Services.Operations
         public DateTime Timestamp { get; set; }
         public string Component { get; set; }
         public string Status { get; set; }
+        public string Level { get; set; }
         public string Message { get; set; }
         public long DurationMs { get; set; }
     }
@@ -86,5 +105,8 @@ namespace GFC.BlazorServer.Services.Operations
         public List<string> FirewallRules { get; set; } = new();
         public string LocalDnsResolver { get; set; }
         public bool TimeSyncStatus { get; set; }
+        public string TrustProfile { get; set; }
+        public int AuthorizedIpWhitelistCount { get; set; }
+        public bool IsSslActive { get; set; }
     }
 }

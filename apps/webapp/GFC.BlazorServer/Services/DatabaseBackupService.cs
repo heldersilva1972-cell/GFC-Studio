@@ -315,5 +315,35 @@ public class DatabaseBackupService : IDatabaseBackupService
             return Task.FromResult(Enumerable.Empty<FileInfo>());
         }
     }
+
+    public async Task<(bool Success, string ErrorMessage)> ArchiveBackupAsync(string fileName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var config = _configService.Load();
+            if (string.IsNullOrWhiteSpace(config.BackupFolder)) return (false, "Backup folder not configured.");
+
+            var sourcePath = Path.Combine(config.BackupFolder, fileName);
+            if (!File.Exists(sourcePath)) return (false, "Backup file not found.");
+
+            var archiveFolder = Path.Combine(config.BackupFolder, "Archive");
+            if (!Directory.Exists(archiveFolder))
+            {
+                Directory.CreateDirectory(archiveFolder);
+            }
+
+            var destPath = Path.Combine(archiveFolder, fileName);
+            
+            await Task.Run(() => File.Move(sourcePath, destPath, true), cancellationToken);
+            
+            _logger.LogInformation("Archived backup file: {FileName} to {ArchiveFolder}", fileName, archiveFolder);
+            return (true, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error archiving backup: {FileName}", fileName);
+            return (false, ex.Message);
+        }
+    }
 }
 
