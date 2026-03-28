@@ -1,0 +1,602 @@
+@page "/finance/lottery-summaries"
+@using GFC.Core.DTOs
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Auth
+@inject IFinancialAnalyticsService FinancialService
+@inject IUserManagementService UserService
+@inject IJSRuntime JS
+@inject NavigationManager NavMgr
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>Lottery Summaries | GFC Finance</PageTitle>
+
+<div class="lottery-summaries-page">
+    <!-- Fixed Header Section -->
+    <div class="sticky-page-header px-4">
+        <div class="dash-modern-canvas-slim">
+            <div class="d-flex justify-content-between align-items-end">
+                <div>
+                    <h1 class="header-main-title fw-black mb-1">Lottery Summaries</h1>
+                    <div class="d-flex align-items-center gap-2 text-muted small">
+                        <i class="bi bi-calculator-fill text-primary"></i>
+                        <span>Reviewing daily reconciliation cards</span>
+                    </div>
+                </div>
+                
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <div class="input-group input-group-sm rounded-pill overflow-hidden border-0 shadow-sm">
+                        <span class="input-group-text bg-white border-0"><i class="bi bi-calendar3"></i></span>
+                        <input type="date" class="form-control border-0" @bind="_startDate" @bind:after="LoadData" />
+                        <span class="input-group-text bg-white border-0">to</span>
+                        <input type="date" class="form-control border-0" @bind="_endDate" @bind:after="LoadData" />
+                    </div>
+                    
+                    <button type="button" class="btn btn-sm px-4 py-2 rounded-pill bg-white shadow-sm text-primary fw-bold d-flex align-items-center border-0 ms-2" @onclick="LoadData" disabled="@_isLoading">
+                        @if (_isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-repeat me-2"></i>
+                        }
+                        <span>Refresh</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header Spacer to prevent content jump -->
+    <div class="page-header-spacer"></div>
+
+    <div class="dash-modern-canvas">
+
+        @if (_isLoading)
+        {
+            <div class="d-flex flex-column align-items-center justify-content-center py-5 mt-5">
+                <div class="spinner-border text-primary mb-3" role="status"></div>
+                <span class="text-muted fw-bold text-uppercase" style="letter-spacing: 0.1em;">Analyzing Daily Statistics...</span>
+            </div>
+        }
+        else if (!_days.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-search d-block fs-1 mb-3"></i>
+                <p>No business entries found for the selected dates.</p>
+            </div>
+        }
+        else
+        {
+            <div class="summaries-grid">
+                @foreach (var day in _days)
+                {
+                    <div class="date-group mb-5">
+                        <div class="sticky-date-header py-3 px-2 mb-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="date-header d-flex align-items-center gap-3">
+                                    <div class="date-badge">
+                                        <span class="month">@day.Date.ToString("MMM")</span>
+                                        <span class="day">@day.Date.ToString("dd")</span>
+                                    </div>
+                                    <div>
+                                        <h2 class="fw-black mb-0 text-dark">@day.Date.ToString("dddd")</h2>
+                                        <span class="text-muted small">@day.Date.ToString("MMMM yyyy")</span>
+                                    </div>
+                                </div>
+
+                                <!-- Daily Totals Header -->
+                                <div class="daily-totals-ribbon shadow-sm">
+                                    <div class="total-pill">
+                                        <span class="l">NET PROFIT</span>
+                                        <span class="v @(day.TotalNetIncome >= 0 ? "text-success" : "text-danger")">@day.TotalNetIncome.ToString("C2")</span>
+                                    </div>
+                                    <div class="total-divider"></div>
+                                    <div class="total-pill">
+                                        <span class="l">TOTAL INCOME</span>
+                                        <span class="v">@day.TotalLotteryIncome.ToString("C2")</span>
+                                    </div>
+                                    <div class="total-divider"></div>
+                                    <div class="total-pill">
+                                        <span class="l">TOTAL VARIANCE</span>
+                                        <span class="v @(day.TotalVariance == 0 ? "text-muted" : day.TotalVariance > 0 ? "text-primary" : "text-danger")">@day.TotalVariance.ToString("C2")</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-4 px-2">
+                            @foreach (var shift in day.Shifts)
+                            {
+                                bool isMissingLottery = shift.LottoSales == 0 && shift.LottoPayouts == 0 && !shift.IsRentalHall;
+                                
+                                if (isMissingLottery)
+                                {
+                                    @RenderMissingLotteryCard(shift)
+                                }
+                                else
+                                {
+                                    <div @onclick="() => OpenEnlarged(shift, day)" style="cursor: pointer;">
+                                        @RenderSummaryCard(day, shift)
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (_enlargedShift != null && _enlargedDay != null)
+{
+    <div class="summary-modal-backdrop" @onclick="CloseEnlarged">
+        <div class="summary-modal-content" @onclick:stopPropagation>
+            <div class="modal-close-btn" @onclick="CloseEnlarged">
+                <i class="bi bi-x-lg"></i>
+            </div>
+            
+            <div class="enlarged-card-container">
+                <div class="text-center mb-4">
+                    <h2 class="fw-black text-dark mb-1">Detailed Reconciliation</h2>
+                    <p class="text-muted">@_enlargedDay.Date.ToString("dddd, MMMM dd, yyyy")</p>
+                    <div class="d-flex justify-content-center gap-2 mt-3">
+                        <button class="btn btn-sm px-4 rounded-pill fw-black bg-primary text-white shadow-sm border-0 d-flex align-items-center gap-2" @onclick="GoToEdit">
+                            <i class="bi bi-pencil-square"></i>
+                            EDIT REPORT
+                        </button>
+                    </div>
+                    <div class="d-flex justify-content-center gap-3 mt-2">
+                        <span class="badge @(_enlargedShift.ShiftType == "Day" ? "bg-primary" : "bg-indigo") rounded-pill px-4 py-2 fw-black text-uppercase">
+                            <i class="bi @(_enlargedShift.ShiftType == "Day" ? "bi-sun-fill" : "bi-moon-stars-fill") me-1"></i>
+                            @_enlargedShift.ShiftType Shift
+                        </span>
+                        <span class="badge bg-light text-dark border rounded-pill px-4 py-2 fw-bold">
+                            <i class="bi bi-person-fill me-1"></i>
+                            @(_enlargedShift.CreatedBy ?? "Unknown")
+                        </span>
+                    </div>
+                </div>
+
+                <div class="enlarged-summary-scale">
+                    @RenderSummaryCard(_enlargedDay, _enlargedShift, isEnlarged: true)
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private DateTime _startDate = DateTime.Today.AddDays(-14);
+    private DateTime _endDate = DateTime.Today;
+    private bool _isLoading = false;
+    private List<DailySalesReportDto> _days = new();
+
+    // Modal State
+    private ShiftReportDto? _enlargedShift = null;
+    private DailySalesReportDto? _enlargedDay = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private void OpenEnlarged(ShiftReportDto shift, DailySalesReportDto day)
+    {
+        _enlargedShift = shift;
+        _enlargedDay = day;
+    }
+
+    private void CloseEnlarged()
+    {
+        _enlargedShift = null;
+        _enlargedDay = null;
+    }
+
+    private void GoToEdit()
+    {
+        if (_enlargedShift != null && _enlargedDay != null)
+        {
+            NavMgr.NavigateTo($"/operations/end-of-shift?date={_enlargedDay.Date:yyyy-MM-dd}&shift={_enlargedShift.ShiftType}");
+        }
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        try 
+        {
+            var result = await FinancialService.GetDailySalesReportsAsync(_startDate, _endDate);
+            _days = result.Data;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading lottery summaries: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private RenderFragment RenderMissingLotteryCard(ShiftReportDto shift)
+    {
+        return __builder => {
+            <div class="summary-item-container missing">
+                <div class="shift-info mb-2 d-flex justify-content-between align-items-center">
+                    <span class="badge @(string.IsNullOrWhiteSpace(shift.ShiftType) ? "bg-secondary" : shift.ShiftType.Trim() == "Day" ? "bg-primary" : "bg-indigo") rounded-pill px-3 fw-black text-uppercase" style="font-size: 0.65rem;">
+                        <i class="bi @(shift.ShiftType?.Trim() == "Day" ? "bi-sun-fill" : shift.ShiftType?.Trim() == "Night" ? "bi-moon-stars-fill" : "bi-question-circle-fill") me-1"></i>
+                        @(string.IsNullOrWhiteSpace(shift.ShiftType) ? "UNKNOWN" : shift.ShiftType.Trim()) SHIFT
+                    </span>
+                    <span class="text-muted fw-bold" style="font-size: 0.7rem;">@(string.IsNullOrWhiteSpace(shift.CreatedBy) ? "SYSTEM" : shift.CreatedBy)</span>
+                </div>
+                <div class="sim-res-card-unified shadow-sm missing-report">
+                    <div class="p-4 text-center">
+                        <i class="bi bi-clipboard-x fs-1 text-muted opacity-25 mb-2"></i>
+                        <h6 class="fw-bold text-muted mb-1">NO LOTTERY DATA</h6>
+                        <p class="extra-small text-muted mb-0">No reconciliation shift was found for this period.</p>
+                        @if (shift.BarSales > 0) {
+                            <div class="mt-2 text-primary small fw-bold">
+                                <i class="bi bi-info-circle me-1"></i> Bar Sales: @shift.BarSales.ToString("C2")
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        };
+    }
+
+    private RenderFragment RenderSummaryCard(DailySalesReportDto day, ShiftReportDto shift, bool isEnlarged = false)
+    {
+        // Use DTO logic to handle shift isolation (Night - Day)
+        decimal salesActivity = day.GetShiftSales(shift);
+        decimal cashesActivity = day.GetShiftPayouts(shift);
+        decimal ticketsActivity = shift.LottoCancels; 
+        decimal netDue = shift.LottoNetDue;
+
+        decimal netMade = salesActivity - cashesActivity - ticketsActivity;
+        
+        // Expected Drawer calculation specific to this shift's data
+        decimal expectedDrawer = shift.StartingCash + salesActivity - cashesActivity + shift.BackupBagAmount;
+        decimal variance = shift.EndingCash - expectedDrawer;
+
+        string varianceClass = Math.Abs(variance) <= 0.01m ? "exact" : variance > 0.01m ? "over" : "short";
+
+        return __builder => {
+            <div class="summary-item-container @(isEnlarged ? "enlarged" : "")">
+                @if (!isEnlarged)
+                {
+                    <div class="shift-info mb-2 d-flex justify-content-between align-items-center">
+                        <span class="badge @(string.IsNullOrWhiteSpace(shift.ShiftType) ? "bg-secondary" : shift.ShiftType.Trim() == "Day" ? "bg-primary" : "bg-indigo") rounded-pill px-3 fw-black text-uppercase" style="font-size: 0.65rem;">
+                            <i class="bi @(shift.ShiftType?.Trim() == "Day" ? "bi-sun-fill" : shift.ShiftType?.Trim() == "Night" ? "bi-moon-stars-fill" : "bi-question-circle-fill") me-1"></i>
+                            @(string.IsNullOrWhiteSpace(shift.ShiftType) ? "UNKNOWN" : shift.ShiftType.Trim()) SHIFT
+                        </span>
+                        <span class="text-muted fw-bold" style="font-size: 0.7rem;">@(string.IsNullOrWhiteSpace(shift.CreatedBy) ? "SYSTEM" : shift.CreatedBy)</span>
+                    </div>
+                }
+
+                <div class="sim-res-card-unified shadow-lg @varianceClass @(isEnlarged ? "modal-shadow" : "")">
+                    <div class="summary-header">
+                        <i class="bi bi-calculator-fill me-2 opacity-50"></i> LOTTERY RECONCILIATION SUMMARY
+                    </div>
+                    <div class="math-flow-table @(isEnlarged ? "p-4" : "p-2")">
+                        <div class="math-row opacity-60 mb-1" style="font-size: @(isEnlarged ? "1rem" : "0.6rem");">
+                            <span>🏦 STARTING CASH</span>
+                            <span class="fw-bold">@shift.StartingCash.ToString("C2")</span>
+                        </div>
+                        <div class="math-row opacity-50 ps-2" style="font-size: @(isEnlarged ? "1rem" : "0.55rem");">
+                            <span><i class="bi bi-plus small"></i> Sales (RPT 50)</span>
+                            <span>+@salesActivity.ToString("N2")</span>
+                        </div>
+                        <div class="math-row opacity-50 ps-2" style="font-size: @(isEnlarged ? "1rem" : "0.55rem");">
+                            <span><i class="bi bi-dash small"></i> Cashes (RPT 50)</span>
+                            <span>-@cashesActivity.ToString("N2")</span>
+                        </div>
+                        @if (ticketsActivity > 0) {
+                            <div class="math-row opacity-50 ps-2 mb-1" style="font-size: @(isEnlarged ? "1rem" : "0.55rem");">
+                                <span><i class="bi bi-dash small"></i> Tickets (RPT 34)</span>
+                                <span>-@ticketsActivity.ToString("N2")</span>
+                            </div>
+                        }
+                        
+                        <div class="math-row border-top mt-1 pt-1 mb-1 @(netMade >= 0 ? "text-success" : "text-danger")" style="font-size: @(isEnlarged ? "1.2rem" : "0.7rem");">
+                            <span class="fw-bold">⚡ LOTTERY NET REV</span>
+                            <span class="fw-black">@(netMade >= 0 ? "+" : "")@netMade.ToString("C2")</span>
+                        </div>
+
+                        <!-- NET DUE SECTION -->
+                        <div class="math-row opacity-60 border-top mt-1 pt-1" style="font-size: @(isEnlarged ? "0.95rem" : "0.58rem");">
+                            <span class="fw-bold">💸 NET DUE (RPT 50)</span>
+                            <span class="fw-black text-dark">@netDue.ToString("C2")</span>
+                        </div>
+                        @if (ticketsActivity > 0) {
+                            <div class="math-row opacity-60" style="font-size: @(isEnlarged ? "0.95rem" : "0.58rem");">
+                                <span class="fw-bold">⚙️ UPDATED NET DUE</span>
+                                <span class="fw-black text-dark">@((netDue - ticketsActivity).ToString("C2"))</span>
+                            </div>
+                        }
+
+                        <div class="math-row total-expected border-top border-primary border-opacity-10 mt-1 pt-1">
+                            <span class="fw-black text-primary" style="font-size: @(isEnlarged ? "1rem" : "0.65rem");">🎯 EXPECTED DRAWER</span>
+                            <span class="fw-black text-primary @(isEnlarged ? "display-6" : "fs-5")">@expectedDrawer.ToString("C2")</span>
+                        </div>
+                        <div class="math-row text-muted opacity-60 mt-0">
+                            <span class="@(isEnlarged ? "h5" : "small") fw-bold">💵 MINUS COUNT</span>
+                            <span class="@(isEnlarged ? "h5" : "small") fw-bold">-@shift.EndingCash.ToString("C2")</span>
+                        </div>
+                    </div>
+                    <div class="variance-footer-banner @(isEnlarged ? "py-4" : "py-3") shadow-sm">
+                        <div class="v-label fw-black mb-0 @(isEnlarged ? "fs-5" : "")">LOTTERY VARIANCE</div>
+                        <div class="v-value @(isEnlarged ? "display-2" : "fs-2") fw-black">@(Math.Abs(variance) <= 0.01m ? "$0.00" : (variance > 0 ? "+" : "-") + "$" + Math.Abs(variance).ToString("N2"))</div>
+                    </div>
+                </div>
+                
+                @if (!isEnlarged && !string.IsNullOrEmpty(shift.Notes))
+                {
+                    <div class="mt-2 p-2 bg-light rounded text-muted small border-start border-3 border-warning" style="font-size: 0.7rem; max-width: 320px;">
+                        <i class="bi bi-sticky me-1"></i> @shift.Notes
+                    </div>
+                }
+            </div>
+        };
+    }
+}
+
+<style>
+    .lottery-summaries-page {
+        --bg-primary: #f8fafc;
+        --bg-surface: #ffffff;
+        --glass-border: rgba(0, 0, 0, 0.05);
+        --text-primary: #1e293b;
+        --text-muted: #64748b;
+        --card-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        
+        background: var(--bg-primary);
+        min-height: 100vh;
+        padding-bottom: 3rem;
+    }
+
+    .dash-modern-canvas {
+        padding: 1.5rem 2rem 2rem 2rem;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .dash-modern-canvas-slim {
+        max-width: 1320px;
+        margin: 0 auto;
+    }
+
+    .header-main-title {
+        color: #0f172a; 
+        letter-spacing: -0.03em;
+        font-size: 1.75rem;
+    }
+
+    /* Fixed Header implementation to bypass sticky-breakers in the layout */
+    .sticky-page-header {
+        position: fixed;
+        top: 56px; 
+        left: 240px; /* Sidebar width */
+        right: 0;
+        z-index: 950;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(16px);
+        padding: 1.5rem 2.5rem;
+        border-bottom: 2px solid #f1f5f9;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .page-header-spacer {
+        height: 100px; /* Approximate height of fixed header */
+    }
+
+    .sticky-date-header {
+        position: sticky;
+        top: 156px; /* Below Topbar (56) + Fixed Header (~100) */
+        z-index: 450;
+        background: rgba(248, 250, 252, 0.95);
+        backdrop-filter: blur(8px);
+        margin-left: -1rem;
+        margin-right: -1rem;
+        border-radius: 12px;
+        border-bottom: 1px solid rgba(0,0,0,0.03);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+    }
+
+    @@media (max-width: 992px) {
+        .sticky-page-header {
+            left: 0;
+        }
+        .page-header-spacer {
+            height: 140px; /* Taller on wrap */
+        }
+        .sticky-date-header {
+            top: 196px;
+        }
+    }
+
+    .fw-black { font-weight: 900 !important; }
+    
+    .date-badge {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        width: 60px;
+        height: 60px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    
+    .date-badge .month {
+        font-size: 0.65rem;
+        font-weight: 900;
+        text-transform: uppercase;
+        color: #3b82f6;
+        line-height: 1;
+    }
+    
+    .date-badge .day {
+        font-size: 1.25rem;
+        font-weight: 900;
+        color: #1e293b;
+        line-height: 1.1;
+    }
+
+    /* Daily Totals Ribbon */
+    .daily-totals-ribbon {
+        background: white;
+        border-radius: 16px;
+        padding: 0.65rem 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        border: 1px solid #e2e8f0;
+    }
+    .total-pill { display: flex; flex-direction: column; }
+    .total-pill .l { font-size: 0.58rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .total-pill .v { font-size: 0.95rem; font-weight: 900; color: #1e293b; }
+    .total-divider { width: 1px; height: 32px; background: #f1f5f9; }
+
+    .summary-item-container {
+        width: 320px;
+        animation: fadeIn 0.4s ease-out forwards;
+    }
+    
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Card Component CSS */
+    .sim-res-card-unified {
+        background: var(--bg-surface);
+        border: 2px solid var(--glass-border);
+        border-radius: 24px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: all 0.3s ease;
+    }
+    
+    .missing-report {
+        background: rgba(248, 250, 252, 0.8) !important;
+        border-style: dashed !important;
+        border-color: #cbd5e1 !important;
+    }
+    
+    .summary-header { 
+        background: rgba(0,0,0,0.03); 
+        padding: 8px; 
+        font-weight: 900; 
+        font-size: 0.6rem; 
+        color: var(--text-muted); 
+        text-transform: uppercase; 
+        letter-spacing: 0.1em; 
+        text-align: center; 
+        border-bottom: 1px solid var(--glass-border); 
+    }
+    
+    .math-flow-table { background: var(--bg-surface); }
+    .math-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; }
+    .variance-footer-banner { text-align: center; color: white !important; }
+    .v-label { font-size: 0.6rem; font-weight: 900; letter-spacing: 0.1em; opacity: 0.8; margin-bottom: -4px; }
+    
+    .sim-res-card-unified.exact { border-color: #10b981 !important; }
+    .sim-res-card-unified.exact .variance-footer-banner { background: #10b981 !important; }
+    
+    .sim-res-card-unified.short { border-color: #ef4444 !important; }
+    .sim-res-card-unified.short .variance-footer-banner { background: #ef4444 !important; }
+    
+    .sim-res-card-unified.over { border-color: #3b82f6 !important; }
+    .sim-res-card-unified.over .variance-footer-banner { background: #3b82f6 !important; }
+
+    .bg-indigo { background-color: #6366f1; color: white; }
+    .text-indigo { color: #6366f1; }
+
+    /* Modal Styles */
+    .summary-modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(8px);
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeInOverlay 0.3s ease-out;
+    }
+
+    .summary-modal-content {
+        background: #f8fafc;
+        border-radius: 32px;
+        padding: 3rem;
+        position: relative;
+        max-width: 900px;
+        width: 95%;
+        max-height: 95vh;
+        overflow-y: auto;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 1);
+        animation: slideUpModal 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .modal-close-btn {
+        position: absolute;
+        top: 2rem;
+        right: 2rem;
+        width: 44px;
+        height: 44px;
+        background: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        transition: all 0.2s ease;
+        z-index: 10;
+        color: #64748b;
+    }
+
+    .modal-close-btn:hover {
+        transform: rotate(90deg);
+        background: #ef4444;
+        color: white;
+    }
+
+    .enlarged-summary-scale {
+        max-width: 500px;
+        margin: 0 auto;
+        transform-origin: center;
+    }
+
+    .enlarged .sim-res-card-unified {
+        border-width: 4px;
+    }
+
+    .modal-shadow {
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+    }
+
+    @@keyframes fadeInOverlay {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @@keyframes slideUpModal {
+        from { opacity: 0; transform: translateY(40px) scale(0.95); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .extra-small { font-size: 0.65rem; }
+</style>

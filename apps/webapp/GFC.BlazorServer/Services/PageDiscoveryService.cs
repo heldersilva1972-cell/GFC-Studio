@@ -120,7 +120,7 @@ public class PageDiscoveryService
         // [FINANCE]
         if (normalized == "admin/bar-sales" || normalized == "reimbursements/manage" || 
             normalized == "finance/insights" || normalized == "finance/lottery-analytics" || 
-            normalized == "finance/bar-lottery-sales")
+            normalized == "finance/lottery-summaries" || normalized == "finance/bar-lottery-sales")
             return "FINANCE";
 
         // [BARTENDERS]

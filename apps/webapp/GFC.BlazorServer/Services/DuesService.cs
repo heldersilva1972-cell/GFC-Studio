@@ -67,6 +67,7 @@ public class DuesService
         }
 
         var existing = await _dbContext.DuesPayments
+            .IgnoreQueryFilters()
             .FirstOrDefaultAsync(d => d.MemberId == memberId && d.Year == year, cancellationToken);
 
         var previousDetails = existing is null
@@ -79,7 +80,7 @@ public class DuesService
                 existing.Notes
             };
 
-        string? recorderName = null;
+        string recorderName = "System";
         if (performedByUserId.HasValue)
         {
             var user = await _dbContext.AppUsers.FindAsync(new object[] { performedByUserId.Value }, cancellationToken);
@@ -90,10 +91,13 @@ public class DuesService
         {
             existing.Amount = amount;
             existing.PaidDate = paidDate;
-            existing.PaymentType = paymentType;
             existing.Notes = notes;
+            existing.PaymentType = paymentType;
             existing.RecordedByUserId = performedByUserId;
             existing.RecordedBy = recorderName;
+            existing.ModifiedBy = recorderName;
+            existing.ModifiedAt = DateTime.UtcNow;
+            existing.IsDeleted = false;
             _dbContext.DuesPayments.Update(existing);
         }
         else
@@ -114,7 +118,19 @@ public class DuesService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var member = await _dbContext.Members.FindAsync(new object[] { memberId }, cancellationToken);
+        var member = await _dbContext.Members
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(m => m.MemberID == memberId, cancellationToken);
+            
+        if (member != null && member.IsDeleted)
+        {
+            member.IsDeleted = false;
+            member.ModifiedBy = recorderName;
+            member.ModifiedAt = DateTime.UtcNow;
+            _dbContext.Members.Update(member);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        
         var memberName = member != null ? $"{member.LastName}, {member.FirstName}" : $"Member #{memberId}";
 
         var previousSummary = previousDetails == null
@@ -150,8 +166,19 @@ public class DuesService
             }
             catch (Exception ex)
             {
-                // Log but don't fail the dues payment if card processing fails
-                _logger.LogError(ex, "Error processing card eligibility for member {MemberId} after dues payment", memberId);
+                // [CRITICAL DIAGNOSTIC] Write error to a highly visible location
+                try {
+                    var logPath = @"C:\Users\hnsil\Documents\GFC_CRITICAL_ERROR.txt";
+                    string msg = $"\n=== DUES ERROR {DateTime.Now} ===\n" +
+                                 $"Member: {memberId}, Year: {year}\n" +
+                                 $"Exception: {ex.Message}\n" +
+                                 $"Stack: {ex.StackTrace}\n" +
+                                 $"Inner: {ex.InnerException?.Message}\n" +
+                                 $"Inner Stack: {ex.InnerException?.StackTrace}\n";
+                    System.IO.File.AppendAllText(logPath, msg);
+                } catch { }
+
+                throw; // Re-throw to show "Payment failed" in UI
             }
         }
     }

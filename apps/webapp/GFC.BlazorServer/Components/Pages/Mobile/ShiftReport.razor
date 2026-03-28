@@ -5,10 +5,10 @@
 @using GFC.Core.Models
 @using GFC.BlazorServer.Data
 @using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject ILotteryShiftRepository LotteryRepo
-@inject IDbContextFactory<GfcDbContext> DbFactory
 @inject IJSRuntime JSRuntime
 @inject IAuditLogger AuditLogger
 @inject IUserManagementService UserService
@@ -31,33 +31,33 @@
             <button class="btn-home-pill btn-logout-danger ms-1" @onclick="HandleManualLogout" title="Sign Out">
                 <i class="bi bi-box-arrow-right"></i>
             </button>
-            <div class="header-date ms-1">
-                <input type="date" class="form-control form-control-sm border-0 bg-white-glass fw-bold rounded-pill px-3 shadow-sm" 
-                       @bind-value="ReportDate" @bind-value:after="OnDateChanged"
-                       max="@DateTime.Today.ToString("yyyy-MM-dd")"
-                       disabled="@IsLocked" />
-            </div>
         </div>
     </div>
         
-        @if (!string.IsNullOrEmpty(ShiftType) && !IsRentalHall && !Submitted && !Loading)
-        {
-            <div class="px-3 pb-2 animate-slide-up" style="margin-top: -5px;">
-                <div class="form-check form-switch d-flex align-items-center justify-content-center py-2 px-3 rounded-pill bg-white-glass shadow-sm border border-primary border-opacity-10">
-                    <input class="form-check-input me-3" type="checkbox" role="switch" id="carryOverToggle" 
-                           @bind="_shiftCarryOverEnabled" @bind:after="RefreshOpeningCash" disabled="@IsLocked" style="cursor: pointer; width: 2.22rem; height: 1.1rem;">
-                    <label class="form-check-label fw-black text-primary small mt-1" for="carryOverToggle" style="letter-spacing: 0.05em; font-size: 0.65rem; cursor: pointer;">
-                        SHIFT CARRY OVER DRAWER
-                    </label>
-                </div>
-            </div>
-        }
-
 </div>
 
 <div class="tablet-body">
 <div class="glass-page-container mobile-version">
     <NavigationLock ConfirmExternalNavigation="@HasUnsavedChanges" OnBeforeInternalNavigation="OnBeforeInternalNavigation" />
+    <style>
+        /* HARD TABLET-ONLY OVERRIDES: Nuking all phone-sized logic */
+        .glass-page-container.mobile-version { 
+            max-width: none !important; 
+            width: 100% !important; 
+            margin: 0 !important; 
+            padding: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
+        .page-content-wrapper { 
+            max-width: none !important; 
+            width: 100% !important; 
+            margin: 0 !important; 
+            padding: 0 !important;
+        }
+        /* Lock the viewport for touch devices */
+        body { overflow: hidden !important; width: 100vw !important; height: 100vh !important; }
+    </style>
     
     @if (Submitted && !IsSubmitting)
     {
@@ -70,6 +70,45 @@
                 <p class="text-muted mb-4 px-3">Shift data successfully recorded. Returning to portal...</p>
                 <div class="d-flex justify-content-center">
                     <div class="spinner-border text-success spinner-border-sm" role="status"></div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showSubmitConfirm)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px;">
+                <div class="glass-modal-header-icon success mb-3" style="background: rgba(13, 110, 253, 0.05); color: #0d6efd; border-color: rgba(13, 110, 253, 0.1);">
+                    <i class="bi bi-send-fill"></i>
+                </div>
+                <h3 class="fw-black text-dark mb-1 text-uppercase">Review & Submit</h3>
+                <p class="text-muted small mb-4">Please verify these numbers before securing the report.</p>
+                
+                <div class="text-start bg-light rounded-4 p-3 mb-4 border">
+                    <div class="math-row opacity-75 mb-1" style="font-size: 0.75rem;">
+                        <span class="fw-bold"><i class="bi bi-clock me-2"></i>Hours:</span>
+                        <span class="fw-black">@((TotalHours ?? 0).ToString("N2"))</span>
+                    </div>
+                    <div class="math-row opacity-75 mb-1" style="font-size: 0.75rem;">
+                        <span class="fw-bold"><i class="bi bi-cash-stack me-2"></i>Bar Sales:</span>
+                        <span class="fw-black">@((BarSales ?? 0).ToString("C2"))</span>
+                    </div>
+                    <div class="math-row border-top pt-2" style="font-size: 0.8rem;">
+                        <span class="fw-bold text-primary"><i class="bi bi-ticket-perforated me-2"></i>Lottery Variance:</span>
+                        <span class="fw-black @(LottoDiscrepancy == 0 ? "text-success" : "text-danger")">
+                            @((LottoDiscrepancy == 0 ? "$0.00" : (LottoDiscrepancy > 0 ? "+" : "-") + "$" + Math.Abs(LottoDiscrepancy).ToString("N2")))
+                        </span>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-column gap-2">
+                    <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="ProceedWithSubmit">
+                        <i class="bi bi-check2-circle me-2"></i> CONFIRM & SUBMIT
+                    </button>
+                    <button type="button" class="btn btn-light w-100 py-3 rounded-pill fw-bold text-muted border" @onclick="() => _showSubmitConfirm = false">
+                        BACK TO EDIT
+                    </button>
                 </div>
             </div>
         </div>
@@ -125,219 +164,359 @@
         }
         else
         {
-            <div class="tablet-grid">
-
-                @if (!string.IsNullOrEmpty(_validationError))
-                {
-                    <div class="alert alert-danger border-0 shadow-lg rounded-4 mb-2 d-flex align-items-center gap-3 py-3 px-4 glass-error animate-slide-up" style="grid-column: 1/-1;">
-                        <div class="bg-danger p-2 rounded-circle shadow-sm"><i class="bi bi-exclamation-triangle-fill text-white fs-5"></i></div>
-                        <div>
-                            <div class="fw-black text-primary text-uppercase small" style="letter-spacing: 0.05em;">Action Required</div>
-                            <div class="text-muted fw-bold" style="font-size: 0.9rem;">@_validationError</div>
-                        </div>
-                    </div>
-                }
-                @if (!string.IsNullOrEmpty(_lockErrorMessage))
-                {
-                    <div class="alert alert-warning border-0 shadow-lg rounded-4 mb-2 d-flex align-items-center gap-3 py-3 px-4 glass-warning animate-slide-up" style="grid-column: 1/-1;">
-                        <div class="bg-warning p-2 rounded-circle shadow-sm"><i class="bi bi-lock-fill text-dark fs-5"></i></div>
-                        <div>
-                            <div class="fw-black text-primary text-uppercase small" style="letter-spacing: 0.05em;">Access Restricted</div>
-                            <div class="text-muted fw-bold" style="font-size: 0.85rem;">@_lockErrorMessage</div>
-                        </div>
-                    </div>
-                }
-
-                <!-- ===== LEFT COLUMN: ALL INPUTS ===== -->
-                <div class="tablet-col-left">
-                    @if (!IsRentalHall)
-                    {
-                        <div class="form-glass-card shadow-sm p-3 @(string.IsNullOrEmpty(ShiftType) && _showValidation ? "border-danger" : "")">
-                            <label class="section-label mb-2">SELECT YOUR SHIFT</label>
-                            <div class="shift-selector-inline">
-                                <button class='shift-btn-large @(ShiftType == "Day" ? "active" : "")' @onclick='() => SetShift("Day")' disabled="@IsLocked">
-                                    <div class="d-flex flex-column align-items-center">
-                                        <div><i class="bi bi-sun-fill me-2 fs-5"></i> DAY SHIFT</div>
-                                        @if (_dayMainSubmitted) { <span class="badge bg-success bg-opacity-10 text-success border border-success rounded-pill mt-1" style="font-size: 0.6rem;">SUBMITTED</span> }
+            <!-- TOP FULL-WIDTH HEADER -->
+            <div class="col-12 mb-2 animate-slide-up">
+                    <div class="form-glass-card shadow-lg p-2 border-start border-4 border-primary">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="hud-item-modern d-flex align-items-center gap-2">
+                                    <span class="fw-black text-muted text-uppercase" style="font-size: 0.65rem; white-space: nowrap;"><i class="bi bi-calendar-check me-1"></i> DATE</span>
+                                    <div class="d-flex align-items-center bg-light rounded-3 px-2 gap-1">
+                                        <input type="date" class="border-0 bg-transparent py-1 fw-black fs-6" 
+                                               @bind-value="ReportDate" @bind-value:after="OnDateChanged"
+                                               max="@DateTime.Today.ToString("yyyy-MM-dd")"
+                                               disabled="@IsLocked" style="width: 140px; outline: none;" />
+                                        <span class="badge bg-primary bg-opacity-25 text-primary fw-black text-uppercase p-2" style="font-size: 0.75rem; min-width: 100px;">@ReportDate.ToString("dddd")</span>
                                     </div>
-                                </button>
-                                <button class='shift-btn-large @(ShiftType == "Night" ? "active" : "")' @onclick='() => SetShift("Night")' disabled="@IsLocked">
-                                    <div class="d-flex flex-column align-items-center">
-                                        <div><i class="bi bi-moon-stars-fill me-2 fs-5"></i> NIGHT SHIFT</div>
-                                        @if (_nightMainSubmitted) { <span class="badge bg-success bg-opacity-10 text-success border border-success rounded-pill mt-1" style="font-size: 0.6rem;">SUBMITTED</span> }
-                                    </div>
-                                </button>
-                            </div>
-                        </div>
-                    }
-
-                    <div class="form-glass-card shadow-sm p-3 @(IsRentalHall ? "hall-active-card border-primary" : "")">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="section-label @(IsRentalHall ? "text-primary" : "text-muted") mb-0">BAR LOCATION</label>
-                            @if (_hallSubmitted) { <span class="badge bg-primary bg-opacity-10 text-primary border border-primary rounded-pill px-2 py-1" style="font-size: 0.65rem;">RENTAL SUBMITTED</span> }
-                            <button type="button" class='btn btn-sm @(IsRentalHall ? "btn-danger" : "btn-indigo") rounded-pill px-3 fw-bold' @onclick="ToggleRentalHall" disabled="@IsLocked">
-                                <i class="bi @(IsRentalHall ? "bi-arrow-left-circle" : "bi-building-up") me-1"></i> @(IsRentalHall ? "EXIT HALL" : "RENTAL HALL")
-                            </button>
-                        </div>
-                        @if (!IsRentalHall) { <p class="small text-muted mb-0 fw-semibold" style="font-size: 0.75rem;">Standard bar location active.</p> }
-                    </div>
-
-                    @if (!string.IsNullOrEmpty(ShiftType))
-                    {
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <div class="form-glass-card shadow-sm p-3 h-100 config-accent">
-                                    <label class="section-label mb-1" style="font-size: 0.6rem;">HOURS WORKED</label>
-                                    <div class="input-group-modern @(TotalHours == null && _showValidation ? "border-danger" : "")">
-                                        <input type="number" step="0.25" class="form-input-modern" placeholder="0.00" inputmode="decimal" @bind-value="TotalHours" disabled="@IsLocked" />
-                                        <span class="input-unit">Hr</span>
+                                </div>
+                                <div class="hud-item-modern d-flex align-items-center gap-2">
+                                    <span class="fw-black text-muted text-uppercase" style="font-size: 0.65rem; white-space: nowrap;"><i class="bi bi-clock-history me-1"></i> SHIFT WORKING</span>
+                                    <div class="d-flex shadow-sm rounded-4 overflow-hidden border border-2 bg-white p-1 gap-1">
+                                        <button class='btn py-2 px-3 rounded-3 fw-black border-0 d-flex flex-column align-items-center justify-content-center gap-1 @(ShiftType == "Day" ? "btn-primary shadow" : "btn-light text-muted")' @onclick='() => SetShift("Day")' disabled="@IsLocked" style="font-size: 0.75rem; min-width: 90px;">
+                                            <div><i class="bi bi-sun-fill @(ShiftType == "Day" ? "text-warning" : "")"></i> DAY</div>
+                                            @if (_dayMainSubmitted) { <span class="badge bg-success" style="font-size: 0.5rem; letter-spacing: 0.05em; padding: 2px 4px;">DONE</span> }
+                                            else if (_dayMainHasData) { <span class="badge bg-warning text-dark" style="font-size: 0.5rem; letter-spacing: 0.05em; padding: 2px 4px;">SAVING</span> }
+                                        </button>
+                                        <button class='btn py-2 px-3 rounded-3 fw-black border-0 d-flex flex-column align-items-center justify-content-center gap-1 @(ShiftType == "Night" ? "btn-primary shadow" : "btn-light text-muted")' @onclick='() => SetShift("Night")' disabled="@IsLocked" style="font-size: 0.75rem; min-width: 90px;">
+                                            <div><i class="bi bi-moon-stars-fill @(ShiftType == "Night" ? "text-warning" : "")"></i> NIGHT</div>
+                                            @if (_nightMainSubmitted) { <span class="badge bg-success" style="font-size: 0.5rem; letter-spacing: 0.05em; padding: 2px 4px;">DONE</span> }
+                                            else if (_nightMainHasData) { <span class="badge bg-warning text-dark" style="font-size: 0.5rem; letter-spacing: 0.05em; padding: 2px 4px;">SAVING</span> }
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-6">
-                                <div class="form-glass-card shadow-sm p-3 h-100 sales-accent">
-                                    <label class="section-label mb-1" style="font-size: 0.6rem;">BAR SALES</label>
-                                    <div class="input-group-modern @(BarSales == null && _showValidation ? "border-danger" : "")">
-                                        <span class="input-addon text-primary opacity-50 px-0">$</span>
-                                        <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" inputmode="decimal" @bind-value="BarSales" disabled="@IsLocked" />
-                                    </div>
-                                </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class='btn btn-md @(IsRentalHall ? "btn-danger" : "btn-indigo") rounded-4 px-3 py-2 fw-black shadow-sm text-uppercase' @onclick="ToggleRentalHall" disabled="@IsLocked" style="min-width: 250px; font-size: 0.7rem;">
+                                    <i class="bi @(IsRentalHall ? "bi-building-up" : "bi-shop") me-2"></i> @(IsRentalHall ? "RETURN TO DOWNSTAIRS BAR SALES ENTRY" : "UPSTAIRS BAR SALES ENTRY")
+                                </button>
+                                @if (IsLocked) {
+                                    <div class="bg-warning text-dark px-4 py-3 rounded-4 fw-black shadow-sm"><i class="bi bi-lock-fill me-2 fs-5"></i> LOCKED</div>
+                                }
                             </div>
                         </div>
-
-                        @if (!IsRentalHall)
+                    </div>
+                </div>
+                <!-- MAIN WORKSPACE: 2 COLUMNS -->
+                <div class="tablet-grid">
+                    <div class="tablet-col-left">
+                        @if (string.IsNullOrEmpty(ShiftType))
                         {
-                            <div class="form-glass-card shadow-sm p-3 lotto-accent">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <label class="section-label">LOTTERY RECONCILIATION</label>
-                                    <i class="bi bi-ticket-perforated fs-5 text-success opacity-25"></i>
+                            <div class="d-flex flex-column align-items-center justify-content-center p-5 h-100 animate-slide-up">
+                                <div class="welcome-icon mb-4">
+                                    <i class="bi bi-clock-history"></i>
                                 </div>
-                                <div class="row g-2">
-                                    <div class="col-12">
-                                        <label class="form-label small fw-black text-primary text-uppercase mb-1">① Beginning Cash</label>
-                                        <div class="input-group-modern">
-                                            <input type="number" step="0.01" class="form-input-modern fw-bold" placeholder="0.00" @bind-value="LottoOpeningCash" inputmode="decimal" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label small fw-black text-muted text-uppercase mb-1">② Net Sales <span class="text-success fw-black" style="font-size: 0.6rem;">(RPT 50)</span></label>
-                                        <div class="input-group-modern">
-                                            <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" @bind-value="LottoSales" @bind-value:event="oninput" inputmode="decimal" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label small fw-black text-muted text-uppercase mb-1">③ Cashes <span class="text-success fw-black" style="font-size: 0.6rem;">(RPT 50)</span></label>
-                                        <div class="input-group-modern">
-                                            <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" @bind-value="LottoCashes" @bind-value:event="oninput" inputmode="decimal" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label small fw-black text-muted text-uppercase mb-1">④ Tickets <span class="text-indigo fw-black" style="font-size: 0.6rem;">(RPT 34)</span></label>
-                                        <div class="input-group-modern">
-                                            <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" @bind-value="LottoInstantTickets" @bind-value:event="oninput" inputmode="decimal" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label small fw-black text-muted text-uppercase mb-1">⑤ Net Due <span class="text-success fw-black" style="font-size: 0.6rem;">(RPT 50)</span></label>
-                                        <div class="input-group-modern">
-                                            <button type="button" class="btn-sign-toggle @(LottoNetDue < 0 ? "is-negative" : "")" @onclick="ToggleLottoNetDueSign">@(LottoNetDue < 0 ? "-" : "+")</button>
-                                            <input type="number" step="0.01" class="form-input-modern text-primary ps-1" placeholder="0.00" @bind-value="LottoNetDue" @bind-value:event="oninput" inputmode="decimal" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label small fw-black text-muted text-uppercase mb-1">⑥ Backup Bag</label>
-                                        <div class="input-group-modern">
-                                            <span class="input-addon text-warning opacity-50">+</span>
-                                            <input type="number" step="0.01" class="form-input-modern" placeholder="0.00" @bind-value="LottoBackupBag" inputmode="decimal" />
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label small fw-black text-success text-uppercase mb-1">⑦ Ending Cash</label>
-                                        <div class="input-group-modern">
-                                            <span class="input-addon text-success">$</span>
-                                            <input type="number" step="0.01" class="form-input-modern fw-bold text-success" placeholder="0.00" @bind-value="LottoCashCounted" @bind-value:event="oninput" inputmode="decimal" />
-                                        </div>
-                                    </div>
+                                <h2 class="fw-black text-dark mb-2">SELECT YOUR SHIFT</h2>
+                                <p class="text-muted text-center mb-5 fs-5">Pick a shift to begin entering your end-of-shift report.</p>
+                                
+                                <div class="d-flex gap-4 w-100 justify-content-center">
+                                    <button class="btn btn-lg btn-outline-primary rounded-4 p-4 d-flex flex-column align-items-center gap-2 shadow-sm flex-fill max-w-250 animate-bounce-in position-relative" @onclick='() => SetShift("Day")'>
+                                        @if (_dayMainSubmitted) {
+                                            <div class="status-ribbon success"><i class="bi bi-check-circle-fill me-1"></i> COMPLETED</div>
+                                        } else if (_dayMainHasData) {
+                                            <div class="status-ribbon warning"><i class="bi bi-clock-history me-1"></i> IN PROGRESS</div>
+                                        }
+                                        <i class="bi bi-sun-fill fs-1 mt-2 @(_dayMainSubmitted ? "text-success" : "")"></i>
+                                        <span class="fw-black text-uppercase letter-spacing-1">Day Shift</span>
+                                    </button>
+                                    <button class="btn btn-lg btn-outline-primary rounded-4 p-4 d-flex flex-column align-items-center gap-2 shadow-sm flex-fill max-w-250 animate-bounce-in position-relative" style="animation-delay: 0.1s;" @onclick='() => SetShift("Night")'>
+                                        @if (_nightMainSubmitted) {
+                                            <div class="status-ribbon success"><i class="bi bi-check-circle-fill me-1"></i> COMPLETED</div>
+                                        } else if (_nightMainHasData) {
+                                            <div class="status-ribbon warning"><i class="bi bi-clock-history me-1"></i> IN PROGRESS</div>
+                                        }
+                                        <i class="bi bi-moon-stars-fill fs-1 mt-2 @(_nightMainSubmitted ? "text-success" : "")"></i>
+                                        <span class="fw-black text-uppercase letter-spacing-1">Night Shift</span>
+                                    </button>
                                 </div>
                             </div>
                         }
-                    }
-                </div>
+                        else
+                        {
+                            <div class="form-glass-card p-3 mb-2">
+                                <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-2 pb-1">
+                                    <label class="section-label mb-0 fw-black text-primary" style="font-size: 0.75rem;"><i class="bi bi-shop me-2"></i> BAR REGISTER SALES & LABOR</label>
+                                    @if (TotalHours > 0 && BarSales > 0) {
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2" style="font-size: 0.55rem; letter-spacing: 0.05em;"><i class="bi bi-check-circle-fill me-1"></i> SECTION COMPLETE</span>
+                                    }
+                                </div>
+                                <div class="d-flex flex-column gap-2 mb-2">
+                                    <div class='input-group-modern @(_activeField == "Hours" ? "focused" : "") @(TotalHours > 0 ? "active" : "")' @onclick='() => ActivateField("Hours")' style="height: 75px; padding: 12px 18px;">
+                                        <div class="d-flex align-items-center justify-content-between w-100">
+                                            <div class="d-flex flex-column">
+                                                <span class="fw-black text-muted text-uppercase" style="font-size: 0.8rem; letter-spacing: 0.05em;">TOTAL HOURS WORKED</span>
+                                                <span class="text-muted small" style="font-size: 0.6rem;">EMPLOYEE LABOR TIME <i class="bi bi-clock"></i></span>
+                                            </div>
+                                            <div class="d-flex align-items-center">
+                                                <input type="text" class="form-input-modern text-end fw-black" style="font-size: 1.8rem; width: 140px;" value='@(TotalHours?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class='input-group-modern @(_activeField == "BarSales" ? "focused" : "") @(BarSales > 0 ? "active" : "")' @onclick='() => ActivateField("BarSales")' style="height: 75px; padding: 12px 18px;">
+                                        <div class="d-flex align-items-center justify-content-between w-100">
+                                            <div class="d-flex flex-column">
+                                                <span class="fw-black text-muted text-uppercase" style="font-size: 0.8rem; letter-spacing: 0.05em;">BAR REGISTER SALES</span>
+                                                <span class="text-muted small" style="font-size: 0.6rem;">TOTAL FROM Z-REPORT <i class="bi bi-cash-register"></i></span>
+                                            </div>
+                                            <div class="d-flex align-items-center">
+                                                <span class="input-addon text-muted" style="font-size: 1.4rem;">$</span>
+                                                <input type="text" class="form-input-modern text-end fw-black" style="font-size: 1.8rem; width: 140px;" value='@(BarSales?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
-                <!-- ===== RIGHT COLUMN: SUMMARY + NOTES + SUBMIT ===== -->
+                            @if (!IsRentalHall)
+                            {
+                                <div class="form-glass-card p-3 mb-2">
+                                    <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-2 pb-1">
+                                        <label class="section-label mb-0 fw-black text-indigo" style="font-size: 0.75rem;"><i class="bi bi-ticket-perforated me-2"></i> LOTTERY RECONCILIATION</label>
+                                        @if (LottoSales > 0 && LottoCashes > 0 && LottoCashCounted > 0 && _lottoSignConfirmed) {
+                                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2" style="font-size: 0.55rem; letter-spacing: 0.05em;"><i class="bi bi-check-circle-fill me-1"></i> SECTION COMPLETE</span>
+                                        }
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-12 d-flex flex-wrap gap-2">
+                                            <div class='input-group-modern flex-fill @(_activeField == "LottoOpeningCash" ? "focused" : "") @(LottoOpeningCash > 0 ? "active" : "")' @onclick='() => ActivateField("LottoOpeningCash")'>
+                                                <div class="d-flex align-items-center justify-content-between w-100">
+                                                    <div class="d-flex flex-column">
+                                                        <span class="fw-black text-muted text-uppercase" style="font-size: 1.0rem; line-height: 1.1;">Beginning Drawer Cash</span>
+                                                        <span class="text-muted fw-bold small" style="font-size: 0.65rem;">(STARTING DRAWER CASH)</span>
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="input-addon text-muted" style="font-size: 1.2rem;">$</span>
+                                                        <input type="text" class="form-input-modern text-end fw-black" style="font-size:1.5rem; width: 130px;" value='@(LottoOpeningCash?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class='input-group-modern flex-fill @(_activeField == "LottoSales" ? "focused" : "") @(LottoSales > 0 ? "active" : "")' @onclick='() => ActivateField("LottoSales")'>
+                                                <div class="d-flex align-items-center justify-content-between w-100">
+                                                    <div class="d-flex flex-column">
+                                                        <span class="fw-black text-success text-uppercase" style="font-size: 1.1rem; line-height: 1.0;">Net Sales</span>
+                                                        <span class="fw-bold text-success small" style="font-size: 0.65rem;">(FROM REPORT 50)</span>
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="input-addon text-success" style="font-size: 1.2rem;">$</span>
+                                                        <input type="text" class="form-input-modern text-end fw-black" style="font-size: 1.5rem; width: 130px;" value='@(LottoSales?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-12 d-flex flex-wrap gap-2">
+                                            <div class='input-group-modern flex-fill @(_activeField == "LottoCashes" ? "focused" : "") @(LottoCashes > 0 ? "active" : "")' @onclick='() => ActivateField("LottoCashes")'>
+                                                <div class="d-flex align-items-center justify-content-between w-100">
+                                                    <div class="d-flex flex-column">
+                                                        <span class="fw-black text-danger text-uppercase" style="font-size: 1.1rem; line-height: 1.0;">Cashes</span>
+                                                        <span class="fw-bold text-danger small" style="font-size: 0.65rem;">(FROM REPORT 50)</span>
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="input-addon text-danger" style="font-size: 1.2rem;">$</span>
+                                                        <input type="text" class="form-input-modern text-end fw-black" style="font-size: 1.5rem; width: 130px;" value='@(LottoCashes?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class='input-group-modern flex-fill @(_activeField == "LottoNetDue" ? "focused" : "") @(LottoNetDue != null && LottoNetDue != 0 && _lottoSignConfirmed ? "active" : "")' @onclick='() => ActivateField("LottoNetDue")'>
+                                                <div class="d-flex align-items-center justify-content-between w-100">
+                                                    <div class="d-flex flex-column">
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <span class="fw-black text-primary text-uppercase" style="font-size: 1.1rem; line-height: 1.0;">Net Due</span>
+                                                            @if (LottoNetDue < 0 && _lottoSignConfirmed) {
+                                                                <span class="badge bg-danger rounded-pill px-2 py-1" style="font-size: 0.6rem;">NEGATIVE (-)</span>
+                                                            } else if (LottoNetDue > 0 && _lottoSignConfirmed) {
+                                                                <span class="badge bg-success rounded-pill px-2 py-1" style="font-size: 0.6rem;">POSITIVE (+)</span>
+                                                            }
+                                                        </div>
+                                                        <span class="fw-bold text-primary small" style="font-size: 0.65rem;">(FROM REPORT 50)</span>
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="input-addon text-primary" style="font-size: 1.2rem;">$</span>
+                                                        <input type="text" class="form-input-modern text-end fw-black @(LottoNetDue < 0 ? "text-danger" : LottoNetDue > 0 ? "text-success" : "")" style="font-size: 1.5rem; width: 130px;" value='@((LottoNetDue < 0 ? "-" : "") + Math.Abs(LottoNetDue ?? 0).ToString("N2"))' readonly placeholder="0.00" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-12 d-flex flex-wrap gap-2">
+                                            <div class='input-group-modern flex-fill @(_activeField == "LottoInstantTickets" ? "focused" : "") @(LottoInstantTickets > 0 ? "active" : "")' @onclick='() => ActivateField("LottoInstantTickets")'>
+                                                <div class="d-flex align-items-center justify-content-between w-100">
+                                                    <div class="d-flex flex-column">
+                                                        <div class="d-flex align-items-center">
+                                                            <i class="bi bi-ticket-perforated-fill text-purple me-1" style="font-size: 1rem;"></i>
+                                                            <span class="fw-black text-purple text-uppercase" style="font-size: 1.1rem; line-height: 1.0;">Tickets</span>
+                                                        </div>
+                                                        <span class="fw-bold text-purple small" style="font-size: 0.65rem;">(FROM REPORT 34)</span>
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="input-addon text-purple" style="font-size: 1.2rem;">$</span>
+                                                        <input type="text" class="form-input-modern text-purple fw-black text-end" style="font-size: 1.5rem; width: 130px;" value='@(LottoInstantTickets?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class='input-group-modern flex-fill @(_activeField == "LottoBackupBag" ? "focused" : "") @(LottoBackupBag > 0 ? "active" : "")' @onclick='() => ActivateField("LottoBackupBag")'>
+                                                <div class="d-flex align-items-center justify-content-between w-100">
+                                                    <div class="d-flex flex-column">
+                                                        <span class="fw-black text-muted text-uppercase" style="font-size: 0.95rem; line-height: 1.1;">Removed From Backup Money Bag</span>
+                                                        <span class="text-muted fw-bold small" style="font-size: 0.65rem;">(MONEY REMOVED FROM THE BAG TO ADD TO CASH DRAWER)</span>
+                                                    </div>
+                                                    <div class="d-flex align-items-center">
+                                                        <span class="input-addon text-muted" style="font-size: 1.2rem;">$</span>
+                                                        <input type="text" class="form-input-modern text-end fw-black" style="font-size:1.5rem; width: 130px;" value='@(LottoBackupBag?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="separator-dots my-2"><span></span><span></span><span></span></div>
+
+                                    <div class="d-flex flex-column mt-2">
+                                        <div class='input-group-modern @(_activeField == "LottoCashCounted" ? "focused" : "") @(LottoCashCounted > 0 ? "active" : "") border-primary border-opacity-25' @onclick='() => ActivateField("LottoCashCounted")' style="background: rgba(13, 110, 253, 0.02); height: 90px; padding: 15px 20px;">
+                                            <div class="d-flex justify-content-between align-items-center w-100 h-100">
+                                                <div class="d-flex flex-column justify-content-center">
+                                                    <span class="fw-black text-primary text-uppercase" style="letter-spacing: 0.05em; font-size: 1.15rem; line-height: 1;">ENDING DRAWER CASH</span>
+                                                    <span class="text-primary fw-bold small opacity-75 mt-1" style="font-size: 0.7rem;">CASH COUNTED IN DRAWER</span>
+                                                </div>
+                                                <div class="d-flex align-items-center h-100">
+                                                    <span class="text-primary fw-black me-3" style="font-size: 2rem;">$</span>
+                                                    <input type="text" class="form-input-modern text-end fw-black" style="font-size: 2.5rem; width: 180px; color: var(--bs-primary) !important;" value='@(LottoCashCounted?.ToString("N2") ?? "")' readonly placeholder="0.00" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="form-glass-card shadow-sm p-3 mb-3">
+                                <label class="small text-muted fw-bold text-uppercase mb-2" style="font-size:0.65rem;">Shift Notes &amp; Discrepancies</label>
+                                <textarea class="form-control-modern" rows="3" placeholder="Type details here..." @bind="Notes" disabled="@IsLocked"></textarea>
+                            </div>
+                        }
+                    </div>
+
+                <!-- ===== RIGHT COLUMN: KEYPAD AREA ===== -->
                 <div class="tablet-col-right">
                     @if (!string.IsNullOrEmpty(ShiftType) && !IsRentalHall)
                     {
-                        <div class="sim-res-card-unified shadow-lg @(LottoDiscrepancy == 0 ? "exact" : LottoDiscrepancy > 0 ? "over" : "short")">
+                        <div class="sim-res-card-unified shadow-lg mb-3 @(LottoDiscrepancy == 0 ? "exact" : LottoDiscrepancy > 0 ? "over" : "short")">
                             <div class="summary-header">
-                                <i class="bi bi-calculator-fill me-2 opacity-50"></i> SHIFT ACCOUNTABILITY SUMMARY
+                                <i class="bi bi-calculator-fill me-2 opacity-50"></i> LOTTERY RECONCILIATION SUMMARY
                             </div>
-                            <div class="math-flow-table p-3">
-                                @{
-                                    decimal sAct = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
-                                    decimal cAct = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
-                                    decimal tAct = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
-                                    decimal netMade = sAct - cAct - tAct;
-                                }
-                                <div class="math-row">
-                                    <span>🏦 BEGINNING CASH</span>
-                                    <span class="fw-bold">$@((LottoOpeningCash ?? 0).ToString("N2"))</span>
+                            <div class="math-flow-table p-2">
+                                <div class="math-row opacity-60 mb-1" style="font-size: 0.6rem;">
+                                    <span>🏦 STARTING CASH</span>
+                                    <span class="fw-bold">@((LottoOpeningCash ?? 0).ToString("C2"))</span>
                                 </div>
-                                <div class="math-row @(netMade >= 0 ? "text-success" : "text-danger")">
-                                    <span>⚡ NET CASH MADE IN SHIFT</span>
-                                    <span class="fw-black">@(netMade >= 0 ? "+" : "")$@(netMade.ToString("N2"))</span>
+                                <div class="math-row opacity-50 ps-2" style="font-size: 0.55rem;">
+                                    <span><i class="bi bi-plus small"></i> Sales (RPT 50)</span>
+                                    <span>+@((LottoSalesActivity).ToString("N2"))</span>
                                 </div>
-                                <div class="math-row total-expected border-top border-2 border-primary border-opacity-10 mt-2 pt-2">
-                                    <span class="fw-black text-primary">🎯 TOTAL DRAWER EXPECTED</span>
-                                    <span class="fw-black text-primary fs-5">$@(LottoDrawerValue.ToString("N2"))</span>
+                                <div class="math-row opacity-50 ps-2" style="font-size: 0.55rem;">
+                                    <span><i class="bi bi-dash small"></i> Cashes (RPT 50)</span>
+                                    <span>-@((LottoCashes ?? 0).ToString("N2"))</span>
                                 </div>
-                                <div class="math-row text-muted opacity-75 mt-1">
-                                    <span class="small fw-bold">💵 MINUS YOUR CASH COUNT</span>
-                                    <span class="small fw-bold">-$@((LottoCashCounted ?? 0).ToString("N2"))</span>
+                                <div class="math-row opacity-50 ps-2 mb-1" style="font-size: 0.55rem;">
+                                    <span><i class="bi bi-dash small"></i> Tickets (RPT 34)</span>
+                                    <span>-@((LottoInstantTickets ?? 0).ToString("N2"))</span>
+                                </div>
+                                
+                                <div class="math-row border-top mt-1 pt-1 mb-1 @(LottoNetMade >= 0 ? "text-success" : "text-danger")" style="font-size: 0.7rem;">
+                                    <span class="fw-bold">⚡ LOTTERY NET REV</span>
+                                    <span class="fw-black">@(LottoNetMade >= 0 ? "+" : "")@(LottoNetMade.ToString("C2"))</span>
+                                </div>
+                                <div class="math-row total-expected border-top border-primary border-opacity-10 mt-1 pt-1">
+                                    <span class="fw-black text-primary" style="font-size: 0.65rem;">🎯 EXPECTED DRAWER</span>
+                                    <span class="fw-black text-primary fs-5">@(LottoDrawerValue.ToString("C2"))</span>
+                                </div>
+                                <div class="math-row text-muted opacity-60 mt-0">
+                                    <span class="small fw-bold">💵 MINUS COUNT</span>
+                                    <span class="small fw-bold">-@((LottoCashCounted ?? 0).ToString("C2"))</span>
                                 </div>
                             </div>
-                            <div class="variance-footer-banner py-3">
-                                <div class="v-label">YOUR SHIFT VARIANCE</div>
+                            <div class="variance-footer-banner py-3 shadow-sm" style="display: block !important;">
+                                <div class="v-label fw-black mb-0">LOTTERY VARIANCE</div>
                                 <div class="v-value fs-2 fw-black">@((LottoDiscrepancy == 0 ? "$0.00" : (LottoDiscrepancy > 0 ? "+" : "-") + "$" + Math.Abs(LottoDiscrepancy).ToString("N2")))</div>
                             </div>
                         </div>
-
-                        @if (!(_shiftCarryOverEnabled && ShiftType == "Day"))
-                        {
-                            <div class="sim-res-card house shadow-sm py-2">
-                                <div class="d-flex justify-content-center align-items-center gap-2">
-                                    <span class="sim-res-label mb-0">ENVELOPE (PULL FOR LOTTERY)</span>
-                                    <span class="sim-res-val fs-4">$@(LottoEnvelopeAmount.ToString("N2"))</span>
-                                </div>
-                            </div>
-                        }
                     }
 
-                    <div class="form-glass-card shadow-sm p-3">
-                        <label class="small text-muted fw-bold text-uppercase mb-2" style="font-size: 0.65rem;">Shift Notes &amp; Discrepancies</label>
-                        <textarea class="form-control-modern" rows="3" placeholder="Type details here..." @bind="Notes" disabled="@IsLocked"></textarea>
-                    </div>
+                    <div class="keypad-container shadow-lg animate-slide-up" style="animation-delay: 0.3s;">
+                        <div class="keypad-header">
+                            @if (_activeField == "LottoNetDue" && LottoNetDue != 0 && LottoNetDue != null) {
+                                <div class="px-2 py-2 bg-warning bg-opacity-10 border border-warning border-opacity-30 rounded-4 mb-2 animate-bounce-in shadow-sm">
+                                    <p class="text-center fw-black text-dark mb-2 text-uppercase" style="font-size: 0.7rem;">Is this a Negative Value?</p>
+                                    <div class="d-flex gap-2">
+                                        <button class='btn flex-fill py-3 fw-black shadow-sm @(LottoNetDue < 0 && _lottoSignConfirmed ? "btn-danger active" : "btn-light border")' @onclick="() => SetLottoSign(-1)" style="font-size: 0.85rem;">
+                                            <i class="bi bi-dash-circle-fill"></i> YES(-)
+                                        </button>
+                                        <button class='btn flex-fill py-3 fw-black shadow-sm @(LottoNetDue > 0 && _lottoSignConfirmed ? "btn-success active" : "btn-light border")' @onclick="() => SetLottoSign(1)" style="font-size: 0.85rem;">
+                                            <i class="bi bi-plus-circle-fill"></i> NO(+)
+                                        </button>
+                                    </div>
+                                </div>
+                            } 
+                            
+                            @* Keypad titles removed for cleaner look *@
+                        </div>
+                        
+                        <div class="keypad-grid">
+                            <button class="key-btn" @onclick='() => KeyPressed("1")'>1</button>
+                            <button class="key-btn" @onclick='() => KeyPressed("2")'>2</button>
+                            <button class="key-btn" @onclick='() => KeyPressed("3")'>3</button>
+                            
+                            <button class="key-btn" @onclick='() => KeyPressed("4")'>4</button>
+                            <button class="key-btn" @onclick='() => KeyPressed("5")'>5</button>
+                            <button class="key-btn" @onclick='() => KeyPressed("6")'>6</button>
+                            
+                            <button class="key-btn" @onclick='() => KeyPressed("7")'>7</button>
+                            <button class="key-btn" @onclick='() => KeyPressed("8")'>8</button>
+                            <button class="key-btn" @onclick='() => KeyPressed("9")'>9</button>
+                            
+                            <button class="key-btn ivory-btn" @onclick='TogglePolarity'><i class="bi bi-plus-minus"></i></button>
+                            <button class="key-btn" @onclick='() => KeyPressed("0")'>0</button>
+                            <button class="key-btn" @onclick='() => KeyPressed(".")'>.</button>
 
-                    @if (!string.IsNullOrEmpty(ShiftType))
-                    {
-                        <div class="d-grid gap-2">
-                            <button class="btn @(ExistingEntryFound ? "btn-indigo" : "btn-action-submit") py-3 fw-bold shadow-lg"
-                                    disabled="@(IsSubmitting || IsLocked)" @onclick="HandleSubmit">
-                                @if (IsSubmitting) {
-                                    <span class="spinner-border spinner-border-sm me-2"></span><span>SECURING DATA...</span>
-                                } else {
-                                    <i class="bi @(ExistingEntryFound ? "bi-check-all" : "bi-cloud-upload-fill") me-2"></i>
-                                    <span>@(ExistingEntryFound ? "UPDATE REPORT" : "SUBMIT SHIFT")</span>
-                                }
-                            </button>
-                            <button class="btn btn-outline-secondary rounded-pill py-2 fw-bold" @onclick="ResetSelection">
-                                <i class="bi bi-arrow-counterclockwise me-1"></i> CLEAR
+                            <button class="key-btn btn-clear" style="grid-column: span 3; height: 55px !important; font-size: 1.2rem !important;" @onclick='ClearCurrentField'>
+                                <i class="bi bi-backspace-fill me-2"></i> CLEAR FIELD
                             </button>
                         </div>
-                    }
+                        
+                        <div class="keypad-actions mt-2 p-2 pt-0">
+                            @if (_activeField == "LottoNetDue" && !_lottoSignConfirmed && LottoNetDue != 0 && LottoNetDue != null) {
+                                <div class="alert alert-warning p-2 rounded-4 text-center mb-2 animate-pulse">
+                                    <i class="bi bi-exclamation-triangle-fill me-2"></i> MUST CHOOSE <strong>YES</strong> OR <strong>NO</strong> ABOVE
+                                </div>
+                            }
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <button class="btn btn-secondary w-100 py-3 rounded-4 fw-black" @onclick="PrevField" disabled='@(_activeField == "LottoNetDue" && !_lottoSignConfirmed && LottoNetDue != 0 && LottoNetDue != null)'><i class="bi bi-arrow-left"></i> PREV</button>
+                                </div>
+                                <div class="col-6">
+                                    <button class="btn btn-primary w-100 py-3 rounded-4 fw-black" @onclick="NextField" disabled='@(_activeField == "LottoNetDue" && !_lottoSignConfirmed && LottoNetDue != 0 && LottoNetDue != null)'>NEXT <i class="bi bi-arrow-right"></i></button>
+                                </div>
+                                <div class="col-12 mt-2">
+                                    <button class="btn btn-action-submit w-100 py-4 rounded-4 fw-black fs-5 shadow" 
+                                            disabled="@(IsSubmitting || IsLocked || (_activeField == "LottoNetDue" && !_lottoSignConfirmed && LottoNetDue != 0 && LottoNetDue != null))" @onclick="HandleFinalConfirm">
+                                        <i class="bi bi-send-check-fill me-2"></i> SUBMIT REPORT
+                                    </button>
+                                    @if (ExistingEntryFound && !IsLocked) {
+                                        <p class="text-center mt-2 mb-0 small text-success fw-bold"><i class="bi bi-clock-history"></i> Still editable for 1 hour after entry.</p>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-            </div> <!-- end tablet-grid -->
+            </div>
         }
     </div>
 </div>
@@ -362,78 +541,6 @@
             </div>
 
             <div class="guide-body">
-
-                <!-- INTERACTIVE SIMULATOR -->
-                <div class="simulator-toggle-area mb-4">
-                    @if (!_showSim)
-                    {
-                        <button class="btn btn-warning w-100 py-3 rounded-pill shadow-sm fw-bold border-3" style="border-style:dashed;" @onclick="() => _showSim = true">
-                            <i class="bi bi-calculator-fill me-2"></i> Open Interactive Math Checker (Practice Mode)
-                        </button>
-                    }
-                    else
-                    {
-                        <div class="simulator-card">
-                            <div class="sim-header">
-                                <div>
-                                    <h5 class="fw-bold mb-0 text-white"><i class="bi bi-cpu me-2 text-warning"></i>Practice Math Checker</h5>
-                                    <p class="mb-0 text-white-50" style="font-size:0.7rem;">Test actual ticket numbers here to see the results (not saved)</p>
-                                </div>
-                                <button class="btn btn-sm btn-outline-light rounded-pill px-3" @onclick="() => _showSim = false">
-                                    <i class="bi bi-x-lg me-1"></i> Hide
-                                </button>
-                            </div>
-                            <div class="sim-body">
-                                <div class="row g-3">
-                                    <div class="col-6">
-                                        <label class="sim-label">① Beginning Cash</label>
-                                        <div class="input-group input-group-sm"><span class="input-group-text bg-light">$</span><input type="number" class="form-control" @bind="_simOpening" @bind:event="oninput" /></div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="sim-label">② Net Sales (Ticket)</label>
-                                        <div class="input-group input-group-sm"><span class="input-group-text bg-light">$</span><input type="number" class="form-control" @bind="_simNetSales" @bind:event="oninput" /></div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="sim-label">③ Cashes (Ticket)</label>
-                                        <div class="input-group input-group-sm"><span class="input-group-text bg-light">$</span><input type="number" class="form-control" @bind="_simCashes" @bind:event="oninput" /></div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="sim-label">④ Tickets / Instant (RPT 34)</label>
-                                        <div class="input-group input-group-sm"><span class="input-group-text bg-light">$</span><input type="number" class="form-control" @bind="_simTickets" @bind:event="oninput" /></div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="sim-label">⑤ Net Due (Ticket)</label>
-                                        <div class="input-group input-group-sm"><span class="input-group-text bg-light">$</span><input type="number" step="0.01" class="form-control" @bind="_simNetDue" @bind:event="oninput" /></div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="sim-label">⑥ Backup Bag Added</label>
-                                        <div class="input-group input-group-sm"><span class="input-group-text bg-light">$</span><input type="number" class="form-control" @bind="_simBag" @bind:event="oninput" /></div>
-                                    </div>
-                                    <div class="col-12">
-                                        <label class="sim-label">⑦ Ending Cash (Your Count)</label>
-                                        <div class="input-group input-group-sm"><span class="input-group-text bg-success text-white">$</span><input type="number" class="form-control fw-bold" @bind="_simCounted" @bind:event="oninput" /></div>
-                                    </div>
-                                </div>
-
-                                @{
-                                    decimal simExpected = (_simOpening ?? 0) + (_simNetSales ?? 0) - (_simCashes ?? 0) - (_simTickets ?? 0) + (_simBag ?? 0);
-                                    decimal simVariance = (_simCounted ?? 0) - simExpected;
-                                    decimal simEnvelope = (_simCounted ?? 0) - 1200m;
-                                }
-                                <div class="sim-result-area mt-3">
-                                    <div class="sim-res-row">
-                                        <span class="sim-res-label">🎯 DRAWER EXPECTED</span>
-                                        <span class="sim-res-val">$@simExpected.ToString("N2")</span>
-                                    </div>
-                                    <div class="sim-res-row @(simVariance == 0 ? "text-success" : simVariance > 0 ? "text-primary" : "text-danger")">
-                                        <span class="sim-res-label">📊 VARIANCE</span>
-                                        <span class="sim-res-val fw-black">@(simVariance == 0 ? "✓ $0.00 EXACT" : (simVariance > 0 ? "+" : "") + "$" + simVariance.ToString("N2"))</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                </div>
 
                 <!-- MODE SELECT INFO -->
                 <div class="guide-section">
@@ -615,6 +722,10 @@
         background: var(--bg-surface);
         padding: 1rem 0.5rem;
         border-radius: 16px;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
         font-weight: 900;
         font-size: 0.85rem;
         color: var(--c-text-muted);
@@ -644,13 +755,24 @@
         border-radius: 12px;
         display: flex;
         align-items: center;
-        padding: 0.65rem 1rem;
+        padding: 0.4rem 0.8rem;
         border: 1px solid var(--glass-border);
         transition: all 0.2s ease;
     }
 
     .input-group-modern.big { padding: 0.85rem 1.25rem; }
-    .input-group-modern:focus-within { border-color: var(--c-accent-primary); box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.1); }
+    .input-group-modern.focused { 
+        border-color: #2563eb !important; 
+        background: #fffbeb !important; /* Standout pale yellow background */
+        box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4), 0 0 0 5px rgba(37, 99, 235, 0.15) !important;
+        transform: translateY(-2px) scale(1.01);
+        z-index: 20;
+    }
+    .input-group-modern.focused .input-addon { color: #2563eb !important; transform: scale(1.1); transition: transform 0.2s; }
+    .input-group-modern.focused .form-input-modern { color: #1e3a8a !important; }
+
+    .input-group-modern.active { border-color: #10b981 !important; background: rgba(16, 185, 129, 0.03) !important; position: relative; }
+    .input-group-modern.active::after { content: '\F26A'; font-family: 'bootstrap-icons'; position: absolute; top: 4px; right: 4px; font-size: 0.7rem; color: #10b981; font-weight: 900; }
 
     .form-input-modern { border: none; outline: none; width: 100%; background: transparent; font-weight: 700; color: var(--c-text-primary); font-size: 1.1rem; }
     .form-input-modern::-webkit-inner-spin-button, .form-input-modern::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -689,21 +811,21 @@
         flex-direction: column;
         transition: all 0.3s ease;
     }
-    .summary-header { background: rgba(0,0,0,0.03); padding: 10px; font-weight: 900; font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; text-align: center; border-bottom: 1px solid var(--glass-border); }
-    .math-flow-table { background: var(--bg-surface); }
-    .math-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 0.85rem; }
+    .summary-header { background: rgba(0,0,0,0.03); padding: 8px; font-weight: 900; font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; text-align: center; border-bottom: 1px solid var(--glass-border); }
+    .math-flow-table { background: var(--bg-surface); padding: 8px !important; }
+    .math-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 0.75rem; }
     .variance-footer-banner { text-align: center; transition: all 0.3s ease; }
-    .v-label { font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; opacity: 0.8; margin-bottom: -4px; }
+    .v-label { font-size: 0.6rem; font-weight: 900; letter-spacing: 0.1em; opacity: 0.8; margin-bottom: -4px; }
     
-    /* Colors for Unified Card */
-    .sim-res-card-unified.exact { border-color: #10b981; }
-    .sim-res-card-unified.exact .variance-footer-banner { background: #10b981; color: white; }
+    /* Colors for Unified Card - ENSURE VISIBILITY */
+    .sim-res-card-unified.exact { border-color: #10b981 !important; }
+    .sim-res-card-unified.exact .variance-footer-banner { background: #10b981 !important; color: white !important; display: block !important; }
     
-    .sim-res-card-unified.short { border-color: #ef4444; }
-    .sim-res-card-unified.short .variance-footer-banner { background: #ef4444; color: white; }
+    .sim-res-card-unified.short { border-color: #ef4444 !important; }
+    .sim-res-card-unified.short .variance-footer-banner { background: #ef4444 !important; color: white !important; display: block !important; }
     
-    .sim-res-card-unified.over { border-color: #3b82f6; }
-    .sim-res-card-unified.over .variance-footer-banner { background: #3b82f6; color: white; }
+    .sim-res-card-unified.over { border-color: #3b82f6 !important; }
+    .sim-res-card-unified.over .variance-footer-banner { background: #3b82f6 !important; color: white !important; display: block !important; }
     
     .sim-res-card.alt-glass { border-top: 4px solid #6366f1; background: rgba(99, 102, 241, 0.08); }
     .sim-res-card.alt-glass .sim-res-val { color: #4f46e5; }
@@ -815,30 +937,27 @@
         overflow: hidden;
     }
 
-    /* 2-COLUMN TABLET GRID */
     .tablet-grid {
         display: grid;
-        grid-template-columns: 1fr 290px;
-        grid-template-rows: 1fr;
-        gap: 0.75rem;
-        height: 100%;
-        padding: 0.75rem;
+        grid-template-columns: 1fr 340px;
+        gap: 1.5rem;
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 1.5rem !important;
+        height: calc(100vh - 250px);
         overflow: hidden;
     }
-
-    .tablet-col-left,
-    .tablet-col-mid,
     .tablet-col-right {
         display: flex;
         flex-direction: column;
-        gap: 0.6rem;
-        overflow-y: auto;
-        overflow-x: hidden;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(0,0,0,0.1) transparent;
-        padding-right: 2px;
+        gap: 1rem;
+        width: 340px;
+        min-width: 340px;
+        max-width: 340px;
     }
+    .hud-item-modern { display: flex; flex-direction: column; }
+    .hud-label-modern { font-size: 0.65rem; font-weight: 900; color: #64748b; letter-spacing: 0.05em; text-transform: uppercase; }
 
     .tablet-col-mid .form-glass-card {
         flex-shrink: 0;
@@ -945,32 +1064,6 @@
         letter-spacing:0.08em; color:#475569; margin-bottom:0.5rem;
     }
     .guide-two-col { display:grid; grid-template-columns:200px 1fr; gap:1rem; align-items:start; }
-    .math-step { margin-bottom:0.5rem; }
-    .math-step-header { display:flex; gap:0.5rem; align-items:center; margin-bottom:0.4rem; }
-    .math-step-num { font-size:0.65rem; font-weight:800; background:#1e40af; color:white; padding:2px 6px; border-radius:4px; letter-spacing:0.05em; }
-    .math-step-name { font-size:0.75rem; font-weight:700; color:#334155; }
-    .math-chain { display:flex; flex-wrap:wrap; gap:0.3rem; align-items:center; }
-    .mc-op { font-size:0.9rem; font-weight:900; color:#94a3b8; }
-    .mc-pill { padding:0.25rem 0.5rem; border-radius:6px; font-size:0.65rem; font-weight:800; border:2px solid transparent; }
-    .mc-open    { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
-    .mc-sales   { background:#f0fdf4; color:#15803d; border-color:#bbf7d0; }
-    .mc-cash    { background:#fef2f2; color:#dc2626; border-color:#fecaca; }
-    .mc-tickets { background:#f5f3ff; color:#7c3aed; border-color:#ddd6fe; }
-    .mc-bag     { background:#fffbeb; color:#b45309; border-color:#fde68a; }
-    .mc-counted { background:#ecfdf5; color:#059669; border-color:#a7f3d0; }
-    .mc-result  { background:#1e40af; color:white; border-color:#1e40af; }
-    .mc-variance{ background:#7c3aed; color:white; border-color:#7c3aed; }
-    .math-example { font-size:0.7rem; color:#64748b; margin-top:0.3rem; }
-    /* Simulator */
-    .simulator-card { background:#1e293b; border-radius:16px; overflow:hidden; }
-    .sim-header { display:flex; justify-content:space-between; align-items:center; padding:0.75rem 1rem; background:#0f172a; }
-    .sim-body { padding:1rem; }
-    .sim-label { font-size:0.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; display:block; margin-bottom:0.25rem; }
-    .sim-result-area { background:#0f172a; border-radius:10px; padding:0.75rem 1rem; }
-    .sim-res-row { display:flex; justify-content:space-between; align-items:center; padding:0.3rem 0; border-bottom:1px solid rgba(255,255,255,0.06); }
-    .sim-res-row:last-child { border-bottom:none; }
-    .sim-res-label { font-size:0.7rem; font-weight:700; color:rgba(255,255,255,0.6); }
-    .sim-res-val { font-size:0.9rem; font-weight:900; color:white; }
 
     .page-content-wrapper {
         padding-top: 0.5rem !important; 
@@ -992,15 +1085,82 @@
     .summary-pill-mini.exact { background: #f0fdf4; color: #16a34a; border: 1px solid #dcfce7; }
     .summary-pill-mini.short { background: #fef2f2; color: #dc2626; border: 1px solid #fee2e2; }
     .summary-pill-mini.over { background: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; }
-    .summary-pill-mini.indigo { background: #eef2ff; color: #4338ca; border: 1px solid #e0e7ff; }
-    .summary-pill-mini.info { background: #f0f9ff; color: #0369a1; border: 1px solid #e0f2fe; }
 
-    @@media (min-width: 1101px) {
-        .mobile-summary-island { display: none; }
+    .keypad-container { 
+        background: #f8fafc; 
+        border-radius: 24px; 
+        padding: 1.25rem; 
+        border: 2px solid #e2e8f0; 
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
     }
+    .keypad-grid { 
+        display: grid !important; 
+        grid-template-columns: repeat(3, 1fr) !important; 
+        gap: 0.75rem !important; 
+        margin-top: 1rem;
+    }
+    .key-btn { 
+        height: 70px !important; 
+        font-size: 1.75rem !important; 
+        font-weight: 800 !important; 
+        color: #1e293b; 
+        background: white; 
+        border: 2px solid #e2e8f0; 
+        border-radius: 16px; 
+        display: flex !important; 
+        align-items: center; 
+        justify-content: center; 
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        transition: all 0.1s;
+    }
+    .key-btn:active { transform: scale(0.92); background: #f1f5f9; }
+    .ivory-btn { background: #f8fafc !important; color: #475569 !important; border-color: #cbd5e1 !important; }
+    .btn-clear { color: #ef4444 !important; background: #fef2f2 !important; border-color: #fee2e2 !important; }
+    .keypad-header { 
+        background: white; 
+        border-radius: 16px; 
+        padding: 0.75rem 1rem; 
+        border: 1px solid #e2e8f0; 
+        margin-bottom: 0.5rem;
+    }
+    .input-group-modern {
+        background: var(--bg-primary);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        padding: 0.4rem 0.8rem;
+        border: 1px solid var(--glass-border);
+        transition: all 0.2s ease;
+    }
+    .input-group-modern.focused { 
+        border-color: #2563eb !important; 
+        background: #fffbeb !important;
+        box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4), 0 0 0 5px rgba(37, 99, 235, 0.15) !important;
+        transform: translateY(-2px) scale(1.01);
+        z-index: 20;
+    }
+    .input-group-modern.active { border-color: #10b981 !important; background: rgba(16, 185, 129, 0.03) !important; position: relative; }
+    .input-group-modern.active::after { content: '\F26A'; font-family: 'bootstrap-icons'; position: absolute; top: 4px; right: 4px; font-size: 0.7rem; color: #10b981; font-weight: 900; }
+
+    .form-input-modern { border: none; outline: none; width: 100%; background: transparent; font-weight: 700; color: var(--c-text-primary); font-size: 1.1rem; }
+
+    .status-ribbon { position:absolute; top:12px; left:50%; transform:translateX(-50%); font-size:0.6rem; font-weight:800; letter-spacing:0.1em; width:120px; text-align:center; padding:3px 0; border-radius:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+    .status-ribbon.success { background:#10b981; color:white; }
+    .status-ribbon.warning { background:#f59e0b; color:white; }
+
+    .animate-bounce-in { animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    @@keyframes bounceIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 </style>
 
 @code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "date")]
+    public string? QueryDate { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "shift")]
+    public string? QueryShift { get; set; }
+
     private decimal? BarSales { get; set; }
     private decimal? LottoSales { get; set; }
     private decimal? LottoCashes { get; set; }
@@ -1015,8 +1175,6 @@
     private DateTime ReportDate { get; set; } = DateTime.Today;
     private string? Notes { get; set; }
     private bool IsRentalHall { get; set; } = false;
-    private bool _shiftCarryOverEnabled = true;
-    private bool _originalShiftCarryOverEnabled = true;
 
     private bool Loading { get; set; } = true;
     private bool IsSubmitting { get; set; } = false;
@@ -1030,21 +1188,183 @@
     private bool _showHudMath = false;
     private bool _showGuide = false;
     private bool _showSim = false;
-    // Guide simulator fields
-    private decimal? _simOpening;
-    private decimal? _simNetSales;
-    private decimal? _simCashes;
-    private decimal? _simTickets;
-    private decimal? _simNetDue;
-    private decimal? _simBag;
-    private decimal? _simCounted;
+    private bool _showSubmitConfirm = false;
+    private bool _lottoSignConfirmed = true; 
+    private Action? _onModalConfirm;
+
     private string? _pendingNavigationUrl;
     private string _modalTitle = "Unsaved Changes";
     private string _modalMessage = "You have entered data. Leaving now will lose your progress.";
-    private Action? _onModalConfirm;
+
+    private string? _activeField = null; // No default focus until user picks a field
+    private string _currentBuffer = "";
+    private bool _isSaving = false;
+
+    private string GetFieldDisplayName(string field) => field switch {
+        "Hours" => "Hours Worked",
+        "BarSales" => "Total Bar Sales",
+        "LottoOpeningCash" => "Lottery Beginning Cash",
+        "LottoSales" => "Lottery Net Sales (RPT 50)",
+        "LottoCashes" => "Lottery Cashes (RPT 50)",
+        "LottoInstantTickets" => "Lottery Tickets (RPT 34)",
+        "LottoNetDue" => "Lottery Net Due (RPT 50)",
+        "LottoBackupBag" => "Removed From Backup Money Bag",
+        "LottoCashCounted" => "Ending Cash Counted",
+        _ => "Entry"
+    };
+
+    private void ActivateField(string field) {
+        if (IsLocked) return;
+        
+        // Strict Lock: If Net Due is currently unconfirmed, don't allow jumping to other fields
+        if (_activeField == "LottoNetDue" && !_lottoSignConfirmed && LottoNetDue != 0 && LottoNetDue != null) {
+            return; 
+        }
+
+        _activeField = field;
+        _currentBuffer = ""; 
+        _lottoSignConfirmed = true; // Default true for existing values
+        StateHasChanged();
+    }
+
+    private void KeyPressed(string key) {
+        if (IsLocked || string.IsNullOrEmpty(_activeField)) return;
+        
+        // Basic buffer logic for decimal entry
+        if (key == "." && _currentBuffer.Contains(".")) return;
+        _currentBuffer += key;
+        
+        if (decimal.TryParse(_currentBuffer, out decimal val)) {
+            if (_activeField == "LottoNetDue") _lottoSignConfirmed = false; // Reset on change
+            UpdateFieldValue(_activeField, val);
+            _ = AutoSave();
+        }
+    }
+
+    private void ClearCurrentField() {
+        _currentBuffer = "";
+        UpdateFieldValue(_activeField, 0);
+        _ = AutoSave();
+    }
+
+    private void NextField() {
+        var fields = new[] { "Hours", "BarSales", "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" };
+        var idx = Array.IndexOf(fields, _activeField);
+        if (idx < fields.Length - 1) ActivateField(fields[idx + 1]);
+    }
+    
+    private void PrevField() {
+        var fields = new[] { "Hours", "BarSales", "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" };
+        var idx = Array.IndexOf(fields, _activeField);
+        if (idx > 0) ActivateField(fields[idx - 1]);
+    }
+
+    private void TogglePolarity() {
+        if (IsLocked || string.IsNullOrEmpty(_activeField)) return;
+        
+        switch(_activeField) {
+            case "Hours": TotalHours = -(TotalHours ?? 0); break;
+            case "BarSales": BarSales = -(BarSales ?? 0); break;
+            case "LottoOpeningCash": LottoOpeningCash = -(LottoOpeningCash ?? 0); break;
+            case "LottoSales": LottoSales = -(LottoSales ?? 0); break;
+            case "LottoCashes": LottoCashes = -(LottoCashes ?? 0); break;
+            case "LottoInstantTickets": LottoInstantTickets = -(LottoInstantTickets ?? 0); break;
+            case "LottoBackupBag": LottoBackupBag = -(LottoBackupBag ?? 0); break;
+            case "LottoCashCounted": LottoCashCounted = -(LottoCashCounted ?? 0); break;
+            case "LottoNetDue": LottoNetDue = -(LottoNetDue ?? 0); break;
+        }
+        _currentBuffer = ""; 
+        _ = AutoSave();
+        StateHasChanged();
+    }
+
+    private void UpdateFieldValue(string field, decimal val) {
+        switch(field) {
+            case "Hours": TotalHours = val; break;
+            case "BarSales": BarSales = val; break;
+            case "LottoOpeningCash": LottoOpeningCash = val; break;
+            case "LottoSales": LottoSales = val; break;
+            case "LottoCashes": LottoCashes = val; break;
+            case "LottoInstantTickets": LottoInstantTickets = val; break;
+            case "LottoBackupBag": LottoBackupBag = val; break;
+            case "LottoCashCounted": LottoCashCounted = val; break;
+            case "LottoNetDue": LottoNetDue = (LottoNetDue < 0) ? -val : val; break;
+        }
+        StateHasChanged(); // Instant UI Response
+    }
+
+    private async Task AutoSave() {
+        // Implementation of auto-save to DB
+        // For now, we reuse the HandleSubmit logic but without the redirect
+        await SilentSave();
+    }
+
+    private async Task SilentSave() {
+        try {
+            _isSaving = true;
+            using var db = await DbFactory.CreateDbContextAsync();
+            var existingBar = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == ShiftType && e.IsRentalHall == IsRentalHall);
+            
+            if (existingBar != null) {
+                existingBar.TotalSales = BarSales ?? 0; existingBar.TotalHours = TotalHours; existingBar.Notes = Notes;
+                existingBar.ModifiedBy = CurrentUser?.Username; existingBar.ModifiedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            } else if (BarSales != null || TotalHours != null) {
+                db.BarSaleEntries.Add(new BarSaleEntry {
+                    SaleDate = DateTime.Now, AdjustedSaleDate = ReportDate, TotalSales = BarSales ?? 0,
+                    TotalHours = TotalHours, IsRentalHall = IsRentalHall, Shift = ShiftType, Notes = Notes,
+                    CreatedBy = CurrentUser?.Username, CreatedAt = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+                ExistingEntryFound = true;
+            }
+
+            if (!IsRentalHall) {
+                var lottoShifts = LotteryRepo.GetByDateRange(ReportDate, ReportDate);
+                var existingLotto = lottoShifts.FirstOrDefault(s => s.ShiftType == ShiftType);
+                if (existingLotto != null) {
+                    existingLotto.TotalSales = LottoSales ?? 0; existingLotto.TotalPayouts = LottoCashes ?? 0;
+                    existingLotto.TotalCancels = LottoInstantTickets ?? 0;
+                    existingLotto.NetDue = LottoNetDue ?? 0; existingLotto.StartingCash = LottoOpeningCash ?? 0;
+                    existingLotto.BackupBagAmount = LottoBackupBag ?? 0; existingLotto.EndingCash = LottoCashCounted ?? 0;
+                    existingLotto.EnvelopeAmount = LottoEnvelopeAmount; existingLotto.Notes = Notes;
+                    LotteryRepo.Update(existingLotto);
+                } else if (LottoSales != null) {
+                    LotteryRepo.Create(new LotteryShift {
+                        ShiftDate = ReportDate, EmployeeName = CurrentUser?.Username ?? "Unknown", ShiftType = ShiftType,
+                        TotalSales = LottoSales ?? 0, TotalPayouts = LottoCashes ?? 0, TotalCancels = LottoInstantTickets ?? 0,
+                        NetDue = LottoNetDue ?? 0, StartingCash = LottoOpeningCash ?? 0, BackupBagAmount = LottoBackupBag ?? 0,
+                        EndingCash = LottoCashCounted ?? 0, EnvelopeAmount = LottoEnvelopeAmount, Notes = Notes,
+                        CreatedBy = CurrentUser?.Username, CreatedDate = DateTime.UtcNow, Status = "Draft"
+                    });
+                    ExistingEntryFound = true;
+                }
+            }
+        } catch { /* Silent fail for auto-save background */ }
+        finally {
+             _isSaving = false;
+             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleFinalConfirm() {
+        if (BarSales == null || TotalHours == null || (!IsRentalHall && LottoSales == null)) {
+            _validationError = "Required fields are missing. Please ensure all fields are filled out.";
+            _showValidation = true;
+            return;
+        }
+        _showSubmitConfirm = true;
+    }
+
+    private async Task ProceedWithSubmit() {
+        _showSubmitConfirm = false;
+        await HandleSubmit();
+    }
 
     private bool _dayMainSubmitted;
+    private bool _dayMainHasData;
     private bool _nightMainSubmitted;
+    private bool _nightMainHasData;
     private bool _hallSubmitted;
 
     private BarSaleEntry? ExistingBarEntry { get; set; }
@@ -1065,17 +1385,16 @@
 
     private bool HasUnsavedChanges => 
         !Loading && !Submitted && !string.IsNullOrEmpty(ShiftType) &&
-        (BarSales != _originalBarSales ||
-         LottoSales != _originalLottoSales ||
-         LottoCashes != _originalLottoCashes ||
-         LottoInstantTickets != _originalLottoInstantTickets ||
-         LottoNetDue != _originalLottoNetDue ||
-         LottoOpeningCash != _originalLottoOpeningCash ||
-         LottoBackupBag != _originalLottoBackupBag ||
-         LottoCashCounted != _originalLottoCashCounted ||
-         TotalHours != _originalTotalHours ||
-         Notes != _originalNotes ||
-         _shiftCarryOverEnabled != _originalShiftCarryOverEnabled);
+        ((BarSales ?? 0) != (_originalBarSales ?? 0) ||
+         (LottoSales ?? 0) != (_originalLottoSales ?? 0) ||
+         (LottoCashes ?? 0) != (_originalLottoCashes ?? 0) ||
+         (LottoInstantTickets ?? 0) != (_originalLottoInstantTickets ?? 0) ||
+         (LottoNetDue ?? 0) != (_originalLottoNetDue ?? 0) ||
+         (LottoOpeningCash ?? 0) != (_originalLottoOpeningCash ?? 0) ||
+         (LottoBackupBag ?? 0) != (_originalLottoBackupBag ?? 0) ||
+         (LottoCashCounted ?? 0) != (_originalLottoCashCounted ?? 0) ||
+         (TotalHours ?? 0) != (_originalTotalHours ?? 0) ||
+         (Notes ?? "") != (_originalNotes ?? ""));
 
     // Shift Delta Tracking (for cumulative machine reports)
     private decimal _prevDaySales { get; set; } = 0;
@@ -1093,12 +1412,23 @@
             return (LottoOpeningCash ?? 0) + salesActivity - cashesActivity - ticketsActivity + (LottoBackupBag ?? 0);
         }
     }
+
+    private decimal LottoNetMade {
+        get {
+            decimal salesActivity = (ShiftType == "Night" && (LottoSales == null || LottoSales == 0)) ? 0 : (LottoSales ?? 0) - (ShiftType == "Night" ? _prevDaySales : 0);
+            decimal cashesActivity = (ShiftType == "Night" && (LottoCashes == null || LottoCashes == 0)) ? 0 : (LottoCashes ?? 0) - (ShiftType == "Night" ? _prevDayCashes : 0);
+            decimal ticketsActivity = (ShiftType == "Night" && (LottoInstantTickets == null || LottoInstantTickets == 0)) ? 0 : (LottoInstantTickets ?? 0) - (ShiftType == "Night" ? _prevDayTickets : 0);
+            return salesActivity - cashesActivity - ticketsActivity;
+        }
+    }
+
+    private decimal LottoSalesActivity => (ShiftType == "Night" ? (LottoSales ?? 0) - _prevDaySales : (LottoSales ?? 0));
     private decimal LottoDiscrepancy => (LottoCashCounted ?? 0) - LottoDrawerValue;
     private decimal LottoTotalSurplus => Math.Max(0, (LottoCashCounted ?? 0) - 1200);
     private decimal LottoEnvelopeAmount {
         get {
-            if (ShiftType == "Day" && _shiftCarryOverEnabled) return 0;
-            decimal dayBags = (ShiftType == "Night" && _shiftCarryOverEnabled) ? _prevDayBag : 0;
+            if (ShiftType == "Day") return 0; // Day shift always carries over to Night
+            decimal dayBags = (ShiftType == "Night") ? _prevDayBag : 0;
             return Math.Max(0, LottoTotalSurplus - (LottoBackupBag ?? 0) - dayBags);
         }
     }
@@ -1107,10 +1437,40 @@
     {
         CurrentUser = AuthStateProvider.GetCurrentUser();
         if (CurrentUser == null) { Navigation.NavigateTo("/login"); return; }
-        ApplyBusinessDayLogic();
-        await UpdateShiftAvailability();
-        await CheckExisting();
-        Loading = false;
+        
+        // We move the core initialization logic to OnParametersSetAsync to handle 
+        // navigation arriving at this page, ensuring consistent defaulting.
+        Loading = true;
+    }
+
+    private string? _lastProcessedQueryDate;
+    private string? _lastProcessedQueryShift;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Only trigger a reset/reload if we actually navigated or parameters changed
+        if (QueryDate != _lastProcessedQueryDate || QueryShift != _lastProcessedQueryShift)
+        {
+            _lastProcessedQueryDate = QueryDate;
+            _lastProcessedQueryShift = QueryShift;
+
+            if (!string.IsNullOrEmpty(QueryDate) && DateTime.TryParse(QueryDate, out var qDate))
+            {
+                ReportDate = qDate;
+                if (!string.IsNullOrEmpty(QueryShift))
+                {
+                    ShiftType = QueryShift;
+                }
+            }
+            else
+            {
+                ApplyBusinessDayLogic();
+            }
+
+            await UpdateShiftAvailability();
+            await CheckExisting();
+            Loading = false;
+        }
     }
 
     private void ApplyBusinessDayLogic()
@@ -1121,8 +1481,16 @@
 
     private async Task OnDateChanged()
     {
-        await UpdateShiftAvailability();
-        await CheckExisting();
+        Loading = true;
+        StateHasChanged();
+        try {
+            _currentBuffer = "";
+            await UpdateShiftAvailability();
+            await CheckExisting();
+        } finally {
+            Loading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task SetShift(string type)
@@ -1131,17 +1499,20 @@
         ShiftType = type;
         await CheckExisting();
         if (IsLocked) {
-             _lockErrorMessage = "Access Restricted: This existing report is locked.";
-             ResetSelection();
+             _lockErrorMessage = "ACCESS LOCKED: This report is private or was created by another user.";
         }
+        StateHasChanged();
     }
 
     private async Task ToggleRentalHall()
     {
-        if (IsRentalHall && HasUnsavedChanges)
+        if (HasUnsavedChanges)
         {
-            _modalTitle = "Unsaved Rental Data";
-            _modalMessage = "You are about to exit the Rental Hall report. Any unsaved sales or notes will be lost. Continue?";
+            _modalTitle = IsRentalHall ? "Unsaved Rental Data" : "Unsaved Bar Data";
+            _modalMessage = IsRentalHall 
+                ? "You are about to exit the Rental Hall report. Any unsaved sales or notes will be lost. Continue?"
+                : "You have unsaved bar sales in progress. Switching to Rental Hall will discard these changes. Continue?";
+            
             _onModalConfirm = () => {
                 ExecuteToggleRentalHall();
             };
@@ -1175,8 +1546,15 @@
     {
         try {
             using var db = await DbFactory.CreateDbContextAsync();
-            _dayMainSubmitted = await db.BarSaleEntries.AnyAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == "Day" && !e.IsRentalHall);
-            _nightMainSubmitted = await db.BarSaleEntries.AnyAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == "Night" && !e.IsRentalHall);
+            var barEntries = await db.BarSaleEntries.Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && !e.IsRentalHall).ToListAsync();
+            var lottoShifts = LotteryRepo.GetByDateRange(ReportDate, ReportDate);
+            
+            _dayMainSubmitted = lottoShifts.Any(s => s.ShiftType == "Day" && s.Status == "Submitted");
+            _dayMainHasData = barEntries.Any(e => e.Shift == "Day") || lottoShifts.Any(s => s.ShiftType == "Day");
+            
+            _nightMainSubmitted = lottoShifts.Any(s => s.ShiftType == "Night" && s.Status == "Submitted");
+            _nightMainHasData = barEntries.Any(e => e.Shift == "Night") || lottoShifts.Any(s => s.ShiftType == "Night");
+            
             _hallSubmitted = await db.BarSaleEntries.AnyAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.IsRentalHall);
         } catch { }
     }
@@ -1206,17 +1584,33 @@
 
             if (ExistingBarEntry != null || ExistingLottoEntry != null) {
                 ExistingEntryFound = true;
-                BarSales = ExistingBarEntry?.TotalSales;
-                TotalHours = ExistingBarEntry?.TotalHours;
-                if (ExistingLottoEntry != null) {
-                    LottoSales = ExistingLottoEntry.TotalSales; LottoCashes = ExistingLottoEntry.TotalPayouts;
-                    LottoInstantTickets = ExistingLottoEntry.TotalCancels;
-                    LottoNetDue = ExistingLottoEntry.NetDue; LottoOpeningCash = ExistingLottoEntry.StartingCash;
-                    LottoBackupBag = ExistingLottoEntry.BackupBagAmount; LottoCashCounted = ExistingLottoEntry.EndingCash;
-                    // Note: In an existing report, we may want to see if it was originally 'Carry Over'
-                    // For now, we trust the UI state, but usually EnvelopeAmount == 0 on Day Shift is a hint.
+                
+                var createdTime = ExistingBarEntry?.CreatedAt ?? ExistingLottoEntry?.CreatedDate ?? DateTime.UtcNow;
+                bool isOwner = (ExistingBarEntry?.CreatedBy == CurrentUser.Username) || (ExistingLottoEntry?.CreatedBy == CurrentUser.Username);
+                
+                // USER PRIVACY & 1-HOUR LOCK
+                if (createdTime < DateTime.UtcNow.AddHours(-1) && !CurrentUser.IsAdmin) IsLocked = true;
+                if (!isOwner && !CurrentUser.IsAdmin) IsLocked = true;
+
+                // If locked and not owner/admin, hide sensitive data
+                if (IsLocked && !CurrentUser.IsAdmin && !isOwner) {
+                     _lockErrorMessage = "ACCESS LOCKED - PRIVATE REPORT: This report was created by another user and is not viewable.";
+                     BarSales = null; TotalHours = null; LottoSales = null; LottoCashes = null; 
+                     LottoInstantTickets = null; LottoNetDue = null; LottoOpeningCash = null;
+                     LottoBackupBag = 0; LottoCashCounted = null; Notes = null;
+                } else {
+                    BarSales = ExistingBarEntry?.TotalSales;
+                    TotalHours = ExistingBarEntry?.TotalHours;
+                    if (ExistingLottoEntry != null) {
+                        LottoSales = ExistingLottoEntry.TotalSales; LottoCashes = ExistingLottoEntry.TotalPayouts;
+                        LottoInstantTickets = ExistingLottoEntry.TotalCancels;
+                        LottoNetDue = ExistingLottoEntry.NetDue; LottoOpeningCash = ExistingLottoEntry.StartingCash;
+                        LottoBackupBag = ExistingLottoEntry.BackupBagAmount; LottoCashCounted = ExistingLottoEntry.EndingCash;
+                        // Note: In an existing report, we may want to see if it was originally 'Carry Over'
+                        // For now, we trust the UI state, but usually EnvelopeAmount == 0 on Day Shift is a hint.
+                    }
+                    Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
                 }
-                Notes = ExistingBarEntry?.Notes ?? ExistingLottoEntry?.Notes;
                 
                 // Set originals for change tracking
                 _originalBarSales = BarSales; _originalLottoSales = LottoSales; 
@@ -1224,10 +1618,6 @@
                 _originalLottoNetDue = LottoNetDue; _originalLottoOpeningCash = LottoOpeningCash;
                 _originalLottoBackupBag = LottoBackupBag; _originalLottoCashCounted = LottoCashCounted;
                 _originalTotalHours = TotalHours; _originalNotes = Notes;
-                _originalShiftCarryOverEnabled = _shiftCarryOverEnabled;
-
-                var createdTime = ExistingBarEntry?.CreatedAt ?? ExistingLottoEntry?.CreatedDate ?? DateTime.UtcNow;
-                if (createdTime < DateTime.UtcNow.AddHours(-2) && !CurrentUser.IsAdmin && (ExistingBarEntry?.CreatedBy != CurrentUser.Username)) IsLocked = true;
             } else {
                 BarSales = null; TotalHours = null; LottoSales = null; 
                 LottoCashes = null; LottoInstantTickets = null; LottoNetDue = null; 
@@ -1240,7 +1630,6 @@
                 _originalLottoNetDue = null; _originalLottoOpeningCash = LottoOpeningCash;
                 _originalLottoBackupBag = 0; _originalLottoCashCounted = null;
                 _originalTotalHours = null; _originalNotes = null;
-                _originalShiftCarryOverEnabled = _shiftCarryOverEnabled;
             }
         } catch { }
     }
@@ -1253,21 +1642,10 @@
                 var day = await db.LotteryShifts.AsNoTracking().FirstOrDefaultAsync(s => s.ShiftDate.Date == ReportDate.Date && s.ShiftType == "Day");
                 if (day == null) return 1200;
                 
-                if (_shiftCarryOverEnabled) {
-                    return day.EndingCash;
-                }
-                
-                decimal surplus = Math.Max(0, day.EndingCash - 1200);
-                decimal returnToBag = Math.Min(surplus, day.BackupBagAmount);
-                return day.EndingCash - returnToBag - day.EnvelopeAmount;
+                return day.EndingCash;
             }
             return 1200;
         } catch { return 1200; }
-    }
-
-    private async Task RefreshOpeningCash() {
-        LottoOpeningCash = await GetCarryoverCash();
-        StateHasChanged();
     }
 
     private async Task HandleSubmit()
@@ -1330,19 +1708,15 @@
         }
     }
 
-    private void ToggleLottoNetDueSign()
-    {
-        if (LottoNetDue != null)
-        {
-            LottoNetDue = -LottoNetDue;
-            StateHasChanged();
-        }
-        else
-        {
-            // If empty, assume we want to start entering a negative value
-            // (Note: This is a UI hint; the bind will handle the next input)
-        }
+    private void SetLottoSign(int sign) {
+        if (LottoNetDue == null) return;
+        LottoNetDue = Math.Abs(LottoNetDue.Value) * sign;
+        _lottoSignConfirmed = true;
+        _ = AutoSave();
+        StateHasChanged();
     }
+
+    private void ToggleLottoNetDueSign() => SetLottoSign(LottoNetDue < 0 ? 1 : -1);
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)
     {

@@ -227,7 +227,7 @@ namespace GFC.BlazorServer.Services
                         TotalSales = (decimal?)e.TotalSales ?? 0m,
                         TotalHours = (decimal?)e.TotalHours ?? 0m,
                         Notes = e.Notes ?? "",
-                        CreatedBy = e.CreatedBy ?? "Unknown",
+                        CreatedBy = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown",
                         CreatedAt = (DateTime?)e.CreatedAt ?? DateTime.MinValue
                     })
                     .ToListAsync();
@@ -262,8 +262,9 @@ namespace GFC.BlazorServer.Services
                         EndingCash = (decimal?)e.EndingCash ?? 0m,
                         BackupBagAmount = (decimal?)e.BackupBagAmount ?? 0m,
                         EnvelopeAmount = (decimal?)e.EnvelopeAmount ?? 0m,
+                        TotalCancels = (decimal?)e.TotalCancels ?? 0m,
                         Notes = e.Notes ?? "",
-                        EmployeeName = e.EmployeeName ?? "Unknown",
+                        EmployeeName = !string.IsNullOrWhiteSpace(e.EmployeeName) ? e.EmployeeName : "Unknown",
                         CreatedDate = (DateTime?)e.CreatedDate ?? DateTime.MinValue
                     })
                     .ToListAsync();
@@ -308,11 +309,13 @@ namespace GFC.BlazorServer.Services
                             EndingCash = dayLotto?.EndingCash ?? 0,
                             BackupBagAmount = dayLotto?.BackupBagAmount ?? 0,
                             EnvelopeAmount = dayLotto?.EnvelopeAmount ?? 0,
-                            Notes = dayBar?.Notes ?? dayLotto?.Notes,
-                            CreatedBy = dayBar?.CreatedBy ?? dayLotto?.EmployeeName,
-                            CreatedAt = dayBar?.CreatedAt ?? dayLotto?.CreatedDate ?? date
+                            LottoCancels = dayLotto?.TotalCancels ?? 0,
+                             Notes = !string.IsNullOrWhiteSpace(dayBar?.Notes) ? dayBar.Notes : dayLotto?.Notes,
+                             CreatedBy = !string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : 
+                                        (!string.IsNullOrWhiteSpace(dayLotto?.EmployeeName) ? dayLotto.EmployeeName : "Unknown"),
+                             CreatedAt = dayBar?.CreatedAt ?? dayLotto?.CreatedDate ?? date
 
-                        });
+                         });
                     }
 
                     // Map Night Shift
@@ -330,11 +333,13 @@ namespace GFC.BlazorServer.Services
                             EndingCash = nightLotto?.EndingCash ?? 0,
                             BackupBagAmount = nightLotto?.BackupBagAmount ?? 0,
                             EnvelopeAmount = nightLotto?.EnvelopeAmount ?? 0,
-                            Notes = nightBar?.Notes ?? nightLotto?.Notes,
-                            CreatedBy = nightBar?.CreatedBy ?? nightLotto?.EmployeeName,
-                            CreatedAt = nightBar?.CreatedAt ?? nightLotto?.CreatedDate ?? date
+                            LottoCancels = nightLotto?.TotalCancels ?? 0,
+                             Notes = !string.IsNullOrWhiteSpace(nightBar?.Notes) ? nightBar.Notes : nightLotto?.Notes,
+                             CreatedBy = !string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : 
+                                        (!string.IsNullOrWhiteSpace(nightLotto?.EmployeeName) ? nightLotto.EmployeeName : "Unknown"),
+                             CreatedAt = nightBar?.CreatedAt ?? nightLotto?.CreatedDate ?? date
 
-                        });
+                         });
                     }
 
                     // Map Hall Rental

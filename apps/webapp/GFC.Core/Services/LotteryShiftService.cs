@@ -254,6 +254,8 @@ namespace GFC.Core.Services
                 IsReconciled = shift.IsReconciled,
                 ReconciledBy = shift.ReconciledBy,
                 ReconciledDate = shift.ReconciledDate,
+                BackupBagAmount = shift.BackupBagAmount,
+                EnvelopeAmount = shift.EnvelopeAmount,
                 CreatedBy = shift.CreatedBy,
                 CreatedDate = shift.CreatedDate
             };

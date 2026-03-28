@@ -27,6 +27,8 @@ namespace GFC.Core.DTOs
         public bool IsReconciled { get; set; }
         public string? ReconciledBy { get; set; }
         public DateTime? ReconciledDate { get; set; }
+        public decimal BackupBagAmount { get; set; }
+        public decimal EnvelopeAmount { get; set; }
         public string? CreatedBy { get; set; }
         public DateTime CreatedDate { get; set; }
     }

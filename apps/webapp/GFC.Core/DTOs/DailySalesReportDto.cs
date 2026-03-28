@@ -99,9 +99,10 @@ namespace GFC.Core.DTOs
         public decimal EndingCash { get; set; }
         public decimal BackupBagAmount { get; set; }
         public decimal EnvelopeAmount { get; set; }
+        public decimal LottoCancels { get; set; }
         
         // Calculations
-        public decimal LottoNetSales => LottoSales - LottoPayouts;
+        public decimal LottoNetSales => LottoSales - LottoPayouts - LottoCancels;
         public decimal ExpectedCash => StartingCash + LottoSales - LottoPayouts + BackupBagAmount;
         public decimal Variance => EndingCash - ExpectedCash;
         public decimal LotteryIncome => LottoNetSales - LottoNetDue;

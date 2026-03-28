@@ -348,6 +348,7 @@ BEGIN
         [DurationSeconds] INT NOT NULL DEFAULT 0,
         [IpAddress] NVARCHAR(45) NULL,
         [DeviceToken] NVARCHAR(100) NULL,
+        [TargetMemberId] INT NULL,
         CONSTRAINT [FK_AuditLogs_PerformedBy] FOREIGN KEY ([PerformedByUserId]) REFERENCES [dbo].[AppUsers]([UserId]),
         CONSTRAINT [FK_AuditLogs_Target] FOREIGN KEY ([TargetUserId]) REFERENCES [dbo].[AppUsers]([UserId])
     );
