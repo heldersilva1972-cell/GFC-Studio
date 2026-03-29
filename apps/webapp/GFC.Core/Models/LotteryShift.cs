@@ -32,7 +32,7 @@ namespace GFC.Core.Models
         
         // Calculated values
         public decimal NetSales => TotalSales - TotalPayouts - TotalCancels;
-        public decimal ExpectedCash => StartingCash + TotalSales - TotalPayouts + BackupBagAmount;
+        public decimal ExpectedCash => StartingCash + TotalSales - TotalPayouts - TotalCancels + BackupBagAmount;
         public decimal Variance => EndingCash - ExpectedCash;
         
         // Income for the house: (Sales - Payouts - Cancels) - NetDue to State

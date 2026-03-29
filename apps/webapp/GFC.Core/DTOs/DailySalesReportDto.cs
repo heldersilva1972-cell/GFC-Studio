@@ -15,15 +15,17 @@ namespace GFC.Core.DTOs
         public decimal TotalLottoSales => GetLatestCumulativeValue(s => s.LottoSales);
         public decimal TotalLottoPayouts => GetLatestCumulativeValue(s => s.LottoPayouts);
         public decimal TotalLottoNetDue => GetLatestCumulativeValue(s => s.LottoNetDue);
+        public decimal TotalLottoCancels => GetLatestCumulativeValue(s => s.LottoCancels);
 
-        public decimal TotalLottoNetSales => TotalLottoSales - TotalLottoPayouts;
+        public decimal TotalLottoNetSales => TotalLottoSales - TotalLottoPayouts - TotalLottoCancels;
         public decimal TotalEnvelope => Shifts.Sum(s => s.EnvelopeAmount);
         public decimal TotalLotteryIncome => TotalLottoNetSales - TotalLottoNetDue;
 
         public decimal TotalVariance => Shifts.Sum(s => {
             var sSales = GetShiftSales(s);
             var sPayouts = GetShiftPayouts(s);
-            var expectedInDrawer = s.StartingCash + sSales - sPayouts + s.BackupBagAmount;
+            var sCancels = GetShiftCancels(s);
+            var expectedInDrawer = s.StartingCash + sSales - sPayouts - sCancels + s.BackupBagAmount;
             return s.EndingCash - expectedInDrawer;
         });
 
@@ -50,7 +52,7 @@ namespace GFC.Core.DTOs
                 if (day == null) return shift.LotteryIncome;
 
                 // (Night Cumulative NetSales - Day Cumulative NetSales) - (Night Cumulative NetDue - Day Cumulative NetDue)
-                decimal nightOnlySales = (shift.LottoSales - shift.LottoPayouts) - (day.LottoSales - day.LottoPayouts);
+                decimal nightOnlySales = (shift.LottoSales - shift.LottoPayouts - shift.LottoCancels) - (day.LottoSales - day.LottoPayouts - day.LottoCancels);
                 decimal nightOnlyDue = shift.LottoNetDue - day.LottoNetDue;
                 return nightOnlySales - nightOnlyDue;
             }
@@ -69,6 +71,13 @@ namespace GFC.Core.DTOs
             if (shift.ShiftType == "Day" || shift.IsRentalHall) return shift.LottoPayouts;
             var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
             return day != null ? shift.LottoPayouts - day.LottoPayouts : shift.LottoPayouts;
+        }
+
+        public decimal GetShiftCancels(ShiftReportDto shift)
+        {
+            if (shift.ShiftType == "Day" || shift.IsRentalHall) return shift.LottoCancels;
+            var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
+            return day != null ? shift.LottoCancels - day.LottoCancels : shift.LottoCancels;
         }
 
         public decimal GetShiftNetDue(ShiftReportDto shift)
@@ -103,7 +112,7 @@ namespace GFC.Core.DTOs
         
         // Calculations
         public decimal LottoNetSales => LottoSales - LottoPayouts - LottoCancels;
-        public decimal ExpectedCash => StartingCash + LottoSales - LottoPayouts + BackupBagAmount;
+        public decimal ExpectedCash => StartingCash + LottoSales - LottoPayouts - LottoCancels + BackupBagAmount;
         public decimal Variance => EndingCash - ExpectedCash;
         public decimal LotteryIncome => LottoNetSales - LottoNetDue;
         public decimal NetIncome => LotteryIncome + Variance;

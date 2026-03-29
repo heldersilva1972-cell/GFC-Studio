@@ -1,0 +1,345 @@
+@page "/finance/lottery-reconcile"
+@using GFC.Core.DTOs
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using GFC.BlazorServer.Services
+@using GFC.BlazorServer.Auth
+@inject IFinancialAnalyticsService FinancialService
+@inject IJSRuntime JS
+@inject NavigationManager NavMgr
+@inject CustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>Lottery Reconcile | GFC Finance</PageTitle>
+
+<div class="lottery-reconcile-page">
+    <div class="sticky-page-header px-4">
+        <div class="dash-modern-canvas-slim">
+            <div class="d-flex justify-content-between align-items-end">
+                <div>
+                    <h1 class="header-main-title fw-black mb-1">Lottery Reconcile</h1>
+                    <div class="d-flex align-items-center gap-2 text-muted small">
+                        <i class="bi bi-calendar-range-fill text-primary"></i>
+                        <span>Weekly Performance (Sunday to Saturday)</span>
+                    </div>
+                </div>
+                
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <div class="input-group input-group-sm rounded-pill overflow-hidden border-0 shadow-sm">
+                        <span class="input-group-text bg-white border-0"><i class="bi bi-calendar3"></i></span>
+                        <input type="date" class="form-control border-0" @bind="_startDate" @bind:after="LoadData" />
+                        <span class="input-group-text bg-white border-0">to</span>
+                        <input type="date" class="form-control border-0" @bind="_endDate" @bind:after="LoadData" />
+                    </div>
+                    
+                    <button type="button" class="btn btn-sm px-4 py-2 rounded-pill bg-white shadow-sm text-primary fw-bold d-flex align-items-center border-0 ms-2" @onclick="LoadData" disabled="@_isLoading">
+                        @if (_isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-repeat me-2"></i>
+                        }
+                        <span>Refresh</span>
+                    </button>
+                    
+                    <button type="button" class="btn btn-sm p-2 rounded-circle bg-white shadow-sm text-muted border-0 ms-1" @onclick="PrintReport">
+                        <i class="bi bi-printer"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header Spacer to prevent content jump -->
+    <div class="page-header-spacer"></div>
+
+    <div class="dash-modern-canvas">
+        @if (_isLoading)
+        {
+            <div class="d-flex flex-column align-items-center justify-content-center py-5 mt-5">
+                <div class="spinner-border text-primary mb-3" role="status"></div>
+                <span class="text-muted fw-bold text-uppercase" style="letter-spacing: 0.1em;">Analyzing Financial Periods...</span>
+            </div>
+        }
+        else if (!_weeklySummaries.Any())
+        {
+            <div class="text-center py-5 text-muted bg-white rounded-4 shadow-sm mx-2 mt-4">
+                <i class="bi bi-calendar-x d-block fs-1 mb-3 opacity-25"></i>
+                <p class="fw-bold">No lottery data found for this period.</p>
+                <p class="small">Try selecting a different date range.</p>
+            </div>
+        }
+        else
+        {
+            <div class="reconcile-grid">
+                @foreach (var week in _weeklySummaries)
+                {
+                    <div class="weekly-card mb-5">
+                        <div class="weekly-header d-flex justify-content-between align-items-center p-3 mb-3 glass-header rounded-4">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="week-pill bg-primary text-white px-3 py-1 rounded-pill fw-bold" style="font-size: 0.75rem;">
+                                    WEEK @GetWeekNumber(week.WeekStart)
+                                </div>
+                                <h3 class="fw-black mb-0 text-dark" style="font-size: 1.1rem;">
+                                    @week.WeekStart.ToString("MMMM d") - @week.WeekEnd.ToString("MMMM d, yyyy")
+                                </h3>
+                            </div>
+                            
+                            <div class="d-flex gap-4">
+                                <div class="header-stat text-start">
+                                    <span class="l">WEEKLY COMMISSIONS</span>
+                                    <span class="v text-success fw-black">@week.TotalIncome.ToString("C2")</span>
+                                </div>
+                                <div class="header-divider"></div>
+                                <div class="header-stat text-start">
+                                    <span class="l">TOTAL ENVELOPE CASH</span>
+                                    <span class="v text-primary fw-black">@week.TotalEnvelope.ToString("C2")</span>
+                                </div>
+                                <div class="header-divider"></div>
+                                <div class="header-stat text-start">
+                                    <span class="l">DUE TO LOTTERY</span>
+                                    <span class="v text-dark fw-black">@((week.TotalNetDue - week.TotalTickets).ToString("C2"))</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="weekly-content p-2">
+                            <div class="gfc-widget border-0 shadow-sm rounded-4 overflow-hidden">
+                                <table class="table table-hover mb-0 align-middle">
+                                    <thead class="bg-light">
+                                        <tr>
+                                            <th class="ps-4">DAY / DATE</th>
+                                            <th class="text-end">SALES (RPT 50)</th>
+                                            <th class="text-end">CASHES (RPT 50)</th>
+                                            <th class="text-end">TICKETS (RPT 34)</th>
+                                            <th class="text-end ps-4">NET DUE (RPT 50)</th>
+                                            <th class="text-end">DUE TO LOTTERY</th>
+                                            <th class="text-end ps-4">ENVELOPE CASH</th>
+                                            <th class="text-end pe-4">DAILY VARIANCE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var day in week.Days)
+                                        {
+                                            <tr>
+                                                <td class="ps-4">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <span class="fw-black text-dark">@day.Date.ToString("ddd")</span>
+                                                        <span class="text-muted small">@day.Date.ToString("MMM d")</span>
+                                                    </div>
+                                                </td>
+                                                <td class="text-end text-muted small">@day.TotalLottoSales.ToString("N2")</td>
+                                                <td class="text-end text-muted small">-@day.TotalLottoPayouts.ToString("N2")</td>
+                                                <td class="text-end text-muted small">@((day.Shifts.Sum(s => s.LottoCancels)).ToString("N2"))</td>
+                                                <td class="text-end text-muted small ps-4">@day.TotalLottoNetDue.ToString("N2")</td>
+                                                <td class="text-end text-dark fw-semibold">@((day.TotalLottoNetDue - day.TotalLottoCancels).ToString("N2"))</td>
+                                                <td class="text-end fw-bold text-primary ps-4">@day.TotalEnvelope.ToString("C2")</td>
+                                                <td class="text-end pe-4 fw-bold @(day.TotalVariance == 0 ? "text-muted" : day.TotalVariance > 0 ? "text-primary" : "text-danger")">
+                                                    @day.TotalVariance.ToString("C2")
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                    <tfoot class="weekly-total-footer border-0">
+                                        <tr>
+                                            <td class="ps-4 py-3 fw-bold text-uppercase" style="font-size: 0.7rem; color: #64748b; letter-spacing: 0.05em;">WEEKLY TOTALS</td>
+                                            <td class="text-end py-3 text-muted">@week.TotalSales.ToString("N2")</td>
+                                            <td class="text-end py-3 text-muted">-@week.TotalPayouts.ToString("N2")</td>
+                                            <td class="text-end py-3 text-muted">@week.TotalTickets.ToString("N2")</td>
+                                            <td class="text-end py-3 text-muted">@week.TotalNetDue.ToString("N2")</td>
+                                            <td class="text-end py-3 text-dark fw-bold">@((week.TotalNetDue - week.TotalTickets).ToString("N2"))</td>
+                                            <td class="text-end py-3 fw-bold text-primary border-0">@week.TotalEnvelope.ToString("C2")</td>
+                                            <td class="text-end pe-4 py-3 fw-bold @(week.TotalVariance == 0 ? "text-muted" : week.TotalVariance > 0 ? "text-primary" : "text-danger")">@week.TotalVariance.ToString("C2")</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .lottery-reconcile-page {
+        --bg-primary: #f8fafc;
+        --bg-surface: #ffffff;
+        background: var(--bg-primary);
+        min-height: 100vh;
+        padding-bottom: 3rem;
+    }
+
+    .dash-modern-canvas {
+        padding: 1.5rem 2rem 2rem 2rem;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .dash-modern-canvas-slim {
+        max-width: 1320px;
+        margin: 0 auto;
+    }
+
+    /* Fixed Header Styles */
+    .sticky-page-header {
+        position: fixed;
+        top: 56px; 
+        left: 240px; 
+        right: 0;
+        z-index: 950;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(16px);
+        padding: 1.5rem 2.5rem;
+        border-bottom: 2px solid #f1f5f9;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .page-header-spacer {
+        height: 100px;
+    }
+
+    .header-main-title {
+        color: #0f172a; 
+        letter-spacing: -0.03em;
+        font-size: 1.75rem;
+    }
+
+    .fw-black { font-weight: 900 !important; }
+
+    .glass-header {
+        background: rgba(255, 255, 255, 0.6);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.05);
+    }
+
+    .header-stat {
+        display: flex;
+        flex-direction: column;
+        text-align: right;
+    }
+    .header-stat .l { font-size: 0.58rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .header-stat .v { font-size: 1.1rem; font-weight: 900; }
+    .header-divider { width: 1px; height: 32px; background: #e2e8f0; align-self: center; }
+
+    .bg-light-green { background-color: #f0fdf4 !important; }
+    .bg-light-green-subtle { background-color: #f0fdf4 !important; }
+
+    .table thead th {
+        font-size: 0.65rem;
+        font-weight: 800;
+        color: #64748b;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        border-bottom: 1px solid #f1f5f9;
+        padding: 1rem 0.75rem;
+    }
+
+    .table tbody td {
+        font-size: 0.85rem;
+        padding: 1rem 0.75rem;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .table tfoot td {
+        border-top: 2px solid #f1f5f9 !important;
+        background-color: #f8fafc;
+    }
+
+    .weekly-total-footer {
+        border-top: 2px solid #e2e8f0;
+    }
+
+    @@media (max-width: 992px) {
+        .sticky-page-header { left: 0; }
+    }
+
+    @@media print {
+        .sticky-page-header, .page-header-spacer, .btn, .input-group { display: none !important; }
+        .lottery-reconcile-page { padding: 0 !important; background: white !important; }
+        .dash-modern-canvas { padding: 0 !important; }
+        .weekly-card { break-inside: avoid; border: 1px solid #ddd !important; border-radius: 8px !important; }
+    }
+</style>
+
+@code {
+    private DateTime _startDate = DateTime.Today.AddDays(-60);
+    private DateTime _endDate = DateTime.Today;
+    private bool _isLoading = false;
+    private List<WeeklySummaryDto> _weeklySummaries = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Align start date to the nearest Sunday to get clean weeks
+        int diff = (7 + (_startDate.DayOfWeek - DayOfWeek.Sunday)) % 7;
+        _startDate = _startDate.AddDays(-1 * diff);
+        
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        try
+        {
+            var result = await FinancialService.GetDailySalesReportsAsync(_startDate, _endDate);
+            _weeklySummaries = GroupByWeek(result.Data);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading weekly summaries: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private List<WeeklySummaryDto> GroupByWeek(List<DailySalesReportDto> dailyReports)
+    {
+        return dailyReports
+            .GroupBy(d => {
+                int diff = (7 + (d.Date.DayOfWeek - DayOfWeek.Sunday)) % 7;
+                return d.Date.AddDays(-1 * diff).Date;
+            })
+            .Select(g => new WeeklySummaryDto {
+                WeekStart = g.Key,
+                WeekEnd = g.Key.AddDays(6),
+                Days = g.OrderBy(d => d.Date).ToList()
+            })
+            .OrderByDescending(w => w.WeekStart)
+            .ToList();
+    }
+
+    private int GetWeekNumber(DateTime date)
+    {
+        // Simple ISO week number or just week of month for context
+        var day = (int)System.Globalization.CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(date, System.Globalization.CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Sunday);
+        return day;
+    }
+
+    private void PrintReport()
+    {
+        _ = JS.InvokeVoidAsync("window.print");
+    }
+
+    public class WeeklySummaryDto
+    {
+        public DateTime WeekStart { get; set; }
+        public DateTime WeekEnd { get; set; }
+        public List<DailySalesReportDto> Days { get; set; } = new();
+
+        public decimal TotalSales => Days.Sum(d => d.TotalLottoSales);
+        public decimal TotalPayouts => Days.Sum(d => d.TotalLottoPayouts);
+        public decimal TotalTickets => Days.Sum(d => d.TotalLottoCancels);
+        public decimal TotalEnvelope => Days.Sum(d => d.TotalEnvelope);
+        public decimal TotalNetDue => Days.Sum(d => d.TotalLottoNetDue);
+        public decimal TotalIncome => Days.Sum(d => d.TotalLotteryIncome);
+        public decimal TotalVariance => Days.Sum(d => d.TotalVariance);
+        public decimal TotalNetProfit => Days.Sum(d => d.TotalNetIncome);
+    }
+}
