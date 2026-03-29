@@ -287,33 +287,35 @@
                 onConnectionDown: async () => {
                     console.log("[GFC] Connection lost. Monitoring for recovery...");
                     
-                    // [SELF-HEALING] Smart recovery for mobile
-                    if (isMobile) {
-                        try {
-                            const reconnected = await Blazor.reconnect();
-                            if (!reconnected) {
-                                // If reconnection returned false, the circuit is DEAD on the server.
-                                // We MUST reload to restore functionality.
-                                console.log("[GFC-Mobile] Circuit was terminated by server. Forcing fresh reload.");
-                                location.reload();
-                            }
-                        } catch (e) {
-                            console.log("[GFC-Mobile] Reconnection attempt 1 failed. Waiting for network...");
-                            // [SAFETY] Removed forced reload on exception. 
-                            // If network is down, we let Blazor's UI handle the "Reconnecting..." state.
-                            // We only force reload if the server explicitly tells us the circuit is dead (reconnected === false).
+                    // [SELF-HEALING] Smart recovery for ALL devices (Desktop & Mobile)
+                    // If the server explicitly tells us the circuit is DEAD (returns false), 
+                    // we MUST reload to restore interactivity.
+                    try {
+                        const reconnected = await Blazor.reconnect();
+                        if (!reconnected && !window._pwaInstalling) {
+                            console.log("[GFC] Circuit was terminated by server. Forcing fresh reload.");
+                            location.reload();
                         }
-
-                        // Fallback: If still disconnected after 45 seconds (was 5), force a refresh.
-                        // This gives plenty of time for elevators/tunnels without losing data.
-                        setTimeout(() => {
-                            const modal = document.getElementById('components-reconnect-modal');
-                            if (modal && window.getComputedStyle(modal).display !== 'none' && navigator.onLine) {
-                                console.log("[GFC-Mobile] Recovery timed out (45s). Forcing refresh.");
-                                location.reload();
-                            }
-                        }, 45000); 
+                    } catch (e) {
+                         // On some browsers, reconnect() throws if network is hard-down.
+                         // We only force reload if we're on the login page (to ensure it's always responsive)
+                         // OR if we've been disconnected for more than a few seconds.
+                        if (location.pathname.toLowerCase().includes('/login') && navigator.onLine) {
+                             console.log("[GFC-Login] Connection failed on login page. Refreshing...");
+                             location.reload();
+                        }
                     }
+
+                    // Fallback: If still disconnected after 60 seconds (Wait longer for bad networks/elevators)
+                    // but on the login page, we refresh sooner to ensure they can sign in.
+                    const timeout = location.pathname.toLowerCase().includes('/login') ? 5000 : 45000;
+                    setTimeout(() => {
+                        const modal = document.getElementById('components-reconnect-modal');
+                        if (modal && window.getComputedStyle(modal).display !== 'none' && navigator.onLine) {
+                            console.log("[GFC] Recovery timed out. Forcing refresh.");
+                            location.reload();
+                        }
+                    }, timeout); 
                 },
                 onConnectionUp: () => console.log("[GFC] Connection restored successfully.")
             }
