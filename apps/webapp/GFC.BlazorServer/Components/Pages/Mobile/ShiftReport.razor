@@ -1112,6 +1112,7 @@
     private string _currentBuffer = "";
     private bool _isSaving = false;
     private bool _initialized = false;
+    private bool _fieldFreshlyActivated = false;
 
     private string GetFieldDisplayName(string field) => field switch {
         "Hours" => "Hours Worked",
@@ -1135,7 +1136,15 @@
         }
 
         _activeField = field;
-        _currentBuffer = ""; 
+        _fieldFreshlyActivated = true; // Use this to allow backspace on existing value but clear on typing a digit
+
+        decimal? currentVal = GetRawFieldValue(field);
+        if (currentVal != null) {
+            _currentBuffer = Math.Abs(currentVal.Value).ToString("F2");
+        } else {
+            _currentBuffer = "";
+        }
+        
         _lottoSignConfirmed = true; // Default true for existing values
         StateHasChanged();
     }
@@ -1143,6 +1152,12 @@
     private void KeyPressed(string key) {
         if (IsLocked || string.IsNullOrEmpty(_activeField)) return;
         
+        // Intelligent Clear: If the field was just selected, typing a digit should start fresh
+        if (_fieldFreshlyActivated) {
+            _currentBuffer = "";
+            _fieldFreshlyActivated = false;
+        }
+
         // Basic buffer logic for decimal entry
         if (key == "." && _currentBuffer.Contains(".")) return;
         
@@ -1165,6 +1180,9 @@
     private void BackspaceCurrentField() {
         if (IsLocked || string.IsNullOrEmpty(_activeField)) return;
         
+        // If they hit backspace, they chose to edit the existing value, so don't clear it on the next digit
+        _fieldFreshlyActivated = false;
+
         if (!string.IsNullOrEmpty(_currentBuffer)) {
             _currentBuffer = _currentBuffer.Substring(0, _currentBuffer.Length - 1);
         }
@@ -1179,14 +1197,8 @@
         _ = AutoSave();
     }
 
-    private string GetInputDisplay(string field) {
-        if (_activeField == field && !string.IsNullOrEmpty(_currentBuffer)) {
-             // For Net Due, we still need the sign indicator even in buffer mode
-             if (field == "LottoNetDue") return (LottoNetDue < 0 ? "-" : "") + _currentBuffer;
-             return _currentBuffer;
-        }
-        
-        decimal? val = field switch {
+    private decimal? GetRawFieldValue(string field) {
+        return field switch {
             "Hours" => TotalHours,
             "BarSales" => BarSales,
             "LottoOpeningCash" => LottoOpeningCash,
@@ -1198,7 +1210,16 @@
             "LottoCashCounted" => LottoCashCounted,
             _ => null
         };
+    }
 
+    private string GetInputDisplay(string field) {
+        if (_activeField == field && !string.IsNullOrEmpty(_currentBuffer)) {
+             // For Net Due, we still need the sign indicator even in buffer mode
+             if (field == "LottoNetDue") return (LottoNetDue < 0 ? "-" : "") + _currentBuffer;
+             return _currentBuffer;
+        }
+        
+        decimal? val = GetRawFieldValue(field);
         if (val == null) return "";
         
         if (field == "LottoNetDue") return (val < 0 ? "-" : "") + Math.Abs(val.Value).ToString("N2");
