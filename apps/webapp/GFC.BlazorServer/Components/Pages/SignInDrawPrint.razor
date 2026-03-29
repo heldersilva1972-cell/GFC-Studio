@@ -8,6 +8,7 @@
 @inject IMemberRepository MemberRepository
 @inject IDuesRepository DuesRepository
 @inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SettingsService
+@inject IBoardRepository BoardRepository
 @inject IJSRuntime JSRuntime
 @inject NavigationManager NavMgr
 @inject CustomAuthenticationStateProvider AuthStateProvider
@@ -255,11 +256,20 @@
                 .Select(d => d.MemberID)
                 .ToHashSet();
 
+            var boardAssignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(_currentYear));
+            var boardMemberIds = boardAssignments
+                .Select(a => a.MemberID)
+                .Where(id => id != 0)
+                .ToHashSet();
+
             _members = allMembers
                 .OrderBy(m => m.MemberID)
                 .Where(member => {
                     var normalizedStatus = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status);
-                    return normalizedStatus is "LIFE" or "BOARD" || paidMemberIds.Contains(member.MemberID);
+                    if (normalizedStatus is "INACTIVE" or "DECEASED") return false;
+
+                    bool isOnBoard = boardMemberIds.Contains(member.MemberID);
+                    return normalizedStatus is "LIFE" || isOnBoard || paidMemberIds.Contains(member.MemberID);
                 })
                 .ToList();
         }

@@ -25,6 +25,7 @@ public class DashboardMetricsDto
     public DateTime? LastSignInDrawExportDate { get; set; }
     public DateTime? LastSignInDrawChangeDate { get; set; }
     public List<string> SignInDrawChangeReasons { get; set; } = new();
+    public int SignInDrawTotalCount { get; set; }
 }
 
 public class BartenderInfo

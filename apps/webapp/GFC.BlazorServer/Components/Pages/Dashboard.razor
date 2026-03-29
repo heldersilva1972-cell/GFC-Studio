@@ -27,6 +27,8 @@
 @using GFC.Core.Models
 @inject IRentalService RentalService
 @inject IJSRuntime JS
+@inject IDuesRepository DuesRepository
+@inject IBoardRepository BoardRepository
 @inject IDuesYearSettingsRepository DuesYearSettingsRepository
 @inject IControllerSyncQueueRepository SyncQueueRepository
 @inject ControllerHealthService ControllerHealthService
@@ -435,6 +437,13 @@
                                         {
                                             <div>Last Printed: <span class="fw-semibold">Never</span></div>
                                         }
+
+                                        @if (_metrics?.SignInDrawTotalCount > 0)
+                                        {
+                                            <div class="mt-2 text-primary fw-bold" style="font-size: 0.85rem;">
+                                                <i class="bi bi-people-fill me-1"></i> Total Members: @_metrics.SignInDrawTotalCount
+                                            </div>
+                                        }
                                         
                                         @if (_metrics?.SignInDrawReprintRecommended == true && _metrics?.LastSignInDrawChangeDate != null)
                                         {
@@ -457,13 +466,21 @@
                                     
                                      @if (_canPrintDraw)
                                     {
-                                        <button type="button" 
-                                                class="btn btn-sm w-100 rounded-pill shadow-sm d-flex align-items-center justify-content-center gap-2 py-2 @(_metrics?.SignInDrawReprintRecommended == true ? "btn-primary fw-bold" : "btn-outline-secondary")"
-                                                @onclick="HandleSignInDrawPrint"
-                                                disabled="@(_isLoading || IsRefreshing)">
-                                            <i class="bi @(IsRefreshing ? "spinner-border spinner-border-sm" : "bi-printer-fill")"></i>
-                                            <span>@(IsRefreshing ? "Syncing..." : "Print Updated List")</span>
-                                        </button>
+                                         <div class="d-flex gap-2">
+                                             <button type="button" 
+                                                     class="btn btn-sm flex-grow-1 rounded-pill shadow-sm d-flex align-items-center justify-content-center gap-2 py-2 @(_metrics?.SignInDrawReprintRecommended == true ? "btn-primary fw-bold" : "btn-outline-secondary")"
+                                                     @onclick="HandleSignInDrawPrint"
+                                                     disabled="@(_isLoading || IsRefreshing)">
+                                                 <i class="bi @(IsRefreshing ? "spinner-border spinner-border-sm" : "bi-printer-fill")"></i>
+                                                 <span>@(IsRefreshing ? "Syncing..." : "Print Updated List")</span>
+                                             </button>
+                                             <button type="button" 
+                                                     class="btn btn-sm btn-outline-info rounded-pill px-3 shadow-sm d-flex align-items-center justify-content-center"
+                                                     @onclick="OpenDrawListModal"
+                                                     title="View the complete list of included members">
+                                                 <i class="bi bi-eye"></i>
+                                             </button>
+                                         </div>
                                     }
                                 </div>
                             </div>
@@ -1127,6 +1144,71 @@
     }
 
     private string _systemTimeZoneId = "Eastern Standard Time";
+    private bool _showDrawListModal = false;
+    private List<MemberListItemDto> _drawListMembers = new();
+    private HashSet<int> _drawBoardMemberIds = new();
+    private HashSet<int> _drawPaidMemberIds = new();
+    private HashSet<int> _drawPrevPaidMemberIds = new();
+    private bool _drawIsGracePeriodActive = false;
+    private bool _drawSortByName = false;
+
+    private void ToggleDrawSort()
+    {
+        _drawSortByName = !_drawSortByName;
+        OpenDrawListModal();
+    }
+
+    private void OpenDrawListModal()
+    {
+        _errorMessage = null;
+        try
+        {
+            if (_memberList == null || !_memberList.Any())
+            {
+                _errorMessage = "Member data is not loaded yet. Please wait.";
+                return;
+            }
+
+            var query = _memberList
+                .Where(m => {
+                    var normalized = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(m.Status.ToString());
+                    if (normalized is "INACTIVE" or "DECEASED") return false;
+                    
+                    bool paidCurrent = _drawPaidMemberIds.Contains(m.MemberId);
+                    bool paidPrev = _drawPrevPaidMemberIds.Contains(m.MemberId);
+                    bool isOnBoard = _drawBoardMemberIds.Contains(m.MemberId);
+                    
+                    return normalized is "LIFE" || isOnBoard || paidCurrent || (_drawIsGracePeriodActive && paidPrev);
+                });
+
+            if (_drawSortByName)
+            {
+                _drawListMembers = query
+                    .OrderBy(m => m.FullName)
+                    .ToList();
+            }
+            else
+            {
+                _drawListMembers = query
+                    .OrderBy(m => m.MemberId)
+                    .ToList();
+            }
+
+            _showDrawListModal = true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Dashboard:OpenDrawList] {ex.Message}");
+            _errorMessage = $"Failed to generate view list: {ex.Message}";
+        }
+    }
+
+    private void CloseDrawListModal()
+    {
+        _showDrawListModal = false;
+        _drawListMembers.Clear();
+    }
+
     private TimeZoneInfo _systemTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
     private bool _hasHostingSecurityAccess = false;
 
@@ -1249,9 +1331,32 @@
             // New Data Fetching
             try 
             {
-                var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(DateTime.Today.Year));
+                var currentYear = DateTime.Today.Year;
+                var settings = await Task.Run(() => DuesYearSettingsRepository.GetSettingsForYear(currentYear));
                 _graceEndDate = settings?.GraceEndDate;
+                _drawIsGracePeriodActive = _graceEndDate.HasValue && DateTime.Today.Date < _graceEndDate.Value.Date;
                 
+                var currentDues = await Task.Run(() => DuesRepository.GetDuesForYear(currentYear));
+                _drawPaidMemberIds = currentDues
+                    .Where(d => !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                    .Select(d => d.MemberID)
+                    .ToHashSet();
+
+                if (_drawIsGracePeriodActive)
+                {
+                    var prevDues = await Task.Run(() => DuesRepository.GetDuesForYear(currentYear - 1));
+                    _drawPrevPaidMemberIds = prevDues
+                        .Where(d => d.PaidDate.HasValue && !string.Equals(d.PaymentType, "UNPAID", StringComparison.OrdinalIgnoreCase))
+                        .Select(d => d.MemberID)
+                        .ToHashSet();
+                }
+
+                var boardAssignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(currentYear));
+                _drawBoardMemberIds = boardAssignments
+                    .Select(a => a.MemberID)
+                    .Where(id => id != 0)
+                    .ToHashSet();
+
                 var risks = await KeyCardLifecycleService.GetMembersAtRiskAsync(DateTime.Today.Year);
                 _membersAtRiskCount = risks.Count;
                 
@@ -1833,6 +1938,7 @@
 
         return MetricState.Normal;
     }
+
     private static string GetRelativeTime(DateTime timestampUtc)
     {
         var diff = DateTime.UtcNow - timestampUtc;
@@ -1841,7 +1947,110 @@
         if (diff.TotalMinutes >= 1) return $"{(int)diff.TotalMinutes}m ago";
         return "just now";
     }
-
-
 }
 
+
+<!-- Sign-in Draw View List Modal -->
+@if (_showDrawListModal)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5); z-index: 2500;" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" style="max-height: 90vh;">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header bg-primary text-white py-3 border-0">
+                    <h5 class="modal-title d-flex align-items-center fw-bold">
+                        <i class="bi bi-people-fill me-2"></i>
+                        Sign-in Draw List Preview
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseDrawListModal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="bg-light p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="text-muted small fw-semibold">
+                                Showing <strong>@_drawListMembers.Count</strong> eligible members
+                            </div>
+                            <div class="vr mx-1" style="height: 1.5rem; opacity: 0.1;"></div>
+                            <button class="btn btn-xs @(_drawSortByName ? "btn-primary" : "btn-outline-primary") rounded-pill px-3 fw-bold" 
+                                    style="font-size: 0.7rem;" @onclick="ToggleDrawSort">
+                                <i class="bi @(_drawSortByName ? "bi-sort-alpha-down" : "bi-sort-numeric-down") me-1"></i>
+                                Sort: @(_drawSortByName ? "Alphabetical" : "Member ID")
+                            </button>
+                        </div>
+                        <div class="badge bg-white text-primary border border-primary-subtle rounded-pill">
+                            Current Year: @DateTime.Today.Year
+                        </div>
+                    </div>
+                    @if (!_drawListMembers.Any())
+                    {
+                        <div class="p-5 text-center">
+                            <i class="bi bi-info-circle display-4 text-muted mb-3 d-block"></i>
+                            <p class="text-muted">No members currently meet the inclusion criteria for the draw list.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive" style="max-height: 60vh;">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="bg-dark text-white sticky-top">
+                                    <tr>
+                                        <th class="ps-3 border-0"># ID</th>
+                                        <th class="border-0">Member Name</th>
+                                        <th class="border-0">Inclusion Group</th>
+                                        <th class="text-center border-0">Verification</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var member in _drawListMembers)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 fw-bold text-primary" style="font-family: monospace; font-size: 1.1rem;">@member.MemberId</td>
+                                            <td class="fw-semibold">@member.FullName</td>
+                                            <td>
+                                                <span class="badge @(GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status.ToString()) == "LIFE" ? "bg-warning text-dark border border-warning" : "bg-light text-muted border") px-2">
+                                                    @member.Status
+                                                </span>
+                                            </td>
+                                            <td class="text-center">
+                                                @if (_drawBoardMemberIds.Contains(member.MemberId))
+                                                {
+                                                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1" style="font-size: 0.7rem;">
+                                                        <i class="bi bi-shield-check me-1"></i> BOARD
+                                                    </span>
+                                                }
+                                                else if (_drawPaidMemberIds.Contains(member.MemberId))
+                                                {
+                                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1" style="font-size: 0.7rem;">
+                                                        <i class="bi bi-cash-check me-1"></i> PAID
+                                                    </span>
+                                                }
+                                                else if (_drawIsGracePeriodActive && _drawPrevPaidMemberIds.Contains(member.MemberId))
+                                                {
+                                                    <span class="badge bg-info-subtle text-info border border-info-subtle px-2 py-1" style="font-size: 0.7rem;">
+                                                        <i class="bi bi-hourglass-split me-1"></i> GRACE
+                                                    </span>
+                                                }
+                                                else if (GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status.ToString()) == "LIFE")
+                                                {
+                                                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-2 py-1" style="font-size: 0.7rem;">
+                                                        <i class="bi bi-star-fill me-1"></i> LIFE
+                                                    </span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-light border-0 py-3 rounded-bottom-4">
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-4" @onclick="CloseDrawListModal">Close Preview</button>
+                    <button type="button" class="btn btn-sm btn-primary rounded-pill px-4 shadow-sm fw-bold" @onclick="() => { CloseDrawListModal(); HandleSignInDrawPrint(); }">
+                        <i class="bi bi-printer-fill me-2"></i> Print This List
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show" style="z-index: 2450;"></div>
+}

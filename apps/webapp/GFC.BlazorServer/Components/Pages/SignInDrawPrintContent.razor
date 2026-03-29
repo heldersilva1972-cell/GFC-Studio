@@ -5,6 +5,7 @@
 @inject IMemberRepository MemberRepository
 @inject IDuesYearSettingsRepository SettingsRepository
 @inject IDuesRepository DuesRepository
+@inject IBoardRepository BoardRepository
 @inject IJSRuntime JSRuntime
 
 <div class="draw-print-content">
@@ -184,17 +185,24 @@
                     .ToHashSet();
             }
 
+            var boardAssignments = await Task.Run(() => BoardRepository.GetAssignmentsByYear(_currentYear));
+            var boardMemberIds = boardAssignments
+                .Select(a => a.MemberID)
+                .Where(id => id != 0)
+                .ToHashSet();
+
             _members = allMembers
-                .OrderBy(m => m.MemberID)
                 .Where(member => {
                     var normalizedStatus = GFC.Core.BusinessRules.MemberStatusHelper.NormalizeStatus(member.Status);
                     if (normalizedStatus is "INACTIVE" or "DECEASED") return false;
                     
                     bool paidCurrent = paidMemberIds.Contains(member.MemberID);
                     bool paidPrev = prevPaidIds.Contains(member.MemberID);
+                    bool isOnBoard = boardMemberIds.Contains(member.MemberID);
                     
-                    return normalizedStatus is "LIFE" or "BOARD" || paidCurrent || (isGracePeriodActive && paidPrev);
+                    return normalizedStatus is "LIFE" || isOnBoard || paidCurrent || (isGracePeriodActive && paidPrev);
                 })
+                .OrderBy(m => m.MemberID)
                 .ToList();
         }
         catch (Exception ex)

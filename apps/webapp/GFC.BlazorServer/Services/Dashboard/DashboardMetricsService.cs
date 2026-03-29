@@ -20,6 +20,7 @@ public class DashboardMetricsService : IDashboardMetricsService
     private readonly IDuesYearSettingsRepository _duesYearSettingsRepository;
     private readonly IDashboardService _dashboardService;
     private readonly IBlazorSystemSettingsService _settingsService;
+    private readonly IBoardRepository _boardRepository;
     private readonly ILogger<DashboardMetricsService> _logger;
 
     public DashboardMetricsService(
@@ -29,6 +30,7 @@ public class DashboardMetricsService : IDashboardMetricsService
         IDuesYearSettingsRepository duesYearSettingsRepository,
         IDashboardService dashboardService,
         IBlazorSystemSettingsService settingsService,
+        IBoardRepository boardRepository,
         ILogger<DashboardMetricsService> logger)
     {
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
@@ -37,6 +39,7 @@ public class DashboardMetricsService : IDashboardMetricsService
         _duesYearSettingsRepository = duesYearSettingsRepository ?? throw new ArgumentNullException(nameof(duesYearSettingsRepository));
         _dashboardService = dashboardService ?? throw new ArgumentNullException(nameof(dashboardService));
         _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+        _boardRepository = boardRepository ?? throw new ArgumentNullException(nameof(boardRepository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -117,7 +120,8 @@ public class DashboardMetricsService : IDashboardMetricsService
                 SignInDrawReprintRecommended = drawStatus.recommended,
                 LastSignInDrawExportDate = drawStatus.lastExport,
                 LastSignInDrawChangeDate = drawStatus.lastChange,
-                SignInDrawChangeReasons = drawStatus.reasons
+                SignInDrawChangeReasons = drawStatus.reasons,
+                SignInDrawTotalCount = drawStatus.totalCount
             };
         }
         catch (Exception ex)
@@ -481,7 +485,7 @@ public class DashboardMetricsService : IDashboardMetricsService
         }
     }
 
-    private async Task<(bool recommended, DateTime? lastExport, DateTime? lastChange, List<string> reasons)> GetSignInDrawStatusAsync(
+    private async Task<(bool recommended, DateTime? lastExport, DateTime? lastChange, List<string> reasons, int totalCount)> GetSignInDrawStatusAsync(
         List<Member> members,
         List<GFC.Core.Models.DuesPayment> currentYearDues,
         List<GFC.Core.Models.DuesPayment> previousYearDues,
@@ -517,6 +521,13 @@ public class DashboardMetricsService : IDashboardMetricsService
                 .Select(d => d.MemberID)
                 .ToHashSet();
 
+
+            var boardAssignments = await Task.Run(() => _boardRepository.GetAssignmentsByYear(currentYear), ct);
+            var boardMemberIds = boardAssignments
+                .Select(a => a.MemberID)
+                .Where(id => id != 0)
+                .ToHashSet();
+
             bool IsIncluded(Member m, bool forGraceCheck)
             {
                 var normalized = MemberStatusHelper.NormalizeStatus(m.Status);
@@ -524,9 +535,10 @@ public class DashboardMetricsService : IDashboardMetricsService
                 
                 bool paidCurrent = paidMemberIds.Contains(m.MemberID);
                 bool paidPrev = prevPaidIds.Contains(m.MemberID);
+                bool isOnBoard = boardMemberIds.Contains(m.MemberID);
 
                 // If forGraceCheck is true, we assume the grace period is/was active
-                return normalized is "LIFE" or "BOARD" || paidCurrent || (forGraceCheck && paidPrev);
+                return normalized is "LIFE" || isOnBoard || paidCurrent || (forGraceCheck && paidPrev);
             }
 
             // 1. Check for anyone who meets the criteria and changed recently (ADD)
@@ -583,12 +595,14 @@ public class DashboardMetricsService : IDashboardMetricsService
             var allDates = statusDates.Concat(paymentDates).ToList();
             var lastChange = allDates.Any() ? (DateTime?)allDates.Max() : null;
 
-            return (reasons.Any(), settings.LastSignInDrawExportUtc, lastChange, reasons.Distinct().OrderBy(r => r).Take(10).ToList());
+            var totalCount = members.Count(m => IsIncluded(m, isGracePeriodActive));
+
+            return (reasons.Any(), settings.LastSignInDrawExportUtc, lastChange, reasons.Distinct().OrderBy(r => r).Take(10).ToList(), totalCount);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error calculating Sign-in Draw status");
-            return (false, null, null, new List<string>());
+            return (false, null, null, new List<string>(), 0);
         }
     }
     private string FormatMemberName(Member member)
