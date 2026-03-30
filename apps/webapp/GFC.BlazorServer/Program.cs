@@ -158,6 +158,7 @@ public class Program
         // Repository registrations
         builder.Services.AddScoped<IMemberRepository, MemberRepository>();
         builder.Services.AddScoped<IDuesRepository, DuesRepository>();
+        builder.Services.AddScoped<IClubEventRepository, GFC.BlazorServer.Repositories.ClubEventRepository>();
         builder.Services.AddScoped<IBoardRepository, BoardRepository>();
         builder.Services.AddScoped<IDuesWaiverRepository, DuesWaiverRepository>();
         builder.Services.AddScoped<IDuesYearSettingsRepository, DuesYearSettingsRepository>();
@@ -1084,6 +1085,28 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                 catch (Exception ex)
                 {
                     Console.WriteLine($">>> Error executing comprehensive liquor/media fix: {ex.Message}");
+                }
+
+                // [AUTO-FIX 18] Run Club Events Financials Schema Migration
+                var clubEventsScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "CreateClubEventsFinancials.sql");
+                if (File.Exists(clubEventsScriptPath))
+                {
+                    Console.WriteLine($">>> Applying Club Events Financials Schema from: {clubEventsScriptPath}");
+                    var clubEventsSql = File.ReadAllText(clubEventsScriptPath);
+                    var clubEventsBatches = System.Text.RegularExpressions.Regex.Split(clubEventsSql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in clubEventsBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try { dbContext.Database.ExecuteSqlRaw(batch); } catch (Exception ex) { Console.WriteLine($"Error executing Club Events batch: {ex.Message}"); }
+                        }
+                    }
+                    Console.WriteLine(">>> Club Events Financials Schema Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: Club Events schema script not found at {clubEventsScriptPath}");
                 }
 
                 // dbContext.Database.Migrate(); // Temporarily disabled - will apply manually

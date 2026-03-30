@@ -135,6 +135,8 @@ public class GfcDbContext : DbContext
     public DbSet<UserPageUsage> UserPageUsage => Set<UserPageUsage>();
     public DbSet<LotteryWeeklyStat> LotteryWeeklyStats => Set<LotteryWeeklyStat>();
     public DbSet<LotteryShift> LotteryShifts => Set<LotteryShift>();
+    public DbSet<ClubEvent> ClubEvents => Set<ClubEvent>();
+    public DbSet<ClubEventTransaction> ClubEventTransactions => Set<ClubEventTransaction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -146,6 +148,8 @@ public class GfcDbContext : DbContext
         modelBuilder.Entity<GFC.BlazorServer.Data.Entities.DuesPayment>().HasQueryFilter(d => !d.IsDeleted);
         modelBuilder.Entity<StaffShift>().HasQueryFilter(s => !s.IsDeleted);
         modelBuilder.Entity<ShiftReport>().HasQueryFilter(s => !s.IsDeleted);
+        modelBuilder.Entity<ClubEvent>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<ClubEventTransaction>().HasQueryFilter(t => !t.IsDeleted);
 
         modelBuilder.Entity<ControllerDevice>()
             .ToTable("Controllers")
@@ -877,6 +881,24 @@ public class GfcDbContext : DbContext
             entity.Property(e => e.InstantAdjustments).HasColumnType("decimal(18,2)");
             entity.Property(e => e.InstantDue).HasColumnType("decimal(18,2)");
             entity.Property(e => e.TotalDue).HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<ClubEvent>(entity =>
+        {
+            entity.ToTable("ClubEvents");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.InitialBudget).HasColumnType("decimal(18,2)");
+            entity.HasMany(e => e.Transactions)
+                  .WithOne(t => t.Event)
+                  .HasForeignKey(t => t.EventId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ClubEventTransaction>(entity =>
+        {
+            entity.ToTable("ClubEventTransactions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
         });
     }
 

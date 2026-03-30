@@ -1,0 +1,657 @@
+@page "/finance/club-events/{Id:int}"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.Core.Models
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IClubEventRepository EventRepo
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@attribute [Authorize]
+
+<PageTitle>@(@evt?.EventGroup ?? "Event Details") | GFC Finance</PageTitle>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" integrity="sha512-z3gLPD7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+<style>
+    .detail-page {
+        height: calc(100vh - 65px);
+        background: #f8fafc;
+        padding: 1.5rem;
+        overflow-y: auto;
+    }
+
+    .container-max {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .glass-card {
+        background: white;
+        border-radius: 24px;
+        border: 1px solid #f1f5f9;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+
+    .top-nav {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .btn-back {
+        background: white;
+        border: 1px solid #e2e8f0;
+        padding: 0.5rem 1rem;
+        border-radius: 12px;
+        font-weight: 600;
+        color: #64748b;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-back:hover { background: #f8fafc; transform: translateX(-4px); }
+
+    .ledger-container {
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        gap: 2rem;
+    }
+
+    .main-ledger {
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .ledger-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .ledger-table th {
+        text-align: left;
+        padding: 0.75rem 1rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        border-bottom: 2px solid #f1f5f9;
+    }
+
+    .ledger-table td {
+        padding: 1rem;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.9rem;
+    }
+
+    .type-income { color: #10b981; font-weight: 700; }
+    .type-expense { color: #ef4444; font-weight: 700; }
+    
+    .btn-audit {
+        color: #3b82f6;
+        background: transparent;
+        border: none;
+        cursor: help;
+        position: relative;
+    }
+
+    .btn-audit:hover::after {
+        content: attr(title);
+        position: absolute;
+        bottom: 100%;
+        right: 0;
+        background: #1e293b;
+        color: white;
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        white-space: pre-wrap;
+        width: 320px;
+        z-index: 100;
+        line-height: 1.5;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+    }
+
+    .btn-edit-text {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        padding: 0.4rem 0.8rem;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        font-weight: 850;
+        color: #1e293b;
+        cursor: pointer;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-delete-text {
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        padding: 0.4rem 0.8rem;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        font-weight: 850;
+        color: #ef4444;
+        cursor: pointer;
+        margin-left: 0.4rem;
+        text-transform: uppercase;
+    }
+
+    /* PREMIUM MODAL SYSTEM */
+    .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+        animation: fadeIn 0.2s ease-out;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 32px;
+        padding: 2.5rem;
+        width: 100%;
+        max-width: 480px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        position: relative;
+        overflow-y: auto;
+        max-height: 90vh;
+        animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .modal-header-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.75rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .icon-danger { background: #fee2e2; color: #ef4444; }
+    .icon-info { background: #eff6ff; color: #3b82f6; }
+
+    .btn-prime {
+        border: none;
+        padding: 1rem 1.5rem;
+        border-radius: 16px;
+        font-weight: 800;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-secondary { background: #f1f5f9; color: #475569; }
+    .btn-primary-val { background: #3b82f6; color: white; }
+    .btn-prime:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+    /* Hide number arrows global fix */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none !important;
+      margin: 0;
+    }
+    input[type=number] {
+      -moz-appearance: textfield !important;
+      appearance: none !important;
+    }
+
+    .form-group { margin-bottom: 1.25rem; }
+    .form-label { display: block; font-size: 0.75rem; font-weight: 850; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.5rem; }
+    .form-input { width: 100%; padding: 0.9rem; border-radius: 14px; border: 2px solid #f1f5f9; font-weight: 700; }
+    .form-input:focus { outline: none; border-color: #3b82f6; }
+
+    @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+</style>
+
+<div class="detail-page">
+    @if (evt == null)
+    {
+        <div style="display: flex; justify-content: center; padding: 4rem;">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else
+    {
+        <div class="container-max">
+            <div class="top-nav">
+                <button class="btn-back" @onclick='() => Navigation.NavigateTo("/finance/club-events")'>
+                    <i class="fas fa-arrow-left"></i> Back to Ledger Groups
+                </button>
+                <div style="flex: 1;">
+                    <h1 style="font-weight: 900; color: #1e293b; margin: 0; display: flex; align-items: center; gap: 0.75rem;">
+                        @evt.EventName
+                        <span style="font-size: 0.6rem; background: #dcfce7; color: #166534; padding: 0.25rem 0.6rem; border-radius: 6px; letter-spacing: 0.05em;">SECURED LEDGER</span>
+                    </h1>
+                    <div style="color: #64748b; font-size: 0.9rem;">Master Series: <strong>@evt.EventGroup</strong> • Professional Gold Standard</div>
+                </div>
+                
+                <div style="background: white; border: 1px solid #e2e8f0; padding: 0.5rem 1rem; border-radius: 12px; display: flex; align-items: center; gap: 0.5rem; margin-right: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <span style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Year View</span>
+                    <select @bind="selectedYear" style="border: none; font-weight: 700; color: #1e293b; background: transparent; cursor: pointer;">
+                        @foreach (var yr in availableYears)
+                        {
+                            <option value="@yr">@yr</option>
+                        }
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem;">
+                    <button @onclick="OpenMasterSettings"
+                            style="border: 1px solid #e2e8f0; background: white; color: #1e293b; padding: 0.6rem 1.25rem; border-radius: 14px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+                        <i class="fas fa-sliders-h" style="color: #3b82f6;"></i> Settings
+                    </button>
+                    <button @onclick="InitiateEventDelete"
+                            style="border: 1px solid #fee2e2; background: #fee2e2; color: #991b1b; padding: 0.6rem 1.25rem; border-radius: 14px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+                        <i class="fas fa-trash-alt"></i> Delete Event
+                    </button>
+                </div>
+            </div>
+
+            <div class="ledger-container">
+                <div class="glass-card main-ledger">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f8fafc; padding-bottom: 1.5rem; margin-bottom: 1rem;">
+                        <div style="display: flex; gap: 0.75rem;">
+                            <button @onclick="() => ShowAddTranModal(true)" style="background: #10b981; color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);">+ Add Income</button>
+                            <button @onclick="() => ShowAddTranModal(false)" style="background: #ef4444; color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2);">- Add Expense</button>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 0.65rem; font-weight: 900; color: #94a3b8; text-transform: uppercase;">Current Balance</div>
+                            <div style="font-size: 1.75rem; font-weight: 900; color: #1e293b; letter-spacing: -0.02em;">@totalBalance.ToString("C2")</div>
+                        </div>
+                    </div>
+
+                    <div style="flex: 1; overflow-y: auto;">
+                        <table class="ledger-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th style="text-align: right;">Amount</th>
+                                    <th style="text-align: center;">Trail</th>
+                                    <th style="text-align: right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var tran in evt.Transactions.Where(t => t.TransactionDate.Year == selectedYear && !t.IsDeleted).OrderBy(t => t.TransactionDate))
+                                {
+                                    <tr>
+                                        <td style="color: #64748b;">@tran.TransactionDate.ToString("MM/dd/yy")</td>
+                                        <td style="font-weight: 700; color: #0f172a;">@tran.Description</td>
+                                        <td><span style="background: #f1f5f9; padding: 0.25rem 0.75rem; border-radius: 100px; font-size: 0.7rem; font-weight: 800; color: #475569;">@tran.Category</span></td>
+                                        <td style="text-align: right;" class="@(tran.Amount > 0 ? "type-income" : "type-expense")">
+                                            @tran.Amount.ToString("C2")
+                                        </td>
+                                        <td style="text-align: center;">
+                                            <button class="btn-audit" 
+                                                    title='--- ORIGIN ---
+Captured by: @(tran.CreatedBy ?? "Admin") on @(tran.CreatedAt.ToString("g")) 
+
+--- REVISIONS ---
+@(string.IsNullOrEmpty(tran.Note) ? "No revisions yet." : tran.Note)'>
+                                                <i class="fas fa-history"></i>
+                                            </button>
+                                        </td>
+                                        <td style="text-align: right; white-space: nowrap; display: flex; justify-content: flex-end; gap: 0.4rem;">
+                                            <button @onclick="() => OpenEditTranModal(tran)" class="btn-edit-text">EDIT</button>
+                                            <button @onclick="() => InitiateTranDelete(tran)" class="btn-delete-text">DEL</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="glass-card" style="padding: 1.5rem;">
+                    <h3 style="font-weight: 900; margin-bottom: 2rem; color: #1e293b;">Annual Performance</h3>
+                    @foreach (var h in history.OrderByDescending(h => h.Year))
+                    {
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding: 1rem; background: #f8fafc; border-radius: 16px;">
+                            <div>
+                                <div style="font-weight: 900; color: #1e293b; font-size: 1.1rem;">@h.Year</div>
+                                <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 800; text-transform: uppercase;">Net Profit</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="@(h.NetProfit >= 0 ? "type-income" : "type-expense")" style="font-size: 1.25rem; font-weight: 950;">@h.NetProfit.ToString("C0")</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (showTranModal)
+{
+    <div class="modal-backdrop" @onclick="CloseTranModal">
+        <div class="modal-content" @onclick:stopPropagation>
+            <h2 style="font-weight: 900; margin-bottom: 1.5rem;">@(isEditingTran ? "Modify Ledger Item" : $"Add {(isIncome ? "Income" : "Expense")}")</h2>
+            
+            <div class="form-group">
+                <label class="form-label">Entry Date</label>
+                <input type="date" class="form-input" @bind="newTran.TransactionDate" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <input class="form-input" @bind="newTran.Description" placeholder="What was this for?" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Category</label>
+                <select class="form-input" @bind="newTran.Category" style="appearance: none; cursor: pointer;">
+                    @if (isIncome)
+                    {
+                        <option value="Ticket Sales">Ticket Sales</option>
+                        <option value="Item Sales">Item Sales</option>
+                        <option value="Donations">Donations</option>
+                    }
+                    else
+                    {
+                        <option value="Supplies">Supplies</option>
+                        <option value="Food/Kitchen">Food & Kitchen</option>
+                        <option value="Entertainment">Entertainment</option>
+                    }
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 2rem;">
+                <label class="form-label">Total Amount</label>
+                <input type="number" step="0.01" class="form-input" style="font-size: 1.5rem; font-weight: 900; background: #fafafa;" @bind="tranAmount" onfocus="this.select()" />
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <button @onclick="SaveTransaction" class="btn-prime btn-primary-val" style="flex: 2;">Finalize Entry</button>
+                <button @onclick="CloseTranModal" class="btn-prime btn-secondary" style="flex: 1;">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showSettingsModal)
+{
+    <div class="modal-backdrop" @onclick="() => showSettingsModal = false">
+        <div class="modal-content" style="max-width: 550px;" @onclick:stopPropagation>
+            <h2 style="font-weight: 950; margin-bottom: 1.5rem; color: #0f172a;">Ledger Configuration</h2>
+            
+            <div class="form-group">
+                <label class="form-label">Full Title</label>
+                <input class="form-input" @bind="editTitle" />
+                <small style="color: #94a3b8;">Display name for this specific instance (e.g., Annual Gala 2026)</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Master series Group</label>
+                <input class="form-input" @bind="editGroup" />
+                <small style="color: #94a3b8;">The anchor name that links years together (e.g., Annual Gala)</small>
+            </div>
+
+            <div class="form-group" style="background: #f8fafc; padding: 1.5rem; border-radius: 20px; border: 1px solid #f1f5f9;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <label class="form-label" style="margin: 0;">Sales Item Logic</label>
+                    <button @onclick="AddInventoryItem" style="font-size: 0.7rem; background: #3b82f6; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-weight: 700;">+ Add Item</button>
+                </div>
+                
+                @foreach (var item in editInventory)
+                {
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+                        <input class="form-input" style="flex: 2; padding: 0.7rem; font-size: 0.85rem;" @bind="item.Name" placeholder="Item Name" />
+                        <input class="form-input" style="flex: 1; padding: 0.7rem; font-size: 0.85rem;" type="number" step="0.01" @bind="item.Price" placeholder="0.00" onfocus="this.select()" />
+                        <button @onclick="() => editInventory.Remove(item)" style="background: transparent; border: none; color: #ef4444; width: 30px;"><i class="fas fa-trash-alt"></i></button>
+                    </div>
+                }
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                <button @onclick="SaveMasterSettings" class="btn-prime" style="flex: 2; background: #3b82f6; color: white;">Apply Configuration</button>
+                <button @onclick="() => showSettingsModal = false" class="btn-prime btn-secondary" style="flex: 1;">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showProfessionalConfirm)
+{
+    <div class="modal-backdrop">
+        <div class="modal-content">
+            <div class='modal-header-icon @(confirmSeverity == "danger" ? "icon-danger" : "icon-info")'>
+                <i class='fas @(confirmSeverity == "danger" ? "fa-exclamation-triangle" : "fa-info-circle")'></i>
+            </div>
+            <h2 style="font-weight: 900; margin-bottom: 0.5rem; line-height: 1.2;">@confirmTitle</h2>
+            <p style="color: #64748b; font-size: 0.95rem; line-height: 1.6; margin-bottom: 2rem;">@confirmMessage</p>
+
+            <div style="display: flex; gap: 1rem;">
+                <button class='btn-prime @(confirmSeverity == "danger" ? "btn-danger" : "btn-primary")' 
+                        style="flex: 1.5;" @onclick="ProcessConfirmProceed">
+                    @confirmBtnText
+                </button>
+                <button class="btn-prime btn-secondary" style="flex: 1;" @onclick="() => showProfessionalConfirm = false">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private ClubEvent? evt;
+    private List<EventPerformanceDto> history = new();
+    private decimal totalBalance = 0;
+    private int selectedYear = DateTime.Now.Year;
+    private List<int> availableYears = new();
+
+    private bool showTranModal = false;
+    private bool isEditingTran = false;
+    private bool isIncome = true;
+    private ClubEventTransaction newTran = new();
+    private decimal tranAmount = 0;
+
+    private decimal oldAmount = 0;
+    private string oldDesc = "";
+    private string oldCat = "";
+
+    // Master Settings State
+    private bool showSettingsModal = false;
+    private string editTitle = "";
+    private string editGroup = "";
+    private List<InventoryItem> editInventory = new();
+
+    public class InventoryItem { public string Name { get; set; } = ""; public decimal Price { get; set; } = 0; }
+
+    // Confirmation Modal State
+    private bool showProfessionalConfirm = false;
+    private string confirmTitle = "";
+    private string confirmMessage = "";
+    private string confirmBtnText = "";
+    private string confirmSeverity = "info";
+    private string confirmAction = "";
+    private ClubEventTransaction? pendingTran;
+    private int deleteStep = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEvent();
+    }
+
+    private async Task LoadEvent()
+    {
+        evt = await EventRepo.GetEventByIdAsync(Id);
+        if (evt != null)
+        {
+            totalBalance = evt.Transactions.Where(t => !t.IsDeleted).Sum(t => t.Amount);
+            history = (await EventRepo.GetPerformanceHistoryAsync(evt.EventGroup)).ToList();
+            availableYears = evt.Transactions.Select(t => t.TransactionDate.Year).Append(DateTime.Now.Year).Distinct().OrderByDescending(y => y).ToList();
+        }
+    }
+
+    private void ShowAddTranModal(bool income)
+    {
+        isEditingTran = false;
+        isIncome = income;
+        newTran = new ClubEventTransaction { EventId = Id, TransactionDate = DateTime.Now };
+        tranAmount = 0;
+        showTranModal = true;
+    }
+
+    private void OpenEditTranModal(ClubEventTransaction tran)
+    {
+        isEditingTran = true;
+        isIncome = tran.Amount >= 0;
+        newTran = new ClubEventTransaction
+        {
+            Id = tran.Id,
+            EventId = tran.EventId,
+            TransactionDate = tran.TransactionDate,
+            Description = tran.Description,
+            Category = tran.Category,
+            Amount = tran.Amount,
+            CreatedBy = tran.CreatedBy,
+            CreatedAt = tran.CreatedAt,
+            Note = tran.Note
+        };
+        tranAmount = Math.Abs(newTran.Amount);
+        oldAmount = newTran.Amount;
+        oldDesc = newTran.Description;
+        oldCat = newTran.Category ?? "";
+        showTranModal = true;
+    }
+
+    private void CloseTranModal() => showTranModal = false;
+
+    private async Task SaveTransaction()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User.Identity?.Name ?? "Admin";
+
+        newTran.Amount = isIncome ? Math.Abs(tranAmount) : -Math.Abs(tranAmount);
+
+        if (isEditingTran)
+        {
+            newTran.ModifiedBy = user;
+            newTran.ModifiedAt = DateTime.Now;
+            
+            var changes = new List<string>();
+            if (newTran.Amount != oldAmount) changes.Add($"Amount: {oldAmount.ToString("C2")} -> {newTran.Amount.ToString("C2")}");
+            if (newTran.Description != oldDesc) changes.Add($"Description: '{oldDesc}' -> '{newTran.Description}'");
+            if (newTran.Category != oldCat) changes.Add($"Category: '{oldCat}' -> '{newTran.Category}'");
+
+            if (changes.Any())
+            {
+                var auditLog = $"[{DateTime.Now:MM/dd/yy HH:mm}] Edited by {user}: \n• {string.Join("\n• ", changes)}";
+                newTran.Note = string.IsNullOrEmpty(newTran.Note) ? auditLog : $"{auditLog}\n\n{newTran.Note}";
+            }
+
+            await EventRepo.DeleteTransactionAsync(newTran.Id);
+            await EventRepo.AddTransactionAsync(newTran);
+        }
+        else
+        {
+            newTran.CreatedBy = user;
+            newTran.CreatedAt = DateTime.Now;
+            await EventRepo.AddTransactionAsync(newTran);
+        }
+
+        showTranModal = false;
+        await LoadEvent();
+    }
+
+    private void InitiateTranDelete(ClubEventTransaction tran)
+    {
+        pendingTran = tran;
+        confirmTitle = "Remove Transaction";
+        confirmMessage = $"Are you sure you want to permanently delete the '{tran.Description}' entry for {tran.Amount.ToString("C2")}?";
+        confirmBtnText = "Delete Record";
+        confirmSeverity = "danger";
+        confirmAction = "TRAN_DELETE";
+        showProfessionalConfirm = true;
+    }
+
+    private void InitiateEventDelete()
+    {
+        deleteStep = 1;
+        confirmTitle = "Master Event Deletion";
+        confirmMessage = $"You are about to delete the entire '{evt?.EventName}' ledger. This includes all its transactions and history.";
+        confirmBtnText = "Continue to Danger Warning";
+        confirmSeverity = "info";
+        confirmAction = "EVENT_DELETE";
+        showProfessionalConfirm = true;
+    }
+
+    private async Task ProcessConfirmProceed()
+    {
+        if (confirmAction == "TRAN_DELETE" && pendingTran != null)
+        {
+            await EventRepo.DeleteTransactionAsync(pendingTran.Id);
+            showProfessionalConfirm = false;
+            await LoadEvent();
+        }
+        else if (confirmAction == "EVENT_DELETE")
+        {
+            if (deleteStep == 1)
+            {
+                deleteStep = 2;
+                confirmTitle = "SYSTEM FINAL WARNING";
+                confirmMessage = "THIS ACTION CANNOT BE UNDONE. By clicking proceed, you are permanently wiping this entire event history and all associated financial audit logs from the database.";
+                confirmBtnText = "PERMANENTLY DELETE EVENT";
+                confirmSeverity = "danger";
+            }
+            else
+            {
+                await EventRepo.DeleteEventAsync(Id);
+                Navigation.NavigateTo("/finance/club-events");
+            }
+        }
+    }
+
+    private void OpenMasterSettings()
+    {
+        if (evt == null) return;
+        editTitle = evt.EventName;
+        editGroup = evt.EventGroup;
+        editInventory = !string.IsNullOrEmpty(evt.ConfigurationJson) 
+            ? JsonSerializer.Deserialize<List<InventoryItem>>(evt.ConfigurationJson) ?? new()
+            : new List<InventoryItem>();
+        showSettingsModal = true;
+    }
+
+    private void AddInventoryItem() => editInventory.Add(new InventoryItem());
+
+    private async Task SaveMasterSettings()
+    {
+        if (evt == null || string.IsNullOrWhiteSpace(editTitle)) return;
+        evt.EventName = editTitle;
+        evt.EventGroup = editGroup;
+        evt.ConfigurationJson = JsonSerializer.Serialize(editInventory.Where(i => !string.IsNullOrWhiteSpace(i.Name)));
+        
+        await EventRepo.UpdateEventAsync(evt);
+        showSettingsModal = false;
+        await LoadEvent();
+    }
+}
