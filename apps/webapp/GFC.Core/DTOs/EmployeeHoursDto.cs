@@ -23,6 +23,11 @@ namespace GFC.Core.DTOs
         public decimal NetPay => TotalPay * (1 - EmployeeDeductionRate);
         public decimal TotalPayrollCost => TotalPay * (1 + EmployerSurchargeRate);
 
+        public decimal DownstairsHours { get; set; }
+        public decimal UpstairsHours { get; set; }
+        public decimal DownstairsPay => (HourlyRate ?? 0) * DownstairsHours;
+        public decimal UpstairsPay => (HourlyRate ?? 0) * UpstairsHours;
+
         public System.Collections.Generic.Dictionary<DateTime, decimal> DailyHours { get; set; } = new();
         public System.Collections.Generic.Dictionary<DateTime, string> DailyShiftTypes { get; set; } = new();
     }

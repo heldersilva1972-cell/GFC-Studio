@@ -450,6 +450,8 @@ namespace GFC.BlazorServer.Services
                 var dto = new EmployeeHoursDto {
                     Username = user.Username,
                     TotalHours = totalHours,
+                    DownstairsHours = userEntries.Where(e => !e.IsHall).Sum(e => e.Hours),
+                    UpstairsHours = userEntries.Where(e => e.IsHall).Sum(e => e.Hours),
                     EntryCount = userEntries.Count(e => e.Hours > 0),
                     HourlyRate = user.HourlyRate,
                     StartDate = start,
