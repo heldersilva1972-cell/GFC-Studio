@@ -1,0 +1,692 @@
+@page "/finance/employee-hours"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.BlazorServer.Services
+@using GFC.Core.Models
+@using GFC.Core.DTOs
+@inject IFinancialAnalyticsService FinancialService
+@inject IJSRuntime JS
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
+@inject IToastService ToastService
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Employee Hours Worked | GFC Finance</PageTitle>
+
+<style>
+    .hours-page {
+        min-height: calc(100vh - 65px);
+        background: radial-gradient(circle at top right, #f8fafc, #eff6ff);
+        padding: 1.5rem;
+    }
+
+    .glass-card {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 24px;
+        box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+        padding: 1.5rem;
+        height: 100%;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 20px;
+        padding: 1.25rem;
+        border: 1px solid #f1f5f9;
+        transition: all 0.3s ease;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 15px 30px -5px rgba(59, 130, 246, 0.1);
+        border-color: #3b82f644;
+    }
+
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1rem;
+        font-size: 1.5rem;
+    }
+
+    .icon-blue { background: #eff6ff; color: #3b82f6; }
+    .icon-green { background: #ecfdf5; color: #10b981; }
+    .icon-purple { background: #f5f3ff; color: #8b5cf6; }
+    .icon-orange { background: #fff7ed; color: #f59e0b; }
+
+    .period-selector {
+        background: #f1f5f9;
+        padding: 0.35rem;
+        border-radius: 14px;
+        display: inline-flex;
+        gap: 0.25rem;
+    }
+
+    .period-btn {
+        border: none;
+        background: transparent;
+        padding: 0.5rem 1.25rem;
+        border-radius: 10px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #64748b;
+        transition: all 0.2s;
+    }
+
+    .period-btn.active {
+        background: white;
+        color: #3b82f6;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+
+    .hours-table th {
+        background: #f8fafc;
+        color: #64748b;
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        border-top: none;
+        padding: 1rem;
+    }
+
+    .hours-table td {
+        padding: 1rem;
+        vertical-align: middle;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .user-avatar {
+        width: 36px;
+        height: 36px;
+        background: #3b82f6;
+        color: white;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+
+    .hours-badge {
+        font-size: 0.9rem;
+        font-weight: 700;
+        padding: 0.4rem 0.8rem;
+        border-radius: 10px;
+    }
+
+    .badge-primary { background: #eff6ff; color: #3b82f6; }
+
+    .search-input {
+        border: 2px solid #f1f5f9;
+        border-radius: 14px;
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+        background: #f8fafc;
+    }
+
+    .search-input:focus {
+        border-color: #3b82f6;
+        background: white;
+        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+        outline: none;
+    }
+
+    .empty-state {
+        padding: 4rem 2rem;
+        text-align: center;
+    }
+
+    .empty-icon {
+        font-size: 4rem;
+        color: #e2e8f0;
+        margin-bottom: 1.5rem;
+    }
+
+    @@media print {
+        .hours-page { background: white; padding: 0; }
+        .period-selector, .search-box, .btn-print { display: none !important; }
+        .glass-card { box-shadow: none; border: none; padding: 0; }
+    }
+</style>
+
+<div class="hours-page">
+    <div class="container-fluid max-width-1400">
+        <!-- Header Section -->
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb mb-1">
+                        <li class="breadcrumb-item text-muted small">Finance</li>
+                        <li class="breadcrumb-item active small" aria-current="page">Employee Hours</li>
+                    </ol>
+                </nav>
+                <h1 class="h3 fw-bold mb-0 text-dark">Employee Hours Worked</h1>
+                <p class="text-muted small mb-0">Tracking active shifts and reported work hours for mobile sales staff.</p>
+            </div>
+
+            <div class="d-flex gap-3 align-items-center">
+                <div class="period-selector">
+                    <button class="period-btn @(_viewMode == "Week" ? "active" : "")" @onclick='() => SetViewMode("Week")'>WEEKLY</button>
+                    <button class="period-btn @(_viewMode == "Month" ? "active" : "")" @onclick='() => SetViewMode("Month")'>MONTHLY</button>
+                    <button class="period-btn @(_viewMode == "Custom" ? "active" : "")" @onclick='() => SetViewMode("Custom")'>CUSTOM</button>
+                </div>
+
+                <div class="d-flex gap-2">
+                    @if (_viewMode == "Month")
+                    {
+                        <select class="form-select border-0 shadow-sm rounded-3" @bind="_selectedMonth" @bind:after="LoadData">
+                            @for (int m = 1; m <= 12; m++)
+                            {
+                                <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
+                            }
+                        </select>
+                        <select class="form-select border-0 shadow-sm rounded-3" @bind="_selectedYear" @bind:after="LoadData">
+                            @foreach (var year in _availableYears)
+                            {
+                                <option value="@year">@year</option>
+                            }
+                        </select>
+                    }
+                    else if (_viewMode == "Week")
+                    {
+                        <select class="form-select border-0 shadow-sm rounded-3" @bind="_selectedWeek" @bind:after="LoadData">
+                            @foreach (var week in _weekOptions)
+                            {
+                                <option value="@week.Value">@week.Text</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <input type="date" class="form-control border-0 shadow-sm rounded-3" @bind="_startDate" @bind:after="LoadData" />
+                        <span class="align-self-center">to</span>
+                        <input type="date" class="form-control border-0 shadow-sm rounded-3" @bind="_endDate" @bind:after="LoadData" />
+                    }
+                </div>
+
+                <button class="btn btn-outline-primary shadow-sm rounded-3 me-2" @onclick="OpenManageTrackingModal">
+                    <i class="bi bi-people-fill me-2"></i> Manage Employees
+                </button>
+
+                <button class="btn btn-white shadow-sm rounded-3 btn-print" @onclick="PrintReport">
+                    <i class="bi bi-printer me-2"></i> Print
+                </button>
+            </div>
+        </div>
+
+        <!-- Summary Stats Area -->
+        <div class="row g-4 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-icon icon-blue">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                    <div class="text-muted small fw-bold">TOTAL HOURS</div>
+                    <div class="h3 fw-bold mb-0">@_summaryTotalHours.ToString("N1")</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-icon icon-green">
+                        <i class="bi bi-people-fill"></i>
+                    </div>
+                    <div class="text-muted small fw-bold">ACTIVE EMPLOYEES</div>
+                    <div class="h3 fw-bold mb-0">@_summaryActiveEmployees</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-icon icon-purple">
+                        <i class="bi bi-clipboard-check"></i>
+                    </div>
+                    <div class="text-muted small fw-bold">TOTAL SHIFTS</div>
+                    <div class="h3 fw-bold mb-0">@_summaryTotalShifts</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <div class="stat-icon icon-orange">
+                        <i class="bi bi-cash-stack"></i>
+                    </div>
+                    <div class="text-muted small fw-bold">EST. TOTAL PAYROLL</div>
+                    <div class="h3 fw-bold mb-0">@FilteredData.Sum(d => d.TotalPay).ToString("C")</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Card -->
+        <div class="glass-card">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2 class="h5 fw-bold mb-0">Hours Breakdown</h2>
+                <div class="search-box position-relative" style="min-width: 300px;">
+                    <i class="bi bi-search position-absolute text-muted" style="left: 1rem; top: 50%; transform: translateY(-50%);"></i>
+                    <input type="text" class="search-input w-100 ps-5" placeholder="Search by name or username..." @bind="_searchQuery" @bind:event="oninput" />
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                @if (_loading)
+                {
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-3 text-muted">Gathering shift records...</p>
+                    </div>
+                }
+                else if (!FilteredData.Any())
+                {
+                    <div class="empty-state">
+                        <i class="bi bi-calendar-x empty-icon"></i>
+                        <h3 class="h5 fw-bold text-dark">No records found</h3>
+                        <p class="text-muted">There are no hours reported for the selected period.</p>
+                    </div>
+                }
+                else if (_viewMode == "grid")
+                {
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm align-middle text-center">
+                            <thead class="bg-light text-muted small uppercase fw-bold">
+                                <tr>
+                                    <th class="text-start bg-white" style="min-width: 200px;">Employee</th>
+                                    @for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
+                                    {
+                                        <th>
+                                            <div>@d.ToString("ddd")</div>
+                                            <div class="x-small">@d.ToString("MM/dd")</div>
+                                        </th>
+                                    }
+                                    <th class="bg-light">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in FilteredData)
+                                {
+                                    <tr>
+                                        <td class="text-start fw-bold">@item.MemberName</td>
+                                        @for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
+                                        {
+                                            var hours = item.DailyHours.ContainsKey(d) ? item.DailyHours[d] : 0;
+                                            <td class="@(hours > 0 ? "bg-primary bg-opacity-10 fw-bold text-primary" : "text-muted opacity-25")">
+                                                @(hours > 0 ? hours.ToString("N1") : "-")
+                                            </td>
+                                        }
+                                        <td class="fw-bold bg-light">@item.TotalHours.ToString("N1")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Employee</th>
+                                    <th class="text-center">Shift Count</th>
+                                    <th class="text-end">Rate</th>
+                                    <th class="text-end">Total Hours</th>
+                                    <th class="text-end">Est. Pay</th>
+                                    <th class="text-center no-print">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in FilteredData)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-3">
+                                                <div class="user-avatar @(item.HourlyRate == null ? "bg-secondary" : "")">
+                                                    @(!string.IsNullOrEmpty(item.MemberName) ? item.MemberName[0].ToString().ToUpper() : item.Username[0].ToString().ToUpper())
+                                                </div>
+                                                <div>
+                                                    <div class="fw-bold text-dark">@(item.MemberName ?? "Unknown Member")</div>
+                                                    <div class="x-small text-muted">@item.EntryCount shifts @(item.HourlyRate != null ? $"@@ {item.HourlyRate:C}/hr" : "(No rate set)")</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-light text-dark rounded-pill px-3">@item.EntryCount</span>
+                                        </td>
+                                        <td class="text-end text-muted small">
+                                            @(item.HourlyRate?.ToString("C") ?? "-")
+                                        </td>
+                                        <td class="text-end">
+                                            <span class="hours-badge badge-primary">@item.TotalHours.ToString("N1") hrs</span>
+                                        </td>
+                                        <td class="text-end fw-bold text-dark">
+                                            @item.TotalPay.ToString("C")
+                                        </td>
+                                        <td class="text-center no-print">
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-3" @onclick="() => EditPayRate(item)">
+                                                <i class="bi bi-pencil me-1"></i> Rate
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot class="bg-light">
+                                <tr class="fw-bold">
+                                    <td colspan="3">Grand Total</td>
+                                    <td class="text-end">
+                                        <span class="fw-bold text-primary mb-0">@_summaryTotalHours.ToString("N1") hrs</span>
+                                    </td>
+                                    <td class="text-end">
+                                        <span class="h5 fw-bold text-success mb-0">@FilteredData.Sum(d => d.TotalPay).ToString("C")</span>
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (showRateModal)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white border-0">
+                    <h5 class="modal-title"><i class="bi bi-cash-coin me-2"></i>Edit Pay Rate</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showRateModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="text-center mb-4">
+                        <div class="fw-bold h5 mb-1 text-dark">@editingItem?.MemberName</div>
+                        <div class="text-muted small">@@@editingItem?.Username</div>
+                    </div>
+
+                    <label class="form-label small text-uppercase fw-bold text-muted">Hourly Rate ($)</label>
+                    <div class="input-group input-group-lg shadow-sm rounded-3 overflow-hidden">
+                        <span class="input-group-text bg-white border-end-0 text-primary">$</span>
+                        <input type="number" step="0.01" class="form-control border-start-0" @bind="newRate" autofocus />
+                    </div>
+                    <div class="form-text mt-3">This rate will be used to calculate total pay for all shifts for this user.</div>
+                </div>
+                <div class="modal-footer border-0 p-3">
+                    <button type="button" class="btn btn-light rounded-3 px-4" @onclick="() => showRateModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-3 px-4 shadow-sm" @onclick="SavePayRate">Save Rate</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showManageTrackingModal)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-dark text-white p-4">
+                    <h5 class="modal-title"><i class="bi bi-people-fill me-2"></i>Manage Tracked Employees</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showManageTrackingModal = false"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="p-3 bg-light border-bottom">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control border-start-0" placeholder="Search system users by name or username..." @bind="_userSearchQuery" @bind:event="oninput" />
+                        </div>
+                    </div>
+                    <div class="overflow-auto" style="max-height: 480px;">
+                        <table class="table table-hover mb-0 align-middle">
+                            <thead class="table-light small text-uppercase fw-bold">
+                                <tr>
+                                    <th class="ps-4">Full Name / Username</th>
+                                    <th class="text-center">Account Status</th>
+                                    <th class="text-center">Tracking Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var user in allSystemUsers.Where(u => string.IsNullOrEmpty(_userSearchQuery) || 
+                                                                               u.Username.Contains(_userSearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                                                                               GetUserName(u).Contains(_userSearchQuery, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    <tr>
+                                        <td class="ps-4">
+                                            <div class="fw-bold">@GetUserName(user)</div>
+                                            <div class="x-small text-muted">Username: @user.Username @(string.IsNullOrEmpty(user.Email) ? "" : $"| Email: {user.Email}")</div>
+                                        </td>
+                                        <td class="text-center">
+                                            @if (user.IsActive)
+                                            {
+                                                <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill">Active User</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill">Inactive</span>
+                                            }
+                                        </td>
+                                        <td class="text-center">
+                                            <div class="form-check form-switch d-inline-block">
+                                                <input class="form-check-input" type="checkbox" checked="@user.IsTrackedEmployee" 
+                                                       @onchange="(e) => ToggleTracking(user, (bool)e.Value)" />
+                                                <label class="form-check-label small px-2 py-1 rounded @(user.IsTrackedEmployee ? "bg-primary text-white" : "bg-light")">
+                                                    @(user.IsTrackedEmployee ? "Tracked" : "Ignore")
+                                                </label>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-3">
+                    <button type="button" class="btn btn-primary px-5 rounded-3" @onclick="() => showManageTrackingModal = false">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<EmployeeHoursDto> _data = new();
+    private string _searchQuery = "";
+    private string _userSearchQuery = "";
+    private bool _loading = true;
+    private string _viewMode = "list"; // list or grid
+    
+    private int _selectedMonth = DateTime.Now.Month;
+    private int _selectedYear = DateTime.Now.Year;
+    private int _selectedWeek = System.Globalization.ISOWeek.GetWeekOfYear(DateTime.Now);
+    private DateTime _startDate = DateTime.Now.AddDays(-30);
+    private DateTime _endDate = DateTime.Now;
+
+    private List<int> _availableYears = new();
+    private List<(int Value, string Text)> _weekOptions = new();
+
+    private decimal _summaryTotalHours = 0;
+    private int _summaryActiveEmployees = 0;
+    private int _summaryTotalShifts = 0;
+    
+    // Rate Editing
+    private bool showRateModal = false;
+    private bool showManageTrackingModal = false;
+    private List<AppUser> allSystemUsers = new();
+    private List<Member> allMembers = new();
+    private EmployeeHoursDto? editingItem;
+    private decimal newRate;
+
+    private IEnumerable<EmployeeHoursDto> FilteredData => _data
+        .Where(d => string.IsNullOrEmpty(_searchQuery) || 
+                   (d.MemberName?.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                   d.Username.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _availableYears = await FinancialService.GetAvailableYearsAsync();
+        if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
+        
+        PopulateWeekOptions();
+        await LoadData();
+        await LoadAllUsers();
+    }
+
+    private string GetUserName(AppUser user)
+    {
+        if (user.MemberId != null)
+        {
+            var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
+            if (member != null)
+            {
+                return $"{member.FirstName} {member.LastName}{(string.IsNullOrEmpty(member.Suffix) ? "" : " " + member.Suffix)}";
+            }
+        }
+        return user.Username;
+    }
+
+    private async Task LoadAllUsers()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            allSystemUsers = await db.AppUsers.AsNoTracking()
+                .OrderBy(u => u.Username)
+                .ToListAsync();
+
+            allMembers = await db.Members.AsNoTracking().ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading users: {ex.Message}");
+        }
+    }
+
+    private void OpenManageTrackingModal()
+    {
+        showManageTrackingModal = true;
+    }
+
+    private async Task ToggleTracking(AppUser user, bool isTracked)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var dbUser = await db.AppUsers.FirstOrDefaultAsync(u => u.UserId == user.UserId);
+            if (dbUser != null)
+            {
+                dbUser.IsTrackedEmployee = isTracked;
+                await db.SaveChangesAsync();
+                user.IsTrackedEmployee = isTracked;
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error toggling tracking: {ex.Message}");
+        }
+    }
+
+    private void EditPayRate(EmployeeHoursDto item)
+    {
+        editingItem = item;
+        newRate = item.HourlyRate ?? 0;
+        showRateModal = true;
+    }
+
+    private async Task SavePayRate()
+    {
+        if (editingItem == null) return;
+        
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var user = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == editingItem.Username);
+            
+            if (user != null)
+            {
+                user.HourlyRate = newRate;
+                await db.SaveChangesAsync();
+                await ToastService.ShowSuccess($"Saved pay rate for {editingItem.MemberName}");
+                showRateModal = false;
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error saving rate: {ex.Message}");
+        }
+    }
+
+    private void PopulateWeekOptions()
+    {
+        _weekOptions.Clear();
+        var year = _selectedYear;
+        for (int w = 1; w <= 52; w++)
+        {
+            var start = FirstDateOfWeekIso8601(year, w);
+            var end = start.AddDays(6);
+            _weekOptions.Add((w, $"Week {w} ({start:MMM dd} - {end:MMM dd})"));
+        }
+    }
+
+    private async Task SetViewMode(string mode)
+    {
+        _viewMode = mode;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        DateTime start, end;
+
+        if (_viewMode == "Month")
+        {
+            start = new DateTime(_selectedYear, _selectedMonth, 1);
+            end = start.AddMonths(1).AddDays(-1);
+        }
+        else if (_viewMode == "Week")
+        {
+            start = FirstDateOfWeekIso8601(_selectedYear, _selectedWeek);
+            end = start.AddDays(7).AddSeconds(-1);
+        }
+        else
+        {
+            start = _startDate.Date;
+            end = _endDate.Date.AddDays(1).AddSeconds(-1);
+        }
+
+        _data = await FinancialService.GetEmployeeHoursAsync(start, end);
+        
+        _summaryTotalHours = _data.Sum(d => d.TotalHours);
+        _summaryActiveEmployees = _data.Count;
+        _summaryTotalShifts = _data.Sum(d => d.EntryCount);
+
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private async Task PrintReport()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    private static DateTime FirstDateOfWeekIso8601(int year, int weekOfYear)
+    {
+        DateTime jan1 = new DateTime(year, 1, 1);
+        int daysOffset = DayOfWeek.Thursday - jan1.DayOfWeek;
+        DateTime firstThursday = jan1.AddDays(daysOffset);
+        var cal = System.Globalization.CultureInfo.CurrentCulture.Calendar;
+        int firstWeek = cal.GetWeekOfYear(firstThursday, System.Globalization.CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+        var weekNum = weekOfYear;
+        if (firstWeek <= 1) weekNum -= 1;
+        var result = firstThursday.AddDays(weekNum * 7);
+        return result.AddDays(-3);
+    }
+}

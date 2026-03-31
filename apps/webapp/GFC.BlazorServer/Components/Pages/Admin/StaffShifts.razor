@@ -5,11 +5,13 @@
 @using GFC.BlazorServer.Services
 @using GFC.BlazorServer.Data.Entities
 @using GFC.Core.Interfaces
+@using Microsoft.EntityFrameworkCore
 @inject IShiftService ShiftService
 @inject IMemberRepository MemberRepository
 @inject IToastService ToastService
 @inject IJSRuntime JSRuntime
 @inject IBlazorSystemSettingsService SystemSettingsService
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
 
 <style>
     .calendar-container {
@@ -579,9 +581,35 @@
                         <div class="mb-3">
                             <label for="staffName" class="form-label">Bartender Name <span class="text-danger">*</span></label>
                             <input type="text" id="staffName" class="form-control" @bind="editingStaff.Name" placeholder="Enter bartender name" />
-                            <div class="form-text">For non-member bartenders</div>
+                            <div class="form-text">For display on schedule and reports</div>
                         </div>
                     }
+
+                    <div class="mb-3">
+                        <label for="staffUser" class="form-label">Link to System Account (User)</label>
+                        <select id="staffUser" class="form-select" @bind="editingStaff.Username">
+                            <option value="">-- No system account linked --</option>
+                            @foreach (var user in appUsers.OrderBy(u => u.Username))
+                            {
+                                <option value="@user.Username">@user.Username @(!string.IsNullOrEmpty(user.Email) ? $"({user.Email})" : "")</option>
+                            }
+                        </select>
+                        <div class="form-text">Used to match mobile app shift submissions to this bartender</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="staffEmail" class="form-label">Email Address (Optional)</label>
+                        <input type="email" id="staffEmail" class="form-control" @bind="editingStaff.Email" placeholder="e.g. jdoe@example.com" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="hourlyRate" class="form-label">Hourly Pay Rate ($)</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="number" id="hourlyRate" step="0.01" class="form-control" @bind="editingStaff.HourlyRate" />
+                        </div>
+                        <div class="form-text">Base rate used for payroll calculations</div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="CloseModals">Cancel</button>
@@ -878,6 +906,7 @@
     private List<StaffShift> monthlyShifts = new();
     private List<StaffMember> staffMembers = new();
     private List<Member> activeMembers = new();
+    private List<AppUser> appUsers = new();
 
     private bool showAssignmentModal = false;
     private bool showStaffModal = false;
@@ -928,6 +957,7 @@
             await LoadShifts();
             await LoadStaffMembers();
             await LoadActiveMembers();
+            await LoadAppUsers();
         }
         catch (Exception ex)
         {
@@ -1655,6 +1685,18 @@
 
         if (string.IsNullOrWhiteSpace(mLast)) return (mFirst + mMiddle + mSuffix).Trim();
         return $"{mLast}, {mFirst}{mMiddle}{mSuffix}".Trim().Replace("  ", " ");
+    }
+    private async Task LoadAppUsers()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            appUsers = await db.AppUsers.AsNoTracking().ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading app users: {ex.Message}");
+        }
     }
 }
 

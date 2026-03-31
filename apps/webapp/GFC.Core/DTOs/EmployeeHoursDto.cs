@@ -1,0 +1,20 @@
+using System;
+
+namespace GFC.Core.DTOs
+{
+    public class EmployeeHoursDto
+    {
+        public string Username { get; set; } = string.Empty;
+        public string? MemberName { get; set; }
+        public decimal TotalHours { get; set; }
+        public int Year { get; set; }
+        public int Month { get; set; }
+        public int WeekNumber { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public int EntryCount { get; set; }
+        public decimal? HourlyRate { get; set; }
+        public decimal TotalPay => (HourlyRate ?? 0) * TotalHours;
+        public System.Collections.Generic.Dictionary<DateTime, decimal> DailyHours { get; set; } = new();
+    }
+}

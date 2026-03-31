@@ -29,6 +29,9 @@ namespace GFC.Core.Models
         [MaxLength(100)]
         public string? Email { get; set; }
 
+        [MaxLength(100)]
+        public string? Username { get; set; }
+
         public decimal? HourlyRate { get; set; }
 
         public bool IsActive { get; set; } = true;

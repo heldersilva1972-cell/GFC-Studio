@@ -16,6 +16,7 @@ namespace GFC.BlazorServer.Services
         Task<List<int>> GetAvailableYearsAsync();
         Task<(List<DailySalesReportDto> Data, int TotalBar, int TotalLotto, string Server, string Database, string Error)> GetDailySalesReportsAsync(DateTime startDate, DateTime endDate);
         Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null);
+        Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null);
     }
 
 
@@ -387,6 +388,93 @@ namespace GFC.BlazorServer.Services
                 .OrderByDescending(s => s.ShiftDate)
                 .ThenByDescending(s => s.ShiftId)
                 .ToListAsync();
+        }
+
+        public async Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var start = startDate.Date;
+            var end = endDate.Date;
+
+            var query = db.BarSaleEntries
+                .AsNoTracking()
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Date >= start && (e.AdjustedSaleDate ?? e.SaleDate).Date <= end);
+
+            if (!string.IsNullOrWhiteSpace(username))
+                query = query.Where(e => e.CreatedBy == username);
+
+            var entries = await query
+                .Select(e => new {
+                    Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
+                    Hours = e.TotalHours ?? 0m,
+                    User = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown"
+                })
+                .ToListAsync();
+
+            if (!entries.Any()) return new List<EmployeeHoursDto>();
+
+            // Group by User
+            var result = entries.GroupBy(e => e.User)
+                .Select(g => new EmployeeHoursDto {
+                    Username = g.Key,
+                    TotalHours = g.Sum(e => e.Hours),
+                    EntryCount = g.Count(e => e.Hours > 0),
+                    StartDate = start,
+                    EndDate = end
+                })
+                .OrderByDescending(d => d.TotalHours)
+                .ToList();
+
+            // Fetch users marked as Employees (IsTrackedEmployee)
+            var users = await db.AppUsers.AsNoTracking()
+                .Where(u => u.IsTrackedEmployee)
+                .ToListAsync();
+            var allMembers = await db.Members.AsNoTracking().ToListAsync();
+            
+            var filteredResults = new List<EmployeeHoursDto>();
+
+            foreach (var user in users)
+            {
+                // Find matching entries for this user
+                var userEntries = entries.Where(e => e.User.Equals(user.Username, StringComparison.OrdinalIgnoreCase)).ToList();
+                
+                var dto = new EmployeeHoursDto {
+                    Username = user.Username,
+                    TotalHours = userEntries.Sum(e => e.Hours),
+                    EntryCount = userEntries.Count(e => e.Hours > 0),
+                    HourlyRate = user.HourlyRate,
+                    StartDate = start,
+                    EndDate = end
+                };
+
+                // Fill daily breakdown
+                foreach (var entry in userEntries)
+                {
+                    if (dto.DailyHours.ContainsKey(entry.Date))
+                        dto.DailyHours[entry.Date] += entry.Hours;
+                    else
+                        dto.DailyHours[entry.Date] = entry.Hours;
+                }
+
+                // Link member name for better display
+                if (user.MemberId != null)
+                {
+                    var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
+                    if (member != null)
+                    {
+                        dto.MemberName = $"{member.FirstName} {member.LastName}{(string.IsNullOrEmpty(member.Suffix) ? "" : " " + member.Suffix)}";
+                    }
+                }
+                
+                if (string.IsNullOrEmpty(dto.MemberName))
+                {
+                    dto.MemberName = user.Email ?? user.Username;
+                }
+
+                filteredResults.Add(dto);
+            }
+
+            return filteredResults.OrderByDescending(d => d.TotalHours).ToList();
         }
     }
 }

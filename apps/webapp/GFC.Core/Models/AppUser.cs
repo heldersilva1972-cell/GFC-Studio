@@ -20,5 +20,7 @@ public class AppUser
     public string? PassCodeHash { get; set; }
     public bool MfaEnabled { get; set; }
     public string? MfaSecretKey { get; set; }
+    public decimal? HourlyRate { get; set; }
+    public bool IsTrackedEmployee { get; set; }
 }
 
