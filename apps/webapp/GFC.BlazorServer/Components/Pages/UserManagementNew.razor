@@ -196,11 +196,9 @@
                                     }
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm btn-link @(user.Username.ToLowerInvariant() == "admin" ? "text-success fw-bold" : "")" 
-                                            @onclick="() => OpenPermissionsModal(user)" 
-                                            disabled="@(user.Username.ToLowerInvariant() == "admin")">
-                                        <i class="bi @(user.Username.ToLowerInvariant() == "admin" ? "bi-shield-fill-check" : "bi-key") me-1"></i>
-                                        @(user.Username.ToLowerInvariant() == "admin" ? "Master Access" : "Manage")
+                                    <button class="btn btn-sm btn-link" 
+                                            @onclick="() => OpenPermissionsModal(user)">
+                                        <i class="bi bi-key me-1"></i> Manage
                                     </button>
                                 </td>
                                 <td>
@@ -346,7 +344,7 @@
                                 <label class="form-label text-primary fw-bold">Directors</label>
                                 <select class="form-select border-primary border-opacity-25" @bind="_userForm.MemberId" @bind:after="OnMemberSelected">
                                     <option value="">-- Select Director --</option>
-                                    @foreach (var member in _availableDirectors)
+                                    @foreach (var member in _availableDirectors.Where(m => !IsMemberTaken(m.MemberId)))
                                     {
                                         <option value="@member.MemberId">@member.DisplayName</option>
                                     }
@@ -358,7 +356,7 @@
                                 <label class="form-label fw-bold">Active Members</label>
                                 <select class="form-select" @bind="_userForm.MemberId" @bind:after="OnMemberSelected">
                                     <option value="">-- Select Active Member --</option>
-                                    @foreach (var member in _availableMembers)
+                                    @foreach (var member in _availableMembers.Where(m => !IsMemberTaken(m.MemberId)))
                                     {
                                         <option value="@member.MemberId">@member.DisplayName</option>
                                     }
@@ -1143,6 +1141,13 @@
                          u.Username.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
                          (u.MemberName?.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
 
+    private bool IsMemberTaken(int memberId)
+    {
+        // Any user other than the one currently being edited using this memberId counts as "taken"
+        // We use the cached _users list for high-speed checking
+        return _users.Any(u => u.MemberId == memberId && u.UserId != (_editingUser?.UserId ?? 0));
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
@@ -1473,6 +1478,14 @@
         {
             int? memberId = string.IsNullOrEmpty(_userForm.MemberId) ? null : int.Parse(_userForm.MemberId);
             
+            // [FIX] Double-check for duplicate member assignment
+            if (memberId.HasValue && IsMemberTaken(memberId.Value))
+            {
+                _userModalError = "This member is already associated with another user account.";
+                _savingUser = false;
+                return;
+            }
+
             if (_editingUser == null)
             {
                 // 1. Create new user with empty password
@@ -1538,8 +1551,6 @@
     // Permissions Modal Methods
     private async Task OpenPermissionsModal(UserListItemDto user)
     {
-        if (user.Username.ToLowerInvariant() == "admin") return;
-        
         _selectedUser = user;
         _selectedPermissions.Clear();
         
@@ -1583,7 +1594,7 @@
 
     private async Task SavePermissions()
     {
-        if (_selectedUser == null || _selectedUser.Username.ToLowerInvariant() == "admin") return;
+        if (_selectedUser == null) return;
         
         _savingPermissions = true;
         try

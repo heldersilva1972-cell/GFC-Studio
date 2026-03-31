@@ -140,7 +140,7 @@ public class UserManagementService : IUserManagementService
             
             if (user.MemberId.HasValue && allMembers.TryGetValue(user.MemberId.Value, out var member))
             {
-                memberName = $"{member.LastName}, {member.FirstName}";
+                memberName = FormatMemberDisplayName(member);
                 
                 // Optimized director check using local HashSet
                 isDirector = currentDirectors.Contains(user.MemberId.Value);
@@ -199,7 +199,7 @@ public class UserManagementService : IUserManagementService
             .ThenBy(m => m.FirstName)
             .Select(m => new ActiveMemberDto(
                 m.MemberID,
-                $"{m.LastName}, {m.FirstName}",
+                FormatMemberDisplayName(m),
                 m.FirstName,
                 m.LastName,
                 m.Status))
@@ -220,7 +220,7 @@ public class UserManagementService : IUserManagementService
             .ThenBy(m => m.FirstName)
             .Select(m => new ActiveMemberDto(
                 m.MemberID,
-                $"{m.LastName}, {m.FirstName}",
+                FormatMemberDisplayName(m),
                 m.FirstName,
                 m.LastName,
                 m.Status))
@@ -235,6 +235,14 @@ public class UserManagementService : IUserManagementService
             && member.Status != "INACTIVE" 
             && member.Status != "DECEASED" 
             && member.Status != "REJECTED";
+    }
+
+    private static string FormatMemberDisplayName(Member member)
+    {
+        var suffix = !string.IsNullOrWhiteSpace(member.Suffix) ? $" {member.Suffix}" : "";
+        var middle = !string.IsNullOrWhiteSpace(member.MiddleName) ? $" {member.MiddleName[0]}." : "";
+        
+        return $"{member.LastName}{suffix}, {member.FirstName}{middle}";
     }
 
     private bool HasPaidOrWaivedDuesOptimized(Member member, Dictionary<int, DuesPayment> duesLookup, int year, HashSet<int> directors)
