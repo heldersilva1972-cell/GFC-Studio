@@ -150,17 +150,110 @@
         margin-bottom: 1.5rem;
     }
 
-    @@media print {
-        .hours-page { background: white; padding: 0; }
-        .period-selector, .search-box, .btn-print { display: none !important; }
-        .glass-card { box-shadow: none; border: none; padding: 0; }
+    .table-scroll-container {
+        max-height: calc(100vh - 440px);
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #e0e0e0 transparent;
     }
+
+    .table-scroll-container::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .table-scroll-container::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    
+    .table-scroll-container::-webkit-scrollbar-thumb {
+        background-color: #e0e0e0;
+        border-radius: 10px;
+    }
+
+    .table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background-color: #f8f9fa !important;
+        border-bottom: 2px solid #dee2e6 !important;
+    }
+
+    .table tfoot td {
+        position: sticky;
+        bottom: 0;
+        z-index: 90;
+        background-color: #f8f9fa !important;
+        border-top: 2px solid #dee2e6 !important;
+    }
+
+    /* Sticky First Column for Breakdown View */
+    .hours-table th:first-child,
+    .hours-table td:first-child {
+        position: sticky;
+        left: 0;
+        background-color: white !important;
+        z-index: 10;
+        border-right: 1px solid #dee2e6 !important;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+    }
+
+    .hours-table thead th:first-child {
+        z-index: 110 !important; /* Higher than sticky headers */
+        background-color: #f8f9fa !important;
+    }
+
+    .hours-table tfoot td:first-child {
+        z-index: 105 !important;
+        background-color: #f8f9fa !important;
+    }
+
+    @@media print {
+        @@page { size: portrait; margin: 1cm; overflow: visible; }
+        
+        /* Hide ALL framework shell elements */
+        .app-topbar, .app-sidebar, .sidebar-overlay, .menu-toggle-btn, .theme-toggle, .desktop-actions, .app-badge, .badge, .btn-primary, .btn-light, .btn-white {
+            display: none !important;
+        }
+
+        /* Reset all layout containers to be plain blocks */
+        .app-shell, .app-main, .app-content, .content, .container-fluid, .hours-page, .glass-card {
+            display: block !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: white !important;
+            width: 100% !important;
+            max-width: none !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            float: none !important;
+        }
+
+        /* Hide interactive controls and placeholders */
+        .no-print, nav, .sidebar, .period-selector, .search-box, .btn, .breadcrumb, .stat-card, footer, .main-header, .search-input, .settings-btn, .table-content-area, .spinner-border { 
+            display: none !important; 
+        }
+        
+        #blazor-error-ui { display: none !important; }
+        
+        /* Force display of the detailed report only */
+        .print-only-report { 
+            display: block !important; 
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            visibility: visible !important;
+        }
+    }
+
+    .print-only-report { display: none; }
 </style>
 
 <div class="hours-page">
     <div class="container-fluid max-width-1400">
         <!-- Header Section -->
-        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4 no-print">
             <div>
                 <nav aria-label="breadcrumb">
                     <ol class="breadcrumb mb-1">
@@ -176,18 +269,21 @@
                 <div class="period-selector">
                     <button class="period-btn @(_viewMode == "Week" ? "active" : "")" @onclick='() => SetViewMode("Week")'>WEEKLY</button>
                     <button class="period-btn @(_viewMode == "Month" ? "active" : "")" @onclick='() => SetViewMode("Month")'>MONTHLY</button>
-                    <button class="period-btn @(_viewMode == "Custom" ? "active" : "")" @onclick='() => SetViewMode("Custom")'>CUSTOM</button>
+                    <button class="period-btn @(_viewMode == "Year" ? "active" : "")" @onclick='() => SetViewMode("Year")'>YEARLY</button>
                 </div>
 
                 <div class="d-flex gap-2">
-                    @if (_viewMode == "Month")
+                    @if (_viewMode == "Month" || _viewMode == "Year")
                     {
-                        <select class="form-select border-0 shadow-sm rounded-3" @bind="_selectedMonth" @bind:after="LoadData">
-                            @for (int m = 1; m <= 12; m++)
-                            {
-                                <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
-                            }
-                        </select>
+                        @if (_viewMode == "Month")
+                        {
+                            <select class="form-select border-0 shadow-sm rounded-3 me-2" @bind="_selectedMonth" @bind:after="LoadData">
+                                @foreach (var m in Enumerable.Range(1, 12))
+                                {
+                                    <option value="@m">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
+                                }
+                            </select>
+                        }
                         <select class="form-select border-0 shadow-sm rounded-3" @bind="_selectedYear" @bind:after="LoadData">
                             @foreach (var year in _availableYears)
                             {
@@ -204,19 +300,17 @@
                             }
                         </select>
                     }
-                    else
-                    {
-                        <input type="date" class="form-control border-0 shadow-sm rounded-3" @bind="_startDate" @bind:after="LoadData" />
-                        <span class="align-self-center">to</span>
-                        <input type="date" class="form-control border-0 shadow-sm rounded-3" @bind="_endDate" @bind:after="LoadData" />
-                    }
                 </div>
+
+                <button class="btn btn-light shadow-sm rounded-3 me-2 border fw-bold" @onclick="() => _showPayrollSettings = true">
+                    <i class="bi bi-gear-fill me-2 text-primary"></i> Settings
+                </button>
 
                 <button class="btn btn-outline-primary shadow-sm rounded-3 me-2" @onclick="OpenManageTrackingModal">
                     <i class="bi bi-people-fill me-2"></i> Manage Employees
                 </button>
 
-                <button class="btn btn-white shadow-sm rounded-3 btn-print" @onclick="PrintReport">
+                <button class="btn btn-white shadow-sm rounded-3 btn-print border" @onclick="PrintReport">
                     <i class="bi bi-printer me-2"></i> Print
                 </button>
             </div>
@@ -224,174 +318,626 @@
 
         <!-- Summary Stats Area -->
         <div class="row g-4 mb-4">
-            <div class="col-md-3">
-                <div class="stat-card">
-                    <div class="stat-icon icon-blue">
+            <!-- TILE 1: LABOR ACTIVITY -->
+            <div class="col-md-4">
+                <div class="stat-card h-100">
+                    <div class="stat-icon icon-blue mb-3">
                         <i class="bi bi-clock-history"></i>
                     </div>
-                    <div class="text-muted small fw-bold">TOTAL HOURS</div>
-                    <div class="h3 fw-bold mb-0">@_summaryTotalHours.ToString("N1")</div>
+                    <div class="row g-0">
+                        <div class="col-6 border-end pe-2 text-center">
+                            <div class="text-muted x-small fw-black text-uppercase opacity-75">Work Hours</div>
+                            <div class="h4 fw-black text-dark mb-0">@_summaryTotalHours.ToString("N1")</div>
+                        </div>
+                        <div class="col-6 ps-2 text-center">
+                            <div class="text-muted x-small fw-black text-uppercase opacity-75">Total Shifts</div>
+                            <div class="h4 fw-black text-dark mb-0">@_summaryTotalShifts</div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="stat-card">
-                    <div class="stat-icon icon-green">
-                        <i class="bi bi-people-fill"></i>
+
+            <!-- TILE 2: TAX REMITTANCE (AUDIT) -->
+            <div class="col-md-4">
+                <div class="stat-card h-100 p-3 shadow-none border" style="background: rgba(var(--bs-primary-rgb), 0.02);">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="stat-icon icon-purple bg-indigo bg-opacity-10 text-indigo rounded-3 d-flex align-items-center justify-content-center" style="width: 48px; height: 48px;">
+                            <i class="bi bi-bank fs-4"></i>
+                        </div>
+                        <div class="text-end">
+                            <div class="text-muted x-small fw-black text-uppercase opacity-75">TAXES PAYABLE</div>
+                            <div class="h4 fw-black text-indigo mb-0">@TotalTaxLiability.ToString("C")</div>
+                        </div>
                     </div>
-                    <div class="text-muted small fw-bold">ACTIVE EMPLOYEES</div>
-                    <div class="h3 fw-bold mb-0">@_summaryActiveEmployees</div>
+                    <div class="tax-segments px-1 border-top pt-2">
+                        <div class="d-flex justify-content-between mb-1 small text-dark border-bottom border-light pb-1">
+                            <span class="text-muted x-small uppercase fw-bold">Withheld (Staff)</span>
+                            <span class="fw-bold">@((FilteredData.Sum(d => d.TotalPay) * TotalEmployeeDeductionRate).ToString("C"))</span>
+                        </div>
+                        <div class="d-flex justify-content-between pt-1 small text-dark">
+                            <span class="text-muted x-small uppercase fw-bold">Add-on (Club)</span>
+                            <span class="fw-bold">@((FilteredData.Sum(d => d.TotalPay) * TotalEmployerSurchargeRate).ToString("C"))</span>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="stat-card">
-                    <div class="stat-icon icon-purple">
-                        <i class="bi bi-clipboard-check"></i>
+
+            <!-- TILE 3: TOTAL CLUB COST -->
+            <div class="col-md-4">
+                <div class="stat-card h-100 shadow-sm border border-primary border-opacity-25" style="border-start: 4px solid var(--bs-primary) !important;">
+                    <div class="stat-icon icon-orange mb-3">
+                        <i class="bi bi-wallet2"></i>
                     </div>
-                    <div class="text-muted small fw-bold">TOTAL SHIFTS</div>
-                    <div class="h3 fw-bold mb-0">@_summaryTotalShifts</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stat-card">
-                    <div class="stat-icon icon-orange">
-                        <i class="bi bi-cash-stack"></i>
+                    <div class="row g-0 align-items-center">
+                        <div class="col-6 border-end pe-2">
+                            <div class="text-muted x-small fw-black text-uppercase opacity-75">Gross Payroll</div>
+                            <div class="h5 fw-bold text-dark mb-0">@FilteredData.Sum(d => d.TotalPay).ToString("C")</div>
+                        </div>
+                        <div class="col-6 ps-2">
+                            <div class="text-muted x-small fw-black text-uppercase opacity-75">Total Club Cost</div>
+                            <div class="h4 fw-black text-primary mb-0">@FilteredData.Sum(d => d.TotalPayrollCost).ToString("C")</div>
+                        </div>
                     </div>
-                    <div class="text-muted small fw-bold">EST. TOTAL PAYROLL</div>
-                    <div class="h3 fw-bold mb-0">@FilteredData.Sum(d => d.TotalPay).ToString("C")</div>
                 </div>
             </div>
         </div>
 
         <!-- Main Content Card -->
         <div class="glass-card">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2 class="h5 fw-bold mb-0">Hours Breakdown</h2>
-                <div class="search-box position-relative" style="min-width: 300px;">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 no-print">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="btn-group p-1 bg-light rounded-pill shadow-sm">
+                        <button class="btn btn-sm rounded-pill px-4 fw-black @(_selectedLocation == "Main" ? "btn-primary shadow" : "btn-light text-muted")" @onclick='() => SetLocation("Main")'>MAIN</button>
+                        <button class="btn btn-sm rounded-pill px-4 fw-black @(_selectedLocation == "Upstairs" ? "btn-primary shadow" : "btn-light text-muted")" @onclick='() => SetLocation("Upstairs")'>UPSTAIRS</button>
+                        <button class="btn btn-sm rounded-pill px-4 fw-black @(_selectedLocation == "All" ? "btn-primary shadow" : "btn-light text-muted")" @onclick='() => SetLocation("All")'>TOTALS</button>
+                    </div>
+
+                    <div class="btn-group p-1 bg-light rounded-pill shadow-sm">
+                        <button class="btn btn-sm rounded-pill px-3 fw-black @(_layoutMode == "List" ? "btn-dark shadow-sm" : "btn-light text-muted")" 
+                                @onclick='() => _layoutMode = "List"'>
+                            <i class="bi bi-list-ul me-1"></i> SUMMARY
+                        </button>
+                        <button class="btn btn-sm rounded-pill px-3 fw-black @(_layoutMode == "Grid" ? "btn-dark shadow-sm" : "btn-light text-muted")" 
+                                @onclick='() => _layoutMode = "Grid"'>
+                            <i class="bi bi-grid-3x3-gap-fill me-1"></i> BREAKDOWN
+                        </button>
+                    </div>
+                </div>
+                <div class="search-box position-relative no-print" style="min-width: 300px;">
                     <i class="bi bi-search position-absolute text-muted" style="left: 1rem; top: 50%; transform: translateY(-50%);"></i>
                     <input type="text" class="search-input w-100 ps-5" placeholder="Search by name or username..." @bind="_searchQuery" @bind:event="oninput" />
                 </div>
             </div>
 
-            <div class="table-responsive">
+            <!-- PRINT ONLY REPORT HEADER -->
+            <div class="print-only-report">
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-4 mb-4">
+                    <div>
+                        <h1 class="h2 fw-black mb-1">PAYROLL SUMMARY</h1>
+                        <div class="text-primary fw-bold fs-5">@(_selectedLocation == "All" ? "Consolidated Bar Operations" : $"{_selectedLocation} Bar Report")</div>
+                        <div class="text-muted fw-bold mt-2">
+                            <i class="bi bi-calendar3 me-2"></i>
+                            @(_viewMode == "Month" ? $"{System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(_selectedMonth)} {_selectedYear}" : $"{_startDate:MMM dd, yyyy} - {_endDate:MMM dd, yyyy}")
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <div class="small fw-black text-muted uppercase">GENERATED ON</div>
+                        <div class="fw-bold">@DateTime.Now.ToString("G")</div>
+                    </div>
+                </div>
+
+                <div class="row g-0 border rounded-4 overflow-hidden mb-4 bg-light">
+                    <div class="col-3 p-4 border-end">
+                        <div class="x-small fw-black text-muted mb-1 text-uppercase">GROSS PAYROLL</div>
+                        <div class="h3 fw-black mb-0">@FilteredData.Sum(d => d.TotalPay).ToString("C")</div>
+                        <div class="x-small text-muted opacity-75">Pre-Tax Total</div>
+                    </div>
+                    <div class="col-3 p-4 border-end">
+                        <div class="x-small fw-black text-muted mb-1 text-uppercase">Tax Liabilities</div>
+                        <div class="h3 fw-black text-danger mb-0">@TotalTaxLiability.ToString("C")</div>
+                        <div class="x-small text-muted opacity-75">Emp + Club</div>
+                    </div>
+                    <div class="col-3 p-4 border-end">
+                        <div class="x-small fw-black text-muted mb-1 text-uppercase">Employee Net</div>
+                        <div class="h3 fw-black text-success mb-0">@FilteredData.Sum(d => d.NetPay).ToString("C")</div>
+                        <div class="x-small text-muted opacity-75">Est. Check Totals</div>
+                    </div>
+                    <div class="col-3 p-4 bg-primary text-white">
+                        <div class="x-small fw-black mb-1 text-uppercase opacity-75">TOTAL CLUB COST</div>
+                        <div class="h2 fw-black mb-0">@FilteredData.Sum(d => d.TotalPayrollCost).ToString("C")</div>
+                    </div>
+                </div>
+
+                <div class="card border-0 bg-light rounded-4 p-4 mb-5 border">
+                    <h6 class="fw-black mb-3">TAX BREAKDOWN AUDIT</h6>
+                    <div class="row g-5">
+                        <div class="col-6">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted small fw-bold">STATE TAX & UI</span>
+                                <span class="fw-bold">@((TotalStateTax + TotalUi).ToString("C"))</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted small fw-bold">FICA LIABILITY (SSI)</span>
+                                <span class="fw-bold">@TotalFica.ToString("C")</span>
+                            </div>
+                        </div>
+                        <div class="col-6 text-end">
+                            <div class="d-flex justify-content-between mb-2 ps-5">
+                                <span class="text-muted small fw-bold">PFML TOTALS</span>
+                                <span class="fw-bold">@TotalPfml.ToString("C")</span>
+                            </div>
+                            <div class="d-flex justify-content-between pt-2 border-top ps-5">
+                                <span class="fw-black text-uppercase small">TOTAL REMITTANCE</span>
+                                <span class="fw-black text-danger fs-5">@TotalTaxLiability.ToString("C")</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h6 class="fw-black text-uppercase border-bottom pb-2 mb-3" style="letter-spacing: 0.1rem;">EMPLOYEE LABOR BREAKDOWN</h6>
+                <table class="table table-bordered align-middle">
+                    <thead class="bg-light">
+                        <tr class="x-small fw-black text-uppercase">
+                            <th class="ps-3">Employee</th>
+                            <th class="text-center">Rate</th>
+                            <th class="text-center">Hours</th>
+                            <th class="text-end">Gross Pay</th>
+                            <th class="text-end">Net Check</th>
+                            <th class="text-end pe-3">Total Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in FilteredData)
+                        {
+                            <tr>
+                                <td class="ps-3 py-2">
+                                    <div class="fw-bold text-dark">@item.MemberName</div>
+                                    <div class="x-small text-muted">@item.Username</div>
+                                </td>
+                                <td class="text-center small">@item.HourlyRate?.ToString("C")</td>
+                                <td class="text-center fw-bold">@item.TotalHours.ToString("N1")</td>
+                                <td class="text-end small">@item.TotalPay.ToString("C")</td>
+                                <td class="text-end fw-black">@item.NetPay.ToString("C")</td>
+                                <td class="text-end pe-3 text-primary fw-bold">@item.TotalPayrollCost.ToString("C")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot class="bg-light fw-black">
+                        <tr>
+                            <td colspan="2" class="ps-3">TOTALS</td>
+                            <td class="text-center">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
+                            <td class="text-end">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
+                            <td class="text-end">@FilteredData.Sum(d => d.NetPay).ToString("C")</td>
+                            <td class="text-end pe-3">@FilteredData.Sum(d => d.TotalPayrollCost).ToString("C")</td>
+                        </tr>
+                    </tfoot>
+                </table>
+
+                <div class="text-center mt-5 pt-5 x-small text-muted opacity-50 border-top">
+                    This report is and its calculations are based on Massachusetts state tax regulations as configured in System Settings.<br/>
+                    End of Report - GFC Management System
+                </div>
+            </div>
+
+            <div class="table-content-area">
                 @if (_loading)
                 {
-                    <div class="text-center py-5">
+                    <div class="text-center py-5 shadow-sm rounded-4 bg-white border">
                         <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-3 text-muted">Gathering shift records...</p>
+                        <p class="mt-3 text-muted fw-bold">Gathering shift records...</p>
                     </div>
                 }
                 else if (!FilteredData.Any())
                 {
-                    <div class="empty-state">
-                        <i class="bi bi-calendar-x empty-icon"></i>
-                        <h3 class="h5 fw-bold text-dark">No records found</h3>
+                    <div class="empty-state text-center py-5 bg-white rounded-4 border shadow-sm">
+                        <i class="bi bi-calendar-x display-4 text-muted opacity-25"></i>
+                        <h3 class="h5 fw-bold text-dark mt-3">No records found</h3>
                         <p class="text-muted">There are no hours reported for the selected period.</p>
-                    </div>
-                }
-                else if (_viewMode == "grid")
-                {
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-sm align-middle text-center">
-                            <thead class="bg-light text-muted small uppercase fw-bold">
-                                <tr>
-                                    <th class="text-start bg-white" style="min-width: 200px;">Employee</th>
-                                    @for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
-                                    {
-                                        <th>
-                                            <div>@d.ToString("ddd")</div>
-                                            <div class="x-small">@d.ToString("MM/dd")</div>
-                                        </th>
-                                    }
-                                    <th class="bg-light">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in FilteredData)
-                                {
-                                    <tr>
-                                        <td class="text-start fw-bold">@item.MemberName</td>
-                                        @for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
-                                        {
-                                            var hours = item.DailyHours.ContainsKey(d) ? item.DailyHours[d] : 0;
-                                            <td class="@(hours > 0 ? "bg-primary bg-opacity-10 fw-bold text-primary" : "text-muted opacity-25")">
-                                                @(hours > 0 ? hours.ToString("N1") : "-")
-                                            </td>
-                                        }
-                                        <td class="fw-bold bg-light">@item.TotalHours.ToString("N1")</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
                     </div>
                 }
                 else
                 {
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Employee</th>
-                                    <th class="text-center">Shift Count</th>
-                                    <th class="text-end">Rate</th>
-                                    <th class="text-end">Total Hours</th>
-                                    <th class="text-end">Est. Pay</th>
-                                    <th class="text-center no-print">Actions</th>
+                    @if (_layoutMode == "Grid")
+                    {
+                        <div class="d-flex align-items-center justify-content-between mb-3 px-4 border shadow-sm py-2 rounded-4 bg-light bg-opacity-50 no-print">
+                            <div class="small fw-black text-muted text-uppercase tracking-wider">Shift Legend:</div>
+                            <div class="d-flex gap-4">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(13, 110, 253, 0.15); border: 1px solid rgba(13, 110, 253, 0.2);"></div>
+                                    <span class="x-small fw-bold text-dark opacity-75">DAY SHIFT</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(102, 16, 242, 0.15); border: 1px solid rgba(102, 16, 242, 0.2);"></div>
+                                    <span class="x-small fw-bold text-dark opacity-75">NIGHT SHIFT</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(25, 135, 84, 0.15); border: 1px solid rgba(25, 135, 84, 0.2);"></div>
+                                    <span class="x-small fw-bold text-dark opacity-75">DOUBLE SHIFT (BOTH)</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="rounded-1" style="width: 12px; height: 12px; background: rgba(255, 193, 7, 0.15); border: 1px solid rgba(255, 193, 7, 0.2);"></div>
+                                    <span class="x-small fw-bold text-dark opacity-75">HALL / UPSTAIRS</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="table-scroll-container bg-white rounded-4 shadow-sm border">
+                        @if (_layoutMode == "List")
+                        {
+                            <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light">
+                                <tr class="x-small fw-black text-muted text-uppercase tracking-wider">
+                                    <th class="ps-4">Employee</th>
+                                    <th class="text-center">Shifts</th>
+                                    <th class="text-center">Rate</th>
+                                    <th class="text-center">Hours</th>
+                                    <th class="text-end">Gross Pay</th>
+                                    <th class="text-end">Est. Net</th>
+                                    <th class="text-end pe-4">Cost</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var item in FilteredData)
                                 {
                                     <tr>
-                                        <td>
-                                            <div class="d-flex align-items-center gap-3">
-                                                <div class="user-avatar @(item.HourlyRate == null ? "bg-secondary" : "")">
-                                                    @(!string.IsNullOrEmpty(item.MemberName) ? item.MemberName[0].ToString().ToUpper() : item.Username[0].ToString().ToUpper())
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center gap-3 cursor-pointer" @onclick="() => OpenPayDetails(item)">
+                                                <div class="avatar-sm bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center fw-black" style="width: 40px; height: 40px;">
+                                                    @item.Username.Substring(0,1).ToUpper()
                                                 </div>
                                                 <div>
-                                                    <div class="fw-bold text-dark">@(item.MemberName ?? "Unknown Member")</div>
-                                                    <div class="x-small text-muted">@item.EntryCount shifts @(item.HourlyRate != null ? $"@@ {item.HourlyRate:C}/hr" : "(No rate set)")</div>
+                                                    <div class="fw-bold text-dark hover-primary">@item.MemberName</div>
+                                                    <div class="small text-muted">@item.Username</div>
                                                 </div>
                                             </div>
                                         </td>
                                         <td class="text-center">
-                                            <span class="badge bg-light text-dark rounded-pill px-3">@item.EntryCount</span>
+                                            <span class="badge bg-light text-dark border">@item.EntryCount</span>
                                         </td>
-                                        <td class="text-end text-muted small">
+                                        <td class="text-center fw-bold">
                                             @(item.HourlyRate?.ToString("C") ?? "-")
                                         </td>
-                                        <td class="text-end">
-                                            <span class="hours-badge badge-primary">@item.TotalHours.ToString("N1") hrs</span>
+                                        <td class="text-center">
+                                            <span class="badge bg-primary bg-opacity-10 text-primary px-3 py-2 rounded-pill fw-bold" style="font-size: 0.85rem;">
+                                                @item.TotalHours.ToString("N1") hrs
+                                            </span>
                                         </td>
-                                        <td class="text-end fw-bold text-dark">
-                                            @item.TotalPay.ToString("C")
-                                        </td>
-                                        <td class="text-center no-print">
-                                            <button class="btn btn-sm btn-outline-primary rounded-pill px-3" @onclick="() => EditPayRate(item)">
-                                                <i class="bi bi-pencil me-1"></i> Rate
-                                            </button>
+                                        <td class="text-end fw-bold text-muted small">@item.TotalPay.ToString("C")</td>
+                                        <td class="text-end fw-black text-success">@item.NetPay.ToString("C")</td>
+                                        <td class="text-end pe-4">
+                                            <div class="fw-black text-primary">@item.TotalPayrollCost.ToString("C")</div>
+                                            <div class="x-small text-muted opacity-50">Incl. Taxes</div>
                                         </td>
                                     </tr>
                                 }
                             </tbody>
-                            <tfoot class="bg-light">
-                                <tr class="fw-bold">
-                                    <td colspan="3">Grand Total</td>
-                                    <td class="text-end">
-                                        <span class="fw-bold text-primary mb-0">@_summaryTotalHours.ToString("N1") hrs</span>
-                                    </td>
-                                    <td class="text-end">
-                                        <span class="h5 fw-bold text-success mb-0">@FilteredData.Sum(d => d.TotalPay).ToString("C")</span>
-                                    </td>
-                                    <td></td>
+                            <tfoot class="sticky-bottom bg-light border-top-2">
+                                <tr>
+                                    <td colspan="3" class="ps-4 fw-bold text-muted">TOTALS</td>
+                                    <td class="text-center fw-black text-dark">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
+                                    <td class="text-end fw-black text-dark small">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
+                                    <td class="text-end fw-black text-success">@FilteredData.Sum(d => d.NetPay).ToString("C")</td>
+                                    <td class="text-end pe-4 fw-black text-primary">@FilteredData.Sum(d => d.TotalPayrollCost).ToString("C")</td>
                                 </tr>
                             </tfoot>
                         </table>
-                    </div>
+                    }
+                    else if (_layoutMode == "Grid")
+                    {
+                        <table class="table table-hover align-middle mb-0 hours-table">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th class="ps-4">Employee</th>
+                                    <th>Rate</th>
+                                    @foreach (var day in GetWeekDays())
+                                    {
+                                        <th class="text-center">
+                                            <div class="small fw-bold">@day.ToString("ddd")</div>
+                                            <div class="x-small text-muted" style="font-size: 0.65rem;">@day.ToString("MM/dd")</div>
+                                        </th>
+                                    }
+                                    <th class="text-center border-end" style="min-width: 60px;">TOTAL HRS</th>
+                                    <th class="text-end border-end" style="min-width: 90px;">GROSS PAY</th>
+                                    <th class="text-end pe-4" style="min-width: 90px;">TOTAL COST</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in FilteredData)
+                                {
+                                    <tr>
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center gap-2 cursor-pointer" @onclick="() => OpenPayDetails(item)">
+                                                <div class="avatar-sm bg-light text-muted border rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; font-size: 0.75rem;">
+                                                    @item.Username.Substring(0,1).ToUpper()
+                                                </div>
+                                                <div>
+                                                    <div class="fw-bold text-dark small hover-primary">@item.MemberName</div>
+                                                    <div class="x-small text-muted">@item.Username</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            @if (item.HourlyRate > 0) {
+                                                <span class="small fw-bold text-muted">@item.HourlyRate?.ToString("C")</span>
+                                            } else {
+                                                <span class="text-danger x-small fw-black text-uppercase">No Rate</span>
+                                            }
+                                        </td>
+                                        @foreach (var day in GetWeekDays())
+                                        {
+                                            <td class="text-center">
+                                                @if (item.DailyHours.ContainsKey(day.Date))
+                                                {
+                                                    var shiftType = item.DailyShiftTypes.ContainsKey(day.Date) ? item.DailyShiftTypes[day.Date] : "Day";
+                                                    <div class="badge @GetShiftColorClass(shiftType) rounded-3 w-100 py-2 border" style="font-size: 0.8rem;">
+                                                        @item.DailyHours[day.Date].ToString("N1")
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <span class="opacity-25">-</span>
+                                                }
+                                            </td>
+                                        }
+                                        <td class="text-center fw-black border-end">@item.TotalHours.ToString("N1")</td>
+                                        <td class="text-end fw-black text-dark border-end small">@item.TotalPay.ToString("C")</td>
+                                        <td class="text-end pe-4 fw-black text-primary">@item.TotalPayrollCost.ToString("C")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot class="bg-light bg-opacity-50 sticky-bottom border-top-2">
+                                <tr class="fw-black">
+                                    <td colspan="2" class="ps-4">Weekly Totals</td>
+                                    @foreach (var day in GetWeekDays())
+                                    {
+                                        <td class="text-center text-primary">@FilteredData.SelectMany(d => d.DailyHours).Where(h => h.Key.Date == day.Date).Sum(h => h.Value).ToString("N1")</td>
+                                    }
+                                    <td class="text-center fw-black border-end">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
+                                    <td class="text-end fw-black text-dark border-end small">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
+                                    <td class="text-end pe-4 fw-black text-primary">@FilteredData.Sum(d => d.TotalPayrollCost).ToString("C")</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    }
+                </div>
                 }
             </div>
         </div>
     </div>
 </div>
+
+@if (_showPayrollSettings)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 28px; overflow: hidden;">
+                <div class="modal-header border-0 bg-light p-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="bg-primary bg-opacity-10 text-primary p-3 rounded-4">
+                            <i class="bi bi-gear-fill fs-4"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-black mb-0">Payroll & Tax Configurations</h5>
+                            <p class="text-muted small mb-0">Set default wages and Massachusetts specific taxes.</p>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showPayrollSettings = false"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <!-- Tab Navigation -->
+                    <div class="d-flex px-4 bg-light">
+                        <button class="btn btn-link text-decoration-none px-4 py-3 fw-bold @(_activeSettingsTab == "Wages" ? "text-primary border-bottom border-3 border-primary" : "text-muted")" @onclick='() => _activeSettingsTab = "Wages"'>
+                            <i class="bi bi-currency-dollar me-2"></i> EMPLOYEE WAGES
+                        </button>
+                        <button class="btn btn-link text-decoration-none px-4 py-3 fw-bold @(_activeSettingsTab == "Taxes" ? "text-primary border-bottom border-3 border-primary" : "text-muted")" @onclick='() => _activeSettingsTab = "Taxes"'>
+                            <i class="bi bi-bank me-2"></i> MASSACHUSETTS TAXES
+                        </button>
+                    </div>
+
+                    <div class="p-4" style="min-height: 400px; max-height: 600px; overflow-y: auto;">
+                        @if (_activeSettingsTab == "Wages")
+                        {
+                            <div class="alert alert-info border-0 rounded-4 shadow-sm mb-4">
+                                <div class="d-flex gap-3 align-items-center">
+                                    <i class="bi bi-info-circle-fill fs-4"></i>
+                                    <div class="small">Updates made here will apply as the default rate for future and current calculations for each employee.</div>
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle">
+                                    <thead>
+                                        <tr class="text-muted small fw-bold">
+                                            <th>EMPLOYEE</th>
+                                            <th class="text-end" style="width: 200px;">HOURLY RATE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var user in allSystemUsers)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-bold">@GetUserName(user)</div>
+                                                    <div class="small text-muted">@user.Username</div>
+                                                </td>
+                                                <td class="text-end">
+                                                    <div class="input-group">
+                                                        <span class="input-group-text bg-white border-end-0">$</span>
+                                                        <input type="number" class="form-control border-start-0" step="0.25" @bind="user.HourlyRate" placeholder="0.00" />
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else if (_activeSettingsTab == "Taxes")
+                        {
+                            <div class="row g-4">
+                                <div class="col-md-6">
+                                    <div class="card border-0 bg-light rounded-4 p-4 h-100">
+                                        <h6 class="fw-black mb-3"><i class="bi bi-person-badge me-2 text-primary"></i> EMPLOYEE DEDUCTIONS</h6>
+                                        <div class="mb-3">
+                                            <label class="small fw-bold text-muted mb-1">MA State Income Tax (%)</label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" step="0.01" @bind="_maStateTaxRate" />
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="small fw-bold text-muted mb-1">PFML Employee Share (%)</label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" step="0.01" @bind="_pfmlEmployeeRate" />
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                        </div>
+                                        <div class="mb-0">
+                                            <label class="small fw-bold text-muted mb-1">FICA/Medicare Employee (%)</label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" step="0.01" @bind="_ficaEmployeeRate" />
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card border-0 bg-light rounded-4 p-4 h-100">
+                                        <h6 class="fw-black mb-3"><i class="bi bi-briefcase me-2 text-indigo"></i> EMPLOYER TAX BURDEN</h6>
+                                        <div class="mb-3">
+                                            <label class="small fw-bold text-muted mb-1">FICA Employer Share (%)</label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" step="0.01" @bind="_ficaEmployerRate" />
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="small fw-bold text-muted mb-1">PFML Employer Share (%)</label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" step="0.01" @bind="_pfmlEmployerRate" />
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                        </div>
+                                        <div class="mb-0">
+                                            <label class="small fw-bold text-muted mb-1">MA Unemployment (UI) %</label>
+                                            <div class="input-group">
+                                                <input type="number" class="form-control" step="0.01" @bind="_maUnemploymentRate" />
+                                                <span class="input-group-text">%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-primary bg-opacity-10 rounded-4 p-3 mt-4 text-primary d-flex align-items-center gap-3">
+                                <i class="bi bi-calculator fs-4"></i>
+                                <div>
+                                    <div class="fw-bold small">TOTAL COMBINED TAX RATE EFFECT</div>
+                                    <div class="small opacity-75">Deductions: @((TotalEmployeeDeductionRate * 100).ToString("N2"))% | Add-on Costs: @((TotalEmployerSurchargeRate * 100).ToString("N2"))%</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 bg-light">
+                    <button type="button" class="btn btn-link text-muted text-decoration-none fw-bold" @onclick="() => _showPayrollSettings = false">CANCEL</button>
+                    <button type="button" class="btn btn-primary px-5 py-2 rounded-pill fw-black shadow" @onclick="SavePayrollSettings">
+                        @if (_isSavingSettings) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        <i class="bi bi-check-circle-fill me-2"></i> APPLY SETTINGS
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showPayDetails && _selectedUserPayDetails != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(8px);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 32px; overflow: hidden;">
+                <div class="modal-header border-0 bg-primary bg-opacity-10 p-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="avatar-md bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm fw-black fs-4" style="width: 64px; height: 64px; border: 2px solid white;">
+                            @_selectedUserPayDetails.Username.Substring(0,1).ToUpper()
+                        </div>
+                        <div>
+                            <h4 class="modal-title fw-black mb-0">Payroll Breakdown</h4>
+                            <div class="fw-bold text-primary">@_selectedUserPayDetails.MemberName</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => _showPayDetails = false"></button>
+                </div>
+                <div class="modal-body p-4 bg-white">
+                    <div class="text-center mb-4 p-3 bg-light rounded-4 border">
+                         <div class="text-muted small fw-bold">TOTAL HOURS WORKED</div>
+                         <div class="h2 fw-black text-dark mb-0">@_selectedUserPayDetails.TotalHours.ToString("N1") <span class="fs-6 opacity-50">hrs</span></div>
+                    </div>
+
+                    <div class="card border-0 bg-white rounded-4 mb-4 border shadow-sm">
+                        <div class="card-body p-4">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="fw-bold text-muted small">GROSS EARNINGS</span>
+                                <span class="fw-black text-dark fs-5">@_selectedUserPayDetails.TotalPay.ToString("C")</span>
+                            </div>
+                            <div class="x-small text-muted mb-3">Rate: @(_selectedUserPayDetails.HourlyRate?.ToString("C") ?? "$0.00")/hr</div>
+                            <hr class="opacity-10 my-3" />
+                            
+                            <h6 class="x-small fw-black text-primary text-uppercase mb-3" style="letter-spacing: 0.05rem;">Employee Deductions</h6>
+                            <div class="d-flex justify-content-between mb-2 small text-dark">
+                                <span class="opacity-75">MA State Tax (@_maStateTaxRate.ToString("N2")%)</span>
+                                <span class="fw-bold text-danger">-@((_selectedUserPayDetails.TotalPay * (_maStateTaxRate / 100m)).ToString("C"))</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2 small text-dark">
+                                <span class="opacity-75">PFML Employee Share (@_pfmlEmployeeRate.ToString("N2")%)</span>
+                                <span class="fw-bold text-danger">-@((_selectedUserPayDetails.TotalPay * (_pfmlEmployeeRate / 100m)).ToString("C"))</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2 small text-dark">
+                                <span class="opacity-75">FICA/Medicare (@_ficaEmployeeRate.ToString("N2")%)</span>
+                                <span class="fw-bold text-danger">-@((_selectedUserPayDetails.TotalPay * (_ficaEmployeeRate / 100m)).ToString("C"))</span>
+                            </div>
+                            
+                            <hr class="opacity-10 my-3" />
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="h6 fw-black mb-0 text-dark">EST. NET CHECK</span>
+                                <div class="text-end">
+                                    <div class="h4 fw-black text-success mb-0">@_selectedUserPayDetails.NetPay.ToString("C")</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card border-0 bg-light rounded-4 border shadow-sm overflow-hidden border-start border-primary border-4">
+                        <div class="card-body p-4">
+                            <h6 class="x-small fw-black text-primary text-uppercase mb-3" style="letter-spacing: 0.05rem;">Club Burden (Employer Costs)</h6>
+                            <div class="d-flex justify-content-between mb-2 small text-dark">
+                                <span class="opacity-75">FICA Employer Match (@_ficaEmployerRate.ToString("N2")%)</span>
+                                <span class="fw-bold">+@((_selectedUserPayDetails.TotalPay * (_ficaEmployerRate / 100m)).ToString("C"))</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2 small text-dark">
+                                <span class="opacity-75">PFML Employer Share (@_pfmlEmployerRate.ToString("N2")%)</span>
+                                <span class="fw-bold">+@((_selectedUserPayDetails.TotalPay * (_pfmlEmployerRate / 100m)).ToString("C"))</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-3 small text-dark">
+                                <span class="opacity-75">MA Unemployment UI (@_maUnemploymentRate.ToString("N2")%)</span>
+                                <span class="fw-bold">+@((_selectedUserPayDetails.TotalPay * (_maUnemploymentRate / 100m)).ToString("C"))</span>
+                            </div>
+                            <hr class="opacity-10 my-3" />
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small fw-black text-primary">TRUE LABOR COST</span>
+                                <span class="h5 fw-black mb-0 text-dark">@_selectedUserPayDetails.TotalPayrollCost.ToString("C")</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 pt-0 bg-white">
+                    <button type="button" class="btn btn-outline-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="() => _showPayDetails = false">DONE</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @if (showRateModal)
 {
@@ -493,12 +1039,50 @@
 }
 
 @code {
+    private string GetShiftColorClass(string? type) => type switch
+    {
+        "Day" => "bg-primary bg-opacity-10 text-primary border-primary border-opacity-10",
+        "Night" => "bg-indigo bg-opacity-10 text-indigo border-indigo border-opacity-10",
+        "Both" => "bg-success bg-opacity-10 text-success border-success border-opacity-10",
+        "Hall" => "bg-warning bg-opacity-10 text-warning border-warning border-opacity-10",
+        _ => "bg-light text-muted opacity-25"
+    };
+
     private List<EmployeeHoursDto> _data = new();
     private string _searchQuery = "";
     private string _userSearchQuery = "";
     private bool _loading = true;
-    private string _viewMode = "list"; // list or grid
+    private string _viewMode = "Week"; // Week, Month, Custom
+    private string _layoutMode = "Grid"; // List, Grid
+    private string _selectedLocation = "Main"; // Main, Upstairs, All
     
+    // Payroll & Settings State
+    private bool _showPayrollSettings = false;
+    private string _activeSettingsTab = "Wages"; // Wages, Taxes
+    private bool _isSavingSettings = false;
+    
+    // Detailed Pay Breakdown State
+    private bool _showPayDetails = false;
+    private EmployeeHoursDto? _selectedUserPayDetails = null;
+
+    // Massachusetts / Global Tax Rates (%)
+    private decimal _maStateTaxRate = 5.0m;
+    private decimal _pfmlEmployeeRate = 0.35m;
+    private decimal _pfmlEmployerRate = 0.53m;
+    private decimal _ficaEmployeeRate = 7.65m;
+    private decimal _ficaEmployerRate = 7.65m;
+    private decimal _maUnemploymentRate = 2.42m; // Typical MA UI
+    
+    private decimal TotalEmployeeDeductionRate => (_maStateTaxRate + _pfmlEmployeeRate + _ficaEmployeeRate) / 100m;
+    private decimal TotalEmployerSurchargeRate => (_pfmlEmployerRate + _ficaEmployerRate + _maUnemploymentRate) / 100m;
+
+    // Real-time Total Tax Liabilities
+    private decimal TotalStateTax => _data.Sum(d => d.TotalPay * (_maStateTaxRate / 100m));
+    private decimal TotalPfml => _data.Sum(d => d.TotalPay * ((_pfmlEmployeeRate + _pfmlEmployerRate) / 100m));
+    private decimal TotalFica => _data.Sum(d => d.TotalPay * ((_ficaEmployeeRate + _ficaEmployerRate) / 100m));
+    private decimal TotalUi => _data.Sum(d => d.TotalPay * (_maUnemploymentRate / 100m));
+    private decimal TotalTaxLiability => TotalStateTax + TotalPfml + TotalFica + TotalUi;
+
     private int _selectedMonth = DateTime.Now.Month;
     private int _selectedYear = DateTime.Now.Year;
     private int _selectedWeek = System.Globalization.ISOWeek.GetWeekOfYear(DateTime.Now);
@@ -527,12 +1111,28 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _loading = true;
+        
+        using var db = await DbFactory.CreateDbContextAsync();
+        var sys = await db.SystemSettings.FirstOrDefaultAsync() ?? new SystemSettings();
+        _maStateTaxRate = sys.MaStateTaxRate;
+        _pfmlEmployeeRate = sys.PfmlEmployeeRate;
+        _pfmlEmployerRate = sys.PfmlEmployerRate;
+        _ficaEmployeeRate = sys.FicaEmployeeRate;
+        _ficaEmployerRate = sys.FicaEmployerRate;
+        _maUnemploymentRate = sys.MaUnemploymentRate;
+        
         _availableYears = await FinancialService.GetAvailableYearsAsync();
         if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
         
         PopulateWeekOptions();
         await LoadData();
         await LoadAllUsers();
+    }
+
+    private IEnumerable<DateTime> GetWeekDays()
+    {
+        for (var d = _startDate.Date; d <= _endDate.Date; d = d.AddDays(1)) yield return d;
     }
 
     private string GetUserName(AppUser user)
@@ -563,6 +1163,54 @@
         {
             Console.WriteLine($"Error loading users: {ex.Message}");
         }
+    }
+
+    private async Task SavePayrollSettings()
+    {
+        _isSavingSettings = true;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            // Save employee wage updates
+            foreach (var user in allSystemUsers)
+            {
+                var dbUser = await db.AppUsers.FindAsync(user.UserId);
+                if (dbUser != null) dbUser.HourlyRate = user.HourlyRate;
+            }
+            
+            // Save global tax updates
+            var sys = await db.SystemSettings.FirstOrDefaultAsync();
+            if (sys != null)
+            {
+                sys.MaStateTaxRate = _maStateTaxRate;
+                sys.PfmlEmployeeRate = _pfmlEmployeeRate;
+                sys.PfmlEmployerRate = _pfmlEmployerRate;
+                sys.FicaEmployeeRate = _ficaEmployeeRate;
+                sys.FicaEmployerRate = _ficaEmployerRate;
+                sys.MaUnemploymentRate = _maUnemploymentRate;
+            }
+            
+            await db.SaveChangesAsync();
+            await ToastService.ShowSuccess("Payroll and tax settings updated and persistent.");
+            _showPayrollSettings = false;
+            await LoadData();
+        }
+        catch (Exception ex) { await ToastService.ShowError(ex.Message); }
+        finally { _isSavingSettings = false; }
+    }
+
+    private void OpenPayDetails(EmployeeHoursDto item)
+    {
+        _selectedUserPayDetails = item;
+        _showPayDetails = true;
+    }
+
+    private void OpenEditRateModal(EmployeeHoursDto item)
+    {
+        editingItem = item;
+        newRate = item.HourlyRate ?? 0;
+        showRateModal = true;
     }
 
     private void OpenManageTrackingModal()
@@ -636,6 +1284,17 @@
     private async Task SetViewMode(string mode)
     {
         _viewMode = mode;
+        // Default to grid for weekly, list for monthly/yearly
+        if (mode == "Week") _layoutMode = "Grid";
+        else if (mode == "Month" || mode == "Year") _layoutMode = "List";
+        
+        await LoadData();
+    }
+
+    private async Task SetLocation(string location)
+    {
+        if (_selectedLocation == location) return;
+        _selectedLocation = location;
         await LoadData();
     }
 
@@ -644,26 +1303,34 @@
         _loading = true;
         StateHasChanged();
 
-        DateTime start, end;
-
         if (_viewMode == "Month")
         {
-            start = new DateTime(_selectedYear, _selectedMonth, 1);
-            end = start.AddMonths(1).AddDays(-1);
+            _startDate = new DateTime(_selectedYear, _selectedMonth, 1);
+            _endDate = _startDate.AddMonths(1).AddDays(-1);
+        }
+        else if (_viewMode == "Year")
+        {
+            _startDate = new DateTime(_selectedYear, 1, 1);
+            _endDate = new DateTime(_selectedYear, 12, 31);
         }
         else if (_viewMode == "Week")
         {
-            start = FirstDateOfWeekIso8601(_selectedYear, _selectedWeek);
-            end = start.AddDays(7).AddSeconds(-1);
+            _startDate = FirstDateOfWeekIso8601(_selectedYear, _selectedWeek);
+            _endDate = _startDate.AddDays(6);
         }
         else
         {
-            start = _startDate.Date;
-            end = _endDate.Date.AddDays(1).AddSeconds(-1);
+            // Custom mode
         }
 
-        _data = await FinancialService.GetEmployeeHoursAsync(start, end);
+        _data = await FinancialService.GetEmployeeHoursAsync(_startDate, _endDate, null, _selectedLocation);
         
+        foreach (var d in _data)
+        {
+            d.EmployeeDeductionRate = TotalEmployeeDeductionRate;
+            d.EmployerSurchargeRate = TotalEmployerSurchargeRate;
+        }
+
         _summaryTotalHours = _data.Sum(d => d.TotalHours);
         _summaryActiveEmployees = _data.Count;
         _summaryTotalShifts = _data.Sum(d => d.EntryCount);

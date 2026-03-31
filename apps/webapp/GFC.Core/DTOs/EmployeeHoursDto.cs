@@ -15,6 +15,15 @@ namespace GFC.Core.DTOs
         public int EntryCount { get; set; }
         public decimal? HourlyRate { get; set; }
         public decimal TotalPay => (HourlyRate ?? 0) * TotalHours;
+        
+        // Tax & Cost Calculations (Defaults to 0, populated by UI/Settings)
+        public decimal EmployeeDeductionRate { get; set; } 
+        public decimal EmployerSurchargeRate { get; set; }
+        
+        public decimal NetPay => TotalPay * (1 - EmployeeDeductionRate);
+        public decimal TotalPayrollCost => TotalPay * (1 + EmployerSurchargeRate);
+
         public System.Collections.Generic.Dictionary<DateTime, decimal> DailyHours { get; set; } = new();
+        public System.Collections.Generic.Dictionary<DateTime, string> DailyShiftTypes { get; set; } = new();
     }
 }

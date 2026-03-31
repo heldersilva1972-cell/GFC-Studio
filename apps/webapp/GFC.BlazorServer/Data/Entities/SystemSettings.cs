@@ -155,4 +155,12 @@ public class SystemSettings
 
     // Sign-in Number Draw tracking
     public DateTime? LastSignInDrawExportUtc { get; set; }
+
+    // Massachusetts Payroll Taxes
+    public decimal MaStateTaxRate { get; set; } = 5.0m;
+    public decimal PfmlEmployeeRate { get; set; } = 0.35m;
+    public decimal PfmlEmployerRate { get; set; } = 0.53m;
+    public decimal FicaEmployeeRate { get; set; } = 7.65m;
+    public decimal FicaEmployerRate { get; set; } = 7.65m;
+    public decimal MaUnemploymentRate { get; set; } = 2.42m;
 }

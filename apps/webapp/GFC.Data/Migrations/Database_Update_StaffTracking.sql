@@ -15,16 +15,23 @@ BEGIN
     PRINT 'Added IsTrackedEmployee column to AppUsers';
 END
 
+-- 2. Add Massachusetts Payroll Tax Configuration to SystemSettings (Global)
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[SystemSettings]') AND name = 'MaStateTaxRate')
+BEGIN
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaStateTaxRate] DECIMAL(18,4) NOT NULL DEFAULT 5.0;
+    ALTER TABLE [dbo].[SystemSettings] ADD [PfmlEmployeeRate] DECIMAL(18,4) NOT NULL DEFAULT 0.35;
+    ALTER TABLE [dbo].[SystemSettings] ADD [PfmlEmployerRate] DECIMAL(18,4) NOT NULL DEFAULT 0.53;
+    ALTER TABLE [dbo].[SystemSettings] ADD [FicaEmployeeRate] DECIMAL(18,4) NOT NULL DEFAULT 7.65;
+    ALTER TABLE [dbo].[SystemSettings] ADD [FicaEmployerRate] DECIMAL(18,4) NOT NULL DEFAULT 7.65;
+    ALTER TABLE [dbo].[SystemSettings] ADD [MaUnemploymentRate] DECIMAL(18,4) NOT NULL DEFAULT 2.42;
+    PRINT 'Added Payroll Tax configuration columns to SystemSettings';
+END
+
 GO
 
 -- Verify updated schema
-PRINT '--- Current User Payroll Schema Verify ---';
-SELECT 
-    'AppUsers' as TableName,
-    c.name AS ColumnName,
-    t.name AS DataType
-FROM sys.columns c
-INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
-WHERE c.object_id = OBJECT_ID(N'[dbo].[AppUsers]')
-AND c.name IN ('UserId', 'Username', 'HourlyRate', 'IsTrackedEmployee', 'IsAdmin')
-ORDER BY ColumnName;
+PRINT '--- Payroll Schema Verify (AppUsers) ---';
+SELECT 'AppUsers' TableName, name, type_name(user_type_id) type FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.AppUsers') AND name IN ('HourlyRate', 'IsTrackedEmployee');
+
+PRINT '--- Payroll Schema Verify (SystemSettings) ---';
+SELECT 'SystemSettings' TableName, name, type_name(user_type_id) type FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.SystemSettings') AND name LIKE '%Rate%';

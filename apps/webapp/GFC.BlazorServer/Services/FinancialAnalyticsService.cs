@@ -16,7 +16,7 @@ namespace GFC.BlazorServer.Services
         Task<List<int>> GetAvailableYearsAsync();
         Task<(List<DailySalesReportDto> Data, int TotalBar, int TotalLotto, string Server, string Database, string Error)> GetDailySalesReportsAsync(DateTime startDate, DateTime endDate);
         Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null);
-        Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null);
+        Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All");
     }
 
 
@@ -390,7 +390,7 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
         }
 
-        public async Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null)
+        public async Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All")
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var start = startDate.Date;
@@ -400,6 +400,11 @@ namespace GFC.BlazorServer.Services
                 .AsNoTracking()
                 .Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Date >= start && (e.AdjustedSaleDate ?? e.SaleDate).Date <= end);
 
+            if (location == "Main")
+                query = query.Where(e => e.IsRentalHall == false);
+            else if (location == "Upstairs")
+                query = query.Where(e => e.IsRentalHall == true);
+
             if (!string.IsNullOrWhiteSpace(username))
                 query = query.Where(e => e.CreatedBy == username);
 
@@ -407,53 +412,63 @@ namespace GFC.BlazorServer.Services
                 .Select(e => new {
                     Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
                     Hours = e.TotalHours ?? 0m,
+                    Shift = e.Shift ?? "Day",
+                    IsHall = e.IsRentalHall,
                     User = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown"
                 })
                 .ToListAsync();
 
             if (!entries.Any()) return new List<EmployeeHoursDto>();
 
-            // Group by User
-            var result = entries.GroupBy(e => e.User)
-                .Select(g => new EmployeeHoursDto {
-                    Username = g.Key,
-                    TotalHours = g.Sum(e => e.Hours),
-                    EntryCount = g.Count(e => e.Hours > 0),
-                    StartDate = start,
-                    EndDate = end
-                })
-                .OrderByDescending(d => d.TotalHours)
-                .ToList();
+            // Group entries by user and match with employee metadata
 
             // Fetch users marked as Employees (IsTrackedEmployee)
             var users = await db.AppUsers.AsNoTracking()
                 .Where(u => u.IsTrackedEmployee)
                 .ToListAsync();
-            var allMembers = await db.Members.AsNoTracking().ToListAsync();
             
+            var allMembers = await db.Members.AsNoTracking().ToListAsync();
+
+            // Group entries by user
+            var entriesByUser = entries
+                .GroupBy(e => e.User)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             var filteredResults = new List<EmployeeHoursDto>();
 
             foreach (var user in users)
             {
-                // Find matching entries for this user
-                var userEntries = entries.Where(e => e.User.Equals(user.Username, StringComparison.OrdinalIgnoreCase)).ToList();
-                
+                // Skip if this employee has no entries in the current period/location
+                if (!entriesByUser.ContainsKey(user.Username)) continue;
+
+                var userEntries = entriesByUser[user.Username];
+                var totalHours = userEntries.Sum(e => e.Hours);
+
+                // Skip if they worked 0 hours (e.g. they only recorded a shift with 0 time)
+                if (totalHours <= 0) continue;
+
                 var dto = new EmployeeHoursDto {
                     Username = user.Username,
-                    TotalHours = userEntries.Sum(e => e.Hours),
+                    TotalHours = totalHours,
                     EntryCount = userEntries.Count(e => e.Hours > 0),
                     HourlyRate = user.HourlyRate,
                     StartDate = start,
                     EndDate = end
                 };
 
-                // Fill daily breakdown
-                foreach (var entry in userEntries)
+                // Fill daily breakdown and shift types
+                foreach (var entryGroup in userEntries.GroupBy(e => e.Date))
                 {
-                    if (dto.DailyHours.ContainsKey(entry.Date))
-                        dto.DailyHours[entry.Date] += entry.Hours;
-                    else
-                        dto.DailyHours[entry.Date] = entry.Hours;
+                    var date = entryGroup.Key;
+                    var hours = entryGroup.Sum(e => e.Hours);
+                    dto.DailyHours[date] = hours;
+
+                    // Determine shift signature
+                    var shifts = entryGroup.Select(e => e.IsHall ? "Hall" : e.Shift).Distinct().ToList();
+                    if (shifts.Count > 1) 
+                        dto.DailyShiftTypes[date] = "Both";
+                    else if (shifts.Any())
+                        dto.DailyShiftTypes[date] = shifts.First();
                 }
 
                 // Link member name for better display
