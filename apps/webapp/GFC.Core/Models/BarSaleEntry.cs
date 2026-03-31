@@ -31,5 +31,6 @@ namespace GFC.Core.Models
 
         public decimal? TotalHours { get; set; }
         public bool IsRentalHall { get; set; }
+        public string? BarLocation { get; set; }
     }
 }

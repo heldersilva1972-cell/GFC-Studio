@@ -1,7 +1,9 @@
 window.financialCharts = {
     charts: {},
     renderChart: function (canvasId, config) {
-        const ctx = document.getElementById(canvasId).getContext('2d');
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        const ctx = el.getContext('2d');
         if (this.charts[canvasId]) {
             this.charts[canvasId].destroy();
         }

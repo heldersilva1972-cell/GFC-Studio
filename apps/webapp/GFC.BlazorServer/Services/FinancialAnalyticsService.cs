@@ -82,15 +82,30 @@ namespace GFC.BlazorServer.Services
             var allPoints = new List<FinancialDataPoint>();
             using var db = await _dbFactory.CreateDbContextAsync();
 
-            if (request.IncomeTypes.Contains("Bar Sales"))
+            if (request.IncomeTypes.Contains("Downstairs Bar") || request.IncomeTypes.Contains("Bar Sales"))
             {
                 var points = await db.BarSaleEntries
-                    .Where(e => request.Years.Contains((e.AdjustedSaleDate ?? e.SaleDate).Year))
+                    .Where(e => request.Years.Contains((e.AdjustedSaleDate ?? e.SaleDate).Year) && !e.IsRentalHall)
                     .Select(e => new FinancialDataPoint 
                     { 
                         Date = (e.AdjustedSaleDate ?? e.SaleDate), 
                         Amount = e.TotalSales, 
-                        IncomeType = "Bar Sales", 
+                        IncomeType = "Downstairs Bar", 
+                        Year = (e.AdjustedSaleDate ?? e.SaleDate).Year 
+                    })
+                    .ToListAsync();
+                allPoints.AddRange(points);
+            }
+
+            if (request.IncomeTypes.Contains("Upstairs Bar"))
+            {
+                var points = await db.BarSaleEntries
+                    .Where(e => request.Years.Contains((e.AdjustedSaleDate ?? e.SaleDate).Year) && e.IsRentalHall)
+                    .Select(e => new FinancialDataPoint 
+                    { 
+                        Date = (e.AdjustedSaleDate ?? e.SaleDate), 
+                        Amount = e.TotalSales, 
+                        IncomeType = "Upstairs Bar", 
                         Year = (e.AdjustedSaleDate ?? e.SaleDate).Year 
                     })
                     .ToListAsync();

@@ -29,7 +29,27 @@ END
 
 GO
 
+-- 3. Add BarLocation to BarSaleEntries (Location-Based Tracking)
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[BarSaleEntries]') AND name = 'BarLocation')
+BEGIN
+    ALTER TABLE [dbo].[BarSaleEntries] ADD [BarLocation] NVARCHAR(50) NULL;
+    PRINT 'Added BarLocation column to BarSaleEntries';
+END
+
+GO
+
+-- Backfill data based on the old IsRentalHall flag (1 = Upstairs Bar, 0 = Downstairs Bar)
+UPDATE [dbo].[BarSaleEntries] 
+SET [BarLocation] = CASE WHEN IsRentalHall = 1 THEN 'Upstairs Bar' ELSE 'Downstairs Bar' END
+WHERE [BarLocation] IS NULL;
+PRINT 'Backfilled BarLocation based on IsRentalHall status';
+
+GO
+
 -- Verify updated schema
+PRINT '--- Bar Sale Location Verify ---';
+SELECT TOP 5 SaleDate, BarLocation, IsRentalHall FROM BarSaleEntries ORDER BY SaleDate DESC;
+
 PRINT '--- Payroll Schema Verify (AppUsers) ---';
 SELECT 'AppUsers' TableName, name, type_name(user_type_id) type FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.AppUsers') AND name IN ('HourlyRate', 'IsTrackedEmployee');
 
