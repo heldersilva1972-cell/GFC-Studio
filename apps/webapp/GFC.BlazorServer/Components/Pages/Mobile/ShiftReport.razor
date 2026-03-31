@@ -91,12 +91,15 @@
                         <span class="fw-bold"><i class="bi bi-cash-stack me-2"></i>Bar Sales:</span>
                         <span class="fw-black">@((BarSales ?? 0).ToString("C2"))</span>
                     </div>
-                    <div class="math-row border-top pt-2" style="font-size: 0.8rem;">
-                        <span class="fw-bold text-primary"><i class="bi bi-ticket-perforated me-2"></i>Lottery Variance:</span>
-                        <span class="fw-black @(LottoDiscrepancy == 0 ? "text-success" : "text-danger")">
-                            @((LottoDiscrepancy == 0 ? "$0.00" : (LottoDiscrepancy > 0 ? "+" : "-") + "$" + Math.Abs(LottoDiscrepancy).ToString("N2")))
-                        </span>
-                    </div>
+                    @if (!IsRentalHall)
+                    {
+                        <div class="math-row border-top pt-2" style="font-size: 0.8rem;">
+                            <span class="fw-bold text-primary"><i class="bi bi-ticket-perforated me-2"></i>Lottery Variance:</span>
+                            <span class="fw-black @(LottoDiscrepancy == 0 ? "text-success" : "text-danger")">
+                                @((LottoDiscrepancy == 0 ? "$0.00" : (LottoDiscrepancy > 0 ? "+" : "-") + "$" + Math.Abs(LottoDiscrepancy).ToString("N2")))
+                            </span>
+                        </div>
+                    }
                 </div>
 
                 <div class="d-flex flex-column gap-2">
@@ -497,8 +500,8 @@
                     @if (!string.IsNullOrEmpty(ShiftType) && !IsRentalHall)
                     {
                         <div class="sim-res-card-unified shadow-lg mb-3 @(LottoDiscrepancy == 0 ? "exact" : LottoDiscrepancy > 0 ? "over" : "short")">
-                            <div class="summary-header">
-                                <i class="bi bi-calculator-fill me-2 opacity-50"></i> LOTTERY RECONCILIATION SUMMARY
+                            <div class="summary-header" style="font-size: 0.65rem; white-space: nowrap;">
+                                <i class="bi bi-calculator-fill me-2 opacity-50"></i> LOTTERY SUMMARY (SHIFT: @ShiftType.ToUpper())
                             </div>
                              <div class="math-flow-table p-2">
                                  <div class="math-row opacity-60 mb-1" style="font-size: 0.6rem;">
@@ -511,16 +514,16 @@
                                  </div>
                                  <div class="math-row opacity-50 ps-2" style="font-size: 0.55rem;">
                                      <span><i class="bi bi-dash small"></i> Cashes (RPT 50)</span>
-                                     <span>-@((Math.Abs(LottoCashes ?? 0)).ToString("N2"))</span>
+                                     <span>-@((Math.Abs((ShiftType == "Night" ? (LottoCashes ?? 0) - _prevDayCashes : (LottoCashes ?? 0)))).ToString("N2"))</span>
                                  </div>
                                  <div class="math-row opacity-50 ps-2 mb-1" style="font-size: 0.55rem;">
                                      <span><i class="bi bi-dash small"></i> Tickets (RPT 34)</span>
-                                     <span>-@((Math.Abs(LottoInstantTickets ?? 0)).ToString("N2"))</span>
+                                     <span>-@((Math.Abs((ShiftType == "Night" ? (LottoInstantTickets ?? 0) - _prevDayTickets : (LottoInstantTickets ?? 0)))).ToString("N2"))</span>
                                  </div>
                                  
                                  <div class="math-row border-top mt-1 pt-1 mb-1 @(LottoNetMade >= 0 ? "text-success" : "text-danger")" style="font-size: 0.7rem;">
-                                     <span class="fw-bold">⚡ LOTTERY NET REV</span>
-                                     <span class="fw-black">@(LottoNetMade >= 0 ? "+" : "")@(LottoNetMade.ToString("C2"))</span>
+                                     <span class="fw-bold">SHIFT NET CASH FLOW</span>
+                                     <span class="fw-black">@(LottoNetMade >= 0 ? "+" : "-")@(Math.Abs(LottoNetMade).ToString("C2"))</span>
                                  </div>
                                  <div class="math-row total-expected border-top border-primary border-opacity-10 mt-1 pt-1">
                                      <span class="fw-black text-primary" style="font-size: 0.65rem;">🎯 EXPECTED DRAWER</span>
@@ -1057,6 +1060,18 @@
 
     .page-content-wrapper {
         padding-top: 0.5rem !important; 
+    }
+
+    .summary-card {
+        border: 1px solid rgba(0,0,0,0.05);
+        background: #fff;
+        height: auto;
+        min-height: 280px;
+        overflow: visible !important;
+    }
+
+    .bg-indigo-dark {
+        background: #1e1b4b; /* Deep Indigo */
     }
 
     .mobile-summary-integrated { 
@@ -1602,6 +1617,7 @@
                 existingBar.ModifiedBy = CurrentUser?.Username; existingBar.ModifiedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             } else if ((BarSales != null && BarSales > 0) || (TotalHours != null && TotalHours > 0)) {
+                // ONLY CREATE if there is actual non-zero activity
                 db.BarSaleEntries.Add(new BarSaleEntry {
                     SaleDate = DateTime.Now, AdjustedSaleDate = ReportDate, TotalSales = BarSales ?? 0,
                     TotalHours = TotalHours, IsRentalHall = IsRentalHall, Shift = ShiftType, Notes = Notes,
@@ -1611,7 +1627,7 @@
                 ExistingEntryFound = true;
             }
 
-            if (!IsRentalHall && (LottoSales != null || LottoCashes != null || LottoNetDue != null)) {
+            if (!IsRentalHall) {
                 var lottoShifts = LotteryRepo.GetByDateRange(ReportDate, ReportDate);
                 var existingLotto = lottoShifts.FirstOrDefault(s => s.ShiftType == ShiftType);
                 if (existingLotto != null) {
@@ -1621,7 +1637,8 @@
                     existingLotto.BackupBagAmount = LottoBackupBag ?? 0; existingLotto.EndingCash = LottoCashCounted ?? 0;
                     existingLotto.EnvelopeAmount = LottoEnvelopeAmount; existingLotto.Notes = Notes;
                     LotteryRepo.Update(existingLotto);
-                } else {
+                } else if ((LottoSales != null && LottoSales > 0) || (LottoCashes != null && LottoCashes > 0) || (LottoNetDue != null && LottoNetDue != 0) || (LottoCashCounted != null && LottoCashCounted > 0)) {
+                    // ONLY CREATE if there is actual non-zero lottery activity
                     LotteryRepo.Create(new LotteryShift {
                         ShiftDate = ReportDate, EmployeeName = CurrentUser?.Username ?? "Unknown", ShiftType = ShiftType,
                         TotalSales = LottoSales ?? 0, TotalPayouts = LottoCashes ?? 0, TotalCancels = LottoInstantTickets ?? 0,
@@ -1819,6 +1836,8 @@
     {
         _lockErrorMessage = null;
         _showValidation = false;
+        _activeField = null;
+        _currentBuffer = "";
         ShiftType = type;
         await CheckExisting();
         if (IsLocked) {
@@ -1836,28 +1855,31 @@
                 ? "You are about to exit the Rental Hall report. Any unsaved sales or notes will be lost. Continue?"
                 : "You have unsaved bar sales in progress. Switching to Rental Hall will discard these changes. Continue?";
             
-            _onModalConfirm = () => {
-                ExecuteToggleRentalHall();
+            _onModalConfirm = async () => {
+                await ExecuteToggleRentalHall();
             };
             _showUnsavedModal = true;
             return;
         }
-
-        ExecuteToggleRentalHall();
+ 
+        await ExecuteToggleRentalHall();
     }
 
-    private void ExecuteToggleRentalHall()
+    private async Task ExecuteToggleRentalHall()
     {
         IsRentalHall = !IsRentalHall;
         _lockErrorMessage = null;
         _showValidation = false;
+        _activeField = null;
+        _currentBuffer = "";
         ShiftType = IsRentalHall ? "Hall" : null;
-        _ = UpdateShiftAvailability();
-        _ = CheckExisting();
+        await UpdateShiftAvailability();
+        await CheckExisting();
         if (IsLocked) {
              _lockErrorMessage = "Access Restricted: This existing report is locked.";
              ResetSelection();
         }
+        StateHasChanged();
     }
 
     private async Task HandleBackToSelection() {
@@ -1875,7 +1897,8 @@
 
     private void ResetSelection()
     {
-        ShiftType = null; BarSales = null; TotalHours = null; LottoSales = null; LottoCashes = null; LottoInstantTickets = null; LottoNetDue = null; 
+        ShiftType = null; IsRentalHall = false; BarSales = null; TotalHours = null; 
+        LottoSales = null; LottoCashes = null; LottoInstantTickets = null; LottoNetDue = null; 
         LottoBackupBag = 0; LottoCashCounted = null; Notes = null; ExistingEntryFound = false; IsLocked = false;
     }
 
@@ -1892,7 +1915,8 @@
             _dayMainHasData = (dayBar != null && (dayBar.TotalSales > 0 || (dayBar.TotalHours ?? 0) > 0)) || 
                              (dayShift != null && (dayShift.TotalSales > 0 || dayShift.TotalPayouts > 0));
             _dayCloser = dayShift?.ModifiedBy ?? dayShift?.EmployeeName ?? dayBar?.ModifiedBy ?? dayBar?.CreatedBy;
-            _dayMainModified = (dayShift?.ModifiedDate != null && _dayMainSubmitted) || (dayBar?.ModifiedAt != null && _dayMainSubmitted);
+            _dayMainModified = (dayShift?.ModifiedDate != null && dayShift?.CreatedDate != null && (dayShift.ModifiedDate.Value - dayShift.CreatedDate).TotalSeconds > 10 && _dayMainSubmitted) || 
+                              (dayBar?.ModifiedAt != null && (dayBar.ModifiedAt.Value - dayBar.CreatedAt).TotalSeconds > 10 && _dayMainSubmitted);
             
             var nightShift = lottoShifts.FirstOrDefault(s => s.ShiftType == "Night");
             var nightBar = barEntries.FirstOrDefault(e => e.Shift == "Night");
@@ -1900,7 +1924,8 @@
             _nightMainHasData = (nightBar != null && (nightBar.TotalSales > 0 || (nightBar.TotalHours ?? 0) > 0)) || 
                                (nightShift != null && (nightShift.TotalSales > 0 || nightShift.TotalPayouts > 0));
             _nightCloser = nightShift?.ModifiedBy ?? nightShift?.EmployeeName ?? nightBar?.ModifiedBy ?? nightBar?.CreatedBy;
-            _nightMainModified = (nightShift?.ModifiedDate != null && _nightMainSubmitted) || (nightBar?.ModifiedAt != null && _nightMainSubmitted);
+            _nightMainModified = (nightShift?.ModifiedDate != null && nightShift?.CreatedDate != null && (nightShift.ModifiedDate.Value - nightShift.CreatedDate).TotalSeconds > 10 && _nightMainSubmitted) || 
+                                (nightBar?.ModifiedAt != null && (nightBar.ModifiedAt.Value - nightBar.CreatedAt).TotalSeconds > 10 && _nightMainSubmitted);
             
             // Strictly check for rental hall entries only, avoiding any mix-up with downstairs entries
             var hallEntry = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && 
@@ -1908,7 +1933,7 @@
                                                                   e.Shift == "Hall");
             // For Bar Entries, we check if they have actual non-zero data to be considered 'submitted' since they lack a Status field
             _hallSubmitted = hallEntry != null && (hallEntry.TotalSales > 0 || (hallEntry.TotalHours ?? 0) > 0);
-            _hallModified = hallEntry?.ModifiedAt != null && _hallSubmitted;
+            _hallModified = hallEntry?.ModifiedAt != null && (hallEntry.ModifiedAt.Value - hallEntry.CreatedAt).TotalSeconds > 10 && _hallSubmitted;
             _hallCloser = hallEntry?.ModifiedBy ?? hallEntry?.CreatedBy;
         } catch { }
     }
