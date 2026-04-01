@@ -162,28 +162,10 @@ namespace GFC.BlazorServer.Services
                 allPoints.AddRange(points);
             }
 
-            if (request.IncomeTypes.Contains("Lottery"))
-            {
-                var lotusPoints = await db.LotteryWeeklyStats
-                    .Where(s => request.Years.Contains(s.WeekEndingDate.Year))
-                    .Select(s => new 
-                    { 
-                        Date = s.WeekEndingDate, 
-                        Amount = Math.Abs(s.OnlineCommission) + Math.Abs(s.InstantCommission) + 
-                                 Math.Abs(s.OnlineCashBonus) + Math.Abs(s.InstantCashBonus) + 
-                                 Math.Abs(s.OnlineClaimsBonus) + Math.Abs(s.InstantClaimsBonus),
-                        Year = s.WeekEndingDate.Year 
-                    })
-                    .ToListAsync();
-
-                allPoints.AddRange(lotusPoints.Select(p => new FinancialDataPoint
-                {
-                    Date = p.Date,
-                    Amount = p.Amount,
-                    IncomeType = "Lottery",
-                    Year = p.Year
-                }));
-            }
+            // if (request.IncomeTypes.Contains("Lottery"))
+            // {
+            //     Data removed per user request. Shows as $0.
+            // }
 
             // Apply filters
             var filtered = allPoints.AsQueryable();
@@ -584,28 +566,25 @@ namespace GFC.BlazorServer.Services
             snapshot.BarSalesUpstairs = barSales.Where(b => b.IsRentalHall).Sum(b => b.TotalSales);
 
             // 2. Income - Lottery
-            var lottoStats = await db.LotteryWeeklyStats.AsNoTracking()
-                .Where(l => l.WeekEndingDate.Year == year)
-                .ToListAsync();
-            
-            snapshot.LotteryCommissions = lottoStats.Sum(l => l.OnlineCommission + l.InstantCommission);
-            snapshot.LotteryBonuses = lottoStats.Sum(l => l.OnlineCashBonus + l.OnlineClaimsBonus + l.InstantCashBonus + l.InstantClaimsBonus);
+            // Set to 0 per user request until data source is finalized
+            snapshot.LotteryCommissions = 0m;
+            snapshot.LotteryBonuses = 0m;
 
             // 3. Income - Membership Dues
             snapshot.MembershipDues = await db.DuesPayments.AsNoTracking()
                 .Where(d => d.Year == year)
-                .SumAsync(d => d.Amount ?? 0m);
+                .SumAsync(d => d.Amount) ?? 0m;
 
             // 4. Income - Hall Rentals
             snapshot.HallRentals = await db.HallRentals.AsNoTracking()
                 .Where(h => h.EventDate.Year == year)
-                .SumAsync(h => h.TotalPrice);
+                .SumAsync(h => (decimal?)h.TotalPrice) ?? 0m;
 
             // 5. Expenses - Reimbursements
             snapshot.Reimbursements = await db.ReimbursementItems.AsNoTracking()
                 .Include(i => i.Request)
                 .Where(i => i.Request.Status == "Paid" && i.Request.PaidDateUtc != null && i.Request.PaidDateUtc.Value.Year == year)
-                .SumAsync(i => i.Amount);
+                .SumAsync(i => (decimal?)i.Amount) ?? 0m;
 
             // 7. Expenses - Payroll
             var payroll = await GetEmployeeHoursAsync(start, end);
