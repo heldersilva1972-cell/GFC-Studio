@@ -86,8 +86,12 @@ namespace GFC.BlazorServer.Services
             // 3. Database Operations (Trusted Devices & Magic Links)
             using var context = await _dbContextFactory.CreateDbContextAsync();
             
-            // Delete Trusted Devices
-            var devices = await context.TrustedDevices.Where(d => d.UserId == userId).ToListAsync();
+            // Delete Trusted Devices (BUT PROTECT SHARED STATIONS)
+            // We only revoke personal devices (phones/laptops) linked to this user. 
+            // Shared Club Stations remain active even if the authorizer is removed.
+            var devices = await context.TrustedDevices
+                .Where(d => d.UserId == userId && !d.IsStation)
+                .ToListAsync();
             context.TrustedDevices.RemoveRange(devices);
             
             // Invalidate Magic Links (MagicLinkTokens)

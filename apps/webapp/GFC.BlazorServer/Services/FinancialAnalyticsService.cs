@@ -17,11 +17,31 @@ namespace GFC.BlazorServer.Services
         Task<(List<DailySalesReportDto> Data, int TotalBar, int TotalLotto, string Server, string Database, string Error)> GetDailySalesReportsAsync(DateTime startDate, DateTime endDate);
         Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null);
         Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All");
+        Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year);
     }
 
-
-
-
+    public class FinancialSnapshotDto
+    {
+        public int Year { get; set; }
+        public decimal BarSalesDownstairs { get; set; }
+        public decimal BarSalesUpstairs { get; set; }
+        public decimal LotteryCommissions { get; set; }
+        public decimal LotteryBonuses { get; set; }
+        public decimal MembershipDues { get; set; }
+        public decimal HallRentals { get; set; }
+        
+        public decimal TotalIncome => BarSalesDownstairs + BarSalesUpstairs + MembershipDues + HallRentals;
+        
+        // Expenses
+        public decimal GrossPayroll { get; set; }
+        public decimal EmployerFica { get; set; }
+        public decimal EmployerPfml { get; set; }
+        public decimal MaUnemployment { get; set; }
+        public decimal Reimbursements { get; set; }
+        
+        public decimal TotalExpenses => GrossPayroll + EmployerFica + EmployerPfml + MaUnemployment + Reimbursements;
+        public decimal NetProfit => TotalIncome - TotalExpenses;
+    }
 
     public class FinancialAnalyticsRequest
     {
@@ -507,6 +527,61 @@ namespace GFC.BlazorServer.Services
             }
 
             return filteredResults.OrderByDescending(d => d.TotalHours).ToList();
+        }
+
+        public async Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            var snapshot = new FinancialSnapshotDto { Year = year };
+            var start = new DateTime(year, 1, 1);
+            var end = new DateTime(year, 12, 31);
+
+            // 1. Income - Bar Sales
+            var barSales = await db.BarSaleEntries.AsNoTracking()
+                .Where(b => (b.AdjustedSaleDate ?? b.SaleDate).Year == year)
+                .ToListAsync();
+            
+            snapshot.BarSalesDownstairs = barSales.Where(b => !b.IsRentalHall).Sum(b => b.TotalSales);
+            snapshot.BarSalesUpstairs = barSales.Where(b => b.IsRentalHall).Sum(b => b.TotalSales);
+
+            // 2. Income - Lottery
+            var lottoStats = await db.LotteryWeeklyStats.AsNoTracking()
+                .Where(l => l.WeekEndingDate.Year == year)
+                .ToListAsync();
+            
+            snapshot.LotteryCommissions = lottoStats.Sum(l => l.OnlineCommission + l.InstantCommission);
+            snapshot.LotteryBonuses = lottoStats.Sum(l => l.OnlineCashBonus + l.OnlineClaimsBonus + l.InstantCashBonus + l.InstantClaimsBonus);
+
+            // 3. Income - Membership Dues
+            snapshot.MembershipDues = await db.DuesPayments.AsNoTracking()
+                .Where(d => d.Year == year)
+                .SumAsync(d => d.Amount ?? 0m);
+
+            // 4. Income - Hall Rentals
+            snapshot.HallRentals = await db.HallRentals.AsNoTracking()
+                .Where(h => h.EventDate.Year == year)
+                .SumAsync(h => h.TotalPrice);
+
+            // 5. Expenses - Reimbursements
+            snapshot.Reimbursements = await db.ReimbursementItems.AsNoTracking()
+                .Include(i => i.Request)
+                .Where(i => i.Request.Status == "Paid" && i.Request.PaidDateUtc != null && i.Request.PaidDateUtc.Value.Year == year)
+                .SumAsync(i => i.Amount);
+
+            // 7. Expenses - Payroll
+            var payroll = await GetEmployeeHoursAsync(start, end);
+            snapshot.GrossPayroll = payroll.Sum(p => (p.TotalHours * (p.HourlyRate ?? 0)));
+            
+            // 8. Tax Calculation based on SystemSettings (Id = 1)
+            var config = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
+            if (config != null && snapshot.GrossPayroll > 0)
+            {
+                snapshot.EmployerFica = snapshot.GrossPayroll * (config.FicaEmployerRate / 100m);
+                snapshot.EmployerPfml = snapshot.GrossPayroll * (config.PfmlEmployerRate / 100m);
+                snapshot.MaUnemployment = snapshot.GrossPayroll * (config.MaUnemploymentRate / 100m);
+            }
+
+            return snapshot;
         }
     }
 }

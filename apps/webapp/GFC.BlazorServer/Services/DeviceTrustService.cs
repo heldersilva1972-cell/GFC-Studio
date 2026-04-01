@@ -494,14 +494,10 @@ public class DeviceTrustService : IDeviceTrustService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
 
-            // 1. Delete Trusted Devices (Fresh start as per user request)
-            // [NOTE] This deletes ALL trusted devices (phones, laptops, tablets) for this user.
-            var devices = await context.TrustedDevices.Where(d => d.UserId == userId).ToListAsync();
-            
-            // Safety: If the user reset themselves (which shouldn't happen via UI but for safety),
-            // this loop would kill their current session token immediately.
-            // However, the UI blocks 'admin' reset, and users can't reset themselves via this tool easily.
-            // The "Logged Out" effect happens because we nuke the token they are currently using.
+            // 1. Delete Personal Trusted Devices (Leave Stations)
+            var devices = await context.TrustedDevices
+                                .Where(d => d.UserId == userId && !d.IsStation)
+                                .ToListAsync();
             
             if (devices.Any()) context.TrustedDevices.RemoveRange(devices);
 

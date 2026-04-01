@@ -1,0 +1,338 @@
+@page "/finance/overview"
+@using GFC.BlazorServer.Services
+@using GFC.Core.Models
+@inject IFinancialAnalyticsService FinancialService
+@inject NavigationManager Navigation
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+<PageTitle>Financial Overview | GFC</PageTitle>
+
+<div class="overview-container">
+    <div class="overview-header">
+        <div class="d-flex justify-content-between align-items-center mb-0">
+            <div>
+                <h1 class="h3 fw-bold mb-1 text-dark">Financial Overview</h1>
+                <p class="text-muted small mb-0">Consolidated Income and Expense Tracking for @SelectedYear</p>
+            </div>
+            <div class="d-flex gap-2">
+                <select class="form-select form-select-sm year-select" @bind="SelectedYear" @bind:after="LoadOverview">
+                    @foreach (var year in _availableYears)
+                    {
+                        <option value="@year">@year</option>
+                    }
+                </select>
+                <button class="btn btn-sm btn-outline-primary" @onclick="PrintOverview">
+                    <i class="bi bi-printer me-1"></i> Print
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="d-flex justify-content-center align-items-center" style="height: 400px;">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (_overview != null)
+    {
+        <!-- Summary Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="summary-card income">
+                    <div class="icon-circle"><i class="bi bi-arrow-up-right"></i></div>
+                    <div class="content">
+                        <span class="label">Annual Income</span>
+                        <h2 class="value">@_overview.TotalIncome.ToString("C0")</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="summary-card expense">
+                    <div class="icon-circle"><i class="bi bi-arrow-down-left"></i></div>
+                    <div class="content">
+                        <span class="label">Annual Expenses</span>
+                        <h2 class="value">@_overview.TotalExpenses.ToString("C0")</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="summary-card @(_overview.NetProfit >= 0 ? "profit" : "loss")">
+                    <div class="icon-circle"><i class="bi bi-wallet2"></i></div>
+                    <div class="content">
+                        <span class="label">Annual Net Profit</span>
+                        <h2 class="value">@_overview.NetProfit.ToString("C0")</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Income Section -->
+            <div class="col-lg-6">
+                <div class="details-card">
+                    <div class="card-header-premium income">
+                        <i class="bi bi-cash-stack"></i>
+                        <span>Income Streams</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-hover mb-0 detail-table">
+                            <tbody>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-success-subtle text-success"><i class="bi bi-shop"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">Downstairs Bar</div>
+                                                <div class="text-muted x-small">Main Register Sales</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.BarSalesDownstairs.ToString("C0")</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-info-subtle text-info"><i class="bi bi-building-up"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">Upstairs Bar</div>
+                                                <div class="text-muted x-small">Rental Hall Bar Sales</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.BarSalesUpstairs.ToString("C0")</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-purple-subtle text-purple"><i class="bi bi-wallet2"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">Membership Dues</div>
+                                                <div class="text-muted x-small">Annual Member Payments</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.MembershipDues.ToString("C0")</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-orange-subtle text-orange"><i class="bi bi-building"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">Hall Rentals</div>
+                                                <div class="text-muted x-small">Private Event Revenue</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.HallRentals.ToString("C0")</td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="bg-success-subtle text-success">
+                                    <td class="fw-bold">TOTAL ANNUAL INCOME</td>
+                                    <td class="text-end fw-bold fs-6">@_overview.TotalIncome.ToString("C0")</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Expense Section -->
+            <div class="col-lg-6">
+                <div class="details-card">
+                    <div class="card-header-premium expense">
+                        <i class="bi bi-receipt-cutoff"></i>
+                        <span>Operating Expenses</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-hover mb-0 detail-table">
+                            <tbody>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-danger-subtle text-danger"><i class="bi bi-person-badge"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">Gross Payroll</div>
+                                                <div class="text-muted x-small">Staff Wages Before Taxes</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.GrossPayroll.ToString("C0")</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-secondary-subtle text-secondary"><i class="bi bi-bank"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">Employer FICA</div>
+                                                <div class="text-muted x-small">Social Security & Medicare (7.65%)</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.EmployerFica.ToString("C0")</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-secondary-subtle text-secondary"><i class="bi bi-shield-check"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">MA PFML</div>
+                                                <div class="text-muted x-small">Paid Family Medical Leave (Employer)</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.EmployerPfml.ToString("C0")</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-secondary-subtle text-secondary"><i class="bi bi-building-dash"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">MA Unemployment</div>
+                                                <div class="text-muted x-small">State Unemployment Insurance</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.MaUnemployment.ToString("C0")</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="cat-icon bg-warning-subtle text-warning"><i class="bi bi-cash"></i></div>
+                                            <div class="ms-3">
+                                                <div class="fw-bold fs-7">Reimbursements</div>
+                                                <div class="text-muted x-small">Paid Out Operating Costs</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-end fw-bold">@_overview.Reimbursements.ToString("C0")</td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="bg-danger-subtle text-danger">
+                                    <td class="fw-bold">TOTAL ANNUAL EXPENSES</td>
+                                    <td class="text-end fw-bold fs-6">@_overview.TotalExpenses.ToString("C0")</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .overview-container {
+        padding: 1.5rem;
+        background: #f8fafc;
+        min-height: calc(100vh - 65px);
+    }
+
+    .overview-header {
+        margin-bottom: 2rem;
+    }
+
+    .year-select {
+        width: 120px;
+        font-weight: 600;
+        border-radius: 8px;
+    }
+
+    .summary-card {
+        background: white;
+        padding: 1.25rem;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        border: 1px solid #eef2f6;
+    }
+
+    .summary-card .icon-circle {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+
+    .summary-card.income .icon-circle { background: #dcfce7; color: #166534; }
+    .summary-card.expense .icon-circle { background: #fee2e2; color: #991b1b; }
+    .summary-card.profit .icon-circle { background: #dbeafe; color: #1e40af; }
+    .summary-card.loss .icon-circle { background: #fef3c7; color: #92400e; }
+
+    .summary-card .label { font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.025em; }
+    .summary-card .value { margin: 0; font-weight: 800; color: #1e293b; }
+
+    .details-card {
+        background: white;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+        border: 1px solid #eef2f6;
+    }
+
+    .card-header-premium {
+        padding: 1rem 1.25rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1rem;
+    }
+
+    .card-header-premium.income { background: #f0fdf4; color: #166534; border-bottom: 2px solid #bbf7d0; }
+    .card-header-premium.expense { background: #fef2f2; color: #991b1b; border-bottom: 2px solid #fecaca; }
+
+    .detail-table td { padding: 0.85rem 1.25rem; border-color: #f1f5f9; }
+    .cat-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+    
+    .bg-purple-subtle { background: #f3e8ff; }
+    .text-purple { color: #6b21a8; }
+    .bg-orange-subtle { background: #ffedd5; }
+    .text-orange { color: #9a3412; }
+
+    .fs-7 { font-size: 0.9rem; }
+    .x-small { font-size: 0.75rem; }
+
+    @@media print {
+        .overview-container { padding: 0; background: white; }
+        .year-select, .btn-outline-primary { display: none; }
+        .summary-card { box-shadow: none; border: 1px solid #ddd; }
+    }
+</style>
+
+@code {
+    private int SelectedYear { get; set; } = DateTime.Now.Year;
+    private List<int> _availableYears = new();
+    private FinancialSnapshotDto? _overview;
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _availableYears = await FinancialService.GetAvailableYearsAsync();
+        if (!_availableYears.Contains(DateTime.Now.Year)) _availableYears.Insert(0, DateTime.Now.Year);
+        _availableYears = _availableYears.OrderByDescending(y => y).ToList();
+        
+        await LoadOverview();
+    }
+
+    private async Task LoadOverview()
+    {
+        _isLoading = true;
+        _overview = await FinancialService.GetFinancialSnapshotAsync(SelectedYear);
+        _isLoading = false;
+    }
+
+    private async Task PrintOverview()
+    {
+        // Simple JS print
+        await Microsoft.JSInterop.JSRuntimeExtensions.InvokeVoidAsync(null, "window.print");
+    }
+}
