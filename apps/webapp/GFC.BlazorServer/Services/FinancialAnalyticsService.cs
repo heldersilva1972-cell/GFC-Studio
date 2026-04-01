@@ -443,13 +443,24 @@ namespace GFC.BlazorServer.Services
             if (!string.IsNullOrWhiteSpace(username))
                 query = query.Where(e => e.CreatedBy == username);
 
+            var sys = await db.SystemSettings.FirstOrDefaultAsync();
+            decimal fallbackEmployeeTax = 0, fallbackEmployerTax = 0;
+            if (sys != null)
+            {
+                fallbackEmployeeTax = (sys.MaStateTaxRate + sys.PfmlEmployeeRate + sys.FicaEmployeeRate) / 100m;
+                fallbackEmployerTax = (sys.MaUnemploymentRate + sys.PfmlEmployerRate + sys.FicaEmployerRate) / 100m;
+            }
+
             var entries = await query
                 .Select(e => new {
                     Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
                     Hours = e.TotalHours ?? 0m,
                     Shift = e.Shift ?? "Day",
                     IsHall = e.IsRentalHall,
-                    User = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown"
+                    User = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown",
+                    HistoricalRate = e.HourlyRate_AtTimeOfShift,
+                    HistoricalEmployeeTax = e.TotalEmployeeTaxes_AtTimeOfShift,
+                    HistoricalEmployerTax = e.TotalEmployerTaxes_AtTimeOfShift
                 })
                 .ToListAsync();
 
@@ -482,15 +493,43 @@ namespace GFC.BlazorServer.Services
                 // Skip if they worked 0 hours (e.g. they only recorded a shift with 0 time)
                 if (totalHours <= 0) continue;
 
+                var defaultRate = user.HourlyRate ?? 0;
+                
+                decimal totalPay = 0, netPay = 0, totalPayrollCost = 0;
+                decimal downstairsPay = 0, upstairsPay = 0;
+
+                foreach (var e in userEntries)
+                {
+                    decimal rate = e.HistoricalRate ?? defaultRate;
+                    decimal employeeTax = e.HistoricalEmployeeTax ?? fallbackEmployeeTax;
+                    decimal employerTax = e.HistoricalEmployerTax ?? fallbackEmployerTax;
+
+                    decimal shiftGross = e.Hours * rate;
+                    decimal shiftNet = shiftGross * (1 - employeeTax);
+                    decimal shiftCost = shiftGross * (1 + employerTax);
+
+                    totalPay += shiftGross;
+                    netPay += shiftNet;
+                    totalPayrollCost += shiftCost;
+
+                    if (e.IsHall) upstairsPay += shiftGross;
+                    else downstairsPay += shiftGross;
+                }
+
                 var dto = new EmployeeHoursDto {
                     Username = user.Username,
                     TotalHours = totalHours,
                     DownstairsHours = userEntries.Where(e => !e.IsHall).Sum(e => e.Hours),
                     UpstairsHours = userEntries.Where(e => e.IsHall).Sum(e => e.Hours),
                     EntryCount = userEntries.Count(e => e.Hours > 0),
-                    HourlyRate = user.HourlyRate,
+                    HourlyRate = user.HourlyRate, // Keep current rate for display
                     StartDate = start,
-                    EndDate = end
+                    EndDate = end,
+                    TotalPay = totalPay,
+                    NetPay = netPay,
+                    TotalPayrollCost = totalPayrollCost,
+                    DownstairsPay = downstairsPay,
+                    UpstairsPay = upstairsPay
                 };
 
                 // Fill daily breakdown and shift types

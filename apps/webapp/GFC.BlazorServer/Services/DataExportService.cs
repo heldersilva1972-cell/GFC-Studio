@@ -4,6 +4,8 @@ using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using GFC.Core.DTOs;
 using GFC.Data;
+using GFC.BlazorServer.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using System.Drawing;
 
@@ -20,6 +22,7 @@ namespace GFC.BlazorServer.Services
         private readonly INpQueueService _npQueueService;
         private readonly ILifeEligibilityService _lifeEligibilityService;
         private readonly IUserManagementService _userManagementService;
+        private readonly IDbContextFactory<GfcDbContext> _dbFactory;
 
         public DataExportService(
             IMemberRepository memberRepository,
@@ -30,7 +33,8 @@ namespace GFC.BlazorServer.Services
             IBoardRepository boardRepository,
             INpQueueService npQueueService,
             ILifeEligibilityService lifeEligibilityService,
-            IUserManagementService userManagementService)
+            IUserManagementService userManagementService,
+            IDbContextFactory<GfcDbContext> dbFactory)
         {
             _memberRepository = memberRepository;
             _duesRepository = duesRepository;
@@ -41,6 +45,7 @@ namespace GFC.BlazorServer.Services
             _npQueueService = npQueueService;
             _lifeEligibilityService = lifeEligibilityService;
             _userManagementService = userManagementService;
+            _dbFactory = dbFactory;
             
             // Set EPPlus license context (required for non-commercial use)
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
@@ -64,6 +69,9 @@ namespace GFC.BlazorServer.Services
             
             if (options.IncludeLotteryShifts)
                 AddLotteryShiftsSheet(package);
+            
+            if (options.IncludeBarSales)
+                AddBarSalesSheet(package);
             
             if (options.IncludeBoardMembers)
                 AddBoardMembersSheet(package);
@@ -346,6 +354,58 @@ namespace GFC.BlazorServer.Services
             worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
         }
 
+        private void AddBarSalesSheet(ExcelPackage package)
+        {
+            var worksheet = package.Workbook.Worksheets.Add("Bar Sales & Hours");
+            using var db = _dbFactory.CreateDbContext();
+            var entries = db.BarSaleEntries.OrderByDescending(e => (e.AdjustedSaleDate ?? e.SaleDate)).ToList();
+
+            // Headers
+            worksheet.Cells[1, 1].Value = "Entry ID";
+            worksheet.Cells[1, 2].Value = "Recorded Date";
+            worksheet.Cells[1, 3].Value = "Shift Type";
+            worksheet.Cells[1, 4].Value = "Assigned Location";
+            worksheet.Cells[1, 5].Value = "Total Net Sales";
+            worksheet.Cells[1, 6].Value = "Total Hours Worked";
+            worksheet.Cells[1, 7].Value = "Submitted By";
+            worksheet.Cells[1, 8].Value = "Submitted Time (UTC)";
+            worksheet.Cells[1, 9].Value = "Employee Notes";
+
+            // Style headers
+            using (var range = worksheet.Cells[1, 1, 1, 9])
+            {
+                range.Style.Font.Bold = true;
+                range.Style.Fill.PatternType = ExcelFillStyle.Solid;
+                range.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
+                range.Style.Border.BorderAround(ExcelBorderStyle.Thin);
+            }
+
+            // Data
+            int row = 2;
+            foreach (var entry in entries)
+            {
+                worksheet.Cells[row, 1].Value = entry.Id;
+                worksheet.Cells[row, 2].Value = (entry.AdjustedSaleDate ?? entry.SaleDate).ToString("yyyy-MM-dd");
+                worksheet.Cells[row, 3].Value = entry.Shift;
+                worksheet.Cells[row, 4].Value = entry.IsRentalHall ? "Upstairs Hall" : "Downstairs Bar";
+                worksheet.Cells[row, 5].Value = entry.TotalSales;
+                worksheet.Cells[row, 6].Value = entry.TotalHours;
+                worksheet.Cells[row, 7].Value = entry.CreatedBy;
+                worksheet.Cells[row, 8].Value = entry.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss");
+                worksheet.Cells[row, 9].Value = entry.Notes;
+                row++;
+            }
+
+            // Format Currency
+            worksheet.Cells[2, 5, Math.Max(2, row - 1), 5].Style.Numberformat.Format = "$#,##0.00";
+            
+            // Format Number
+            worksheet.Cells[2, 6, Math.Max(2, row - 1), 6].Style.Numberformat.Format = "#,##0.00";
+
+            // Auto-fit columns
+            worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
+        }
+
         private void AddBoardMembersSheet(ExcelPackage package)
         {
             var worksheet = package.Workbook.Worksheets.Add("Board Members");
@@ -599,13 +659,25 @@ namespace GFC.BlazorServer.Services
 
                     // Process Members Sheet (case-insensitive, accept common variations)
                     var membersSheet = FindWorksheet(package.Workbook, "Members", "Member", "Member List", "MemberList");
+                    bool anyProcessed = false;
+
                     if (membersSheet != null)
                     {
                         ProcessMembersSheet(membersSheet, result);
+                        anyProcessed = true;
                     }
-                    else
+
+                    // Process Bar Sales Sheet
+                    var barSalesSheet = FindWorksheet(package.Workbook, "Bar Sales & Hours", "Bar Sales", "BarSales");
+                    if (barSalesSheet != null)
                     {
-                         result.Errors.Add("No 'Members' worksheet found. Please ensure your Excel file has a worksheet named 'Members', 'Member', or 'Member List'.");
+                        ProcessBarSalesSheet(barSalesSheet, result);
+                        anyProcessed = true;
+                    }
+
+                    if (!anyProcessed)
+                    {
+                         result.Errors.Add("No recognizable worksheet found. Please ensure your Excel file has a worksheet named 'Members' or 'Bar Sales & Hours'.");
                          result.ErrorCount++;
                     }
                 }
@@ -704,6 +776,122 @@ namespace GFC.BlazorServer.Services
             var firstName = worksheet.Cells[row, 2].Value?.ToString();
             var lastName = worksheet.Cells[row, 4].Value?.ToString();
             return string.IsNullOrWhiteSpace(firstName) && string.IsNullOrWhiteSpace(lastName);
+        }
+
+        private void ProcessBarSalesSheet(ExcelWorksheet worksheet, ImportResult result)
+        {
+            using var db = _dbFactory.CreateDbContext();
+            int row = 2; // skip header
+            
+            while (!IsBarSalesRowEmpty(worksheet, row))
+            {
+                result.ProcessedCount++;
+                try
+                {
+                    // 1. Get Entry ID
+                    int entryId = 0;
+                    var idString = worksheet.Cells[row, 1].Value?.ToString();
+                    if (!string.IsNullOrWhiteSpace(idString) && !int.TryParse(idString, out entryId))
+                    {
+                         // Treat literal "New" as ID=0
+                         if (!string.Equals(idString, "New", StringComparison.OrdinalIgnoreCase))
+                         {
+                             result.Errors.Add($"Row {row}: Invalid Entry ID '{idString}'. Use 0 or leave blank for new entries.");
+                             result.ErrorCount++;
+                             row++;
+                             continue;
+                         }
+                         entryId = 0;
+                    }
+
+                    // 2. Map standard fields
+                    var dateVal = GetDate(worksheet, row, 2);
+                    if (dateVal == null)
+                    {
+                        result.Errors.Add($"Row {row}: Valid Recorded Date is required.");
+                        result.ErrorCount++;
+                        row++;
+                        continue;
+                    }
+                    
+                    var shiftType = GetString(worksheet, row, 3);
+                    if (string.IsNullOrWhiteSpace(shiftType)) shiftType = "Day";
+                    
+                    var location = GetString(worksheet, row, 4);
+                    bool isRentalHall = location.Contains("Upstairs", StringComparison.OrdinalIgnoreCase) || 
+                                        location.Contains("Hall", StringComparison.OrdinalIgnoreCase);
+
+                    var salesString = GetString(worksheet, row, 5).Replace("$", "").Replace(",", "").Trim();
+                    decimal.TryParse(salesString, out decimal totalSales);
+                    
+                    var hoursString = GetString(worksheet, row, 6).Replace(",", "").Trim();
+                    decimal.TryParse(hoursString, out decimal totalHours);
+                    
+                    var submittedBy = GetString(worksheet, row, 7);
+                    if (string.IsNullOrWhiteSpace(submittedBy)) submittedBy = "System Import";
+                    
+                    var notes = GetString(worksheet, row, 9);
+
+                    // 3. Find By ID in DB
+                    BarSaleEntry entry = null;
+                    if (entryId > 0)
+                    {
+                        entry = db.BarSaleEntries.Find(entryId);
+                    }
+                    
+                    if (entry == null)
+                    {
+                        // Create New
+                        entry = new BarSaleEntry
+                        {
+                            SaleDate = dateVal.Value,
+                            AdjustedSaleDate = dateVal.Value,
+                            Shift = shiftType,
+                            IsRentalHall = isRentalHall,
+                            TotalSales = totalSales,
+                            TotalHours = totalHours,
+                            CreatedBy = submittedBy,
+                            CreatedAt = DateTime.UtcNow,
+                            Notes = notes
+                        };
+                        db.BarSaleEntries.Add(entry);
+                        result.CreatedCount++;
+                        result.SuccessCount++;
+                    }
+                    else
+                    {
+                        // Update Existing
+                        entry.AdjustedSaleDate = dateVal.Value;
+                        entry.Shift = shiftType;
+                        entry.IsRentalHall = isRentalHall;
+                        entry.TotalSales = totalSales;
+                        entry.TotalHours = totalHours;
+                        entry.ModifiedBy = submittedBy;
+                        entry.ModifiedAt = DateTime.UtcNow;
+                        entry.Notes = notes;
+                        
+                        db.BarSaleEntries.Update(entry);
+                        result.UpdatedCount++;
+                        result.SuccessCount++;
+                    }
+                    
+                    db.SaveChanges(); // Commit immediately so ID conflicts or other DB errors map to the exact row
+                }
+                catch (Exception ex)
+                {
+                    result.Errors.Add($"Row {row}: Error processing bar sale - {ex.Message}");
+                    result.ErrorCount++;
+                }
+                row++;
+            }
+        }
+
+        private bool IsBarSalesRowEmpty(ExcelWorksheet worksheet, int row)
+        {
+            var date = worksheet.Cells[row, 2].Value?.ToString();
+            var sales = worksheet.Cells[row, 5].Value?.ToString();
+            var hours = worksheet.Cells[row, 6].Value?.ToString();
+            return string.IsNullOrWhiteSpace(date) && string.IsNullOrWhiteSpace(sales) && string.IsNullOrWhiteSpace(hours);
         }
 
         private void MapMemberFromRow(Member member, ExcelWorksheet worksheet, int row)

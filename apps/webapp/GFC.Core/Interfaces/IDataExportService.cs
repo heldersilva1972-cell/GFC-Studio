@@ -18,6 +18,7 @@ namespace GFC.Core.Interfaces
         public bool IncludeLifeEligibility { get; set; } = false;
         public bool IncludeUsers { get; set; } = false;
         public bool IncludeSignInNumberDraw { get; set; } = false;
+        public bool IncludeBarSales { get; set; } = false;
     }
 }
 

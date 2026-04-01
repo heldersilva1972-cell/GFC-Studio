@@ -2203,17 +2203,38 @@
         IsSubmitting = true;
         try {
             using var db = await DbFactory.CreateDbContextAsync();
+            
+            // Grab LIVE settings at this exact moment to stamp into the history
+            var sysAdmin = await db.SystemSettings.FirstOrDefaultAsync();
+            decimal currEmployeeTaxes = sysAdmin != null ? (sysAdmin.MaStateTaxRate + sysAdmin.PfmlEmployeeRate + sysAdmin.FicaEmployeeRate) / 100m : 0m;
+            decimal currEmployerTaxes = sysAdmin != null ? (sysAdmin.MaUnemploymentRate + sysAdmin.PfmlEmployerRate + sysAdmin.FicaEmployerRate) / 100m : 0m;
+            decimal currentWage = 0m;
+            
+            if (CurrentUser != null) {
+                var appUser = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == CurrentUser.Username);
+                if (appUser != null) currentWage = appUser.HourlyRate ?? 0m;
+            }
+
             if (ExistingBarEntry != null) {
                 var entry = await db.BarSaleEntries.FindAsync(ExistingBarEntry.Id);
                 if (entry != null) {
                     entry.TotalSales = BarSales ?? 0; entry.TotalHours = TotalHours; entry.Notes = Notes;
                     entry.ModifiedBy = CurrentUser?.Username; entry.ModifiedAt = DateTime.UtcNow;
+                    
+                    // Stamp the exact mathematical values to lock the audit trail
+                    entry.HourlyRate_AtTimeOfShift = currentWage;
+                    entry.TotalEmployeeTaxes_AtTimeOfShift = currEmployeeTaxes;
+                    entry.TotalEmployerTaxes_AtTimeOfShift = currEmployerTaxes;
+                    
                     await db.SaveChangesAsync();
                 }
             } else {
                 db.BarSaleEntries.Add(new BarSaleEntry {
                     SaleDate = DateTime.Now, AdjustedSaleDate = ReportDate, TotalSales = BarSales ?? 0,
                     TotalHours = TotalHours, IsRentalHall = IsRentalHall, Shift = ShiftType, Notes = Notes,
+                    HourlyRate_AtTimeOfShift = currentWage,
+                    TotalEmployeeTaxes_AtTimeOfShift = currEmployeeTaxes,
+                    TotalEmployerTaxes_AtTimeOfShift = currEmployerTaxes,
                     CreatedBy = CurrentUser?.Username, CreatedAt = DateTime.UtcNow
                 });
                 await db.SaveChangesAsync();

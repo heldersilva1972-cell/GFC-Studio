@@ -32,5 +32,9 @@ namespace GFC.Core.Models
         public decimal? TotalHours { get; set; }
         public bool IsRentalHall { get; set; }
         public string? BarLocation { get; set; }
+
+        public decimal? HourlyRate_AtTimeOfShift { get; set; }
+        public decimal? TotalEmployeeTaxes_AtTimeOfShift { get; set; }
+        public decimal? TotalEmployerTaxes_AtTimeOfShift { get; set; }
     }
 }
