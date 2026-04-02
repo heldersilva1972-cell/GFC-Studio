@@ -9,90 +9,43 @@ namespace GFC.Core.DTOs
         public DateTime Date { get; set; }
         public List<ShiftReportDto> Shifts { get; set; } = new();
         
-        // Daily Totals - Based on latest cumulative shift report
+        // Daily Totals - Based on the night shift (Gold Standard) if available
         public decimal TotalBarSales => Shifts.Sum(s => s.BarSales); 
         
+        // Cumulative Totals for the Day (derived from the Night shift record)
         public decimal TotalLottoSales => GetLatestCumulativeValue(s => s.LottoSales);
         public decimal TotalLottoPayouts => GetLatestCumulativeValue(s => s.LottoPayouts);
         public decimal TotalLottoNetDue => GetLatestCumulativeValue(s => s.LottoNetDue);
         public decimal TotalLottoCancels => GetLatestCumulativeValue(s => s.LottoCancels);
 
-        public decimal TotalLottoNetSales => TotalLottoSales - TotalLottoPayouts - TotalLottoCancels;
+        // Daily Performance Metrics - Sum of shift activities
+        public decimal TotalLottoNetSales => Shifts.Sum(s => s.NetSales);
         public decimal TotalEnvelope => Shifts.Sum(s => s.EnvelopeAmount);
-        public decimal TotalLotteryIncome => TotalLottoNetSales - TotalLottoNetDue;
-
-        public decimal TotalVariance => Shifts.Sum(s => {
-            var sSales = GetShiftSales(s);
-            var sPayouts = GetShiftPayouts(s);
-            var sCancels = GetShiftCancels(s);
-            var expectedInDrawer = s.StartingCash + sSales - sPayouts - sCancels + s.BackupBagAmount;
-            return s.EndingCash - expectedInDrawer;
-        });
-
-        public decimal TotalNetIncome => TotalLotteryIncome + TotalVariance;
+        public decimal TotalLotteryIncome => Shifts.Sum(s => s.LotteryIncome);
+        public decimal TotalVariance => Shifts.Sum(s => s.Variance);
+        public decimal TotalNetIncome => Shifts.Sum(s => s.NetIncome);
 
         private decimal GetLatestCumulativeValue(Func<ShiftReportDto, decimal> selector)
         {
             // Night reflects the total for the day, so if it exists, use it. Otherwise use Day.
             var night = Shifts.FirstOrDefault(s => s.ShiftType == "Night");
             if (night != null) return selector(night);
-            return Shifts.FirstOrDefault(s => s.ShiftType == "Day") != null 
-                   ? selector(Shifts.First(s => s.ShiftType == "Day")) 
-                   : 0;
-        }
-
-        public decimal GetShiftLotteryIncome(ShiftReportDto shift)
-        {
-            if (shift.ShiftType == "Day" || shift.IsRentalHall) 
-                return shift.LotteryIncome;
-
-            if (shift.ShiftType == "Night")
-            {
-                var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
-                if (day == null) return shift.LotteryIncome;
-
-                // (Night Cumulative NetSales - Day Cumulative NetSales) - (Night Cumulative NetDue - Day Cumulative NetDue)
-                decimal nightOnlySales = (shift.LottoSales - shift.LottoPayouts - shift.LottoCancels) - (day.LottoSales - day.LottoPayouts - day.LottoCancels);
-                decimal nightOnlyDue = shift.LottoNetDue - day.LottoNetDue;
-                return nightOnlySales - nightOnlyDue;
-            }
-            return shift.LotteryIncome;
-        }
-
-        public decimal GetShiftSales(ShiftReportDto shift)
-        {
-            if (shift.ShiftType == "Day" || shift.IsRentalHall) return shift.LottoSales;
             var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
-            return day != null ? shift.LottoSales - day.LottoSales : shift.LottoSales;
+            return day != null ? selector(day) : 0;
         }
 
-        public decimal GetShiftPayouts(ShiftReportDto shift)
-        {
-            if (shift.ShiftType == "Day" || shift.IsRentalHall) return shift.LottoPayouts;
-            var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
-            return day != null ? shift.LottoPayouts - day.LottoPayouts : shift.LottoPayouts;
-        }
-
-        public decimal GetShiftCancels(ShiftReportDto shift)
-        {
-            if (shift.ShiftType == "Day" || shift.IsRentalHall) return shift.LottoCancels;
-            var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
-            return day != null ? shift.LottoCancels - day.LottoCancels : shift.LottoCancels;
-        }
-
-        public decimal GetShiftNetDue(ShiftReportDto shift)
-        {
-            return shift.LottoNetDue;
-        }
-
-        public decimal GetShiftNetIncome(ShiftReportDto shift)
-        {
-            return GetShiftLotteryIncome(shift) + shift.Variance;
-        }
+        // Methods to get shift-specific data without doing math (just returning the persistent field)
+        public decimal GetShiftSales(ShiftReportDto shift) => shift.ShiftSalesActivity;
+        public decimal GetShiftPayouts(ShiftReportDto shift) => shift.ShiftPayoutsActivity;
+        public decimal GetShiftCancels(ShiftReportDto shift) => shift.ShiftCancelsActivity;
+        public decimal GetShiftNetDue(ShiftReportDto shift) => shift.ShiftNetDueActivity;
+        public decimal GetShiftLotteryIncome(ShiftReportDto shift) => shift.LotteryIncome;
+        public decimal GetShiftNetIncome(ShiftReportDto shift) => shift.NetIncome;
     }
 
     public class ShiftReportDto
     {
+        public int ShiftId { get; set; }
         public string ShiftType { get; set; } = string.Empty; // Day, Night, Hall
         public bool IsRentalHall { get; set; }
         
@@ -100,25 +53,35 @@ namespace GFC.Core.DTOs
         public decimal BarSales { get; set; }
         public decimal? TotalHours { get; set; }
         
-        // Lottery Info
+        // Lottery Info (Raw Machine Readings - Cumulative for Night Shift)
         public decimal LottoSales { get; set; }
         public decimal LottoPayouts { get; set; }
         public decimal LottoNetDue { get; set; }
+        public decimal LottoCancels { get; set; }
+        
+        // Cash Info
         public decimal StartingCash { get; set; }
         public decimal EndingCash { get; set; }
         public decimal BackupBagAmount { get; set; }
         public decimal EnvelopeAmount { get; set; }
-        public decimal LottoCancels { get; set; }
+        public decimal BagRefillAmount { get; set; }
         
-        // Calculations
-        public decimal LottoNetSales => LottoSales - LottoPayouts - LottoCancels;
-        public decimal ExpectedCash => StartingCash + LottoSales - LottoPayouts - LottoCancels + BackupBagAmount;
-        public decimal Variance => EndingCash - ExpectedCash;
-        public decimal LotteryIncome => LottoNetSales - LottoNetDue;
-        public decimal NetIncome => LotteryIncome + Variance;
+        // Persistent Calculations (Populated from LotteryShift model)
+        public decimal NetSales { get; set; }
+        public decimal ExpectedCash { get; set; }
+        public decimal Variance { get; set; }
+        public decimal LotteryIncome { get; set; }
+        public decimal NetIncome { get; set; }
+        
+        // Shift-Specific Activity (Non-cumulative)
+        public decimal ShiftSalesActivity { get; set; }
+        public decimal ShiftPayoutsActivity { get; set; }
+        public decimal ShiftCancelsActivity { get; set; }
+        public decimal ShiftNetDueActivity { get; set; }
         
         public string? Notes { get; set; }
         public string? CreatedBy { get; set; }
         public DateTime CreatedAt { get; set; }
+        public string? Status { get; set; }
     }
 }

@@ -16,7 +16,9 @@ namespace GFC.Data.Repositories
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount,
+                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
+                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
+                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
@@ -44,7 +46,9 @@ namespace GFC.Data.Repositories
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount,
+                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
+                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
+                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
@@ -78,7 +82,9 @@ namespace GFC.Data.Repositories
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount,
+                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
+                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
+                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
@@ -129,7 +135,9 @@ namespace GFC.Data.Repositories
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount,
+                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
+                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
+                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
@@ -160,7 +168,9 @@ namespace GFC.Data.Repositories
                         ShiftDate, EmployeeName, ShiftType, MachineId,
                         StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                         Commission, CashBonus, ClaimsBonus, NetDue,
-                        BackupBagAmount, EnvelopeAmount,
+                        BackupBagAmount, EnvelopeAmount, BagRefillAmount,
+                        NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
+                        ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
                         Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                         CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     )
@@ -168,7 +178,9 @@ namespace GFC.Data.Repositories
                         @ShiftDate, @EmployeeName, @ShiftType, @MachineId,
                         @StartingCash, @EndingCash, @TotalSales, @TotalPayouts, @TotalCancels,
                         @Commission, @CashBonus, @ClaimsBonus, @NetDue,
-                        @BackupBagAmount, @EnvelopeAmount,
+                        @BackupBagAmount, @EnvelopeAmount, @BagRefillAmount,
+                        @NetSales, @ExpectedCash, @Variance, @LotteryIncome, @NetIncome,
+                        @ShiftSalesActivity, @ShiftPayoutsActivity, @ShiftCancelsActivity, @ShiftNetDueActivity,
                         @Notes, @Status, @IsReconciled, @ReconciledBy, @ReconciledDate,
                         @CreatedBy, @CreatedDate, @ModifiedBy, @ModifiedDate, @TicketImageUrl
                     );
@@ -206,6 +218,16 @@ namespace GFC.Data.Repositories
                         NetDue = @NetDue,
                         BackupBagAmount = @BackupBagAmount,
                         EnvelopeAmount = @EnvelopeAmount,
+                        BagRefillAmount = @BagRefillAmount,
+                        NetSales = @NetSales,
+                        ExpectedCash = @ExpectedCash,
+                        Variance = @Variance,
+                        LotteryIncome = @LotteryIncome,
+                        NetIncome = @NetIncome,
+                        ShiftSalesActivity = @ShiftSalesActivity,
+                        ShiftPayoutsActivity = @ShiftPayoutsActivity,
+                        ShiftCancelsActivity = @ShiftCancelsActivity,
+                        ShiftNetDueActivity = @ShiftNetDueActivity,
                         Notes = @Notes,
                         Status = @Status,
                         IsReconciled = @IsReconciled,
@@ -254,7 +276,9 @@ namespace GFC.Data.Repositories
                     SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
                            StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
                            Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount,
+                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
+                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
+                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
                            Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
                            CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
                     FROM LotteryShifts
@@ -272,6 +296,35 @@ namespace GFC.Data.Repositories
             {
                 // Table doesn't exist yet - return empty list
                 return new List<LotteryShift>();
+            }
+        }
+
+        public LotteryShift? GetDuplicateShift(string employeeName, DateTime date)
+        {
+            try
+            {
+                using var connection = Db.GetConnection();
+                connection.Open();
+                const string sql = @"
+                    SELECT TOP 1 ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
+                           StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
+                           Commission, CashBonus, ClaimsBonus, NetDue,
+                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
+                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
+                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
+                           Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
+                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
+                    FROM LotteryShifts
+                    WHERE EmployeeName = @EmployeeName AND ShiftDate = @ShiftDate";
+                using var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@EmployeeName", employeeName);
+                command.Parameters.AddWithValue("@ShiftDate", date);
+                using var reader = command.ExecuteReader();
+                return reader.Read() ? MapReaderToShift(reader) : null;
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                return null;
             }
         }
 
@@ -313,6 +366,16 @@ namespace GFC.Data.Repositories
                 NetDue = reader["NetDue"] != DBNull.Value ? (decimal)reader["NetDue"] : 0m,
                 BackupBagAmount = reader["BackupBagAmount"] != DBNull.Value ? (decimal)reader["BackupBagAmount"] : 0m,
                 EnvelopeAmount = reader["EnvelopeAmount"] != DBNull.Value ? (decimal)reader["EnvelopeAmount"] : 0m,
+                BagRefillAmount = reader["BagRefillAmount"] != DBNull.Value ? (decimal)reader["BagRefillAmount"] : 0m,
+                NetSales = reader["NetSales"] != DBNull.Value ? (decimal)reader["NetSales"] : 0m,
+                ExpectedCash = reader["ExpectedCash"] != DBNull.Value ? (decimal)reader["ExpectedCash"] : 0m,
+                Variance = reader["Variance"] != DBNull.Value ? (decimal)reader["Variance"] : 0m,
+                LotteryIncome = reader["LotteryIncome"] != DBNull.Value ? (decimal)reader["LotteryIncome"] : 0m,
+                NetIncome = reader["NetIncome"] != DBNull.Value ? (decimal)reader["NetIncome"] : 0m,
+                ShiftSalesActivity = reader["ShiftSalesActivity"] != DBNull.Value ? (decimal)reader["ShiftSalesActivity"] : 0m,
+                ShiftPayoutsActivity = reader["ShiftPayoutsActivity"] != DBNull.Value ? (decimal)reader["ShiftPayoutsActivity"] : 0m,
+                ShiftCancelsActivity = reader["ShiftCancelsActivity"] != DBNull.Value ? (decimal)reader["ShiftCancelsActivity"] : 0m,
+                ShiftNetDueActivity = reader["ShiftNetDueActivity"] != DBNull.Value ? (decimal)reader["ShiftNetDueActivity"] : 0m,
                 Notes = reader["Notes"] as string,
                 Status = reader["Status"] as string,
                 IsReconciled = (bool)reader["IsReconciled"],
@@ -343,6 +406,16 @@ namespace GFC.Data.Repositories
             command.Parameters.AddWithValue("@NetDue", shift.NetDue);
             command.Parameters.AddWithValue("@BackupBagAmount", shift.BackupBagAmount);
             command.Parameters.AddWithValue("@EnvelopeAmount", shift.EnvelopeAmount);
+            command.Parameters.AddWithValue("@BagRefillAmount", shift.BagRefillAmount);
+            command.Parameters.AddWithValue("@NetSales", shift.NetSales);
+            command.Parameters.AddWithValue("@ExpectedCash", shift.ExpectedCash);
+            command.Parameters.AddWithValue("@Variance", shift.Variance);
+            command.Parameters.AddWithValue("@LotteryIncome", shift.LotteryIncome);
+            command.Parameters.AddWithValue("@NetIncome", shift.NetIncome);
+            command.Parameters.AddWithValue("@ShiftSalesActivity", shift.ShiftSalesActivity);
+            command.Parameters.AddWithValue("@ShiftPayoutsActivity", shift.ShiftPayoutsActivity);
+            command.Parameters.AddWithValue("@ShiftCancelsActivity", shift.ShiftCancelsActivity);
+            command.Parameters.AddWithValue("@ShiftNetDueActivity", shift.ShiftNetDueActivity);
             command.Parameters.AddWithValue("@Notes", (object?)shift.Notes ?? DBNull.Value);
             command.Parameters.AddWithValue("@Status", (object?)shift.Status ?? DBNull.Value);
             command.Parameters.AddWithValue("@IsReconciled", shift.IsReconciled);

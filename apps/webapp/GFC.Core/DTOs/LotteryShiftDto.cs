@@ -22,6 +22,8 @@ namespace GFC.Core.DTOs
         public decimal NetSales { get; set; }
         public decimal ExpectedCash { get; set; }
         public decimal Variance { get; set; }
+        public decimal LotteryIncome { get; set; }
+        public decimal BagRefillAmount { get; set; }
         public string? Notes { get; set; }
         public string? Status { get; set; }
         public bool IsReconciled { get; set; }
@@ -31,6 +33,10 @@ namespace GFC.Core.DTOs
         public decimal EnvelopeAmount { get; set; }
         public string? CreatedBy { get; set; }
         public DateTime CreatedDate { get; set; }
+        
+        // Joined Data from BarSaleEntries
+        public decimal? BarLaborHours { get; set; }
+        public decimal? BarRegisterSales { get; set; }
     }
 
     /// <summary>
@@ -45,6 +51,7 @@ namespace GFC.Core.DTOs
         public decimal TotalSales { get; set; }
         public decimal TotalPayouts { get; set; }
         public decimal TotalCancels { get; set; }
+        public decimal TotalNetDue { get; set; }
         public decimal TotalNetSales { get; set; }
         public decimal TotalVariance { get; set; }
         public decimal AverageVariance { get; set; }

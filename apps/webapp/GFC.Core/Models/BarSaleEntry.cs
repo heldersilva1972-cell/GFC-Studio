@@ -36,5 +36,7 @@ namespace GFC.Core.Models
         public decimal? HourlyRate_AtTimeOfShift { get; set; }
         public decimal? TotalEmployeeTaxes_AtTimeOfShift { get; set; }
         public decimal? TotalEmployerTaxes_AtTimeOfShift { get; set; }
+
+        public string Status { get; set; } = "Draft";
     }
 }

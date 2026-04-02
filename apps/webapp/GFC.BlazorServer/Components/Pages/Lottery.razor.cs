@@ -42,10 +42,10 @@ namespace GFC.BlazorServer.Components.Pages
         // Summary stats computed from _shifts list
         
         // Summary stats computed from _shifts list
-        private decimal TotalSales => _shifts.Sum(s => s.TotalSales);
-        private decimal TotalPayouts => _shifts.Sum(s => s.TotalPayouts);
-        private decimal TotalNetSales => _shifts.Sum(s => s.NetSales);
-        private decimal TotalVariance => _shifts.Sum(s => s.Variance);
+        private decimal TotalSales => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.TotalSales);
+        private decimal TotalPayouts => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.TotalPayouts);
+        private decimal TotalNetSales => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.NetSales);
+        private decimal TotalVariance => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.Variance);
 
         private ShiftFormModel _shiftForm = new();
 
@@ -232,6 +232,7 @@ namespace GFC.BlazorServer.Components.Pages
                 TotalSales = shiftEntity.TotalSales,
                 TotalPayouts = shiftEntity.TotalPayouts,
                 TotalCancels = shiftEntity.TotalCancels,
+                NetDue = shiftEntity.NetDue,
                 Notes = shiftEntity.Notes ?? string.Empty,
                 Status = shiftEntity.Status ?? "Submitted"
             };
@@ -259,6 +260,7 @@ namespace GFC.BlazorServer.Components.Pages
                     TotalSales = _shiftForm.TotalSales ?? 0,
                     TotalPayouts = _shiftForm.TotalPayouts ?? 0,
                     TotalCancels = _shiftForm.TotalCancels ?? 0,
+                    NetDue = _shiftForm.NetDue ?? 0,
                     Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes,
                     Status = _shiftForm.Status
                 };
@@ -388,9 +390,12 @@ namespace GFC.BlazorServer.Components.Pages
             [Range(0, double.MaxValue, ErrorMessage = "Total payouts must be 0 or greater")]
             public decimal? TotalPayouts { get; set; }
             
-            [Required(ErrorMessage = "Total cancels is required")]
-            [Range(0, double.MaxValue, ErrorMessage = "Total cancels must be 0 or greater")]
+            [Required(ErrorMessage = "Instant Tickets (RPT 34) is required")]
+            [Range(0, double.MaxValue, ErrorMessage = "Instant Tickets must be 0 or greater")]
             public decimal? TotalCancels { get; set; }
+
+            [Required(ErrorMessage = "Net Due (RPT 50) is required")]
+            public decimal? NetDue { get; set; }
             
             public string Notes { get; set; } = string.Empty;
             public string Status { get; set; } = "Submitted";

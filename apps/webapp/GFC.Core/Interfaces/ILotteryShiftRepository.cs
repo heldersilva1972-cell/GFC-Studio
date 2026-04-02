@@ -5,6 +5,7 @@ namespace GFC.Core.Interfaces
     public interface ILotteryShiftRepository
     {
         LotteryShift? GetById(int shiftId);
+        LotteryShift? GetDuplicateShift(string employeeName, DateTime date);
         List<LotteryShift> GetByDateRange(DateTime startDate, DateTime endDate);
         List<LotteryShift> GetByEmployee(string employeeName, DateTime? startDate = null, DateTime? endDate = null);
         List<LotteryShift> GetAll();
@@ -15,4 +16,3 @@ namespace GFC.Core.Interfaces
         bool Exists(int shiftId);
     }
 }
-

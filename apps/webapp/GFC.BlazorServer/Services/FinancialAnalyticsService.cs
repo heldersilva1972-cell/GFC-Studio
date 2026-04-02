@@ -268,7 +268,7 @@ namespace GFC.BlazorServer.Services
                 currentStep = "Fetching LotteryShifts";
                 var lottoShifts = await db.LotteryShifts
                     .AsNoTracking()
-                    .Where(e => e.ShiftDate >= start && e.ShiftDate <= end)
+                    .Where(e => e.ShiftDate >= start && e.ShiftDate <= end && e.Status == "Submitted")
                     .Select(e => new {
                         e.ShiftId,
                         ShiftDate = (DateTime?)e.ShiftDate ?? DateTime.MinValue,
@@ -281,9 +281,25 @@ namespace GFC.BlazorServer.Services
                         BackupBagAmount = (decimal?)e.BackupBagAmount ?? 0m,
                         EnvelopeAmount = (decimal?)e.EnvelopeAmount ?? 0m,
                         TotalCancels = (decimal?)e.TotalCancels ?? 0m,
+                        BagRefillAmount = (decimal?)e.BagRefillAmount ?? 0m,
+                        
+                        // Persistent metrics directly from DB
+                        NetSales = (decimal?)e.NetSales ?? 0m,
+                        ExpectedCash = (decimal?)e.ExpectedCash ?? 0m,
+                        Variance = (decimal?)e.Variance ?? 0m,
+                        LotteryIncome = (decimal?)e.LotteryIncome ?? 0m,
+                        NetIncome = (decimal?)e.NetIncome ?? 0m,
+                        
+                        // Shift Activity directly from DB
+                        ShiftSalesActivity = (decimal?)e.ShiftSalesActivity ?? 0m,
+                        ShiftPayoutsActivity = (decimal?)e.ShiftPayoutsActivity ?? 0m,
+                        ShiftCancelsActivity = (decimal?)e.ShiftCancelsActivity ?? 0m,
+                        ShiftNetDueActivity = (decimal?)e.ShiftNetDueActivity ?? 0m,
+                        
                         Notes = e.Notes ?? "",
-                        EmployeeName = !string.IsNullOrWhiteSpace(e.EmployeeName) ? e.EmployeeName : "Unknown",
-                        CreatedDate = (DateTime?)e.CreatedDate ?? DateTime.MinValue
+                        EmployeeName = e.EmployeeName ?? "Unknown",
+                        CreatedDate = (DateTime?)e.CreatedDate ?? DateTime.MinValue,
+                        Status = e.Status ?? "Submitted"
                     })
                     .ToListAsync();
 
@@ -316,23 +332,34 @@ namespace GFC.BlazorServer.Services
                     if (dayBar != null || dayLotto != null)
                     {
                         dailyReport.Shifts.Add(new ShiftReportDto {
-                            ShiftType = "Day",
-                            IsRentalHall = false,
-                            BarSales = dayBar?.TotalSales ?? 0,
-                            TotalHours = dayBar?.TotalHours,
-                            LottoSales = dayLotto?.TotalSales ?? 0,
-                            LottoPayouts = dayLotto?.TotalPayouts ?? 0,
-                            LottoNetDue = dayLotto?.NetDue ?? 0,
-                            StartingCash = dayLotto?.StartingCash ?? 0,
-                            EndingCash = dayLotto?.EndingCash ?? 0,
-                            BackupBagAmount = dayLotto?.BackupBagAmount ?? 0,
-                            EnvelopeAmount = dayLotto?.EnvelopeAmount ?? 0,
-                            LottoCancels = dayLotto?.TotalCancels ?? 0,
+                             ShiftId = dayLotto?.ShiftId ?? 0,
+                             ShiftType = "Day",
+                             IsRentalHall = false,
+                             BarSales = dayBar?.TotalSales ?? 0,
+                             TotalHours = dayBar?.TotalHours,
+                             LottoSales = dayLotto?.TotalSales ?? 0,
+                             LottoPayouts = dayLotto?.TotalPayouts ?? 0,
+                             LottoNetDue = dayLotto?.NetDue ?? 0,
+                             LottoCancels = dayLotto?.TotalCancels ?? 0,
+                             StartingCash = dayLotto?.StartingCash ?? 0,
+                             EndingCash = dayLotto?.EndingCash ?? 0,
+                             BackupBagAmount = dayLotto?.BackupBagAmount ?? 0,
+                             EnvelopeAmount = dayLotto?.EnvelopeAmount ?? 0,
+                             BagRefillAmount = dayLotto?.BagRefillAmount ?? 0,
+                             NetSales = dayLotto?.NetSales ?? 0,
+                             ExpectedCash = dayLotto?.ExpectedCash ?? 0,
+                             Variance = dayLotto?.Variance ?? 0,
+                             LotteryIncome = dayLotto?.LotteryIncome ?? 0,
+                             NetIncome = dayLotto?.NetIncome ?? 0,
+                             ShiftSalesActivity = dayLotto?.ShiftSalesActivity ?? (dayLotto?.TotalSales ?? 0),
+                             ShiftPayoutsActivity = dayLotto?.ShiftPayoutsActivity ?? (dayLotto?.TotalPayouts ?? 0),
+                             ShiftCancelsActivity = dayLotto?.ShiftCancelsActivity ?? (dayLotto?.TotalCancels ?? 0),
+                             ShiftNetDueActivity = dayLotto?.ShiftNetDueActivity ?? (dayLotto?.NetDue ?? 0),
                              Notes = !string.IsNullOrWhiteSpace(dayBar?.Notes) ? dayBar.Notes : dayLotto?.Notes,
+                             Status = dayLotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : 
                                         (!string.IsNullOrWhiteSpace(dayLotto?.EmployeeName) ? dayLotto.EmployeeName : "Unknown"),
                              CreatedAt = dayBar?.CreatedAt ?? dayLotto?.CreatedDate ?? date
-
                          });
                     }
 
@@ -340,23 +367,34 @@ namespace GFC.BlazorServer.Services
                     if (nightBar != null || nightLotto != null)
                     {
                         dailyReport.Shifts.Add(new ShiftReportDto {
-                            ShiftType = "Night",
-                            IsRentalHall = false,
-                            BarSales = nightBar?.TotalSales ?? 0,
-                            TotalHours = nightBar?.TotalHours,
-                            LottoSales = nightLotto?.TotalSales ?? 0,
-                            LottoPayouts = nightLotto?.TotalPayouts ?? 0,
-                            LottoNetDue = nightLotto?.NetDue ?? 0,
-                            StartingCash = nightLotto?.StartingCash ?? 0,
-                            EndingCash = nightLotto?.EndingCash ?? 0,
-                            BackupBagAmount = nightLotto?.BackupBagAmount ?? 0,
-                            EnvelopeAmount = nightLotto?.EnvelopeAmount ?? 0,
-                            LottoCancels = nightLotto?.TotalCancels ?? 0,
+                             ShiftId = nightLotto?.ShiftId ?? 0,
+                             ShiftType = "Night",
+                             IsRentalHall = false,
+                             BarSales = nightBar?.TotalSales ?? 0,
+                             TotalHours = nightBar?.TotalHours,
+                             LottoSales = nightLotto?.TotalSales ?? 0,
+                             LottoPayouts = nightLotto?.TotalPayouts ?? 0,
+                             LottoNetDue = nightLotto?.NetDue ?? 0,
+                             LottoCancels = nightLotto?.TotalCancels ?? 0,
+                             StartingCash = nightLotto?.StartingCash ?? 0,
+                             EndingCash = nightLotto?.EndingCash ?? 0,
+                             BackupBagAmount = nightLotto?.BackupBagAmount ?? 0,
+                             EnvelopeAmount = nightLotto?.EnvelopeAmount ?? 0,
+                             BagRefillAmount = nightLotto?.BagRefillAmount ?? 0,
+                             NetSales = nightLotto?.NetSales ?? 0,
+                             ExpectedCash = nightLotto?.ExpectedCash ?? 0,
+                             Variance = nightLotto?.Variance ?? 0,
+                             LotteryIncome = nightLotto?.LotteryIncome ?? 0,
+                             NetIncome = nightLotto?.NetIncome ?? 0,
+                             ShiftSalesActivity = nightLotto?.ShiftSalesActivity ?? (nightLotto?.TotalSales ?? 0),
+                             ShiftPayoutsActivity = nightLotto?.ShiftPayoutsActivity ?? (nightLotto?.TotalPayouts ?? 0),
+                             ShiftCancelsActivity = nightLotto?.ShiftCancelsActivity ?? (nightLotto?.TotalCancels ?? 0),
+                             ShiftNetDueActivity = nightLotto?.ShiftNetDueActivity ?? (nightLotto?.NetDue ?? 0),
                              Notes = !string.IsNullOrWhiteSpace(nightBar?.Notes) ? nightBar.Notes : nightLotto?.Notes,
+                             Status = nightLotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : 
                                         (!string.IsNullOrWhiteSpace(nightLotto?.EmployeeName) ? nightLotto.EmployeeName : "Unknown"),
                              CreatedAt = nightBar?.CreatedAt ?? nightLotto?.CreatedDate ?? date
-
                          });
                     }
 
@@ -393,7 +431,7 @@ namespace GFC.BlazorServer.Services
         {
             using var db = await _dbFactory.CreateDbContextAsync();
             var query = db.LotteryShifts
-                .Where(s => s.ShiftDate >= startDate && s.ShiftDate <= endDate);
+                .Where(s => s.ShiftDate >= startDate && s.ShiftDate <= endDate && s.Status == "Submitted");
 
             if (!string.IsNullOrEmpty(shiftType))
                 query = query.Where(s => s.ShiftType == shiftType);
@@ -415,17 +453,12 @@ namespace GFC.BlazorServer.Services
 
             var query = db.BarSaleEntries
                 .AsNoTracking()
-                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Date >= start && (e.AdjustedSaleDate ?? e.SaleDate).Date <= end);
-
-            if (location == "Main")
-                query = query.Where(e => e.IsRentalHall == false);
-            else if (location == "Upstairs")
-                query = query.Where(e => e.IsRentalHall == true);
+                .Where(e => (e.AdjustedSaleDate ?? e.SaleDate).Date >= start && (e.AdjustedSaleDate ?? e.SaleDate).Date <= end && e.Status == "Submitted");
 
             if (!string.IsNullOrWhiteSpace(username))
                 query = query.Where(e => e.CreatedBy == username);
 
-            var sys = await db.SystemSettings.FirstOrDefaultAsync();
+            var sys = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);
             decimal fallbackEmployeeTax = 0, fallbackEmployerTax = 0;
             if (sys != null)
             {
@@ -450,9 +483,8 @@ namespace GFC.BlazorServer.Services
 
             // Group entries by user and match with employee metadata
 
-            // Fetch users marked as Employees (IsTrackedEmployee)
+            // Fetch users (Remove strict employee tracking filter to ensure all recorded hours are visible)
             var users = await db.AppUsers.AsNoTracking()
-                .Where(u => u.IsTrackedEmployee)
                 .ToListAsync();
             
             var allMembers = await db.Members.AsNoTracking().ToListAsync();
@@ -479,20 +511,27 @@ namespace GFC.BlazorServer.Services
                 
                 decimal totalPay = 0, netPay = 0, totalPayrollCost = 0;
                 decimal downstairsPay = 0, upstairsPay = 0;
+                decimal totalWithheld = 0, totalEmployerAddOn = 0;
 
                 foreach (var e in userEntries)
                 {
-                    decimal rate = e.HistoricalRate ?? defaultRate;
-                    decimal employeeTax = e.HistoricalEmployeeTax ?? fallbackEmployeeTax;
-                    decimal employerTax = e.HistoricalEmployerTax ?? fallbackEmployerTax;
+                    // [DYNAMIC CALCULATION] AS REQUESTED: math always uses current system settings and current staff rates
+                    decimal rate = defaultRate;
+                    decimal employeeTax = fallbackEmployeeTax;
+                    decimal employerTax = fallbackEmployerTax;
 
                     decimal shiftGross = e.Hours * rate;
-                    decimal shiftNet = shiftGross * (1 - employeeTax);
-                    decimal shiftCost = shiftGross * (1 + employerTax);
+                    decimal shiftWithheld = shiftGross * employeeTax;
+                    decimal shiftEmployerAddOn = shiftGross * employerTax;
+                    
+                    decimal shiftNet = shiftGross - shiftWithheld;
+                    decimal shiftCost = shiftGross + shiftEmployerAddOn;
 
                     totalPay += shiftGross;
                     netPay += shiftNet;
                     totalPayrollCost += shiftCost;
+                    totalWithheld += shiftWithheld;
+                    totalEmployerAddOn += shiftEmployerAddOn;
 
                     if (e.IsHall) upstairsPay += shiftGross;
                     else downstairsPay += shiftGross;
@@ -509,6 +548,8 @@ namespace GFC.BlazorServer.Services
                     EndDate = end,
                     TotalPay = totalPay,
                     NetPay = netPay,
+                    TotalWithheld = totalWithheld,
+                    TotalEmployerAddOn = totalEmployerAddOn,
                     TotalPayrollCost = totalPayrollCost,
                     DownstairsPay = downstairsPay,
                     UpstairsPay = upstairsPay
@@ -588,7 +629,7 @@ namespace GFC.BlazorServer.Services
 
             // 7. Expenses - Payroll
             var payroll = await GetEmployeeHoursAsync(start, end);
-            snapshot.GrossPayroll = payroll.Sum(p => (p.TotalHours * (p.HourlyRate ?? 0)));
+            snapshot.GrossPayroll = payroll.Sum(p => p.TotalPay);
             
             // 8. Tax Calculation based on SystemSettings (Id = 1)
             var config = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1);

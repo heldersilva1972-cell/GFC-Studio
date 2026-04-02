@@ -241,6 +241,7 @@
     private bool _isProcessing = true;
     private string? _error;
     private bool _success;
+    private bool _tokenProcessed; // [NEW] Track if we've already tried this token in this cycle
     private bool _canInstall = false;
     private string? _platformInstructions;
     private bool _showInstructions = false;
@@ -385,9 +386,12 @@
 
     private async Task ProcessToken()
     {
+        // [RE-ENTRY FIX] Check if we've already processed this token in this circuit
+        if (_tokenProcessed) return;
+
         if (string.IsNullOrWhiteSpace(Token))
         {
-            _error = "No setup token was provided.";
+            _error = "No setup token was provided. Please use the link provided by your administrator.";
             _isProcessing = false;
             StateHasChanged();
             return;
@@ -398,8 +402,10 @@
             _validatedInvite = await InviteService.ValidateTokenAsync(Token);
             if (_validatedInvite == null)
             {
-                _error = "The provided setup token is invalid, expired, or has already been used.";
+                // [IMPROVED] Be more specific for debugging purposes
+                _error = "The provided setup token is invalid, expired, or has already been used. Please request a new invite from User Management.";
                 _isProcessing = false;
+                _tokenProcessed = true; // Still mark as processed so we don't spam the DB
                 StateHasChanged();
                 return;
             }

@@ -21,6 +21,17 @@ namespace GFC.Core.Services
         public List<LotteryShiftDto> GetShiftsByDateRange(DateTime startDate, DateTime endDate)
         {
             var shifts = _repository.GetByDateRange(startDate, endDate);
+            
+            // Post-processing to fix stale "Beginning Cash" for Drafts
+            foreach (var shift in shifts.Where(s => s.Status == "Draft" && s.ShiftType == "Night"))
+            {
+                var dayShift = shifts.FirstOrDefault(s => s.ShiftDate.Date == shift.ShiftDate.Date && s.ShiftType == "Day");
+                if (dayShift != null && dayShift.EndingCash > 0)
+                {
+                    shift.StartingCash = dayShift.EndingCash;
+                }
+            }
+
             return shifts.Select(MapToDto).ToList();
         }
 
@@ -44,6 +55,13 @@ namespace GFC.Core.Services
 
         public int CreateShift(LotteryShift shift, string? createdBy = null)
         {
+            // Prevention of double-submission/duplicates by checking Employee + Exact Time
+            var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate);
+            if (existing != null)
+            {
+                throw new InvalidOperationException($"A shift record for {shift.EmployeeName} at {shift.ShiftDate:MMM dd, yyyy h:mm tt} already exists. Please edit the existing entry or remove it if it is incorrect.");
+            }
+
             shift.CreatedDate = DateTime.UtcNow;
             shift.CreatedBy = createdBy;
             shift.Status ??= "Submitted";
@@ -53,6 +71,13 @@ namespace GFC.Core.Services
 
         public void UpdateShift(LotteryShift shift, string? modifiedBy = null)
         {
+            // Ensure we aren't changing this shift's primary ID (Employee/Time) to clash with ANOTHER existing entry
+            var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate);
+            if (existing != null && existing.ShiftId != shift.ShiftId)
+            {
+                throw new InvalidOperationException($"Cannot save because another shift for {shift.EmployeeName} at {shift.ShiftDate:MMM dd, yyyy h:mm tt} already exists. Please check your values.");
+            }
+
             shift.ModifiedDate = DateTime.UtcNow;
             shift.ModifiedBy = modifiedBy;
             _repository.Update(shift);
@@ -202,7 +227,7 @@ namespace GFC.Core.Services
             }
 
             var variances = shifts.Select(s => s.Variance).ToList();
-            var varianceCount = variances.Count(v => Math.Abs(v) > 0.01m); // Count non-zero variances
+            var varianceCount = variances.Count(v => Math.Abs(v) > 0.01m);
             
             return new LotteryShiftSummaryDto
             {
@@ -213,6 +238,7 @@ namespace GFC.Core.Services
                 TotalSales = shifts.Sum(s => s.TotalSales),
                 TotalPayouts = shifts.Sum(s => s.TotalPayouts),
                 TotalCancels = shifts.Sum(s => s.TotalCancels),
+                TotalNetDue = shifts.Sum(s => s.NetDue),
                 TotalNetSales = shifts.Sum(s => s.NetSales),
                 TotalVariance = shifts.Sum(s => s.Variance),
                 AverageVariance = varianceCount > 0 ? variances.Where(v => Math.Abs(v) > 0.01m).Average() : 0,
@@ -249,6 +275,7 @@ namespace GFC.Core.Services
                 NetSales = shift.NetSales,
                 ExpectedCash = shift.ExpectedCash,
                 Variance = shift.Variance,
+                LotteryIncome = shift.LotteryIncome,
                 Notes = shift.Notes,
                 Status = shift.Status,
                 IsReconciled = shift.IsReconciled,
@@ -256,6 +283,7 @@ namespace GFC.Core.Services
                 ReconciledDate = shift.ReconciledDate,
                 BackupBagAmount = shift.BackupBagAmount,
                 EnvelopeAmount = shift.EnvelopeAmount,
+                BagRefillAmount = shift.BagRefillAmount,
                 CreatedBy = shift.CreatedBy,
                 CreatedDate = shift.CreatedDate
             };

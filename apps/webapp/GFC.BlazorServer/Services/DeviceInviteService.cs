@@ -74,13 +74,16 @@ public class DeviceInviteService : IDeviceInviteService
                 .Where(i => !i.IsRevoked && i.UsedAtUtc == null);
             
             DeviceInviteToken? invite;
-            if (token.Length == 8)
+            if (token.Length >= 8 && token.Length < 32)
             {
-                invite = await query.FirstOrDefaultAsync(i => i.Token.StartsWith(token.ToLower()));
+                // [IMPROVED] Support prefix match for any length >= 8 (e.g. 13-char truncated tokens)
+                invite = await query.OrderByDescending(i => i.CreatedAtUtc)
+                              .FirstOrDefaultAsync(i => i.Token.StartsWith(token.ToLower()));
             }
             else
             {
-                invite = await query.FirstOrDefaultAsync(i => i.Token == token);
+                // Full match (ensuring case-insensitive check via .ToLower())
+                invite = await query.FirstOrDefaultAsync(i => i.Token == token.ToLower());
             }
 
             if (invite == null) return null;
@@ -105,7 +108,11 @@ public class DeviceInviteService : IDeviceInviteService
         try
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
-            var invite = await context.DeviceInviteTokens.FirstOrDefaultAsync(i => i.Token == token);
+            // [CONSISTENT] Use the same matching logic for marking as used
+            var invite = await context.DeviceInviteTokens
+                .Where(i => i.UsedAtUtc == null)
+                .OrderByDescending(i => i.CreatedAtUtc)
+                .FirstOrDefaultAsync(i => i.Token.StartsWith(token.ToLower()));
             
             if (invite != null)
             {

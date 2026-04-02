@@ -336,42 +336,61 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         try 
         {
             // 1. Tell the server to log out (clears internal state in the AuthenticationService)
-            await _authenticationService.LogoutAsync(tokenToClear);
-            
-            // 2. Clear auto-login preference AND device trust cookie
-            // [FIX] We MUST clear the cookie to stop the auto-login loop reported by the user.
-            // Even in public locations, the /login page remains accessible via PublicPaths in DeviceGuardMiddleware.
+            // [FIX] Add safety timeout for the server-side logout call to prevent DB-driven hangs.
+            var serverLogoutTask = _authenticationService.LogoutAsync(tokenToClear);
+            if (await Task.WhenAny(serverLogoutTask, Task.Delay(3000)) != serverLogoutTask)
+            {
+                _logger.LogWarning("Server-side LogoutAsync timed out for token '{Token}'. Proceeding anyway.", tokenToClear?.Length > 8 ? tokenToClear.Substring(0, 8) : "null");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during server-side logout logic");
+        }
+
+        // 2. Clear global cache immediately (Synchronous/In-Memory)
+        if (!string.IsNullOrEmpty(tokenToClear))
+        {
+            _tokenCache.TryRemove(tokenToClear, out _);
+        }
+
+        // 3. Force reset of ALL scoped state IMMEDIATELY
+        _currentUser = null;
+        _currentToken = null; 
+        _autoLoginAttempted = false;
+        _currentPrincipal = CreateUnauthenticatedPrincipal();
+        
+        // 4. [CRITICAL] Notify UI FIRST before waiting for browser storage cleanup.
+        // This stops the "spinning" UI by allowing the layout to react to the state change.
+        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+
+        // 5. [OPTIMISTIC] Clean browser storage in the background.
+        // We don't await this because if the SignalR circuit is busy (deadlocked by another circuit),
+        // we shouldn't block the entire logout redirect.
+        _ = Task.Run(async () => 
+        {
             try 
             {
-                // [PERFORMANCE] Clear multiple storage locations in parallel
-                var tasks = new List<Task>
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                
+                // We attempt to clear localStorage and cookies. If the circuit dies or is too busy,
+                // the /login page's own OnInitialized will handle the fallback cleanup later.
+                var jsTasks = new List<Task>
                 {
                     _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token").AsTask(),
                     _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1).AsTask(),
                     _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';").AsTask()
                 };
 
-                await Task.WhenAll(tasks);
+                await Task.WhenAll(jsTasks);
             }
-            catch { /* Not interactive or JS not ready */ }
-
-            // 3. Clear global cache to ensure this specific token isn't reused immediately
-            if (!string.IsNullOrEmpty(tokenToClear))
+            catch (Exception ex)
             {
-                _tokenCache.TryRemove(tokenToClear, out _);
+                // Silently fail - browser-side cleanup is best-effort here.
+                // The next login attempt will overwrite these values anyway.
+                _logger.LogDebug("Optimistic JS Logout cleanup failed (expected on disconnect): {Message}", ex.Message);
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during LogoutAsync");
-        }
-
-        // 4. Force reset of ALL scoped state
-        _currentUser = null;
-        _currentToken = null; 
-        _autoLoginAttempted = false;
-        _currentPrincipal = CreateUnauthenticatedPrincipal();
-        NotifyAuthenticationStateChanged(Task.FromResult(new AuthenticationState(_currentPrincipal)));
+        });
     }
 
     public async Task RefreshUserAsync()

@@ -358,7 +358,7 @@
                                             </div>
                                         </div>
                                     </div>
-                            </div>
+                                </div>
                             </div>
 
                             @if (!IsRentalHall)
@@ -1709,7 +1709,7 @@
 
     private void NextField() {
         var fields = IsRentalHall 
-            ? new[] { "Hours", "BarSales" }
+            ? new[] { "BarSales" }
             : new[] { "Hours", "BarSales", "LottoOpeningCash", "LottoSales", "LottoCashes", "LottoNetDue", "LottoInstantTickets", "LottoBackupBag", "LottoCashCounted" };
             
         var idx = Array.IndexOf(fields, _activeField);
@@ -1773,52 +1773,129 @@
     }
 
     private async Task SilentSave() {
+        if (IsLocked || IsSubmitting) return;
+
+        _isSaving = true;
         try {
-            _isSaving = true;
             using var db = await DbFactory.CreateDbContextAsync();
-            var existingBar = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && e.Shift == ShiftType && e.IsRentalHall == IsRentalHall);
             
+            // RECYCLE: Before adding a new report, check if one already exists for this Shift/Date
+            var existingBar = await db.BarSaleEntries.FirstOrDefaultAsync(e => 
+                (e.AdjustedSaleDate ?? e.SaleDate.Date).Date == ReportDate.Date && 
+                e.Shift == ShiftType && 
+                e.IsRentalHall == IsRentalHall);
+
+            // Fetch current rates for persistence
+            var sys = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
+            decimal employeeTax = 0, employerTax = 0;
+            if (sys != null)
+            {
+                employeeTax = (sys.MaStateTaxRate + sys.PfmlEmployeeRate + sys.FicaEmployeeRate) / 100m;
+                employerTax = (sys.MaUnemploymentRate + sys.PfmlEmployerRate + sys.FicaEmployerRate) / 100m;
+            }
+            decimal? currentRate = CurrentUser?.HourlyRate;
+
+            if (IsRentalHall) TotalHours = null;
+
             if (existingBar != null) {
-                existingBar.TotalSales = BarSales ?? 0; existingBar.TotalHours = TotalHours; existingBar.Notes = Notes;
-                existingBar.ModifiedBy = CurrentUser?.Username; existingBar.ModifiedAt = DateTime.UtcNow;
+                existingBar.TotalSales = BarSales ?? 0; 
+                existingBar.TotalHours = TotalHours; 
+                existingBar.ModifiedBy = CurrentUser?.Username; 
+                existingBar.ModifiedAt = DateTime.UtcNow;
+                
+                // [FIX] NEVER flip a "Submitted" report back to "Draft" via auto-save
+                if (existingBar.Status != "Submitted") 
+                {
+                    existingBar.Status = "Draft";
+                }
+
+                // Update historical if missing
+                existingBar.HourlyRate_AtTimeOfShift ??= currentRate;
+                existingBar.TotalEmployeeTaxes_AtTimeOfShift ??= employeeTax;
+                existingBar.TotalEmployerTaxes_AtTimeOfShift ??= employerTax;
+
+                db.BarSaleEntries.Update(existingBar);
                 await db.SaveChangesAsync();
-            } else if ((BarSales != null && BarSales > 0) || (TotalHours != null && TotalHours > 0)) {
-                // ONLY CREATE if there is actual non-zero activity
-                db.BarSaleEntries.Add(new BarSaleEntry {
+                ExistingBarEntry = existingBar;
+            } else if ((BarSales != null && BarSales > 0) || (TotalHours != null && TotalHours > 0) || (IsRentalHall && !string.IsNullOrEmpty(Notes))) {
+                var newBar = new BarSaleEntry {
                     SaleDate = DateTime.Now, AdjustedSaleDate = ReportDate, TotalSales = BarSales ?? 0,
                     TotalHours = TotalHours, IsRentalHall = IsRentalHall, Shift = ShiftType, Notes = Notes,
-                    CreatedBy = CurrentUser?.Username, CreatedAt = DateTime.UtcNow
-                });
+                    CreatedBy = CurrentUser?.Username, CreatedAt = DateTime.UtcNow,
+                    Status = "Draft",
+                    HourlyRate_AtTimeOfShift = currentRate,
+                    TotalEmployeeTaxes_AtTimeOfShift = employeeTax,
+                    TotalEmployerTaxes_AtTimeOfShift = employerTax
+                };
+                db.BarSaleEntries.Add(newBar);
                 await db.SaveChangesAsync();
+                ExistingBarEntry = newBar;
                 ExistingEntryFound = true;
             }
 
             if (!IsRentalHall) {
                 var lottoShifts = LotteryRepo.GetByDateRange(ReportDate, ReportDate);
                 var existingLotto = lottoShifts.FirstOrDefault(s => s.ShiftType == ShiftType);
+                
+                decimal sSales = (ShiftType == "Night" ? (LottoSales ?? 0) - _prevDaySales : (LottoSales ?? 0));
+                decimal sCashes = (ShiftType == "Night" ? (LottoCashes ?? 0) - _prevDayCashes : (LottoCashes ?? 0));
+                decimal sTickets = (ShiftType == "Night" ? (LottoInstantTickets ?? 0) - _prevDayTickets : (LottoInstantTickets ?? 0));
+                decimal sNetDue = (ShiftType == "Night" ? (LottoNetDue ?? 0) - _prevDayNetDue : (LottoNetDue ?? 0));
+                
+                decimal sNetSales = sSales - sCashes - sTickets;
+                decimal sExpDrawer = (LottoOpeningCash ?? 0) + sSales - sCashes - sTickets + (LottoBackupBag ?? 0);
+                decimal sVar = (LottoCashCounted ?? 0) - sExpDrawer;
+                decimal sIncome = sNetSales - sNetDue;
+
                 if (existingLotto != null) {
-                    existingLotto.TotalSales = LottoSales ?? 0; existingLotto.TotalPayouts = LottoCashes ?? 0;
+                    existingLotto.TotalSales = LottoSales ?? 0; 
+                    existingLotto.TotalPayouts = LottoCashes ?? 0;
                     existingLotto.TotalCancels = LottoInstantTickets ?? 0;
-                    existingLotto.NetDue = LottoNetDue ?? 0; existingLotto.StartingCash = LottoOpeningCash ?? 0;
-                    existingLotto.BackupBagAmount = LottoBackupBag ?? 0; existingLotto.EndingCash = LottoCashCounted ?? 0;
+                    existingLotto.NetDue = LottoNetDue ?? 0; 
+                    existingLotto.StartingCash = LottoOpeningCash ?? 0;
+                    existingLotto.BackupBagAmount = LottoBackupBag ?? 0; 
+                    existingLotto.EndingCash = LottoCashCounted ?? 0;
                     existingLotto.EnvelopeAmount = LottoEnvelopeAmount; 
                     existingLotto.BagRefillAmount = LottoBagRefill;
+                    
+                    existingLotto.ShiftSalesActivity = sSales; 
+                    existingLotto.ShiftPayoutsActivity = sCashes;
+                    existingLotto.ShiftCancelsActivity = sTickets; 
+                    existingLotto.ShiftNetDueActivity = sNetDue;
+                    existingLotto.NetSales = sNetSales; 
+                    existingLotto.ExpectedCash = sExpDrawer;
+                    existingLotto.Variance = sVar; 
+                    existingLotto.LotteryIncome = sIncome;
+                    existingLotto.NetIncome = sIncome + sVar;
                     existingLotto.Notes = Notes;
+                    
+                    // [FIX] Preserve "Submitted" status during auto-save
+                    if (existingLotto.Status != "Submitted")
+                    {
+                        existingLotto.Status = "Draft";
+                    }
+                    
                     LotteryRepo.Update(existingLotto);
+                    ExistingLottoEntry = existingLotto;
                 } else if ((LottoSales != null && LottoSales > 0) || (LottoCashes != null && LottoCashes > 0) || (LottoNetDue != null && LottoNetDue != 0) || (LottoCashCounted != null && LottoCashCounted > 0)) {
-                    // ONLY CREATE if there is actual non-zero lottery activity
-                    LotteryRepo.Create(new LotteryShift {
+                    var newLotto = new LotteryShift {
                         ShiftDate = ReportDate, EmployeeName = CurrentUser?.Username ?? "Unknown", ShiftType = ShiftType,
                         TotalSales = LottoSales ?? 0, TotalPayouts = LottoCashes ?? 0, TotalCancels = LottoInstantTickets ?? 0,
                         NetDue = LottoNetDue ?? 0, StartingCash = LottoOpeningCash ?? 0, BackupBagAmount = LottoBackupBag ?? 0,
                         EndingCash = LottoCashCounted ?? 0, EnvelopeAmount = LottoEnvelopeAmount, 
                         BagRefillAmount = LottoBagRefill, Notes = Notes,
+                        ShiftSalesActivity = sSales, ShiftPayoutsActivity = sCashes,
+                        ShiftCancelsActivity = sTickets, ShiftNetDueActivity = sNetDue,
+                        NetSales = sNetSales, ExpectedCash = sExpDrawer,
+                        Variance = sVar, LotteryIncome = sIncome, NetIncome = sIncome + sVar,
                         CreatedBy = CurrentUser?.Username, CreatedDate = DateTime.UtcNow, Status = "Draft"
-                    });
+                    };
+                    LotteryRepo.Create(newLotto);
+                    ExistingLottoEntry = newLotto;
                     ExistingEntryFound = true;
                 }
             }
-        } catch { /* Silent fail for auto-save background */ }
+        } catch { /* Background silence */ }
         finally {
              _isSaving = false;
              await InvokeAsync(StateHasChanged);
@@ -1835,8 +1912,11 @@
             LottoCashCounted == null
         );
 
-        if (BarSales == null || BarSales <= 0 || TotalHours == null || TotalHours <= 0 || lottoIncomplete) {
-            _validationError = "Required fields are missing. Please enter values for all lottery boxes (even if zero).";
+        bool barHoursIncomplete = !IsRentalHall && (TotalHours == null || TotalHours <= 0);
+        bool barSalesIncomplete = BarSales == null || BarSales <= 0;
+
+        if (barHoursIncomplete || barSalesIncomplete || lottoIncomplete) {
+            _validationError = "Required fields are missing. Please enter values for all boxes (even if zero).";
             _showValidation = true;
 
             // Auto-Focus the first field that needs attention
@@ -1996,8 +2076,13 @@
         if (now.Hour < 5) ReportDate = DateTime.Today.AddDays(-1);
     }
 
-    private async Task OnDateChanged()
+    private async Task OnDateChanged(ChangeEventArgs e)
     {
+        if (e.Value != null && DateTime.TryParse(e.Value.ToString(), out var newDate))
+        {
+            ReportDate = newDate;
+        }
+
         Loading = true;
         StateHasChanged();
         try {
@@ -2113,8 +2198,7 @@
             var hallEntry = await db.BarSaleEntries.FirstOrDefaultAsync(e => (e.AdjustedSaleDate ?? e.SaleDate).Date == ReportDate.Date && 
                                                                   e.IsRentalHall == true && 
                                                                   e.Shift == "Hall");
-            // For Bar Entries, we check if they have actual non-zero data to be considered 'submitted' since they lack a Status field
-            _hallSubmitted = hallEntry != null && (hallEntry.TotalSales > 0 || (hallEntry.TotalHours ?? 0) > 0);
+            _hallSubmitted = (hallEntry != null && hallEntry.Status == "Submitted");
             _hallModified = hallEntry?.ModifiedAt != null && (hallEntry.ModifiedAt.Value - hallEntry.CreatedAt).TotalSeconds > 10 && _hallSubmitted;
             _hallCloser = hallEntry?.ModifiedBy ?? hallEntry?.CreatedBy;
         } catch { }
@@ -2258,7 +2342,10 @@
     {
         bool lottoValid = IsRentalHall || (LottoSales != null && LottoCashes != null && LottoNetDue != null && LottoInstantTickets != null && LottoOpeningCash != null && LottoCashCounted != null);
 
-        if (BarSales == null || BarSales <= 0 || TotalHours == null || TotalHours <= 0 || !lottoValid) {
+        bool barHoursIncomplete = !IsRentalHall && (TotalHours == null || TotalHours <= 0);
+        bool barSalesIncomplete = BarSales == null || BarSales <= 0;
+
+        if (barHoursIncomplete || barSalesIncomplete || !lottoValid) {
             _validationError = "Missing data: Please ensure all boxes are filled (even if zero).";
             _showValidation = true;
             return;
@@ -2267,68 +2354,134 @@
         IsSubmitting = true;
         try {
             using var db = await DbFactory.CreateDbContextAsync();
-            
-            // Grab LIVE settings at this exact moment to stamp into the history
-            var sysAdmin = await db.SystemSettings.FirstOrDefaultAsync();
-            decimal currEmployeeTaxes = sysAdmin != null ? (sysAdmin.MaStateTaxRate + sysAdmin.PfmlEmployeeRate + sysAdmin.FicaEmployeeRate) / 100m : 0m;
-            decimal currEmployerTaxes = sysAdmin != null ? (sysAdmin.MaUnemploymentRate + sysAdmin.PfmlEmployerRate + sysAdmin.FicaEmployerRate) / 100m : 0m;
-            decimal currentWage = 0m;
-            
-            if (CurrentUser != null) {
-                var appUser = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == CurrentUser.Username);
-                if (appUser != null) currentWage = appUser.HourlyRate ?? 0m;
-            }
+            using var transaction = await db.Database.BeginTransactionAsync();
 
-            if (ExistingBarEntry != null) {
-                var entry = await db.BarSaleEntries.FindAsync(ExistingBarEntry.Id);
-                if (entry != null) {
-                    entry.TotalSales = BarSales ?? 0; entry.TotalHours = TotalHours; entry.Notes = Notes;
-                    entry.ModifiedBy = CurrentUser?.Username; entry.ModifiedAt = DateTime.UtcNow;
-                    
-                    // Stamp the exact mathematical values to lock the audit trail
-                    entry.HourlyRate_AtTimeOfShift = currentWage;
-                    entry.TotalEmployeeTaxes_AtTimeOfShift = currEmployeeTaxes;
-                    entry.TotalEmployerTaxes_AtTimeOfShift = currEmployerTaxes;
-                    
-                    await db.SaveChangesAsync();
+            try {
+                // 1. BAR SALES PORTION
+                var targetDate = ReportDate.Date;
+                var existingBar = await db.BarSaleEntries.FirstOrDefaultAsync(e => 
+                    (e.AdjustedSaleDate ?? e.SaleDate.Date).Date == targetDate && 
+                    e.Shift == ShiftType && 
+                    e.IsRentalHall == IsRentalHall);
+
+                // Fetch current rates for persistence
+                var sys = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync();
+                decimal employeeTax = 0, employerTax = 0;
+                if (sys != null)
+                {
+                    employeeTax = (sys.MaStateTaxRate + sys.PfmlEmployeeRate + sys.FicaEmployeeRate) / 100m;
+                    employerTax = (sys.MaUnemploymentRate + sys.PfmlEmployerRate + sys.FicaEmployerRate) / 100m;
                 }
-            } else {
-                db.BarSaleEntries.Add(new BarSaleEntry {
-                    SaleDate = DateTime.Now, AdjustedSaleDate = ReportDate, TotalSales = BarSales ?? 0,
-                    TotalHours = TotalHours, IsRentalHall = IsRentalHall, Shift = ShiftType, Notes = Notes,
-                    HourlyRate_AtTimeOfShift = currentWage,
-                    TotalEmployeeTaxes_AtTimeOfShift = currEmployeeTaxes,
-                    TotalEmployerTaxes_AtTimeOfShift = currEmployerTaxes,
-                    CreatedBy = CurrentUser?.Username, CreatedAt = DateTime.UtcNow
-                });
-                await db.SaveChangesAsync();
-            }
 
-            if (!IsRentalHall) {
-                if (ExistingLottoEntry != null) {
-                    bool isCorrection = ExistingLottoEntry.Status == "Submitted";
-                    ExistingLottoEntry.TotalSales = LottoSales ?? 0; ExistingLottoEntry.TotalPayouts = LottoCashes ?? 0;
-                    ExistingLottoEntry.TotalCancels = LottoInstantTickets ?? 0;
-                    ExistingLottoEntry.NetDue = LottoNetDue ?? 0; ExistingLottoEntry.StartingCash = LottoOpeningCash ?? 0;
-                    ExistingLottoEntry.BackupBagAmount = LottoBackupBag ?? 0; ExistingLottoEntry.EndingCash = LottoCashCounted ?? 0;
-                    ExistingLottoEntry.EnvelopeAmount = LottoEnvelopeAmount; 
-                    ExistingLottoEntry.BagRefillAmount = LottoBagRefill;
-                    ExistingLottoEntry.Notes = Notes;
-                    ExistingLottoEntry.Status = "Submitted";
-                    ExistingLottoEntry.ModifiedBy = CurrentUser?.Username;
-                    ExistingLottoEntry.ModifiedDate = DateTime.UtcNow;
-                    LotteryRepo.Update(ExistingLottoEntry);
+                // Get current user's rate if not already locked
+                decimal? currentRate = CurrentUser?.HourlyRate;
+
+                if (IsRentalHall) TotalHours = null;
+
+                if (existingBar != null) {
+                    existingBar.TotalSales = BarSales ?? 0; 
+                    existingBar.TotalHours = TotalHours; 
+                    existingBar.Notes = Notes;
+                    existingBar.ModifiedBy = CurrentUser?.Username; 
+                    existingBar.ModifiedAt = DateTime.UtcNow;
+                    existingBar.Status = "Submitted";
+
+                    // Persist historical calculations if not already set (Capture at time of first submission)
+                    existingBar.HourlyRate_AtTimeOfShift ??= currentRate;
+                    existingBar.TotalEmployeeTaxes_AtTimeOfShift ??= employeeTax;
+                    existingBar.TotalEmployerTaxes_AtTimeOfShift ??= employerTax;
+
+                    db.BarSaleEntries.Update(existingBar);
                 } else {
-                    LotteryRepo.Create(new LotteryShift {
-                        ShiftDate = ReportDate, EmployeeName = CurrentUser?.Username ?? "Unknown", ShiftType = ShiftType,
-                        TotalSales = LottoSales ?? 0, TotalPayouts = LottoCashes ?? 0, 
-                        TotalCancels = LottoInstantTickets ?? 0,
-                        NetDue = LottoNetDue ?? 0,
-                        StartingCash = LottoOpeningCash ?? 0, BackupBagAmount = LottoBackupBag ?? 0, EndingCash = LottoCashCounted ?? 0,
-                        EnvelopeAmount = LottoEnvelopeAmount, BagRefillAmount = LottoBagRefill,
-                        Notes = Notes, CreatedBy = CurrentUser?.Username, CreatedDate = DateTime.UtcNow, Status = "Submitted"
+                    db.BarSaleEntries.Add(new BarSaleEntry {
+                        SaleDate = DateTime.Now, AdjustedSaleDate = ReportDate, 
+                        TotalSales = BarSales ?? 0, TotalHours = TotalHours, 
+                        IsRentalHall = IsRentalHall, Shift = ShiftType, Notes = Notes,
+                        CreatedBy = CurrentUser?.Username, CreatedAt = DateTime.UtcNow,
+                        Status = "Submitted",
+                        // Capture snapshot of current rates
+                        HourlyRate_AtTimeOfShift = currentRate,
+                        TotalEmployeeTaxes_AtTimeOfShift = employeeTax,
+                        TotalEmployerTaxes_AtTimeOfShift = employerTax
                     });
                 }
+
+                // 2. LOTTERY PORTION
+                if (!IsRentalHall) {
+                    var existingLotto = await db.LotteryShifts.FirstOrDefaultAsync(s => 
+                        s.ShiftDate.Date == targetDate && 
+                        s.ShiftType == ShiftType);
+                    
+                    decimal sSales = (ShiftType == "Night" ? (LottoSales ?? 0) - _prevDaySales : (LottoSales ?? 0));
+                    decimal sCashes = (ShiftType == "Night" ? (LottoCashes ?? 0) - _prevDayCashes : (LottoCashes ?? 0));
+                    decimal sTickets = (ShiftType == "Night" ? (LottoInstantTickets ?? 0) - _prevDayTickets : (LottoInstantTickets ?? 0));
+                    decimal sNetDue = (ShiftType == "Night" ? (LottoNetDue ?? 0) - _prevDayNetDue : (LottoNetDue ?? 0));
+                    decimal sNetSales = sSales - sCashes - sTickets;
+                    decimal sExpDrawer = (LottoOpeningCash ?? 0) + sSales - sCashes - sTickets + (LottoBackupBag ?? 0);
+                    decimal sVar = (LottoCashCounted ?? 0) - sExpDrawer;
+                    decimal sIncome = sNetSales - sNetDue;
+
+                    if (existingLotto != null) {
+                        existingLotto.TotalSales = LottoSales ?? 0; 
+                        existingLotto.TotalPayouts = LottoCashes ?? 0;
+                        existingLotto.TotalCancels = LottoInstantTickets ?? 0;
+                        existingLotto.NetDue = LottoNetDue ?? 0; 
+                        existingLotto.StartingCash = LottoOpeningCash ?? 0;
+                        existingLotto.BackupBagAmount = LottoBackupBag ?? 0; 
+                        existingLotto.EndingCash = LottoCashCounted ?? 0;
+                        existingLotto.EnvelopeAmount = LottoEnvelopeAmount; 
+                        existingLotto.BagRefillAmount = LottoBagRefill;
+                        existingLotto.ShiftSalesActivity = sSales; 
+                        existingLotto.ShiftPayoutsActivity = sCashes;
+                        existingLotto.ShiftCancelsActivity = sTickets; 
+                        existingLotto.ShiftNetDueActivity = sNetDue;
+                        existingLotto.NetSales = sNetSales; 
+                        existingLotto.ExpectedCash = sExpDrawer;
+                        existingLotto.Variance = sVar; 
+                        existingLotto.LotteryIncome = sIncome;
+                        existingLotto.NetIncome = sIncome + sVar;
+                        existingLotto.Notes = Notes;
+                        existingLotto.Status = "Submitted";
+                        existingLotto.ModifiedBy = CurrentUser?.Username;
+                        existingLotto.ModifiedDate = DateTime.UtcNow;
+                        db.LotteryShifts.Update(existingLotto);
+                    } else {
+                        db.LotteryShifts.Add(new LotteryShift {
+                            ShiftDate = ReportDate, 
+                            EmployeeName = CurrentUser?.Username ?? "Unknown", 
+                            ShiftType = ShiftType,
+                            TotalSales = LottoSales ?? 0, 
+                            TotalPayouts = LottoCashes ?? 0, 
+                            TotalCancels = LottoInstantTickets ?? 0,
+                            NetDue = LottoNetDue ?? 0, 
+                            StartingCash = LottoOpeningCash ?? 0, 
+                            BackupBagAmount = LottoBackupBag ?? 0,
+                            EndingCash = LottoCashCounted ?? 0, 
+                            EnvelopeAmount = LottoEnvelopeAmount, 
+                            BagRefillAmount = LottoBagRefill,
+                            ShiftSalesActivity = sSales, 
+                            ShiftPayoutsActivity = sCashes,
+                            ShiftCancelsActivity = sTickets, 
+                            ShiftNetDueActivity = sNetDue,
+                            NetSales = sNetSales, 
+                            ExpectedCash = sExpDrawer,
+                            Variance = sVar, 
+                            LotteryIncome = sIncome, 
+                            NetIncome = sIncome + sVar,
+                            Notes = Notes, 
+                            CreatedBy = CurrentUser?.Username, 
+                            CreatedDate = DateTime.UtcNow, 
+                            Status = "Submitted"
+                        });
+                    }
+                }
+
+                await db.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+            } catch (Exception) {
+                await transaction.RollbackAsync();
+                throw;
             }
 
             AuditLogger.Log(ExistingEntryFound ? "Shift Report Corrected" : "Shift Report Submitted", CurrentUser?.UserId, null, $"Date: {ReportDate:yyyy-MM-dd}, Shift: {ShiftType}");

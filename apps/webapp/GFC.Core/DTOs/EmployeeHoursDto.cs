@@ -20,6 +20,9 @@ namespace GFC.Core.DTOs
         public decimal EmployeeDeductionRate { get; set; } 
         public decimal EmployerSurchargeRate { get; set; }
         
+        public decimal TotalWithheld { get; set; }
+        public decimal TotalEmployerAddOn { get; set; }
+        
         public decimal NetPay { get; set; }
         public decimal TotalPayrollCost { get; set; }
 
