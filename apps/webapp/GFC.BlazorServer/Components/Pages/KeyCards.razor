@@ -459,8 +459,120 @@
                 @onclick='() => SetActiveTab("pending")'>
             <i class="bi bi-person-badge-fill"></i> Needing Cards <span class="filter-badge badge-primary">@_countNeeding</span>
         </button>
+
+        <div class="filter-divider flex-shrink-0"></div>
+
+        <button class="btn btn-indigo flex-shrink-0" 
+                style="white-space: nowrap; border-radius: 12px; font-size: 0.8rem; font-weight: 700; padding: 0.45rem 1rem;"
+                @onclick='() => NavManager.NavigateTo("/dues")'>
+            <i class="bi bi-cash-stack me-1"></i> Dues &amp; Payments
+        </button>
+
+        <button class="btn btn-warning flex-shrink-0" 
+                style="white-space: nowrap; border-radius: 12px; font-size: 0.8rem; font-weight: 700; padding: 0.45rem 1rem; color: #1e293b;"
+                @onclick="ToggleTopUsers">
+            <i class="bi bi-trophy-fill me-1"></i> Top Users
+        </button>
     </div>
 </div>
+
+@* TOP USERS PANEL *@
+@if (_showTopUsers)
+{
+    <div class="card shadow border-0 mb-4 fade-in" style="border-radius: 16px; overflow: hidden;">
+        <div class="card-header d-flex align-items-center justify-content-between py-3 px-4" 
+             style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border: none;">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-trophy-fill text-white fs-5"></i>
+                <div>
+                    <h6 class="mb-0 fw-black text-white">Top 10 Members — Door 1</h6>
+                    <small class="text-white" style="opacity: 0.85;">All-time badge-ins through the main entrance</small>
+                </div>
+            </div>
+            <button class="btn btn-sm btn-light rounded-pill me-2" @onclick="LoadTopUsersAsync" disabled="@_topUsersLoading" title="Refresh">
+                <i class="bi bi-arrow-clockwise @(_topUsersLoading ? "spin-slow" : "")"></i>
+            </button>
+            <button class="btn btn-sm btn-light rounded-pill" @onclick="ToggleTopUsers">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="card-body p-0">
+            @if (_topUsersLoading)
+            {
+                <div class="text-center py-5 text-muted">
+                    <div class="spinner-border text-warning" role="status"></div>
+                    <p class="mt-2 mb-0">Loading top users...</p>
+                </div>
+            }
+            else if (!_topUsers.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                    No badge activity found for Door 1.
+                </div>
+            }
+            else
+            {
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4" style="width: 60px;">Rank</th>
+                            <th>Member</th>
+                            <th class="text-end pe-4">Badge-Ins</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ int rank = 1; }
+                        @foreach (var u in _topUsers)
+                        {
+                            <tr>
+                                <td class="ps-4">
+                                    @if (rank == 1)
+                                    {
+                                        <span class="badge rounded-pill" style="background: #f59e0b; color: white; font-size: 0.85rem; padding: 4px 10px;">
+                                            <i class="bi bi-trophy-fill me-1"></i>1
+                                        </span>
+                                    }
+                                    else if (rank == 2)
+                                    {
+                                        <span class="badge rounded-pill bg-secondary" style="font-size: 0.85rem; padding: 4px 10px;">2</span>
+                                    }
+                                    else if (rank == 3)
+                                    {
+                                        <span class="badge rounded-pill" style="background: #b45309; color: white; font-size: 0.85rem; padding: 4px 10px;">3</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted fw-semibold ps-2">@rank</span>
+                                    }
+                                    @{ rank++; }
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="avatar-circle" style="width:36px;height:36px;font-size:0.85rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;flex-shrink:0;">
+                                            @(u.MemberName.Length >= 2 ? u.MemberName.Substring(0,2).ToUpper() : u.MemberName.ToUpper())
+                                        </div>
+                                        <div>
+                                            <div class="fw-semibold">@u.MemberName</div>
+                                            @if (u.MemberId > 0)
+                                            {
+                                                <small class="text-muted">ID: @u.MemberId</small>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-end pe-4">
+                                    <span class="fw-black fs-5" style="color: #d97706;">@u.BadgeCount</span>
+                                    <span class="text-muted small ms-1">swipes</span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+}
 
 @if (!_controllerOnline)
 {
@@ -1205,6 +1317,82 @@
     private bool _isAutoSelectedMember = false;
     
     private HashSet<int> _directorIds = new();
+
+    // Top Users Panel
+    private bool _showTopUsers = false;
+    private bool _topUsersLoading = false;
+    private List<TopUserRow> _topUsers = new();
+
+    private record TopUserRow(string MemberName, int MemberId, int BadgeCount);
+
+    private async Task ToggleTopUsers()
+    {
+        _showTopUsers = !_showTopUsers;
+        if (_showTopUsers && !_topUsers.Any())
+            await LoadTopUsersAsync();
+    }
+
+    private async Task LoadTopUsersAsync()
+    {
+        _topUsersLoading = true;
+        StateHasChanged();
+        try
+        {
+            using var ctx = await DbFactory.CreateDbContextAsync();
+
+            // Door 1 has DoorIndex = 0 on the controller.
+            // KNOWN ISSUE in sync code: events where DoorNumber == 0 are saved with DoorId = null
+            // because the sync guard is "evt.DoorNumber > 0". So Door 1 events have DoorId = null.
+            // We therefore include events where DoorId is null OR matches Door 1's actual DB Id.
+            var door1DbIds = await ctx.Doors
+                .Where(d => d.DoorIndex == 0)
+                .Select(d => d.Id)
+                .ToListAsync();
+
+            const long RemoteUnlockCard = 3720023022L;
+
+            var rawCounts = await ctx.ControllerEvents
+                .Where(e => (e.DoorId == null || door1DbIds.Contains(e.DoorId.Value))
+                         && e.CardNumber != null
+                         && e.CardNumber > 1
+                         && e.CardNumber != RemoteUnlockCard)
+                .GroupBy(e => e.CardNumber)
+                .Select(g => new { CardNumber = g.Key, Count = g.Count() })
+                .OrderByDescending(g => g.Count)
+                .Take(10)
+                .ToListAsync();
+
+            // Resolve card → member names
+            var allCards = await Task.Run(() => KeyCardRepository.GetAll());
+            var allMembers = await Task.Run(() => MemberRepository.GetAllMembers());
+
+            var cardsByNumber = allCards
+                .Where(c => !string.IsNullOrEmpty(c.CardNumber))
+                .GroupBy(c => c.CardNumber.TrimStart('0'))
+                .ToDictionary(g => g.Key, g => g.First());
+            var membersById = allMembers.ToDictionary(m => m.MemberID);
+
+            _topUsers = rawCounts.Select(r =>
+            {
+                var normalized = r.CardNumber?.ToString().TrimStart('0') ?? "";
+                if (!string.IsNullOrEmpty(normalized) && cardsByNumber.TryGetValue(normalized, out var card)
+                    && membersById.TryGetValue(card.MemberId, out var member))
+                {
+                    var name = $"{member.LastName?.Trim()}, {member.FirstName?.Trim()}";
+                    return new TopUserRow(name, member.MemberID, r.Count);
+                }
+                return new TopUserRow($"Card #{r.CardNumber}", 0, r.Count);
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load top users");
+        }
+        finally
+        {
+            _topUsersLoading = false;
+        }
+    }
     
     // Scanning state
     private CancellationTokenSource? _scanCts;

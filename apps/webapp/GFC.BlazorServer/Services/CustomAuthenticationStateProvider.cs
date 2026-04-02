@@ -138,11 +138,13 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                 // [STATION DETECTION]
                 // Stations MUST persist their login across refreshes while the browser is open.
                 bool isSharedStation = context?.Request != null && context.Request.Cookies.ContainsKey("GFC_StationIdentity");
+                bool isCookieToken = false;
                 
                 // 1. Try Cookies (Initial load / Prerendering)
                 if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
                 {
                     // Got token from cookie - extremely reliable for refreshes
+                    isCookieToken = true;
                 }
                 else 
                 {
@@ -160,11 +162,25 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                     // 1. Never auto-login if GFC_StationIdentity is present (shared machines must use PIN)
                     // 2. Only allow auto-login for personal devices (Context exists & no station flag)
                     
-                    bool shouldRestore = context != null && !isSharedStation;
+                    bool shouldRestore = false;
                     
-                    if (!shouldRestore && !isSharedStation)
+                    if (context != null)
                     {
-                         // [FALLBACK] Personal devices reaching state re-eval without SSR context
+                        if (isSharedStation)
+                        {
+                            // [FIX] On shared stations, only restore if it's an active Session Cookie (meaning a page refresh).
+                            // If it's falling back to LocalStorage (e.g. after a browser restart), reject it to force a PIN input.
+                            shouldRestore = isCookieToken;
+                        }
+                        else
+                        {
+                            shouldRestore = true;
+                        }
+                    }
+                    else
+                    {
+                         // [FALLBACK] Interactive circuit re-eval without SSR context (SignalR reconnect)
+                         // We must restore state to survive SignalR reconnects whether it's a station or not.
                          try {
                             var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
                             shouldRestore = !string.IsNullOrEmpty(intentToken) && intentToken == token;

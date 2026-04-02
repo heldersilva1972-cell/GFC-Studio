@@ -505,16 +505,19 @@ public class AuthenticationService : IAuthenticationService
             )
         ).ToList();
 
-        foreach (var dev in duplicates)
+        // [FIX] Allow multiple active sessions to prevent shared stations from logging each other out
+        // Only clean up oldest sessions when they exceed 10 concurrent sessions for this platform
+        if (duplicates.Count >= 10)
         {
-            dev.IsRevoked = true;
-            await _trustedDeviceRepository.UpdateAsync(dev);
-        }
-        
-        if (duplicates.Any())
-        {
+            var toRevoke = duplicates.OrderByDescending(d => d.LastUsedUtc).Skip(9).ToList();
+            foreach (var dev in toRevoke)
+            {
+                dev.IsRevoked = true;
+                await _trustedDeviceRepository.UpdateAsync(dev);
+            }
+            
             _logger.LogInformation("Auto-cleanup (AuthService): Revoked {Count} stale {Type} sessions for user {UserId}.", 
-                duplicates.Count, appPlatform, userId);
+                toRevoke.Count, appPlatform, userId);
         }
 
         var token = GenerateSecureToken();
