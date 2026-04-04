@@ -788,27 +788,50 @@
                                     <div class="small">Updates made here will apply as the default rate for future and current calculations for each employee.</div>
                                 </div>
                             </div>
+                            <div class="mb-4 p-4 bg-light rounded-4 border">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <h6 class="fw-black mb-1"><i class="bi bi-calendar-event me-2 text-primary"></i> WAGE YEAR CONFIGURATION</h6>
+                                        <div class="small text-muted">Updates here only apply to shifts in the selected year.</div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <label class="small fw-bold text-muted">YEAR:</label>
+                                        <select class="form-select fw-bold border-0 shadow-sm px-3" style="width: 120px;" 
+                                                value="@_settingsYear" @onchange="@(e => OnSettingsYearChanged(int.Parse(e.Value?.ToString() ?? "2024")))">
+                                            @foreach (var year in _availableYears)
+                                            {
+                                                <option value="@year">@year</option>
+                                            }
+                                            <option value="@(DateTime.Now.Year + 1)">@(DateTime.Now.Year + 1)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
 
-                            <div class="table-responsive">
-                                <table class="table table-hover align-middle">
-                                    <thead>
-                                        <tr class="text-muted small fw-bold">
-                                            <th>EMPLOYEE</th>
-                                            <th class="text-end" style="width: 200px;">HOURLY RATE</th>
+                            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="bg-light sticky-top">
+                                        <tr>
+                                            <th class="border-0 small fw-black text-muted py-3">EMPLOYEE</th>
+                                            <th class="border-0 small fw-black text-muted text-end py-3">HOURLY RATE</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var user in allSystemUsers)
                                         {
+                                            var yearlyRecord = _currentYearlyWages.FirstOrDefault(w => w.Username == user.Username);
                                             <tr>
                                                 <td>
                                                     <div class="fw-bold">@GetUserName(user)</div>
                                                     <div class="small text-muted">@user.Username</div>
                                                 </td>
-                                                <td class="text-end">
-                                                    <div class="input-group">
-                                                        <span class="input-group-text bg-white border-end-0">$</span>
-                                                        <input type="number" class="form-control border-start-0" step="0.25" @bind="user.HourlyRate" placeholder="0.00" />
+                                                <td class="text-end" style="width: 200px;">
+                                                    <div class="input-group shadow-sm rounded-3 overflow-hidden">
+                                                        <span class="input-group-text bg-white border-end-0 text-muted">$</span>
+                                                        <input type="number" class="form-control border-start-0 fw-bold" step="0.25" 
+                                                               value="@(yearlyRecord?.HourlyRate ?? user.HourlyRate ?? 0)" 
+                                                               @onchange="@(e => UpdateLocalYearlyRate(user.Username, decimal.TryParse(e.Value?.ToString(), out var v) ? v : 0))"
+                                                               placeholder="0.00" />
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1036,6 +1059,8 @@
     private bool _showPayrollSettings = false;
     private string _activeSettingsTab = "Wages"; // Wages, Taxes
     private bool _isSavingSettings = false;
+    private int _settingsYear = DateTime.Now.Year;
+    private List<YearlyWage> _currentYearlyWages = new();
     
     // Detailed Pay Breakdown State
     private bool _showPayDetails = false;
@@ -1087,6 +1112,7 @@
     protected override async Task OnInitializedAsync()
     {
         _loading = true;
+        _settingsYear = _selectedYear; // Sync with page year by default
         
         using var db = await DbFactory.CreateDbContextAsync();
         var sys = await db.SystemSettings.FirstOrDefaultAsync() ?? new SystemSettings();
@@ -1103,6 +1129,28 @@
         PopulateWeekOptions();
         await LoadData();
         await LoadAllUsers();
+        await LoadYearlyWages();
+    }
+
+    private async Task OnSettingsYearChanged(int year)
+    {
+        _settingsYear = year;
+        await LoadYearlyWages();
+    }
+
+    private async Task LoadYearlyWages()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            _currentYearlyWages = await db.YearlyWages
+                .Where(w => w.Year == _settingsYear)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading yearly wages: {ex.Message}");
+        }
     }
 
     private IEnumerable<DateTime> GetWeekDays()
@@ -1140,6 +1188,26 @@
         }
     }
 
+    private void UpdateLocalYearlyRate(string username, decimal rate)
+    {
+        var existing = _currentYearlyWages.FirstOrDefault(w => w.Username == username);
+        if (existing != null)
+        {
+            existing.HourlyRate = rate;
+            existing.ModifiedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            _currentYearlyWages.Add(new YearlyWage 
+            { 
+                Username = username, 
+                Year = _settingsYear, 
+                HourlyRate = rate,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+    }
+
     private async Task SavePayrollSettings()
     {
         _isSavingSettings = true;
@@ -1147,11 +1215,35 @@
         {
             using var db = await DbFactory.CreateDbContextAsync();
             
-            // Save employee wage updates
-            foreach (var user in allSystemUsers)
+            // Save employee wage updates for the SPECIFIC YEAR
+            foreach (var wage in _currentYearlyWages)
             {
-                var dbUser = await db.AppUsers.FindAsync(user.UserId);
-                if (dbUser != null) dbUser.HourlyRate = user.HourlyRate;
+                var dbWage = await db.YearlyWages.FirstOrDefaultAsync(w => w.Username == wage.Username && w.Year == wage.Year);
+                if (dbWage != null)
+                {
+                    dbWage.HourlyRate = wage.HourlyRate;
+                    dbWage.ModifiedAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    db.YearlyWages.Add(new YearlyWage
+                    {
+                        Username = wage.Username,
+                        Year = wage.Year,
+                        HourlyRate = wage.HourlyRate,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+            
+            // Also update the global default rate on the user profile for convenience in NEW records
+            if (_settingsYear == DateTime.Now.Year)
+            {
+                foreach (var wage in _currentYearlyWages)
+                {
+                    var user = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == wage.Username);
+                    if (user != null) user.HourlyRate = wage.HourlyRate;
+                }
             }
             
             // Save global tax updates
@@ -1167,7 +1259,7 @@
             }
             
             await db.SaveChangesAsync();
-            await ToastService.ShowSuccess("Payroll and tax settings updated and persistent.");
+            await ToastService.ShowSuccess($"Payroll and tax settings updated for {_settingsYear}.");
             _showPayrollSettings = false;
             await LoadData();
         }
@@ -1200,10 +1292,17 @@
             if (user != null)
             {
                 user.HourlyRate = newRate;
+                
+                // Also update the yearly record for the currently viewed year
+                var yearly = await db.YearlyWages.FirstOrDefaultAsync(w => w.Username == user.Username && w.Year == _selectedYear);
+                if (yearly != null) yearly.HourlyRate = newRate;
+                else db.YearlyWages.Add(new YearlyWage { Username = user.Username, Year = _selectedYear, HourlyRate = newRate, CreatedAt = DateTime.UtcNow });
+
                 await db.SaveChangesAsync();
-                await ToastService.ShowSuccess($"Saved pay rate for {editingItem.MemberName}");
+                await ToastService.ShowSuccess($"Saved pay rate for {editingItem.MemberName} in {_selectedYear}");
                 showRateModal = false;
                 await LoadData();
+                await LoadYearlyWages(); // Sync the settings state
             }
         }
         catch (Exception ex)

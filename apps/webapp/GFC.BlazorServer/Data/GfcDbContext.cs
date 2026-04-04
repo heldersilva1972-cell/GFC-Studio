@@ -139,10 +139,18 @@ public class GfcDbContext : DbContext
     public DbSet<ClubEventTransaction> ClubEventTransactions => Set<ClubEventTransaction>();
     public DbSet<TaxBracket> TaxBrackets => Set<TaxBracket>();
     public DbSet<TaxStandardDeduction> TaxStandardDeductions => Set<TaxStandardDeduction>();
+    public DbSet<YearlyWage> YearlyWages => Set<YearlyWage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<YearlyWage>(entity =>
+        {
+            entity.ToTable("YearlyWages");
+            entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(y => !y.IsDeleted);
+        });
 
         modelBuilder.Entity<TaxBracket>(entity =>
         {

@@ -528,6 +528,12 @@ namespace GFC.BlazorServer.Services
                 .ToListAsync();
             
             var allMembers = await db.Members.AsNoTracking().ToListAsync();
+            
+            // Year-specific overrides for older records that missed the snapshot
+            var yearsInRange = Enumerable.Range(start.Year, (end.Year - start.Year) + 1).ToList();
+            var yearlyOverrides = await db.YearlyWages.AsNoTracking()
+                .Where(w => yearsInRange.Contains(w.Year))
+                .ToListAsync();
 
             // Group entries by user
             var entriesByUser = entries
@@ -556,7 +562,11 @@ namespace GFC.BlazorServer.Services
 
                 foreach (var e in userEntries)
                 {
-                    decimal rate = defaultRate;
+                    // [PRECEDENCE]: 1. Live Snapshot from Shift | 2. Yearly Database Override | 3. Current Live User Profile (Fallback)
+                    var shiftYear = e.Date.Year;
+                    var yearlyOverride = yearlyOverrides.FirstOrDefault(w => w.Username == user.Username && w.Year == shiftYear);
+                    
+                    decimal rate = e.HistoricalRate ?? yearlyOverride?.HourlyRate ?? defaultRate;
                     decimal shiftGross = e.Hours * rate;
  
                     // [DYNAMIC] IRS Percentage Method (Pulling from your Database)
