@@ -487,9 +487,9 @@
                 <div class="d-flex align-items-center gap-2">
                     <i class="bi bi-trophy-fill text-white fs-5"></i>
                     <div>
-                        <h6 class="mb-0 fw-black text-white">Top @_topCount Monthly — Door 1</h6>
+                        <h6 class="mb-0 fw-black text-white">Top @_topCount Rankings — @DateTime.Today.Year</h6>
                         <small class="text-white" style="opacity: 0.85;">
-                            Rolling 30-day successful swipes
+                            Total successful swipes since Jan 1st
                             @if (_topUsersLastUpdated.HasValue)
                             {
                                 <span> • As of @_topUsersLastUpdated.Value.ToString("g")</span>
@@ -1384,8 +1384,11 @@
             await JSRuntime.InvokeVoidAsync("eval", $"document.body.style.overflow = '{(_showTopUsers ? "hidden" : "")}'");
         } catch { /* Ignore JS errors if navigating */ }
 
-        if (_showTopUsers && !_topUsers.Any())
+        if (_showTopUsers)
+        {
             await LoadTopUsersAsync();
+            StateHasChanged();
+        }
     }
 
     private async Task LoadTopUsersAsync()
@@ -1396,22 +1399,26 @@
         {
             using var ctx = await DbFactory.CreateDbContextAsync();
 
-            // 1. WINDOWS FOR TRENDS (Rolling 30 Days vs Previous 30 Days)
+            // 1. WINDOWS FOR YEARLY RANKINGS (Since Jan 1st vs Rank 24 Hours Ago)
             var now = DateTime.UtcNow;
-            var currentStart = now.AddDays(-30);
-            var prevStart = now.AddDays(-60);
+            var currentStart = new DateTime(now.Year, 1, 1);
+            
+            // To show change in position WITHIN the year, we compare todays total rank 
+            // against the rank they held 24 hours ago.
+            var trendEnd = now.AddDays(-1);
+            if (trendEnd < currentStart) trendEnd = currentStart;
             
             const long RemoteUnlockCard = 3720023022L;
 
-            // PRE-FILTER: Successful badge-ins for Door 1/2 or ID 2/3 in the last 60 days
-            var allRecentEvents = await ctx.ControllerEvents
+            // PRE-FILTER: Successful badge-ins for Door 1/2 or ID 2/3 since Jan 1st
+            var allYearEvents = await ctx.ControllerEvents
                 .Where(e => (e.DoorOrReader == 0 || e.DoorOrReader == 1 || e.DoorId == 2 || e.DoorId == 3)
                          && e.EventType == 1 
                          && e.ReasonCode == 1
                          && e.CardNumber != null
                          && e.CardNumber > 1
                          && e.CardNumber != RemoteUnlockCard
-                         && e.TimestampUtc >= prevStart)
+                         && e.TimestampUtc >= currentStart)
                 .OrderBy(e => e.CardNumber)
                 .ThenBy(e => e.TimestampUtc)
                 .Select(e => new { e.CardNumber, e.TimestampUtc })
@@ -1439,8 +1446,8 @@
                 return counts.OrderByDescending(kv => kv.Value).Select(kv => (kv.Key, kv.Value)).ToList();
             }
 
-            var currentRanks = GetRankings(allRecentEvents, currentStart, now);
-            var prevRanks = GetRankings(allRecentEvents, prevStart, currentStart);
+            var currentRanks = GetRankings(allYearEvents, currentStart, now);
+            var prevRanks = GetRankings(allYearEvents, currentStart, trendEnd);
 
             var topN = currentRanks.Take(_topCount).ToList();
 
@@ -1472,8 +1479,8 @@
                 }
 
                 // Streak Calculation (Consecutive Days)
-                // Filter all successful swipes for this card EVER in the last collection
-                var userSwipes = allRecentEvents
+                // Filter all successful swipes for this card EVER in the year collection
+                var userSwipes = allYearEvents
                     .Where(e => e.CardNumber == cardNumber)
                     .Select(e => e.TimestampUtc.Date)
                     .Distinct()
