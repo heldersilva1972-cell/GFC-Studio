@@ -137,10 +137,24 @@ public class GfcDbContext : DbContext
     public DbSet<LotteryShift> LotteryShifts => Set<LotteryShift>();
     public DbSet<ClubEvent> ClubEvents => Set<ClubEvent>();
     public DbSet<ClubEventTransaction> ClubEventTransactions => Set<ClubEventTransaction>();
+    public DbSet<TaxBracket> TaxBrackets => Set<TaxBracket>();
+    public DbSet<TaxStandardDeduction> TaxStandardDeductions => Set<TaxStandardDeduction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<TaxBracket>(entity =>
+        {
+            entity.ToTable("TaxBrackets");
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<TaxStandardDeduction>(entity =>
+        {
+            entity.ToTable("TaxStandardDeductions");
+            entity.HasKey(e => e.Id);
+        });
 
         // Standard "Gold Standard" Query Filter for Soft Deletes
         modelBuilder.Entity<Member>().HasQueryFilter(m => !m.IsDeleted);

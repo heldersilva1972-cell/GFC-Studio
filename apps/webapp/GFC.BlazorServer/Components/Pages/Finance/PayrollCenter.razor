@@ -1,0 +1,1242 @@
+@page "/finance/payroll-center"
+@using Microsoft.EntityFrameworkCore
+@using GFC.Core.Models
+@using GFC.Core.DTOs
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Services
+@using Microsoft.AspNetCore.Components
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject IFinancialAnalyticsService FinancialService
+@inject NavigationManager Navigation
+@inject IToastService ToastService
+@attribute [Authorize]
+@inject IJSRuntime JSRuntime
+
+<style>
+    .payroll-card-stat {
+        background: white;
+        border-radius: 12px;
+        padding: 12px 16px;
+        transition: all 0.2s ease;
+        border: 1px solid #eef2f6;
+    }
+    .payroll-card-stat:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    .text-indigo { color: #6366f1; }
+    .bg-indigo-subtle { background: #6366f110; }
+    .table-payroll thead th {
+        background: #f8fafc;
+        border-bottom: 2px solid #edf2f7;
+        font-weight: 800;
+        text-transform: uppercase;
+        font-size: 0.65rem;
+        letter-spacing: 0.05rem;
+        color: #64748b;
+        padding: 12px 8px;
+    }
+    .table-payroll tbody td {
+        padding: 10px 8px;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.85rem;
+    }
+    .net-pay-column {
+        background: #f0fdf450;
+        font-weight: 800;
+        color: #166534;
+        border-left: 1px solid #dcfce7;
+    }
+    .action-badge {
+        font-size: 0.65rem;
+        font-weight: 800;
+        padding: 4px 10px;
+        border-radius: 20px;
+        text-transform: uppercase;
+    }
+    .tracking-widest { letter-spacing: 0.1em; }
+
+    @@media print {
+        .no-print, .dash-header, .sidebar, .btn, .modal-backdrop, .nav, .card-header, .search-box, .status-badge,
+        .btn-link, .badge, .card-title, .pagination, .input-group, .navbar, .alert, .no-print-zone,
+        .app-topbar, .app-sidebar, .sidebar-overlay, .card { display: none !important; }
+        
+        /* Force container release */
+        .app-shell, .app-main, .app-content, .content, .container-fluid { 
+            display: block !important; 
+            overflow: visible !important; 
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+        }
+
+        .print-only { 
+            display: block !important; 
+            width: 100% !important;
+        }
+        
+        body, html { 
+            height: auto !important;
+            width: 100% !important;
+            margin: 0 !important; 
+            padding: 0 !important;
+            background: white !important;
+        }
+
+        .page-break { 
+            display: block;
+            page-break-after: always !important; 
+            break-inside: avoid !important;
+            clear: both;
+        }
+        
+        .card-stub {
+            width: 7.5in !important;
+            margin: 0 auto !important;
+            padding: 0.25in !important;
+            border: 2px solid #6366f1 !important;
+            border-radius: 20px !important;
+            box-shadow: none !important;
+            min-height: 9in !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+        
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+    
+    .print-only { display: none; }
+</style>
+
+<div class="container-fluid p-3" style="background: #f8fafc; min-height: 100vh;">
+    <!-- HEADER -->
+    <div class="d-flex justify-content-between align-items-end mb-3 px-2">
+        <div>
+            <h4 class="fw-black text-dark mb-0 d-flex align-items-center">
+                <i class="bi bi-bank2 me-3 text-indigo"></i>Payroll Management
+            </h4>
+            <div class="d-flex align-items-center mt-1">
+                <span class="badge bg-indigo bg-opacity-10 text-indigo x-small me-2">@_payPeriodTitle</span>
+                <span class="text-muted x-small fw-bold text-uppercase tracking-wider me-3">@_startDate.ToString("MMM d") – @_endDate.ToString("MMM d, yyyy")</span>
+                
+                @if (_cycleStatus == "COMMITTED")
+                {
+                    <span class="badge bg-success text-white x-small border-0 px-3 rounded-pill fw-black"><i class="bi bi-shield-check me-1"></i> COMMITTED</span>
+                }
+                else if (_cycleStatus == "READY")
+                {
+                    <span class="badge bg-indigo text-white x-small border-0 px-3 rounded-pill fw-black"><i class="bi bi-lightning-charge-fill me-1"></i> READY TO COMMIT</span>
+                }
+                else
+                {
+                    <span class="badge bg-light text-muted x-small border px-3 rounded-pill fw-black">DRAFT / IN-PROGRESS</span>
+                }
+            </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+             <div class="btn-group shadow-sm">
+                <button class="btn btn-white border px-3 py-1 fw-bold x-small @(_payPeriod == "ThisWeek" ? "bg-light border-indigo border-2" : "")" @onclick='() => ChangePeriod("ThisWeek")'>
+                    THIS WEEK
+                </button>
+                <button class="btn btn-white border px-3 py-1 fw-bold x-small @(_payPeriod == "LastWeek" ? "bg-light border-indigo border-2" : "")" @onclick='() => ChangePeriod("LastWeek")'>
+                    LAST WEEK
+                </button>
+                <button class="btn btn-white border px-3 py-1 fw-bold x-small @(_payPeriod == "FullMonth" ? "bg-light border-indigo border-2" : "")" @onclick='() => ChangePeriod("FullMonth")'>
+                    MONTH
+                </button>
+                <button class="btn btn-white border px-3 py-1 fw-bold x-small @(_payPeriod == "PrevMonth" ? "bg-light border-indigo border-2" : "")" @onclick='() => ChangePeriod("PrevMonth")'>
+                    PREV MONTH
+                </button>
+            </div>
+            <div class="d-flex gap-2 align-items-center ms-2 p-1 bg-white rounded-3 border shadow-sm">
+                 <input type="date" class="form-control form-control-sm border-0 bg-transparent x-small fw-bold" @bind="_startDate" @bind:after='() => ChangePeriod("Custom")' />
+                 <span class="text-muted x-small">to</span>
+                 <input type="date" class="form-control form-control-sm border-0 bg-transparent x-small fw-bold" @bind="_endDate" @bind:after='() => ChangePeriod("Custom")' />
+            </div>
+            <button class="btn btn-outline-indigo border-indigo rounded-3 px-3 py-1 fw-bold x-small shadow-sm" style="color: #6366f1; border-color: #6366f160;" @onclick="OpenTaxConfig">
+                <i class="bi bi-shield-lock me-1"></i> SYSTEM TAX SPECS
+            </button>
+            <button class="btn btn-primary border-primary rounded-3 px-3 py-1 fw-black x-small shadow-sm" @onclick="() => _showProcessModal = true">
+                <i class="bi bi-check2-all me-1 text-white"></i> COMMIT CYCLE
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-md-3">
+            <div class="payroll-card-stat d-flex align-items-center border-start border-4 border-indigo">
+                <div class="bg-indigo-subtle p-2 rounded-3 me-3 text-indigo">
+                    <i class="bi bi-cash-stack fs-5"></i>
+                </div>
+                <div>
+                    <div class="x-small text-muted fw-bold text-uppercase tracking-tighter">Gross Payroll</div>
+                    <div class="h5 fw-black mb-0 text-dark">$@FilteredData.Sum(d => d.TotalPay).ToString("N2")</div>
+                    <div class="text-muted" style="font-size: 0.6rem;">Club Total Earnings</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="payroll-card-stat d-flex align-items-center border-start border-4 border-warning">
+                <div class="bg-warning bg-opacity-10 p-2 rounded-3 me-3 text-warning">
+                    <i class="bi bi-person-badge fs-5"></i>
+                </div>
+                <div>
+                    <div class="x-small text-muted fw-bold text-uppercase tracking-tighter">Fed/FICA Withheld</div>
+                    <div class="h5 fw-black mb-0 text-warning">$@FilteredData.Sum(d => d.FederalWithholding + d.FicaSocialSecurity + d.FicaMedicare).ToString("N2")</div>
+                    <div class="text-muted" style="font-size: 0.6rem;">EMPLOYEE PORTION ONLY</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="payroll-card-stat d-flex align-items-center border-start border-4 border-info">
+                <div class="bg-info bg-opacity-10 p-2 rounded-3 me-3 text-info">
+                    <i class="bi bi-geo-alt fs-5"></i>
+                </div>
+                <div>
+                    <div class="x-small text-muted fw-bold text-uppercase tracking-tighter">MA State Withheld</div>
+                    <div class="h5 fw-black mb-0 text-info">$@FilteredData.Sum(d => d.MaIncomeTax).ToString("N2")</div>
+                    <div class="text-muted" style="font-size: 0.6rem;">WITHHELD FROM PAY</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="payroll-card-stat d-flex align-items-center border-start border-4 border-success">
+                <div class="bg-success bg-opacity-10 p-2 rounded-3 me-3 text-success">
+                    <i class="bi bi-wallet2 fs-5"></i>
+                </div>
+                <div>
+                    <div class="x-small text-muted fw-bold text-uppercase tracking-tighter">Total Net Payroll</div>
+                    <div class="h5 fw-black mb-0 text-success">$@FilteredData.Sum(d => d.NetPay).ToString("N2")</div>
+                    <div class="text-muted" style="font-size: 0.6rem;">EMPLOYEE DISBURSEMENT</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- MAIN LEDGER -->
+        <div class="col-lg-9">
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden border">
+                <div class="card-header bg-white p-3 border-bottom-0">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="fw-black text-dark text-uppercase small tracking-widest"><i class="bi bi-list-task me-2 text-indigo"></i>Current Pay Ledger</span>
+                        <div class="input-group" style="width: 280px;">
+                            <span class="input-group-text bg-light border-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" class="form-control bg-light border-0 x-small fw-bold" placeholder="Find employee..." @bind="_searchQuery" @bind:event="oninput" />
+                        </div>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-payroll align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th class="ps-4">Staff Member</th>
+                                <th class="text-center">Hours</th>
+                                <th class="text-end">Gross</th>
+                                <th class="text-end">Fed W/H</th>
+                                <th class="text-end">FICA</th>
+                                <th class="text-end">MA State</th>
+                                <th class="text-end pe-4 net-pay-column">Net Check</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_loading)
+                            {
+                                <tr>
+                                    <td colspan="7" class="text-center py-5">
+                                        <div class="spinner-border text-indigo spinner-border-sm me-2" role="status"></div>
+                                        <span class="text-muted x-small fw-bold">Synchronizing shift data...</span>
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var item in FilteredData)
+                                {
+                                    <tr>
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center">
+                                                <span class="avatar-circle-sm me-2 fw-black" style="background:#6366f120; color:#6366f1; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.65rem;">@item.Username[0].ToString().ToUpper()</span>
+                                                <div>
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <div class="fw-black text-dark x-small">@item.MemberName</div>
+                                                        <button class="btn btn-sm py-0 px-2 rounded-pill fw-black text-white" style="font-size: 0.7rem; background: #6366f1; border: none; box-shadow: 0 2px 4px rgba(99, 102, 241, 0.2);" @onclick="() => OpenTaxProfile(item.Username)">
+                                                            <i class="bi bi-shield-lock me-1"></i>W4 SETUP
+                                                        </button>
+                                                    </div>
+                                                    <div class="text-muted" style="font-size: 0.6rem;">@@@item.Username</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="text-center fw-bold">@item.TotalHours.ToString("N1")</td>
+                                        <td class="text-end fw-bold text-dark">@item.TotalPay.ToString("C")</td>
+                                        <td class="text-end text-muted x-small">@item.FederalWithholding.ToString("C")</td>
+                                        <td class="text-end text-danger x-small">-@((item.FicaSocialSecurity + item.FicaMedicare).ToString("C"))</td>
+                                        <td class="text-end text-danger x-small">-@item.MaIncomeTax.ToString("C")</td>
+                                        <td class="text-end pe-4 net-pay-column">@item.NetPay.ToString("C")</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                        <tfoot class="border-top-2">
+                            <tr class="fw-black bg-light align-middle" style="height: 50px;">
+                                <td class="ps-4">CYCLE TOTALS</td>
+                                <td class="text-center">@FilteredData.Sum(d => d.TotalHours).ToString("N1")</td>
+                                <td class="text-end">@FilteredData.Sum(d => d.TotalPay).ToString("C")</td>
+                                <td class="text-end">@FilteredData.Sum(d => d.FederalWithholding).ToString("C")</td>
+                                <td class="text-end text-danger">-@FilteredData.Sum(d => d.FicaSocialSecurity + d.FicaMedicare).ToString("C")</td>
+                                <td class="text-end text-danger">-@FilteredData.Sum(d => d.MaIncomeTax).ToString("C")</td>
+                                <td class="text-end pe-4 net-pay-column">@FilteredData.Sum(d => d.NetPay).ToString("C")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL - DYNAMIC ACTION CENTER -->
+        <div class="col-lg-3">
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-3 border">
+                <div class="card-header bg-white p-3 border-0">
+                    <h6 class="fw-black text-indigo text-uppercase x-small tracking-widest mb-0"><i class="bi bi-lightning-charge-fill me-2"></i>Action Center</h6>
+                </div>
+                <div class="card-body p-3">
+                    <button class="btn btn-indigo w-100 mb-2 py-2 rounded-3 fw-black text-white shadow-sm" style="background: #6366f1;" @onclick="DownloadQuestFile">
+                        <i class="bi bi-file-earmark-arrow-down me-2"></i> QUEST Bulk Upload (.CSV)
+                    </button>
+                    <button class="btn btn-outline-indigo w-100 mb-3 py-2 rounded-3 fw-bold x-small" style="color: #6366f1; border-color: #6366f130;" @onclick="BatchPrint">
+                        <i class="bi bi-printer me-2"></i> Batch Print Stubs
+                    </button>
+                    
+                    <div class="p-3 bg-light rounded-4 border border-dashed text-center">
+                        <div class="text-muted x-small fw-bold text-uppercase mb-2">Liability Status</div>
+                        <div class="d-flex justify-content-center gap-2">
+                            <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle x-small">IRS: Ready</span>
+                            <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle x-small">MA: Ready</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden border">
+                <div class="card-body p-3">
+                    <h6 class="fw-black text-dark text-uppercase x-small tracking-widest mb-1">Total Liability</h6>
+                    <p class="x-small text-muted mb-3">Includes Employer Matching Share</p>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted x-small fw-bold font-monospace">EFTPS (941)</span>
+                        <span class="fw-bold x-small text-dark">$@FilteredData.Sum(d => d.EmployerFicaSocialSecurity + d.EmployerFicaMedicare + d.FederalWithholding + d.FicaSocialSecurity + d.FicaMedicare).ToString("N2")</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span class="text-muted x-small fw-bold font-monospace">MA MassTax</span>
+                        <span class="fw-bold x-small text-dark">$@FilteredData.Sum(d => d.MaIncomeTax).ToString("N2")</span>
+                    </div>
+                    <hr class="my-2 opacity-5" />
+                    <div class="d-flex justify-content-between">
+                        <span class="fw-black x-small text-indigo">TOTAL LIABILITY</span>
+                        <span class="fw-black small text-indigo">$@FilteredData.Sum(d => d.EmployerFicaSocialSecurity + d.EmployerFicaMedicare + d.FederalWithholding + d.FicaSocialSecurity + d.FicaMedicare + d.MaIncomeTax).ToString("N2")</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-3 border">
+                <div class="card-header bg-white p-3 border-0">
+                    <h6 class="fw-black text-dark text-uppercase x-small tracking-widest mb-0"><i class="bi bi-calendar-event me-2 text-danger"></i>Filing & Compliance</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush border-0">
+                        <!-- Monthly Deposit -->
+                        <div class="list-group-item p-3 border-0 border-bottom">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div class="x-small fw-black text-dark">Tax Deposit (Pmt) <span class="ms-2 font-monospace text-indigo">$@FilteredData.Sum(d => d.EmployerFicaSocialSecurity + d.EmployerFicaMedicare + d.FederalWithholding + d.FicaSocialSecurity + d.FicaMedicare + d.MaIncomeTax).ToString("N2")</span></div>
+                                    <div class="text-muted" style="font-size: 0.6rem;">Fed + MA Income Tax Withholding</div>
+                                </div>
+                                <span class="badge bg-warning bg-opacity-10 text-warning x-small border border-warning-subtle py-1">Due Apr 15</span>
+                            </div>
+                        </div>
+                        <!-- Quarterly 941 -->
+                        <div class="list-group-item p-3 border-0 border-bottom">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div class="x-small fw-black text-dark">Form 941 (Quarterly) <span class="ms-2 font-monospace text-success">$@FilteredData.Sum(d => d.EmployerFicaSocialSecurity + d.EmployerFicaMedicare + d.FederalWithholding + d.FicaSocialSecurity + d.FicaMedicare).ToString("N2")</span></div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="text-muted" style="font-size: 0.6rem;">FICA (SS/Med) + Federal W/H</div>
+                                        <button class="btn btn-link p-0 x-small fw-bold text-indigo text-decoration-none" style="font-size: 0.55rem;" @onclick="() => _show941Modal = true">VIEW BREAKDOWN</button>
+                                    </div>
+                                </div>
+                                <span class="badge bg-primary bg-opacity-10 text-primary x-small border border-primary-subtle py-1">Due Apr 30</span>
+                            </div>
+                        </div>
+                        <!-- State WR-1 -->
+                        <div class="list-group-item p-3 border-0 border-bottom">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div class="x-small fw-black text-dark">MA QUEST / WR-1 <span class="ms-2 font-monospace text-primary">$@FilteredData.Sum(d => d.MaSui + d.MaPfml).ToString("N2")</span></div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="text-muted" style="font-size: 0.6rem;">State UI + PFML Assessments</div>
+                                        <button class="btn btn-link p-0 x-small fw-bold text-indigo text-decoration-none" style="font-size: 0.55rem;" @onclick="() => _showQuestModal = true">VIEW BREAKDOWN</button>
+                                    </div>
+                                </div>
+                                <span class="badge bg-primary bg-opacity-10 text-primary x-small border border-primary-subtle py-1">Due Apr 30</span>
+                            </div>
+                        </div>
+                        <!-- Annual W-2 -->
+                        <div class="list-group-item p-3 border-0">
+                            <div class="d-flex justify-content-between align-items-start opacity-75">
+                                <div>
+                                    <div class="x-small fw-black text-dark">Annual W-2 / 940</div>
+                                    <div class="text-muted" style="font-size: 0.6rem;">End of Year Compliance</div>
+                                </div>
+                                <span class="badge bg-light text-muted x-small border py-1">Jan 31</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer bg-light p-3 border-0">
+                    <p class="x-small text-muted mb-0 mt-1">
+                        <i class="bi bi-info-circle me-1"></i> These dates are standard IRS/DOR deadlines for monthly contributors.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_showTaxTablesModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(15,23,42,0.8); backdrop-filter: blur(8px);" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content border-0 shadow-2xl" style="border-radius: 24px; overflow: hidden;">
+                <div class="modal-header bg-white p-4 border-0">
+                    <div class="d-flex align-items-center">
+                         <div class="bg-indigo p-2 rounded-3 me-3" style="background: #6366f1;">
+                            <i class="bi bi-calculator fs-5 text-white"></i>
+                        </div>
+                        <div>
+                            <h5 class="fw-black mb-0 text-dark">System Regulatory Tax Table</h5>
+                            <p class="x-small text-muted mb-0">IRS Publication 15-T & MA DUA Compliance (@_selectedTaxYear)</p>
+                        </div>
+                    </div>
+                     <div class="ms-auto d-flex gap-3 align-items-center">
+                        <div style="width: 150px;">
+                            <select class="form-select form-select-sm fw-black" style="background: #ffffff; border-color: #6366f1; color: #6366f1;" @bind="_selectedTaxYear" @bind:after="LoadTaxRates">
+                                <option value="2026">2026 (Current)</option>
+                                <option value="2027">2027</option>
+                                <option value="2028">2028</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn-close" @onclick="() => _showTaxTablesModal = false"></button>
+                    </div>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    @if (_savingTax)
+                    {
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-indigo" role="status"></div>
+                            <p class="mt-2 text-muted fw-bold">Saving tax criteria...</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row g-3 mb-4">
+                            @if (_currentDeductions != null && _currentDeductions.Any())
+                            {
+                                <!-- Business Tax IDs -->
+                                <div class="col-12">
+                                     <div class="p-3 bg-white rounded-4 border shadow-sm mb-3">
+                                         <h6 class="fw-black text-dark x-small text-uppercase mb-3 tracking-widest"><i class="bi bi-bank2 me-2 text-indigo"></i>Employer Identifiers (QUEST/941)</h6>
+                                         <div class="row g-3">
+                                             <div class="col-md-6">
+                                                 <label class="x-small fw-bold text-muted mb-1">MA Employer Account Number (EAN)</label>
+                                                 @if (_sysSettings != null) {
+                                                     <input type="text" class="form-control form-control-sm fw-bold border-0 bg-light rounded-3 py-2" placeholder="X-XXXXXX-X" @bind="_sysSettings.MaEmployerAccountNumber" />
+                                                 }
+                                             </div>
+                                             <div class="col-md-6">
+                                                 <label class="x-small fw-bold text-muted mb-1">Federal Employer ID (FEIN)</label>
+                                                  @if (_sysSettings != null) {
+                                                     <input type="text" class="form-control form-control-sm fw-bold border-0 bg-light rounded-3 py-2" placeholder="XX-XXXXXXX" @bind="_sysSettings.FederalEmployerIdNumber" />
+                                                  }
+                                             </div>
+                                         </div>
+                                     </div>
+                                </div>
+                                
+                                <div class="col-12 mb-2"><hr class="opacity-5" /></div>
+
+                                @foreach (var status in new[] { "Single", "Married", "HeadOfHousehold" })
+                                {
+                                    var deduction = _currentDeductions.FirstOrDefault(d => d.FilingStatus == status);
+                                    if (deduction != null)
+                                    {
+                                        <div class="col-md-4">
+                                            <div class="p-3 bg-white rounded-4 border shadow-sm text-center">
+                                                <div class="x-small text-muted fw-bold text-uppercase mb-1">Deduction: @(status == "Single" ? "Single/Sep." : status == "Married" ? "Married Joint" : "H.O.H")</div>
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text">$</span>
+                                                    <input type="number" class="form-control fw-black text-dark" @bind="deduction.Amount" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                <div class="col-12 text-center p-5">
+                                    <div class="bg-warning bg-opacity-10 p-4 rounded-4 border border-warning border-opacity-25">
+                                        <i class="bi bi-exclamation-triangle-fill text-warning fs-1 mb-3 d-block"></i>
+                                        <h6 class="fw-black text-dark">Baseline Data Missing</h6>
+                                        <p class="text-muted small mb-4">The tax brackets for @_selectedTaxYear haven't been initialized yet.</p>
+                                        <button class="btn btn-warning px-4 py-2 rounded-pill fw-black text-dark shadow-sm" @onclick="CreateBaseline">
+                                            <i class="bi bi-lightning-charge-fill me-2"></i>CREATE 2026 BASELINE
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="nav nav-tabs border-0 mb-3 gap-2" role="tablist">
+                            <button class="btn btn-sm @(_activeTaxTab == "Single" ? "btn-indigo" : "btn-light") fw-black px-4 rounded-pill" @onclick='() => _activeTaxTab = "Single"'>SINGLE</button>
+                            <button class="btn btn-sm @(_activeTaxTab == "Married" ? "btn-indigo" : "btn-light") fw-black px-4 rounded-pill" @onclick='() => _activeTaxTab = "Married"'>MARRIED</button>
+                            <button class="btn btn-sm @(_activeTaxTab == "HeadOfHousehold" ? "btn-indigo" : "btn-light") fw-black px-4 rounded-pill" @onclick='() => _activeTaxTab = "HeadOfHousehold"'>H.O.H</button>
+                        </div>
+
+                        <div class="bg-white rounded-4 border shadow-sm overflow-hidden">
+                            <table class="table table-sm x-small mb-0">
+                                <thead class="bg-light text-muted fw-bold">
+                                    <tr>
+                                        <th class="ps-3 py-3">Taxable Income (Threshold)</th>
+                                        <th class="py-3">Next $...</th>
+                                        <th class="py-3">Fixed Base Tax ($)</th>
+                                        <th class="pe-3 py-3 text-end">Rate (%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var bracket in _currentBrackets.Where(b => b.FilingStatus == _activeTaxTab).OrderBy(b => b.LowerBound))
+                                    {
+                                        <tr>
+                                            <td class="ps-3">
+                                                <div class="input-group input-group-sm" style="width: 140px;">
+                                                    <span class="input-group-text">$</span>
+                                                    <input type="number" class="form-control" @bind="bracket.LowerBound" />
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="input-group input-group-sm" style="width: 140px;">
+                                                    <span class="input-group-text">$</span>
+                                                    @if (bracket.UpperBound.HasValue)
+                                                    {
+                                                        <input type="number" class="form-control" @bind="bracket.UpperBound" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <input type="text" class="form-control text-muted" value="NO LIMIT" disabled />
+                                                    }
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="input-group input-group-sm" style="width: 120px;">
+                                                    <span class="input-group-text">$</span>
+                                                    <input type="number" step="0.01" class="form-control" @bind="bracket.BaseTax" />
+                                                </div>
+                                            </td>
+                                            <td class="pe-3 text-end">
+                                                <div class="input-group input-group-sm ms-auto" style="width: 95px;">
+                                                    <input type="number" step="0.1" class="form-control text-end fw-black" @bind="bracket.Rate" />
+                                                    <span class="input-group-text bg-light border fw-bold text-muted x-small">%</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-white p-4 border-0 d-flex justify-content-between">
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-warning rounded-pill fw-black x-small shadow-sm text-dark px-3" @onclick="SeedNextYear">
+                            <i class="bi bi-copy me-2"></i>INITIALIZE NEXT YEAR
+                        </button>
+                        @if (_selectedTaxYear == 2026)
+                        {
+                            <button class="btn btn-danger rounded-pill fw-black x-small shadow-sm text-white px-3" @onclick="CreateBaseline">
+                                <i class="bi bi-arrow-repeat me-2"></i>RE-INITIALIZE 2026 BASELINE
+                            </button>
+                        }
+                    </div>
+                    <div class="d-flex gap-2 align-items-center">
+                         <button class="btn btn-link text-muted x-small fw-bold text-decoration-none" @onclick="() => _showTaxTablesModal = false">
+                            CLOSE WINDOW
+                        </button>
+                        <button class="btn btn-indigo px-5 py-2 rounded-pill fw-black text-white shadow" style="background: #6366f1;" @onclick="SaveTaxRates">
+                            SAVE TAX CRITERIA
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showProcessModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(15,23,42,0.8); backdrop-filter: blur(8px);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-2xl" style="border-radius: 24px;">
+                <div class="modal-body p-5 text-center">
+                    <div class="bg-indigo-subtle text-indigo rounded-circle d-inline-flex align-items-center justify-content-center mb-4" style="width: 64px; height: 64px;">
+                        <i class="bi bi-shield-lock fs-3"></i>
+                    </div>
+                    <h5 class="fw-black mb-2 text-dark">Lock & Commit Payroll?</h5>
+                    <p class="text-indigo x-small fw-black text-uppercase mt-1 mb-3">PERIOD: @_startDate.ToString("MMM d") – @_endDate.ToString("MMM d, yyyy")</p>
+                    <p class="text-muted small mb-4 px-3">This creates a permanent snapshot of the financials for the selected range. This record will be used for official 2024–2026 tax filings and cannot be modified after processing.</p>
+                    
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-indigo py-2 rounded-3 fw-black text-white" style="background: #6366f1;" @onclick="CommitCycle">
+                            PROCEED WITH COMMIT
+                        </button>
+                        <button class="btn btn-link text-muted x-small fw-bold text-decoration-none" @onclick="() => _showProcessModal = false">
+                            Wait, go back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showTaxProfileModal && _selectedUser != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(15,23,42,0.8); backdrop-filter: blur(8px);" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-2xl" style="border-radius: 24px; overflow:hidden;">
+                <div class="modal-header bg-dark text-white p-4 border-0">
+                    <div class="d-flex align-items-center">
+                        <div class="bg-indigo p-2 rounded-3 me-3" style="background: #6366f1;">
+                            <i class="bi bi-person-badge fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="fw-black mb-0">Tax Profile: @_selectedUserDisplayName</h5>
+                            <p class="x-small text-white text-opacity-50 mb-0">IRS Form W-4 (Employee's Withholding Certificate)</p>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _showTaxProfileModal = false"></button>
+                </div>
+                <div class="modal-body p-4 bg-light bg-opacity-50">
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <div class="p-3 bg-white rounded-4 border shadow-sm h-100">
+                                <h6 class="fw-black text-dark x-small text-uppercase mb-3 tracking-widest"><i class="bi bi-person-fill me-2 text-indigo"></i>Step 1: Filing Status</h6>
+                                <label class="x-small fw-bold text-muted mb-1">Standard Deduction Category</label>
+                                <select class="form-select border-0 bg-light rounded-3 fw-bold small py-2 mb-3" @bind="_selectedUser.FilingStatus">
+                                    <option value="Single">Single or Married Filing Separately</option>
+                                    <option value="Married">Married Filing Jointly</option>
+                                    <option value="HeadOfHousehold">Head of Household</option>
+                                </select>
+                                <div class="form-check form-switch mt-2">
+                                    <input class="form-check-input" type="checkbox" id="multipleJobs" @bind="_selectedUser.HasMultipleJobs">
+                                    <label class="form-check-label x-small fw-bold text-dark" for="multipleJobs">Multiple Jobs or Spouse Works (Step 2)</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="p-3 bg-white rounded-4 border shadow-sm h-100">
+                                <h6 class="fw-black text-dark x-small text-uppercase mb-3 tracking-widest"><i class="bi bi-people-fill me-2 text-success"></i>Step 3: Dependents</h6>
+                                <label class="x-small fw-bold text-muted mb-1">Total Credit Amount (Line 3)</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-0"><i class="bi bi-currency-dollar x-small"></i></span>
+                                    <input type="number" class="form-control border-0 bg-light rounded-end-3 fw-bold small py-2" @bind="_selectedUser.DependentsAmount" />
+                                </div>
+                                <p class="x-small text-muted mt-2 mb-0">Typically $2,000 for children under 17, $500 for other dependents.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-12">
+                            <div class="p-3 bg-white rounded-4 border shadow-sm">
+                                <h6 class="fw-black text-dark x-small text-uppercase mb-3 tracking-widest"><i class="bi bi-pencil-square me-2 text-warning"></i>Step 4: Other Adjustments (Optional)</h6>
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label class="x-small fw-bold text-muted mb-1">Other Income (4a)</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light border-0"><i class="bi bi-plus-circle x-small"></i></span>
+                                            <input type="number" class="form-control border-0 bg-light small" @bind="_selectedUser.OtherIncomeAmount" />
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="x-small fw-bold text-muted mb-1">Deductions (4b)</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text bg-light border-0 text-danger"><i class="bi bi-dash-circle x-small"></i></span>
+                                            <input type="number" class="form-control border-0 bg-light small" @bind="_selectedUser.DeductionsAmount" />
+                                        </div>
+                                    </div>
+                                    <div class="col-md-8">
+                                        <label class="x-small fw-bold text-muted mb-1">Extra Withholding (4c)</label>
+                                        <div class="input-group border border-indigo rounded-3 border-opacity-25">
+                                            <span class="input-group-text bg-indigo-subtle border-0 text-indigo"><i class="bi bi-lock-fill x-small"></i></span>
+                                            <input type="number" class="form-control border-0 bg-white small fw-black text-indigo" placeholder="Per pay period..." @bind="_selectedUser.ExtraWithholdingAmount" />
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="x-small fw-bold text-danger mb-1">SSN (For QUEST)</label>
+                                        <input type="text" class="form-control border-danger border-opacity-25 bg-danger bg-opacity-5 small fw-black text-danger" placeholder="XXX-XX-XXXX" @bind="_selectedUser.SocialSecurityNumber" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-white p-4 border-top-0 d-flex justify-content-between">
+                    <button class="btn btn-link text-muted text-decoration-none x-small fw-bold" @onclick="() => _showTaxProfileModal = false">
+                        Discard Changes
+                    </button>
+                    <button class="btn btn-indigo px-5 py-2 rounded-pill fw-black text-white shadow" style="background: #6366f1;" @onclick="SaveTaxProfile">
+                        UPDATE TAX PROFILE
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_show941Modal)
+{
+    <div class="modal fade show d-block" style="background: rgba(15,23,42,0.8); backdrop-filter: blur(8px);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-2xl" style="border-radius: 24px;">
+                <div class="modal-header bg-white p-4 border-bottom rounded-top-4">
+                    <h6 class="fw-black mb-0 text-uppercase tracking-widest text-indigo"><i class="bi bi-file-earmark-text me-2"></i>Form 941 Breakdown</h6>
+                    <button type="button" class="btn-close" @onclick="() => _show941Modal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="bg-light p-3 rounded-3 mb-3 border">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="x-small fw-bold text-muted">Line 2: Total Wages</span>
+                            <span class="fw-black text-dark">$@FilteredData.Sum(d => d.TotalPay).ToString("N2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2 border-top pt-2">
+                             <span class="x-small fw-bold text-muted">Line 3: Fed Income Tax W/H</span>
+                             <span class="fw-black text-indigo">$@FilteredData.Sum(d => d.FederalWithholding).ToString("N2")</span>
+                        </div>
+                    </div>
+                     <div class="bg-indigo bg-opacity-5 p-3 rounded-3 border-indigo border-opacity-25 border">
+                         <div class="x-small fw-black text-indigo text-uppercase mb-2">Line 5: Social Security & Medicare</div>
+                         <div class="d-flex justify-content-between mb-1">
+                             <span class="x-small text-muted">5a: Social Security Tax (12.4%)</span>
+                             <span class="fw-bold text-dark">$@FilteredData.Sum(d => d.FicaSocialSecurity + d.EmployerFicaSocialSecurity).ToString("N2")</span>
+                         </div>
+                         <div class="d-flex justify-content-between">
+                             <span class="x-small text-muted">5c: Medicare Tax (2.9%)</span>
+                             <span class="fw-bold text-dark">$@FilteredData.Sum(d => d.FicaMedicare + d.EmployerFicaMedicare).ToString("N2")</span>
+                         </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 pt-0">
+                    <div class="d-flex justify-content-between w-100 bg-indigo text-white p-3 rounded-4 shadow-sm" style="background: #6366f1;">
+                         <span class="fw-black small text-uppercase tracking-wider">Total 941 Liability</span>
+                         <span class="fw-black h5 mb-0">$@FilteredData.Sum(d => d.EmployerFicaSocialSecurity + d.EmployerFicaMedicare + d.FederalWithholding + d.FicaSocialSecurity + d.FicaMedicare).ToString("N2")</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showQuestModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(15,23,42,0.8); backdrop-filter: blur(8px);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-2xl" style="border-radius: 24px;">
+                <div class="modal-header bg-white p-4 border-bottom rounded-top-4">
+                    <h6 class="fw-black mb-0 text-uppercase tracking-widest text-primary"><i class="bi bi-geo-alt-fill me-2"></i>MA QUEST Breakdown</h6>
+                    <button type="button" class="btn-close" @onclick="() => _showQuestModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="p-3 bg-white border rounded-4 mb-3 shadow-sm text-center">
+                         <div class="x-small fw-bold text-muted text-uppercase mb-1">Combined Gross Wages</div>
+                         <div class="h4 fw-black text-dark">$@FilteredData.Sum(d => d.TotalPay).ToString("N2")</div>
+                    </div>
+                    <div class="list-group list-group-flush border rounded-4 overflow-hidden">
+                        <div class="list-group-item d-flex justify-content-between p-3">
+                             <div>
+                                 <div class="small fw-black text-dark">SUI Assessment</div>
+                                 <div class="text-muted" style="font-size: 0.6rem;">State Unemployment (Employer)</div>
+                             </div>
+                             <span class="fw-black text-primary">$@FilteredData.Sum(d => d.MaSui).ToString("N2")</span>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between p-3">
+                             <div>
+                                 <div class="small fw-black text-dark">PFML Assessment</div>
+                                 <div class="text-muted" style="font-size: 0.6rem;">Paid Family & Medical Leave</div>
+                             </div>
+                             <span class="fw-black text-primary">$@FilteredData.Sum(d => d.MaPfml).ToString("N2")</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4 pt-0">
+                    <div class="d-flex justify-content-between w-100 bg-primary text-white p-3 rounded-4 shadow-sm">
+                         <span class="fw-black small text-uppercase tracking-wider">Total Quest Payment</span>
+                         <span class="fw-black h5 mb-0">$@FilteredData.Sum(d => d.MaSui + d.MaPfml).ToString("N2")</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="print-only">
+    @foreach (var item in FilteredData)
+    {
+        <div class="page-break">
+            <div class="card-stub bg-white mx-auto">
+                <div class="d-flex justify-content-between align-items-middle mb-4 border-bottom pb-4">
+                     <div>
+                         <h2 class="fw-black mb-0 text-indigo tracking-tighter">PAYROLL STATEMENT</h2>
+                         <p class="small text-muted mb-0 fw-bold text-uppercase">Period: @_startDate.ToString("MMM d") – @_endDate.ToString("MMM d, yyyy")</p>
+                     </div>
+                     <div class="text-end">
+                         <h5 class="fw-black mb-0 text-dark">GLOUCESTER FRATERNITY CLUB</h5>
+                         <div class="badge bg-indigo bg-opacity-10 text-indigo border-0 px-3 py-1 rounded-pill x-small fw-black mt-1" style="background: #6366f120; color: #6366f1;">2026 OFFICIAL RECORD</div>
+                     </div>
+                </div>
+                
+                <div class="row mb-5">
+                    <div class="col-6">
+                        <label class="x-small fw-black text-muted text-uppercase mb-1 tracking-widest">Employee Name</label>
+                        <div class="h3 fw-black text-dark mb-0">@item.MemberName</div>
+                        <div class="small text-muted font-monospace mt-1">EID: @item.Username.ToUpper()</div>
+                    </div>
+                    <div class="col-6 text-end">
+                        <label class="x-small fw-black text-muted text-uppercase mb-1 tracking-widest">Statement Date</label>
+                        <div class="h5 fw-bold text-dark">@DateTime.Now.ToString("MMMM dd, yyyy")</div>
+                    </div>
+                </div>
+                
+                <div class="bg-light p-4 rounded-4 mb-5 border border-dashed shadow-sm" style="background: #f8fafc !important;">
+                    <div class="row align-items-center">
+                        <div class="col-4 border-end">
+                            <label class="x-small fw-black text-muted tracking-widest text-uppercase">Hours Worked</label>
+                            <div class="h4 fw-black text-dark mb-0">@item.TotalHours.ToString("N1")</div>
+                        </div>
+                        <div class="col-4 ps-4 border-end">
+                            <label class="x-small fw-black text-muted tracking-widest text-uppercase">Pay Rate</label>
+                            <div class="h4 fw-black text-dark mb-0">@((item.HourlyRate ?? 0).ToString("C"))</div>
+                        </div>
+                        <div class="col-4 ps-4 text-end">
+                            <label class="x-small fw-black text-indigo tracking-widest text-uppercase">Gross Earnings</label>
+                            <div class="h2 fw-black text-indigo mb-0">@item.TotalPay.ToString("C")</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row g-5 mb-5 align-items-stretch">
+                    <div class="col-7">
+                        <div class="p-4 border border-indigo border-opacity-25 rounded-4 bg-white">
+                             <h6 class="fw-black x-small text-uppercase mb-4 tracking-widest text-indigo-emphasis"><i class="bi bi-shield-check me-2"></i>Statutory Tax Retentions</h6>
+                             <div class="d-flex justify-content-between mb-3 border-bottom pb-2 border-light">
+                                 <span class="small fw-bold text-muted">Federal Income Tax (W/H)</span>
+                                 <span class="fw-black text-dark">@item.FederalWithholding.ToString("C")</span>
+                             </div>
+                             <div class="d-flex justify-content-between mb-3 border-bottom pb-2 border-light">
+                                 <span class="small fw-bold text-muted">FICA Social Security (6.2%)</span>
+                                 <span class="fw-black text-dark">@item.FicaSocialSecurity.ToString("C")</span>
+                             </div>
+                             <div class="d-flex justify-content-between mb-3 border-bottom pb-2 border-light">
+                                 <span class="small fw-bold text-muted">FICA Medicare (1.45%)</span>
+                                 <span class="fw-black text-dark">@item.FicaMedicare.ToString("C")</span>
+                             </div>
+                             <div class="d-flex justify-content-between pt-1">
+                                 <span class="small fw-black text-indigo">MA State Income Tax (5.0%)</span>
+                                 <span class="fw-black text-indigo">@item.MaIncomeTax.ToString("C")</span>
+                             </div>
+                        </div>
+                    </div>
+                    <div class="col-5">
+                        <div class="p-4 rounded-4 h-100 d-flex flex-column justify-content-center text-center border-2" style="background: #ffffff !important; border: 2px solid #e2e8f0 !important;">
+                             <label class="x-small fw-black text-uppercase text-muted mb-1 tracking-widest">Net Pay Distribution</label>
+                             <div class="h1 fw-black text-dark mb-0" style="font-size: 2.8rem; white-space: nowrap !important;">@item.NetPay.ToString("C")</div>
+                             <div class="x-small mt-2 fw-bold text-muted text-uppercase tracking-tighter">Official Check Total</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-auto pt-3">
+                     <div class="border-top pt-3">
+                         <p class="x-small text-muted mb-0">This statement is computer-generated and serves as an official record of income and taxes withheld.</p>
+                         <p class="x-small text-muted">Gloucester Fraternity Club - Payroll Compliance V2</p>
+                     </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string _searchQuery = "";
+    private bool _showProcessModal = false;
+    private bool _showTaxProfileModal = false;
+    private bool _showTaxTablesModal = false;
+    private bool _show941Modal = false;
+    private bool _showQuestModal = false;
+    private string _payPeriod = "FullMonth";
+    private string _payPeriodTitle = "Monthly Recap";
+    private AppUser? _selectedUser;
+    private string _selectedUserDisplayName = "";
+    private string _cycleStatus = "DRAFT";
+    private DateTime _startDate;
+    private DateTime _endDate;
+    private List<EmployeeHoursDto> _data = new();
+
+    private IEnumerable<EmployeeHoursDto> FilteredData => _data
+        .Where(d => string.IsNullOrEmpty(_searchQuery) || 
+                   (d.MemberName?.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                   d.Username.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task ChangePeriod(string period)
+    {
+        _payPeriod = period;
+        await LoadData();
+    }
+
+    private async Task DownloadQuestFile()
+    {
+        if (!FilteredData.Any())
+        {
+            await ToastService.ShowWarning("No payroll data available for the selected range.");
+            return;
+        }
+
+        using var db = await DbFactory.CreateDbContextAsync();
+        var sys = await db.SystemSettings.FirstOrDefaultAsync();
+        var ean = sys?.MaEmployerAccountNumber?.Replace("-", "") ?? "REPLACE_ME";
+        
+        // Quarter Logic (Simplified)
+        var quarter = (_startDate.Month - 1) / 3 + 1;
+        var period = $"{_startDate.Year}{quarter}";
+
+        var csv = new System.Text.StringBuilder();
+        // [MA Standard CSV Format]: EAN,Period,SSN,Name,Hours,GrossWages,AdjustmentCode
+        foreach (var d in FilteredData)
+        {
+            // Fetch the AppUser to get the SSN
+            var user = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == d.Username);
+            var ssn = user?.SocialSecurityNumber?.Replace("-", "") ?? "000000000";
+            
+            csv.AppendLine($"{ean},{period},{ssn},{d.MemberName},{Math.Floor(d.TotalHours)},{d.TotalPay:F2},0");
+        }
+
+        var fileName = $"MA_QUEST_{_startDate:yyyyMMdd}_{_endDate:yyyyMMdd}.csv";
+        await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "text/csv", csv.ToString());
+        await ToastService.ShowSuccess("MA QUEST Bulk Upload file generated.");
+    }
+
+    private async Task BatchPrint()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        if (_payPeriod == "ThisWeek")
+        {
+            // Current week (Monday - Sunday)
+            _startDate = DateTime.Now.Date.AddDays(-(int)DateTime.Now.Date.DayOfWeek + (int)DayOfWeek.Monday);
+            _endDate = _startDate.AddDays(6);
+            _payPeriodTitle = "Current Pay Cycle";
+        }
+        else if (_payPeriod == "LastWeek")
+        {
+            _startDate = DateTime.Now.Date.AddDays(-(int)DateTime.Now.Date.DayOfWeek + (int)DayOfWeek.Monday).AddDays(-7);
+            _endDate = _startDate.AddDays(6);
+            _payPeriodTitle = "Last Week Recap";
+        }
+        else if (_payPeriod == "FullMonth")
+        {
+            _startDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+            _endDate = _startDate.AddMonths(1).AddDays(-1);
+            _payPeriodTitle = "Monthly Recap";
+        }
+        else if (_payPeriod == "PrevMonth")
+        {
+            var prevM = DateTime.Now.AddMonths(-1);
+            _startDate = new DateTime(prevM.Year, prevM.Month, 1);
+            _endDate = _startDate.AddMonths(1).AddDays(-1);
+            _payPeriodTitle = "Previous Month Archive";
+        }
+        else if (_payPeriod == "Custom")
+        {
+            _payPeriodTitle = "Custom Audit Range";
+        }
+
+        _data = await FinancialService.GetEmployeeHoursAsync(_startDate, _endDate, null, "Main");
+        
+        // Determine Cycle Status based on database state
+        using var db = await DbFactory.CreateDbContextAsync();
+        var entries = await db.BarSaleEntries
+            .Where(e => e.SaleDate >= _startDate && e.SaleDate <= _endDate)
+            .ToListAsync();
+            
+        if (!entries.Any()) _cycleStatus = "EMPTY";
+        else if (entries.All(e => e.Status == "Committed")) _cycleStatus = "COMMITTED";
+        else if (entries.All(e => e.Status == "Submitted")) _cycleStatus = "READY";
+        else _cycleStatus = "DRAFT";
+        
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private async Task CommitCycle()
+    {
+        _showProcessModal = false;
+        _loading = true;
+        StateHasChanged();
+        
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var entries = await db.BarSaleEntries
+                .Where(e => e.SaleDate >= _startDate && e.SaleDate <= _endDate)
+                .ToListAsync();
+                
+            foreach (var e in entries)
+            {
+                e.Status = "Committed";
+            }
+            
+            await db.SaveChangesAsync();
+            await LoadData();
+            await ToastService.ShowSuccess($"Successfully committed {_payPeriodTitle} to historical archives.");
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to commit cycle: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenTaxProfile(string username)
+    {
+        try 
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            _selectedUser = await db.AppUsers.FirstOrDefaultAsync(u => u.Username == username);
+            if (_selectedUser != null)
+            {
+                // Fetch the friendly name from the Member record if available
+                var member = await db.Members.AsNoTracking().FirstOrDefaultAsync(m => m.MemberID == _selectedUser.MemberId);
+                _selectedUserDisplayName = member != null ? $"{member.FirstName} {member.LastName}" : _selectedUser.Username;
+                
+                _showTaxProfileModal = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error loading profile: {ex.Message}");
+        }
+    }
+
+    private async Task SaveTaxProfile()
+    {
+        if (_selectedUser == null) return;
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            db.AppUsers.Update(_selectedUser);
+            await db.SaveChangesAsync();
+            await ToastService.ShowSuccess($"Updated W-4 Profile for {_selectedUserDisplayName}");
+            _showTaxProfileModal = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error saving tax profile: {ex.Message}");
+        }
+    }
+
+    private SystemSettings? _sysSettings;
+    private int _selectedTaxYear = 2026;
+    private string _activeTaxTab = "Single";
+    private List<TaxBracket> _currentBrackets = new();
+    private List<TaxStandardDeduction> _currentDeductions = new();
+    private bool _savingTax = false;
+
+    private async Task OpenTaxConfig()
+    {
+        _showTaxTablesModal = true;
+        using var db = await DbFactory.CreateDbContextAsync();
+        _sysSettings = await db.SystemSettings.FirstOrDefaultAsync();
+        await LoadTaxRates();
+    }
+
+    private async Task LoadTaxRates()
+    {
+        using var db = await DbFactory.CreateDbContextAsync();
+        _currentBrackets = await db.TaxBrackets
+            .Where(b => b.TaxYear == _selectedTaxYear)
+            .OrderBy(b => b.FilingStatus).ThenBy(b => b.LowerBound)
+            .ToListAsync();
+            
+        _currentDeductions = await db.TaxStandardDeductions
+            .Where(d => d.TaxYear == _selectedTaxYear)
+            .ToListAsync();
+            
+        StateHasChanged();
+    }
+
+    private async Task SaveTaxRates()
+    {
+        _savingTax = true;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            db.TaxBrackets.UpdateRange(_currentBrackets);
+            db.TaxStandardDeductions.UpdateRange(_currentDeductions);
+            
+            if (_sysSettings != null)
+            {
+                db.SystemSettings.Update(_sysSettings);
+            }
+            
+            await db.SaveChangesAsync();
+            await ToastService.ShowSuccess($"Saved {_selectedTaxYear} Tax Criteria");
+            await LoadData(); // Recompute current view with new taxes
+        }
+        catch (Exception ex) 
+        {
+            await ToastService.ShowError($"Error saving taxes: {ex.Message}");
+        }
+        finally
+        {
+            _savingTax = false;
+        }
+    }
+
+    private async Task SeedNextYear()
+    {
+        _savingTax = true;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var nextYear = _selectedTaxYear + 1;
+            
+            if (await db.TaxBrackets.AnyAsync(b => b.TaxYear == nextYear))
+            {
+                await ToastService.ShowWarning($"{nextYear} already exists.");
+                return;
+            }
+
+            var nextBrackets = _currentBrackets.Select(b => new TaxBracket {
+                TaxYear = nextYear,
+                FilingStatus = b.FilingStatus,
+                LowerBound = b.LowerBound,
+                UpperBound = b.UpperBound,
+                BaseTax = b.BaseTax,
+                Rate = b.Rate
+            }).ToList();
+
+            var nextDeductions = _currentDeductions.Select(d => new TaxStandardDeduction {
+                TaxYear = nextYear,
+                FilingStatus = d.FilingStatus,
+                Amount = d.Amount
+            }).ToList();
+
+            db.TaxBrackets.AddRange(nextBrackets);
+            db.TaxStandardDeductions.AddRange(nextDeductions);
+            await db.SaveChangesAsync();
+            
+            _selectedTaxYear = nextYear;
+            await LoadTaxRates();
+            await ToastService.ShowSuccess($"Initialized {nextYear} from current values.");
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error seeding next year: {ex.Message}");
+        }
+        finally
+        {
+            _savingTax = false;
+        }
+    }
+
+    private async Task CreateBaseline()
+    {
+        _savingTax = true;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            
+            // Purge any existing 2026 data before seeding the correct OBBB values
+            var oldBrackets = await db.TaxBrackets.Where(b => b.TaxYear == 2026).ToListAsync();
+            var oldDeductions = await db.TaxStandardDeductions.Where(d => d.TaxYear == 2026).ToListAsync();
+            if (oldBrackets.Any()) db.TaxBrackets.RemoveRange(oldBrackets);
+            if (oldDeductions.Any()) db.TaxStandardDeductions.RemoveRange(oldDeductions);
+            await db.SaveChangesAsync();
+
+            // 2026 Corrected Standard Deductions (Annual)
+            var deductions = new List<TaxStandardDeduction>
+            {
+                new() { TaxYear = 2026, FilingStatus = "Single", Amount = 16100m },
+                new() { TaxYear = 2026, FilingStatus = "Married", Amount = 32200m },
+                new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", Amount = 24150m }
+            };
+
+            var brackets = new List<TaxBracket>();
+            
+            // Single Baselines (Monthly Corrected for 2026)
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Single", LowerBound = 0m, UpperBound = 1033.33m, BaseTax = 0m, Rate = 10m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Single", LowerBound = 1033.33m, UpperBound = 4200.08m, BaseTax = 103.33m, Rate = 12m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Single", LowerBound = 4200.08m, UpperBound = 8808.42m, BaseTax = 483.34m, Rate = 22m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Single", LowerBound = 8808.42m, UpperBound = 16814.67m, BaseTax = 1497.18m, Rate = 24m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Single", LowerBound = 16814.67m, UpperBound = 21352.17m, BaseTax = 3418.68m, Rate = 32m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Single", LowerBound = 21352.17m, UpperBound = 53383.42m, BaseTax = 4870.68m, Rate = 35m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Single", LowerBound = 53383.42m, UpperBound = null, BaseTax = 16081.62m, Rate = 37m });
+
+            // Married Baselines (Monthly - Approx 2x Single for 2026)
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Married", LowerBound = 0m, UpperBound = 2066.66m, BaseTax = 0m, Rate = 10m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Married", LowerBound = 2066.66m, UpperBound = 8400.16m, BaseTax = 206.66m, Rate = 12m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Married", LowerBound = 8400.16m, UpperBound = 17616.84m, BaseTax = 966.68m, Rate = 22m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Married", LowerBound = 17616.84m, UpperBound = 33629.34m, BaseTax = 2994.36m, Rate = 24m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Married", LowerBound = 33629.34m, UpperBound = 42704.34m, BaseTax = 6837.36m, Rate = 32m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Married", LowerBound = 42704.34m, UpperBound = 64183.34m, BaseTax = 9741.36m, Rate = 35m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "Married", LowerBound = 64183.34m, UpperBound = null, BaseTax = 17259.35m, Rate = 37m });
+
+            // HOH Baselines (Monthly - 2026 Standard)
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", LowerBound = 0m, UpperBound = 1475.00m, BaseTax = 0m, Rate = 10m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", LowerBound = 1475.00m, UpperBound = 5625.00m, BaseTax = 147.50m, Rate = 12m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", LowerBound = 5625.00m, UpperBound = 8958.33m, BaseTax = 645.50m, Rate = 22m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", LowerBound = 8958.33m, UpperBound = 17125.00m, BaseTax = 1378.83m, Rate = 24m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", LowerBound = 17125.00m, UpperBound = 32666.67m, BaseTax = 3338.83m, Rate = 32m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", LowerBound = 32666.67m, UpperBound = 54416.67m, BaseTax = 8312.16m, Rate = 35m });
+            brackets.Add(new() { TaxYear = 2026, FilingStatus = "HeadOfHousehold", LowerBound = 54416.67m, UpperBound = null, BaseTax = 15924.66m, Rate = 37m });
+
+            db.TaxStandardDeductions.AddRange(deductions);
+            db.TaxBrackets.AddRange(brackets);
+            await db.SaveChangesAsync();
+            
+            await LoadTaxRates();
+            await ToastService.ShowSuccess("Initialized Corrected 2026 Tax Baseline (OBBB Compliant).");
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error creating baseline: {ex.Message}");
+        }
+        finally
+        {
+            _savingTax = false;
+        }
+    }
+}

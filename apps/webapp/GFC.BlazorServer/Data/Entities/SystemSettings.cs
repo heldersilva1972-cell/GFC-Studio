@@ -163,4 +163,8 @@ public class SystemSettings
     public decimal FicaEmployeeRate { get; set; } = 7.65m;
     public decimal FicaEmployerRate { get; set; } = 7.65m;
     public decimal MaUnemploymentRate { get; set; } = 2.42m;
+    
+    // Tax IDs for Bulk Filing
+    public string? MaEmployerAccountNumber { get; set; } // EAN
+    public string? FederalEmployerIdNumber { get; set; } // FEIN
 }

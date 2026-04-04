@@ -17,12 +17,14 @@ namespace GFC.BlazorServer.Services
         Task<(List<DailySalesReportDto> Data, int TotalBar, int TotalLotto, string Server, string Database, string Error)> GetDailySalesReportsAsync(DateTime startDate, DateTime endDate);
         Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null);
         Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All");
-        Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year);
+        Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year, int? month = null);
     }
+
 
     public class FinancialSnapshotDto
     {
         public int Year { get; set; }
+        public int? Month { get; set; }
         public decimal BarSalesDownstairs { get; set; }
         public decimal BarSalesUpstairs { get; set; }
         public decimal LotteryCommissions { get; set; }
@@ -481,6 +483,11 @@ namespace GFC.BlazorServer.Services
 
             if (!entries.Any()) return new List<EmployeeHoursDto>();
 
+            // Fetch dynamic tax tables for the current year (2024 by default)
+            var currentYear = DateTime.Now.Year;
+            var allBrackets = await db.TaxBrackets.AsNoTracking().Where(b => b.TaxYear == currentYear).ToListAsync();
+            var allDeductions = await db.TaxStandardDeductions.AsNoTracking().Where(d => d.TaxYear == currentYear).ToListAsync();
+
             // Group entries by user and match with employee metadata
 
             // Fetch users (Remove strict employee tracking filter to ensure all recorded hours are visible)
@@ -512,17 +519,30 @@ namespace GFC.BlazorServer.Services
                 decimal totalPay = 0, netPay = 0, totalPayrollCost = 0;
                 decimal downstairsPay = 0, upstairsPay = 0;
                 decimal totalWithheld = 0, totalEmployerAddOn = 0;
+                decimal fedWh = 0, ficaSS = 0, ficaMed = 0, maIncomeTax = 0, maSui = 0, maPfml = 0, empSS = 0, empMed = 0;
 
                 foreach (var e in userEntries)
                 {
-                    // [DYNAMIC CALCULATION] AS REQUESTED: math always uses current system settings and current staff rates
                     decimal rate = defaultRate;
-                    decimal employeeTax = fallbackEmployeeTax;
-                    decimal employerTax = fallbackEmployerTax;
-
                     decimal shiftGross = e.Hours * rate;
-                    decimal shiftWithheld = shiftGross * employeeTax;
-                    decimal shiftEmployerAddOn = shiftGross * employerTax;
+ 
+                    // [DYNAMIC] IRS Percentage Method (Pulling from your Database)
+                    var yearDeduction = allDeductions.FirstOrDefault(d => d.FilingStatus == user.FilingStatus);
+                    var taxBreakdown = GFC.BlazorServer.Utilities.PayrollTaxCalculator.CalculateFederalTaxes(
+                        shiftGross, user, allBrackets, yearDeduction, "Monthly");
+                    
+                    // State & PFML Taxes (Using standard MA Rates)
+                    decimal stateRate = (sys?.MaStateTaxRate ?? 5.0m) / 100m;
+                    decimal shiftMaIncomeTax = Math.Floor(shiftGross * stateRate * 100m) / 100m;
+                    
+                    decimal suiRate = (sys?.MaUnemploymentRate ?? 2.42m) / 100m;
+                    decimal shiftMaSui = Math.Floor(shiftGross * suiRate * 100m) / 100m;
+                    
+                    decimal pfmlRate = (sys?.PfmlEmployeeRate ?? 0.35m) / 100m;
+                    decimal shiftMaPfml = Math.Floor(shiftGross * pfmlRate * 100m) / 100m;
+
+                    decimal shiftWithheld = taxBreakdown.TotalEmployeeWithholding + shiftMaIncomeTax + shiftMaPfml;
+                    decimal shiftEmployerAddOn = taxBreakdown.TotalEmployerLiability + (shiftGross * fallbackEmployerTax) + shiftMaSui;
                     
                     decimal shiftNet = shiftGross - shiftWithheld;
                     decimal shiftCost = shiftGross + shiftEmployerAddOn;
@@ -532,6 +552,16 @@ namespace GFC.BlazorServer.Services
                     totalPayrollCost += shiftCost;
                     totalWithheld += shiftWithheld;
                     totalEmployerAddOn += shiftEmployerAddOn;
+
+                    // Accumulate Detail Fields
+                    fedWh += taxBreakdown.FederalTax;
+                    ficaSS += taxBreakdown.SocialSecurity;
+                    ficaMed += taxBreakdown.Medicare;
+                    maIncomeTax += shiftMaIncomeTax;
+                    maSui += shiftMaSui;
+                    maPfml += shiftMaPfml;
+                    empSS += taxBreakdown.EmployerSocialSecurity;
+                    empMed += taxBreakdown.EmployerMedicare;
 
                     if (e.IsHall) upstairsPay += shiftGross;
                     else downstairsPay += shiftGross;
@@ -552,7 +582,16 @@ namespace GFC.BlazorServer.Services
                     TotalEmployerAddOn = totalEmployerAddOn,
                     TotalPayrollCost = totalPayrollCost,
                     DownstairsPay = downstairsPay,
-                    UpstairsPay = upstairsPay
+                    UpstairsPay = upstairsPay,
+                    
+                    FederalWithholding = fedWh,
+                    FicaSocialSecurity = ficaSS,
+                    FicaMedicare = ficaMed,
+                    MaIncomeTax = maIncomeTax,
+                    MaSui = maSui,
+                    MaPfml = maPfml,
+                    EmployerFicaSocialSecurity = empSS,
+                    EmployerFicaMedicare = empMed
                 };
 
                 // Fill daily breakdown and shift types
@@ -591,40 +630,58 @@ namespace GFC.BlazorServer.Services
             return filteredResults.OrderByDescending(d => d.TotalHours).ToList();
         }
 
-        public async Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year)
+        public async Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year, int? month = null)
         {
             using var db = await _dbFactory.CreateDbContextAsync();
-            var snapshot = new FinancialSnapshotDto { Year = year };
-            var start = new DateTime(year, 1, 1);
-            var end = new DateTime(year, 12, 31);
+            var snapshot = new FinancialSnapshotDto { Year = year, Month = month };
+            
+            DateTime start, end;
+            if (month.HasValue)
+            {
+                start = new DateTime(year, month.Value, 1);
+                end = start.AddMonths(1).AddDays(-1);
+            }
+            else
+            {
+                start = new DateTime(year, 1, 1);
+                end = new DateTime(year, 12, 31);
+            }
 
             // 1. Income - Bar Sales
             var barSales = await db.BarSaleEntries.AsNoTracking()
-                .Where(b => (b.AdjustedSaleDate ?? b.SaleDate).Year == year)
+                .Where(b => (b.AdjustedSaleDate ?? b.SaleDate) >= start && (b.AdjustedSaleDate ?? b.SaleDate) <= end)
                 .ToListAsync();
             
             snapshot.BarSalesDownstairs = barSales.Where(b => !b.IsRentalHall).Sum(b => b.TotalSales);
             snapshot.BarSalesUpstairs = barSales.Where(b => b.IsRentalHall).Sum(b => b.TotalSales);
 
-            // 2. Income - Lottery
-            // Set to 0 per user request until data source is finalized
+            // 2. Income - Lottery (Set to 0 per user request)
             snapshot.LotteryCommissions = 0m;
             snapshot.LotteryBonuses = 0m;
 
             // 3. Income - Membership Dues
-            snapshot.MembershipDues = await db.DuesPayments.AsNoTracking()
-                .Where(d => d.Year == year)
-                .SumAsync(d => d.Amount) ?? 0m;
+            if (month.HasValue)
+            {
+                snapshot.MembershipDues = await db.DuesPayments.AsNoTracking()
+                    .Where(d => d.PaidDate.HasValue && d.PaidDate.Value.Year == year && d.PaidDate.Value.Month == month.Value)
+                    .SumAsync(d => d.Amount) ?? 0m;
+            }
+            else
+            {
+                snapshot.MembershipDues = await db.DuesPayments.AsNoTracking()
+                    .Where(d => d.Year == year)
+                    .SumAsync(d => d.Amount) ?? 0m;
+            }
 
             // 4. Income - Hall Rentals
             snapshot.HallRentals = await db.HallRentals.AsNoTracking()
-                .Where(h => h.EventDate.Year == year)
+                .Where(h => h.EventDate >= start && h.EventDate <= end)
                 .SumAsync(h => (decimal?)h.TotalPrice) ?? 0m;
 
             // 5. Expenses - Reimbursements
             snapshot.Reimbursements = await db.ReimbursementItems.AsNoTracking()
                 .Include(i => i.Request)
-                .Where(i => i.Request.Status == "Paid" && i.Request.PaidDateUtc != null && i.Request.PaidDateUtc.Value.Year == year)
+                .Where(i => i.Request.Status == "Paid" && i.Request.PaidDateUtc != null && i.Request.PaidDateUtc.Value.Date >= start.Date && i.Request.PaidDateUtc.Value.Date <= end.Date)
                 .SumAsync(i => (decimal?)i.Amount) ?? 0m;
 
             // 7. Expenses - Payroll

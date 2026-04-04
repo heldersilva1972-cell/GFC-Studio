@@ -23,6 +23,16 @@ namespace GFC.Core.DTOs
         public decimal TotalWithheld { get; set; }
         public decimal TotalEmployerAddOn { get; set; }
         
+        // Breakdowns for Payroll Center (QuickBooks Style)
+        public decimal FederalWithholding { get; set; }
+        public decimal MaIncomeTax { get; set; }
+        public decimal FicaSocialSecurity { get; set; }
+        public decimal FicaMedicare { get; set; }
+        public decimal MaSui { get; set; }
+        public decimal MaPfml { get; set; }
+        public decimal EmployerFicaSocialSecurity { get; set; }
+        public decimal EmployerFicaMedicare { get; set; }
+
         public decimal NetPay { get; set; }
         public decimal TotalPayrollCost { get; set; }
 

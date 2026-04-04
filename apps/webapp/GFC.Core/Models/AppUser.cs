@@ -22,5 +22,14 @@ public class AppUser
     public string? MfaSecretKey { get; set; }
     public decimal? HourlyRate { get; set; }
     public bool IsTrackedEmployee { get; set; }
+
+    // W-4 Tax Profile (Federal)
+    public string FilingStatus { get; set; } = "Single";
+    public bool HasMultipleJobs { get; set; }
+    public decimal DependentsAmount { get; set; }
+    public decimal OtherIncomeAmount { get; set; }
+    public decimal DeductionsAmount { get; set; }
+    public decimal ExtraWithholdingAmount { get; set; }
+    public string? SocialSecurityNumber { get; set; }
 }
 

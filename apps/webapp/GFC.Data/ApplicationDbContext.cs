@@ -20,6 +20,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<CameraAuditLog> CameraAuditLogs { get; set; } = null!;
     public DbSet<DatabaseBackup> DatabaseBackups { get; set; } = null!;
     public DbSet<DatabaseOperation> DatabaseOperations { get; set; } = null!;
+    public DbSet<TaxBracket> TaxBrackets { get; set; } = null!;
+    public DbSet<TaxStandardDeduction> TaxStandardDeductions { get; set; } = null!;
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -246,6 +248,18 @@ public class ApplicationDbContext : DbContext
             
             entity.HasIndex(o => o.Status);
             entity.HasIndex(o => o.StartedAtUtc);
+        });
+
+        modelBuilder.Entity<TaxBracket>(entity =>
+        {
+            entity.ToTable("TaxBrackets");
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<TaxStandardDeduction>(entity =>
+        {
+            entity.ToTable("TaxStandardDeductions");
+            entity.HasKey(e => e.Id);
         });
     }
 }
