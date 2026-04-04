@@ -42,9 +42,10 @@ INSERT INTO @Pages (Name, Route, Category, Descr, IsAdmin, Ord) VALUES
 ('Lottery Summaries', '/finance/lottery-summaries', 'FINANCE', 'Daily reports', 1, 35),
 ('Lottery Reconcile', '/finance/lottery-reconcile', 'FINANCE', 'Audit matching', 1, 36),
 ('Bar Sales Entry', '/admin/bar-sales', 'FINANCE', 'Nightly sales', 1, 37),
-('Bar/Lottery Entries', '/finance/bar-lottery-sales', 'FINANCE', 'Sales records', 1, 38),
-('Club Events Financials', '/finance/club-events', 'FINANCE', 'Event profit/loss', 1, 39),
-('Employee Hours Worked', '/finance/employee-hours', 'FINANCE', 'Staff hours audit', 1, 40),
+('Bar Sales', '/finance/bar-sales', 'FINANCE', 'Shift-based reports', 1, 38),
+('Bar/Lottery Entries', '/finance/bar-lottery-sales', 'FINANCE', 'Sales records', 1, 39),
+('Club Events Financials', '/finance/club-events', 'FINANCE', 'Event profit/loss', 1, 40),
+('Employee Hours Worked', '/finance/employee-hours', 'FINANCE', 'Staff hours audit', 1, 41),
 
 -- ADMINISTRATION
 ('Manage Users', '/users', 'ADMINISTRATION', 'User accounts', 1, 50),

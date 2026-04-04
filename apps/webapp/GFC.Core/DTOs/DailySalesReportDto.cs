@@ -52,6 +52,7 @@ namespace GFC.Core.DTOs
         // Bar Info
         public decimal BarSales { get; set; }
         public decimal? TotalHours { get; set; }
+        public decimal? HourlyRate { get; set; }
         
         // Lottery Info (Raw Machine Readings - Cumulative for Night Shift)
         public decimal LottoSales { get; set; }

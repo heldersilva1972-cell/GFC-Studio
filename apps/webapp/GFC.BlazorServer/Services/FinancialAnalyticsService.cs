@@ -248,10 +248,38 @@ namespace GFC.BlazorServer.Services
                         TotalHours = (decimal?)e.TotalHours ?? 0m,
                         Notes = e.Notes ?? "",
                         CreatedBy = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown",
-                        CreatedAt = (DateTime?)e.CreatedAt ?? DateTime.MinValue
+                        CreatedAt = (DateTime?)e.CreatedAt ?? DateTime.MinValue,
+                        HourlyRate = e.HourlyRate_AtTimeOfShift
                     })
                     .ToListAsync();
                 
+                Console.WriteLine($"[FinancialService] Found {barEntriesRaw.Count} raw bar records.");
+
+                // Fetch current user rates as a fallback
+                var allUsers = await db.AppUsers.AsNoTracking().ToListAsync();
+                var allMembers = await db.Members.AsNoTracking().ToListAsync();
+                
+                // Map by Username
+                var userRatesByUsername = allUsers
+                    .Where(u => !string.IsNullOrEmpty(u.Username))
+                    .ToDictionary(u => u.Username!, u => u.HourlyRate ?? 0m, StringComparer.OrdinalIgnoreCase);
+
+                // Map by Full Name
+                var userRatesByName = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+                foreach (var user in allUsers)
+                {
+                    if (user.MemberId != null)
+                    {
+                        var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
+                        if (member != null)
+                        {
+                            var fullName = $"{member.FirstName} {member.LastName}{(string.IsNullOrEmpty(member.Suffix) ? "" : " " + member.Suffix)}".Trim();
+                            if (!userRatesByName.ContainsKey(fullName))
+                                userRatesByName.Add(fullName, user.HourlyRate ?? 0m);
+                        }
+                    }
+                }
+
                 // Final refinement in memory to ensure we group by the CORRECT date (Adjusted if available)
                 var barEntries = barEntriesRaw.Select(e => new {
                     Date = (e.AdjustedSaleDate ?? e.SaleDate).Date,
@@ -261,7 +289,9 @@ namespace GFC.BlazorServer.Services
                     e.TotalHours,
                     e.Notes,
                     e.CreatedBy,
-                    e.CreatedAt
+                    e.CreatedAt,
+                    HourlyRate = e.HourlyRate ?? (userRatesByUsername.TryGetValue(e.CreatedBy, out var r1) ? r1 : 
+                                                 (userRatesByName.TryGetValue(e.CreatedBy, out var r2) ? r2 : 0m))
                 }).Where(e => e.Date >= start && e.Date <= end).ToList();
 
                 Console.WriteLine($"[FinancialService] Found {barEntries.Count} barEntries.");
@@ -361,7 +391,8 @@ namespace GFC.BlazorServer.Services
                              Status = dayLotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : 
                                         (!string.IsNullOrWhiteSpace(dayLotto?.EmployeeName) ? dayLotto.EmployeeName : "Unknown"),
-                             CreatedAt = dayBar?.CreatedAt ?? dayLotto?.CreatedDate ?? date
+                             CreatedAt = dayBar?.CreatedAt ?? dayLotto?.CreatedDate ?? date,
+                             HourlyRate = dayBar?.HourlyRate
                          });
                     }
 
@@ -396,7 +427,8 @@ namespace GFC.BlazorServer.Services
                              Status = nightLotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : 
                                         (!string.IsNullOrWhiteSpace(nightLotto?.EmployeeName) ? nightLotto.EmployeeName : "Unknown"),
-                             CreatedAt = nightBar?.CreatedAt ?? nightLotto?.CreatedDate ?? date
+                             CreatedAt = nightBar?.CreatedAt ?? nightLotto?.CreatedDate ?? date,
+                             HourlyRate = nightBar?.HourlyRate
                          });
                     }
 
@@ -410,7 +442,8 @@ namespace GFC.BlazorServer.Services
                             TotalHours = hallBar.TotalHours,
                             Notes = hallBar.Notes,
                             CreatedBy = hallBar.CreatedBy,
-                            CreatedAt = hallBar.CreatedAt
+                            CreatedAt = hallBar.CreatedAt,
+                            HourlyRate = hallBar.HourlyRate
                         });
                     }
 
