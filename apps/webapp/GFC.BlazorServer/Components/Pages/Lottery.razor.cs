@@ -38,6 +38,7 @@ namespace GFC.BlazorServer.Components.Pages
         private string _pendingUsername = string.Empty;
         private string _pendingFullName = string.Empty;
         private string _originalEmployeeName = string.Empty;
+        private bool _showNoChangesModal = false; // DECISION MODAL STATE
         
         private DateTime _filterStartDate = DateTime.Today.AddDays(-30);
         private DateTime _filterEndDate = DateTime.Today;
@@ -63,6 +64,7 @@ namespace GFC.BlazorServer.Components.Pages
         private decimal TotalVariance => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.Variance);
 
         private ShiftFormModel _shiftForm = new();
+        private ShiftFormModel _originalForm = new(); // CHANGE TRACKER
 
         private bool ShowContent => !_loading && string.IsNullOrEmpty(_error);
 
@@ -111,6 +113,7 @@ namespace GFC.BlazorServer.Components.Pages
             finally
             {
                 _loading = false;
+                await InvokeAsync(StateHasChanged);
             }
         }
 
@@ -258,12 +261,14 @@ namespace GFC.BlazorServer.Components.Pages
                 TotalPayouts = shiftEntity.TotalPayouts,
                 TotalCancels = shiftEntity.TotalCancels,
                 NetDue = shiftEntity.NetDue,
-                EnvelopeAmount = shiftEntity.EnvelopeAmount,
+                BagRefillAmount = shiftEntity.BagRefillAmount,
                 Notes = shiftEntity.Notes ?? string.Empty,
                 Status = shiftEntity.Status ?? "Submitted",
-                CreatedBy = shiftEntity.CreatedBy ?? string.Empty
+                CreatedBy = shiftEntity.CreatedBy ?? string.Empty,
+                CreatedDate = shiftEntity.CreatedDate
             };
             _originalEmployeeName = shiftEntity.EmployeeName;
+            _originalForm = (ShiftFormModel)_shiftForm.Clone(); // SNAPSHOT ORIGINAL STATE
             _modalError = string.Empty;
             _showShiftModal = true;
         }
@@ -295,6 +300,12 @@ namespace GFC.BlazorServer.Components.Pages
 
         private async Task SaveShift()
         {
+            if (_editingShiftId.HasValue && !_shiftForm.IsDirty(_originalForm))
+            {
+                _showNoChangesModal = true;
+                return;
+            }
+
             _savingShift = true;
             _modalError = string.Empty;
             try
@@ -302,27 +313,38 @@ namespace GFC.BlazorServer.Components.Pages
                 var currentUser = AuthStateProvider.GetCurrentUser();
                 var username = currentUser?.Username ?? "Unknown";
 
-                var shift = new LotteryShift
+                LotteryShift shift;
+                if (_editingShiftId.HasValue)
                 {
-                    ShiftDate = _shiftForm.ShiftDate,
-                    EmployeeName = _shiftForm.EmployeeName,
-                    ShiftType = string.IsNullOrWhiteSpace(_shiftForm.ShiftType) ? null : _shiftForm.ShiftType,
-                    MachineId = string.IsNullOrWhiteSpace(_shiftForm.MachineId) ? null : _shiftForm.MachineId,
-                    StartingCash = _shiftForm.StartingCash ?? 0,
-                    EndingCash = _shiftForm.EndingCash ?? 0,
-                    TotalSales = _shiftForm.TotalSales ?? 0,
-                    TotalPayouts = _shiftForm.TotalPayouts ?? 0,
-                    TotalCancels = _shiftForm.TotalCancels ?? 0,
-                    NetDue = _shiftForm.NetDue ?? 0,
-                    EnvelopeAmount = _shiftForm.EnvelopeAmount ?? 0,
-                    Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes,
-                    Status = _shiftForm.Status,
-                    CreatedBy = _shiftForm.CreatedBy
-                };
+                    shift = await Task.Run(() => LotteryService.GetShift(_editingShiftId.Value));
+                    if (shift == null)
+                    {
+                        _modalError = "Unable to find the original shift record.";
+                        return;
+                    }
+                }
+                else
+                {
+                    shift = new LotteryShift { CreatedDate = DateTime.Now };
+                }
+
+                // MERGE FORM DATA INTO ENTITY
+                shift.ShiftDate = _shiftForm.ShiftDate;
+                shift.EmployeeName = _shiftForm.EmployeeName;
+                shift.StartingCash = _shiftForm.StartingCash ?? 0;
+                shift.EndingCash = _shiftForm.EndingCash ?? 0;
+                shift.TotalSales = _shiftForm.TotalSales ?? 0;
+                shift.TotalPayouts = _shiftForm.TotalPayouts ?? 0;
+                shift.TotalCancels = _shiftForm.TotalCancels ?? 0;
+                shift.NetDue = _shiftForm.NetDue ?? 0;
+                shift.EnvelopeAmount = _shiftForm.EnvelopeAmount;
+                shift.BagRefillAmount = _shiftForm.BagRefillAmount ?? 0;
+                shift.Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes;
+                shift.Status = _shiftForm.Status;
+                shift.CreatedBy = _shiftForm.CreatedBy;
 
                 if (_editingShiftId.HasValue)
                 {
-                    shift.ShiftId = _editingShiftId.Value;
                     await Task.Run(() => LotteryService.UpdateShift(shift, username));
                 }
                 else
@@ -330,13 +352,16 @@ namespace GFC.BlazorServer.Components.Pages
                     await Task.Run(() => LotteryService.CreateShift(shift, username));
                 }
 
-                _showShiftModal = false;
-                await LoadData();
+                _showShiftModal = false; // CLOSE MODAL IMMEDIATELY
+                _ = InvokeAsync(async () => {
+                    await LoadData();
+                    StateHasChanged();
+                });
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error saving shift");
-                _modalError = "Failed to save shift: " + ex.Message;
+                _modalError = "Error saving: " + ex.Message;
             }
             finally
             {
@@ -350,6 +375,8 @@ namespace GFC.BlazorServer.Components.Pages
             _editingShiftId = null;
             _shiftForm = new ShiftFormModel();
             _modalError = string.Empty;
+            _showNoChangesModal = false;
+            _showReassignConfirmation = false;
         }
 
         private void ConfirmDelete(int shiftId)
@@ -417,13 +444,13 @@ namespace GFC.BlazorServer.Components.Pages
             }
         }
 
-        public class ShiftFormModel
+        public class ShiftFormModel : ICloneable
         {
-            [Required(ErrorMessage = "Shift date is required")]
+            [Required(ErrorMessage = "Audit date is required")]
             public DateTime ShiftDate { get; set; } = DateTime.Now;
             
             [Required(ErrorMessage = "Employee name is required")]
-            [StringLength(100, ErrorMessage = "Employee name cannot exceed 100 characters")]
+            [StringLength(100, ErrorMessage = "Employee cannot exceed 100 characters")]
             public string EmployeeName { get; set; } = string.Empty;
             
             public string ShiftType { get; set; } = string.Empty;
@@ -445,22 +472,44 @@ namespace GFC.BlazorServer.Components.Pages
             [Range(0, double.MaxValue, ErrorMessage = "Total payouts must be 0 or greater")]
             public decimal? TotalPayouts { get; set; }
             
-            [Required(ErrorMessage = "Instant Tickets (RPT 34) is required")]
-            [Range(0, double.MaxValue, ErrorMessage = "Instant Tickets must be 0 or greater")]
+            [Required(ErrorMessage = "Tickets (RPT 34) is required")]
+            [Range(0, double.MaxValue, ErrorMessage = "Tickets must be 0 or greater")]
             public decimal? TotalCancels { get; set; }
 
             [Required(ErrorMessage = "Net Due (RPT 50) is required")]
             public decimal? NetDue { get; set; }
 
-            public decimal? EnvelopeAmount { get; set; }
+            [Range(0, double.MaxValue, ErrorMessage = "Backup Bag must be 0 or greater")]
+            public decimal? BagRefillAmount { get; set; }
             
             public string Notes { get; set; } = string.Empty;
             public string Status { get; set; } = "Submitted";
             public string CreatedBy { get; set; } = string.Empty;
+            public DateTime CreatedDate { get; set; } // HANG PREVENTION
             
             public decimal NetSales => (TotalSales ?? 0) - (TotalPayouts ?? 0) - (TotalCancels ?? 0);
-            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales;
+            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + (BagRefillAmount ?? 0);
             public decimal Variance => (EndingCash ?? 0) - ExpectedCash;
+            
+            // AUTOMATIC ENVELOPE CALCULATION ($1,200 Bag Target)
+            public decimal EnvelopeAmount => (EndingCash ?? 0) > 1200 ? (EndingCash ?? 0) - 1200 : 0;
+
+            public object Clone() => this.MemberwiseClone();
+
+            public bool IsDirty(ShiftFormModel other)
+            {
+                if (other == null) return true;
+                return ShiftDate != other.ShiftDate ||
+                       EmployeeName != other.EmployeeName ||
+                       StartingCash != other.StartingCash ||
+                       EndingCash != other.EndingCash ||
+                       TotalSales != other.TotalSales ||
+                       TotalPayouts != other.TotalPayouts ||
+                       TotalCancels != other.TotalCancels ||
+                       NetDue != other.NetDue ||
+                       BagRefillAmount != other.BagRefillAmount ||
+                       CreatedBy != other.CreatedBy;
+            }
         }
     }
 }

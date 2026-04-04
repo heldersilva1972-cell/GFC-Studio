@@ -94,10 +94,8 @@ namespace GFC.Core.Services
                 {
                     TimestampUtc = DateTime.UtcNow,
                     Action = "Shift Reassignment",
-                    Details = $"Shift #{shift.ShiftId} on {shift.ShiftDate:MMM dd, yyyy} was reassigned from {oldShift.CreatedBy ?? "Unknown"} to {shift.CreatedBy}. This action moved associated labor hours in the Bar Sale records.",
-                    PageUrl = "/lottery",
-                    // PerformedBy is handled by the caller/Auth context usually, 
-                    // but we ensure ModifiedBy is set on the entity which contains the admin username
+                    Details = $"REASSIGNED shift on {shift.ShiftDate:MM/dd/yyyy} ({shift.ShiftType}). TRANSFERRED FROM: [{oldShift.CreatedBy}] -> TO: [{shift.CreatedBy}]. All associated labor hours synchronized.",
+                    PageUrl = "/lottery"
                 });
             }
 
