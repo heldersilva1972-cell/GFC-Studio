@@ -155,6 +155,7 @@ VALUES (@TimestampUtc, @PerformedByUserId, @TargetUserId, @TargetMemberId, @Acti
             parameters.Add(("@ToUtc", to.Value.UtcDateTime));
         }
 
+        filters.Add("al.Action <> 'PageView'");
         var whereClause = filters.Count > 0 ? $"WHERE {string.Join(" AND ", filters)}" : string.Empty;
 
         var countSql = $"SELECT COUNT(*) FROM AuditLogs al {whereClause};";
@@ -213,7 +214,7 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;";
             using var connection = Db.GetConnection();
             await connection.OpenAsync();
 
-            const string sql = "SELECT DISTINCT Action FROM AuditLogs ORDER BY Action ASC;";
+            const string sql = "SELECT DISTINCT Action FROM AuditLogs WHERE Action <> 'PageView' ORDER BY Action ASC;";
             using var command = new SqlCommand(sql, connection);
             var actions = new List<string>();
             using var reader = await command.ExecuteReaderAsync();

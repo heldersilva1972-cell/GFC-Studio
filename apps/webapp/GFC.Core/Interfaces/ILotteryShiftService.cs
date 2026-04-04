@@ -29,6 +29,7 @@ namespace GFC.Core.Interfaces
         decimal GetTotalNetSales(DateTime? startDate = null, DateTime? endDate = null);
         decimal GetTotalVariance(DateTime? startDate = null, DateTime? endDate = null);
         List<string> GetEmployeeNames();
+        List<(string Username, string FullName)> GetEmployeeMetadata();
     }
 }
 

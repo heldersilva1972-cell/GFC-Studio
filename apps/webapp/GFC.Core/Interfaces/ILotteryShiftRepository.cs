@@ -14,5 +14,7 @@ namespace GFC.Core.Interfaces
         void Delete(int shiftId);
         List<LotteryShift> GetUnreconciled();
         bool Exists(int shiftId);
+        List<(string Username, string FullName)> GetEmployeeMetadata();
+        void UpdateBarSaleOwner(DateTime date, string shiftType, string oldUsername, string newUsername);
     }
 }

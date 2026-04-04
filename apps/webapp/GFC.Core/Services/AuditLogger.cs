@@ -68,17 +68,8 @@ public class AuditLogger : IAuditLogger
     /// </summary>
     public int LogPageView(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
     {
-        var entry = new AuditLogEntry
-        {
-            Action = "PageView",
-            PerformedByUserId = userId,
-            PageUrl = pageUrl,
-            Details = pageTitle,
-            IpAddress = ipAddress,
-            DeviceToken = deviceToken,
-            TimestampUtc = DateTime.UtcNow
-        };
-        return _repository.Insert(entry);
+        // NO-OP: Disabled PageView collection to reduce audit log clutter as per user request
+        return 0;
     }
 
     /// <summary>
@@ -86,17 +77,8 @@ public class AuditLogger : IAuditLogger
     /// </summary>
     public async Task<int> LogPageViewAsync(int userId, string pageUrl, string? pageTitle = null, string? ipAddress = null, string? deviceToken = null)
     {
-        var entry = new AuditLogEntry
-        {
-            Action = "PageView",
-            PerformedByUserId = userId,
-            PageUrl = pageUrl,
-            Details = pageTitle,
-            IpAddress = ipAddress,
-            DeviceToken = deviceToken,
-            TimestampUtc = DateTime.UtcNow
-        };
-        return await _repository.InsertAsync(entry);
+        // NO-OP: Disabled PageView collection to reduce audit log clutter as per user request
+        return await Task.FromResult(0);
     }
 
     /// <summary>
@@ -187,6 +169,6 @@ public static class AuditLogActions
         VpnConfigChanged, VpnConfigDownloaded, VpnProfileCreated, VpnProfileRevoked, VpnKeyRotated,
         VpnOnboardingStarted, VpnAppleProfileDownloaded, VpnWindowsSetupDownloaded, VpnCaCertDownloaded, VpnOnboardingCompleted,
         ControllerSyncInitiated, DataExported, ShiftReportSubmitted, ShiftReportCorrected, NPQueuePromote,
-        "PageView", "Suspicious Login Attempt"
+        "Suspicious Login Attempt"
     };
 }

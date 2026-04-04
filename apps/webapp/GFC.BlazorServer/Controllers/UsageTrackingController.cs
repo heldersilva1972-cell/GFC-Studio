@@ -35,11 +35,16 @@ public class AnalyticsController : ControllerBase
                 return Unauthorized();
             }
 
+            if (eventData.Action == "PageView" || string.IsNullOrEmpty(eventData.Action))
+            {
+                return Ok(); // Ignore but return success to stop retries
+            }
+
             var entry = new AuditLogEntry
             {
                 TimestampUtc = DateTime.UtcNow,
                 PerformedByUserId = userId.Value,
-                Action = eventData.Action ?? "PageView",
+                Action = eventData.Action,
                 Details = eventData.Details,
                 PageUrl = eventData.PageUrl,
                 DurationSeconds = eventData.DurationSeconds
@@ -48,7 +53,7 @@ public class AnalyticsController : ControllerBase
             _auditLogRepository.Insert(entry);
             _logger.LogDebug("Tracked {Action} for user {UserId}: {PageUrl}", 
                 eventData.Action, userId, eventData.PageUrl);
-            
+                
             return Ok();
         }
         catch (Exception ex)
@@ -61,32 +66,8 @@ public class AnalyticsController : ControllerBase
     [HttpPost("heartbeat")]
     public async Task<IActionResult> Heartbeat([FromBody] HeartbeatDto heartbeatData)
     {
-        try
-        {
-            // Get user from device token cookie
-            var userId = await GetUserIdFromDeviceToken();
-            if (userId == null)
-            {
-                _logger.LogWarning("Analytics heartbeat called without valid device token");
-                return Unauthorized();
-            }
-
-            _auditLogRepository.UpdateDuration(
-                userId.Value,
-                heartbeatData.PageUrl ?? "/",
-                heartbeatData.AdditionalSeconds
-            );
-
-            _logger.LogDebug("Heartbeat for user {UserId}: +{Seconds}s on {PageUrl}", 
-                userId, heartbeatData.AdditionalSeconds, heartbeatData.PageUrl);
-
-            return Ok();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing heartbeat");
-            return StatusCode(500);
-        }
+        // NO-OP: Heartbeats are only useful for PageView duration, which we no longer want.
+        return await Task.FromResult(Ok());
     }
 
     private async Task<int?> GetUserIdFromDeviceToken()

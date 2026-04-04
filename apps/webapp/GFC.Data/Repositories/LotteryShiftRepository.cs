@@ -346,6 +346,73 @@ namespace GFC.Data.Repositories
             }
         }
 
+        public List<(string Username, string FullName)> GetEmployeeMetadata()
+        {
+            try
+            {
+                var metadata = new List<(string Username, string FullName)>();
+                using var connection = Db.GetConnection();
+                connection.Open();
+                // Fetch active users linked to members for full names
+                const string sql = @"
+                    SELECT u.Username, m.FirstName, m.LastName, m.Suffix
+                    FROM AppUsers u
+                    LEFT JOIN Members m ON u.MemberId = m.MemberID
+                    WHERE u.IsActive = 1
+                    ORDER BY m.LastName, m.FirstName";
+                using var command = new SqlCommand(sql, connection);
+                using var reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    string username = (string)reader["Username"];
+                    string fullName = username;
+                    if (reader["FirstName"] != DBNull.Value)
+                    {
+                        fullName = $"{reader["FirstName"]} {reader["LastName"]}{(reader["Suffix"] != DBNull.Value ? " " + reader["Suffix"] : "")}";
+                    }
+                    metadata.Add((username, fullName));
+                }
+                return metadata;
+            }
+            catch (SqlException ex) when (ex.Number == 208)
+            {
+                return new List<(string, string)>();
+            }
+        }
+
+        public void UpdateBarSaleOwner(DateTime date, string shiftType, string oldUsername, string newUsername)
+        {
+            try
+            {
+                using var connection = Db.GetConnection();
+                connection.Open();
+                
+                // Find and update the bar entry linked to this lottery shift
+                // Matches on Date, Shift Type, and the OLD username to ensure we hit the right one
+                const string sql = @"
+                    UPDATE BarSaleEntries
+                    SET CreatedBy = @NewUsername,
+                        ModifiedAt = @ModifiedAt,
+                        ModifiedBy = 'AdminReassignment'
+                    WHERE (SaleDate = @Date OR AdjustedSaleDate = @Date)
+                      AND Shift = @ShiftType
+                      AND CreatedBy = @OldUsername";
+                      
+                using var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@NewUsername", newUsername);
+                command.Parameters.AddWithValue("@Date", date.Date);
+                command.Parameters.AddWithValue("@ShiftType", shiftType);
+                command.Parameters.AddWithValue("@OldUsername", oldUsername);
+                command.Parameters.AddWithValue("@ModifiedAt", DateTime.UtcNow);
+                
+                command.ExecuteNonQuery();
+            }
+            catch (Exception)
+            {
+                // Non-critical failure; if a bar entry isn't found or fails, we don't block the lottery save
+            }
+        }
+
         private static LotteryShift MapReaderToShift(SqlDataReader reader)
         {
             return new LotteryShift

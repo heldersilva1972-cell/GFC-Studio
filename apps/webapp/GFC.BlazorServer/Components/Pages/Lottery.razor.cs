@@ -22,6 +22,7 @@ namespace GFC.BlazorServer.Components.Pages
         private List<LotteryShiftSummaryDto> _weeklySummaries = new();
         private List<LotteryShiftSummaryDto> _monthlySummaries = new();
         private List<string> _employeeNames = new();
+        private List<(string Username, string FullName)> _employeeMetadata = new();
         private bool _loading = true;
         private string _error = string.Empty;
         private string _modalError = string.Empty;
@@ -31,6 +32,12 @@ namespace GFC.BlazorServer.Components.Pages
         private bool _showDeleteModal = false;
         private int? _shiftToDelete = null;
         private bool _deletingShift = false;
+        
+        // Reassignment confirmation state
+        private bool _showReassignConfirmation = false;
+        private string _pendingUsername = string.Empty;
+        private string _pendingFullName = string.Empty;
+        private string _originalEmployeeName = string.Empty;
         
         private DateTime _filterStartDate = DateTime.Today.AddDays(-30);
         private DateTime _filterEndDate = DateTime.Today;
@@ -76,7 +83,8 @@ namespace GFC.BlazorServer.Components.Pages
             _error = string.Empty;
             try
             {
-                _employeeNames = await Task.Run(() => LotteryService.GetEmployeeNames());
+                _employeeMetadata = await Task.Run(() => LotteryService.GetEmployeeMetadata());
+                _employeeNames = _employeeMetadata.Select(m => m.FullName).ToList();
                 
                 if (_viewMode == "shifts")
                 {
@@ -216,11 +224,17 @@ namespace GFC.BlazorServer.Components.Pages
 
         private void StartAddShift()
         {
+            var currentUser = AuthStateProvider.GetCurrentUser();
+            var username = currentUser?.Username ?? string.Empty;
+            var fullName = _employeeMetadata.FirstOrDefault(m => m.Username == username).FullName ?? username;
+
             _editingShiftId = null;
             _shiftForm = new ShiftFormModel
             {
                 ShiftDate = DateTime.Now,
-                Status = "Submitted"
+                Status = "Submitted",
+                CreatedBy = username,
+                EmployeeName = fullName
             };
             _modalError = string.Empty;
             _showShiftModal = true;
@@ -246,10 +260,37 @@ namespace GFC.BlazorServer.Components.Pages
                 NetDue = shiftEntity.NetDue,
                 EnvelopeAmount = shiftEntity.EnvelopeAmount,
                 Notes = shiftEntity.Notes ?? string.Empty,
-                Status = shiftEntity.Status ?? "Submitted"
+                Status = shiftEntity.Status ?? "Submitted",
+                CreatedBy = shiftEntity.CreatedBy ?? string.Empty
             };
+            _originalEmployeeName = shiftEntity.EmployeeName;
             _modalError = string.Empty;
             _showShiftModal = true;
+        }
+
+        private void OnEmployeeChanged(ChangeEventArgs e)
+        {
+            var username = e.Value?.ToString() ?? string.Empty;
+            if (string.IsNullOrEmpty(username) || username == _shiftForm.CreatedBy) return;
+
+            var metadata = _employeeMetadata.FirstOrDefault(m => m.Username == username);
+            _pendingUsername = username;
+            _pendingFullName = metadata.FullName ?? username;
+            _showReassignConfirmation = true;
+        }
+
+        private void ConfirmReassignment()
+        {
+            _shiftForm.CreatedBy = _pendingUsername;
+            _shiftForm.EmployeeName = _pendingFullName;
+            _showReassignConfirmation = false;
+        }
+
+        private void CancelReassignment()
+        {
+            _showReassignConfirmation = false;
+            _pendingUsername = string.Empty;
+            _pendingFullName = string.Empty;
         }
 
         private async Task SaveShift()
@@ -275,7 +316,8 @@ namespace GFC.BlazorServer.Components.Pages
                     NetDue = _shiftForm.NetDue ?? 0,
                     EnvelopeAmount = _shiftForm.EnvelopeAmount ?? 0,
                     Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes,
-                    Status = _shiftForm.Status
+                    Status = _shiftForm.Status,
+                    CreatedBy = _shiftForm.CreatedBy
                 };
 
                 if (_editingShiftId.HasValue)
@@ -414,6 +456,7 @@ namespace GFC.BlazorServer.Components.Pages
             
             public string Notes { get; set; } = string.Empty;
             public string Status { get; set; } = "Submitted";
+            public string CreatedBy { get; set; } = string.Empty;
             
             public decimal NetSales => (TotalSales ?? 0) - (TotalPayouts ?? 0) - (TotalCancels ?? 0);
             public decimal ExpectedCash => (StartingCash ?? 0) + NetSales;

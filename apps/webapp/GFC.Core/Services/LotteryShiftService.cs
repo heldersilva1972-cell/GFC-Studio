@@ -7,10 +7,12 @@ namespace GFC.Core.Services
     public class LotteryShiftService : ILotteryShiftService
     {
         private readonly ILotteryShiftRepository _repository;
+        private readonly IAuditLogRepository _auditLogRepository;
 
-        public LotteryShiftService(ILotteryShiftRepository repository)
+        public LotteryShiftService(ILotteryShiftRepository repository, IAuditLogRepository auditLogLogRepository)
         {
             _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+            _auditLogRepository = auditLogLogRepository ?? throw new ArgumentNullException(nameof(auditLogLogRepository));
         }
 
         public LotteryShift? GetShift(int shiftId)
@@ -71,11 +73,32 @@ namespace GFC.Core.Services
 
         public void UpdateShift(LotteryShift shift, string? modifiedBy = null)
         {
+            // Fetch old shift to check for owner changes
+            var oldShift = _repository.GetById(shift.ShiftId);
+            
             // Ensure we aren't changing this shift's primary ID (Employee/Time) to clash with ANOTHER existing entry
             var existing = _repository.GetDuplicateShift(shift.EmployeeName, shift.ShiftDate);
             if (existing != null && existing.ShiftId != shift.ShiftId)
             {
                 throw new InvalidOperationException($"Cannot save because another shift for {shift.EmployeeName} at {shift.ShiftDate:MMM dd, yyyy h:mm tt} already exists. Please check your values.");
+            }
+
+            // [SYNC LOGIC] If the CreatedBy (owner) changed, we must also update the linked BarSaleEntry
+            // This ensures that labor hours appear on the correct employee's report
+            if (oldShift != null && !string.IsNullOrEmpty(shift.CreatedBy) && oldShift.CreatedBy != shift.CreatedBy)
+            {
+                _repository.UpdateBarSaleOwner(shift.ShiftDate, shift.ShiftType ?? "Day", oldShift.CreatedBy ?? "Unknown", shift.CreatedBy);
+
+                // [LOGGING] Record a formal audit entry for this financial/labor change
+                _auditLogRepository.Insert(new AuditLogEntry
+                {
+                    TimestampUtc = DateTime.UtcNow,
+                    Action = "Shift Reassignment",
+                    Details = $"Shift #{shift.ShiftId} on {shift.ShiftDate:MMM dd, yyyy} was reassigned from {oldShift.CreatedBy ?? "Unknown"} to {shift.CreatedBy}. This action moved associated labor hours in the Bar Sale records.",
+                    PageUrl = "/lottery",
+                    // PerformedBy is handled by the caller/Auth context usually, 
+                    // but we ensure ModifiedBy is set on the entity which contains the admin username
+                });
             }
 
             shift.ModifiedDate = DateTime.UtcNow;
@@ -202,6 +225,11 @@ namespace GFC.Core.Services
                 .Distinct()
                 .OrderBy(n => n)
                 .ToList();
+        }
+
+        public List<(string Username, string FullName)> GetEmployeeMetadata()
+        {
+            return _repository.GetEmployeeMetadata();
         }
 
         private List<LotteryShift> GetShiftsForPeriod(DateTime? startDate, DateTime? endDate)
