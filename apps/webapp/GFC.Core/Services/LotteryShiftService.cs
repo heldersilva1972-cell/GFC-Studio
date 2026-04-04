@@ -226,6 +226,19 @@ namespace GFC.Core.Services
                 };
             }
 
+            // Group shifts by date to handle cumulative nightly totals
+            var shiftsByDay = shifts.GroupBy(s => s.ShiftDate.Date)
+                .Select(g => new {
+                    Date = g.Key,
+                    // Get the latest shift of the day for machine totals
+                    LatestShift = g.OrderByDescending(s => s.ShiftId).First(),
+                    // Sum non-cumulative activity for the day
+                    DailyEnvelopes = g.Sum(s => s.EnvelopeAmount),
+                    DailyVariances = g.Sum(s => s.Variance),
+                    DailyBagRefills = g.Sum(s => s.BagRefillAmount),
+                    ShiftCount = g.Count()
+                }).ToList();
+
             var variances = shifts.Select(s => s.Variance).ToList();
             var varianceCount = variances.Count(v => Math.Abs(v) > 0.01m);
             
@@ -235,12 +248,15 @@ namespace GFC.Core.Services
                 PeriodEnd = periodEnd,
                 PeriodLabel = label,
                 ShiftCount = shifts.Count,
-                TotalSales = shifts.Sum(s => s.TotalSales),
-                TotalPayouts = shifts.Sum(s => s.TotalPayouts),
-                TotalCancels = shifts.Sum(s => s.TotalCancels),
-                TotalNetDue = shifts.Sum(s => s.NetDue),
-                TotalNetSales = shifts.Sum(s => s.NetSales),
-                TotalVariance = shifts.Sum(s => s.Variance),
+                // Machine totals are the sum of the LATEST reports for each day
+                TotalSales = shiftsByDay.Sum(d => d.LatestShift.TotalSales),
+                TotalPayouts = shiftsByDay.Sum(d => d.LatestShift.TotalPayouts),
+                TotalCancels = shiftsByDay.Sum(d => d.LatestShift.TotalCancels),
+                TotalNetDue = shiftsByDay.Sum(d => d.LatestShift.NetDue),
+                TotalNetSales = shiftsByDay.Sum(d => d.LatestShift.NetSales),
+                // Envelopes and Variances are summed across ALL shifts
+                TotalEnvelope = shiftsByDay.Sum(d => d.DailyEnvelopes),
+                TotalVariance = shiftsByDay.Sum(d => d.DailyVariances),
                 AverageVariance = varianceCount > 0 ? variances.Where(v => Math.Abs(v) > 0.01m).Average() : 0,
                 VarianceCount = varianceCount,
                 LargestVariance = variances.Max(),

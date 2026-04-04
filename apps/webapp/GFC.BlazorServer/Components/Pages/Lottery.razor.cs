@@ -39,12 +39,20 @@ namespace GFC.BlazorServer.Components.Pages
         private string _viewMode = "shifts";
         private int _selectedYear = DateTime.Now.Year;
 
-        // Summary stats computed from _shifts list
-        
-        // Summary stats computed from _shifts list
-        private decimal TotalSales => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.TotalSales);
-        private decimal TotalPayouts => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.TotalPayouts);
-        private decimal TotalNetSales => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.NetSales);
+        // Summary stats computed from _shifts list using Business Day logic
+        private decimal TotalSales => _shifts.Where(s => s.Status == "Submitted")
+            .GroupBy(s => s.ShiftDate.Date)
+            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalSales);
+
+        private decimal TotalPayouts => _shifts.Where(s => s.Status == "Submitted")
+            .GroupBy(s => s.ShiftDate.Date)
+            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalPayouts);
+
+        private decimal TotalNetSales => _shifts.Where(s => s.Status == "Submitted")
+            .GroupBy(s => s.ShiftDate.Date)
+            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().NetSales);
+
+        private decimal TotalEnvelope => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.EnvelopeAmount);
         private decimal TotalVariance => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.Variance);
 
         private ShiftFormModel _shiftForm = new();
@@ -114,7 +122,10 @@ namespace GFC.BlazorServer.Components.Pages
                 shifts = shifts.Where(s => s.IsReconciled == _showReconciled.Value).ToList();
             }
             
-            _shifts = shifts;
+            _shifts = shifts
+                .OrderByDescending(s => s.ShiftDate.Date)
+                .ThenBy(s => s.ShiftType == "Day" ? 0 : s.ShiftType == "Night" ? 1 : 2)
+                .ToList();
         }
 
         private async Task LoadDailySummaries()
@@ -233,6 +244,7 @@ namespace GFC.BlazorServer.Components.Pages
                 TotalPayouts = shiftEntity.TotalPayouts,
                 TotalCancels = shiftEntity.TotalCancels,
                 NetDue = shiftEntity.NetDue,
+                EnvelopeAmount = shiftEntity.EnvelopeAmount,
                 Notes = shiftEntity.Notes ?? string.Empty,
                 Status = shiftEntity.Status ?? "Submitted"
             };
@@ -261,6 +273,7 @@ namespace GFC.BlazorServer.Components.Pages
                     TotalPayouts = _shiftForm.TotalPayouts ?? 0,
                     TotalCancels = _shiftForm.TotalCancels ?? 0,
                     NetDue = _shiftForm.NetDue ?? 0,
+                    EnvelopeAmount = _shiftForm.EnvelopeAmount ?? 0,
                     Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes,
                     Status = _shiftForm.Status
                 };
@@ -396,6 +409,8 @@ namespace GFC.BlazorServer.Components.Pages
 
             [Required(ErrorMessage = "Net Due (RPT 50) is required")]
             public decimal? NetDue { get; set; }
+
+            public decimal? EnvelopeAmount { get; set; }
             
             public string Notes { get; set; } = string.Empty;
             public string Status { get; set; } = "Submitted";

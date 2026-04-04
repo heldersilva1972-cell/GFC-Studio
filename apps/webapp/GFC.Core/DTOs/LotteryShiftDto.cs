@@ -53,6 +53,7 @@ namespace GFC.Core.DTOs
         public decimal TotalCancels { get; set; }
         public decimal TotalNetDue { get; set; }
         public decimal TotalNetSales { get; set; }
+        public decimal TotalEnvelope { get; set; }
         public decimal TotalVariance { get; set; }
         public decimal AverageVariance { get; set; }
         public int VarianceCount { get; set; } // Number of shifts with variance
