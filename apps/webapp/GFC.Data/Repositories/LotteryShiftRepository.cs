@@ -393,9 +393,10 @@ namespace GFC.Data.Repositories
                 const string sql = @"
                     UPDATE BarSaleEntries
                     SET CreatedBy = @NewUsername,
-                        ModifiedAt = @ModifiedAt,
+                        ModifiedDate = @ModifiedAt, -- Primary audit field
+                        ModifiedAt = @ModifiedAt,   -- Secondary/Legacy audit field
                         ModifiedBy = 'AdminReassignment'
-                    WHERE (SaleDate = @Date OR AdjustedSaleDate = @Date)
+                    WHERE (CAST(ISNULL(AdjustedSaleDate, SaleDate) AS DATE) = @Date)
                       AND Shift = @ShiftType
                       AND CreatedBy = @OldUsername";
                       
