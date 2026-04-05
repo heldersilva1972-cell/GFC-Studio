@@ -492,7 +492,7 @@ namespace GFC.BlazorServer.Components.Pages
             public decimal Variance => (EndingCash ?? 0) - ExpectedCash;
             
             // AUTOMATIC ENVELOPE CALCULATION ($1,200 Bag Target)
-            public decimal EnvelopeAmount => (EndingCash ?? 0) > 1200 ? (EndingCash ?? 0) - 1200 : 0;
+            public decimal EnvelopeAmount => (ShiftType != "Day" && (EndingCash ?? 0) > 1200) ? (EndingCash ?? 0) - 1200 : 0;
 
             public object Clone() => this.MemberwiseClone();
 

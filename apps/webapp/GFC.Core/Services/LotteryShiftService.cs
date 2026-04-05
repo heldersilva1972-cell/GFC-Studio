@@ -324,7 +324,7 @@ namespace GFC.Core.Services
                 ReconciledBy = shift.ReconciledBy,
                 ReconciledDate = shift.ReconciledDate,
                 BackupBagAmount = shift.BackupBagAmount,
-                EnvelopeAmount = shift.EnvelopeAmount,
+                EnvelopeAmount = (shift.ShiftType == "Day") ? 0 : shift.EnvelopeAmount,
                 BagRefillAmount = shift.BagRefillAmount,
                 CreatedBy = shift.CreatedBy,
                 CreatedDate = shift.CreatedDate
