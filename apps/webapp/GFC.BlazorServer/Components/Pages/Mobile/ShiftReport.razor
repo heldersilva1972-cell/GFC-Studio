@@ -1538,6 +1538,7 @@
     private bool IsDayLocked => _dayMainHasData && CurrentUser != null && !CurrentUser.IsAdmin && _dayCloser != CurrentUser.Username;
     private bool IsNightLocked => _nightMainHasData && CurrentUser != null && !CurrentUser.IsAdmin && _nightCloser != CurrentUser.Username;
     private bool IsHallLocked => _hallSubmitted && CurrentUser != null && !CurrentUser.IsAdmin && _hallCloser != CurrentUser.Username;
+    private readonly global::System.Threading.SemaphoreSlim _saveLock = new(1, 1);
     private string? _validationError { get; set; }
     private string? _lockErrorMessage { get; set; }
     private bool _showValidation = false;
@@ -1775,6 +1776,10 @@
     private async Task SilentSave() {
         if (IsLocked || IsSubmitting) return;
 
+        // PREVENTION: Use a lock to ensure rapid keystrokes don't trigger multiple parallel saves
+        // which creates duplicate records if the first hasn't finished writing yet.
+        if (!await _saveLock.WaitAsync(0)) return; // Don't queue auto-saves, just skip if one is active
+
         _isSaving = true;
         try {
             using var db = await DbFactory.CreateDbContextAsync();
@@ -1898,6 +1903,7 @@
         } catch { /* Background silence */ }
         finally {
              _isSaving = false;
+             _saveLock.Release();
              await InvokeAsync(StateHasChanged);
         }
     }
@@ -2352,6 +2358,7 @@
         }
 
         IsSubmitting = true;
+        await _saveLock.WaitAsync(); // Ensure background saves are finished
         try {
             using var db = await DbFactory.CreateDbContextAsync();
             using var transaction = await db.Database.BeginTransactionAsync();
@@ -2494,6 +2501,7 @@
         } catch (Exception ex) {
             _validationError = "Error saving report: " + ex.Message;
         } finally {
+            _saveLock.Release();
             IsSubmitting = false;
         }
     }

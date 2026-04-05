@@ -804,8 +804,9 @@
                                 @foreach (var entry in _entries)
                                 {
                                     var isDay = entry.Shift == "Day";
-                                    var shiftColor = isDay ? "warning" : "info";
-                                    var shiftIcon = isDay ? "bi-sun-fill" : "bi-moon-stars-fill";
+                                    var isHall = entry.Shift == "Hall" || entry.IsRentalHall;
+                                    var shiftColor = isHall ? "danger" : (isDay ? "warning" : "info");
+                                    var shiftIcon = isHall ? "bi-building-fill" : (isDay ? "bi-sun-fill" : "bi-moon-stars-fill");
                                     var isLocked = entry.IsAudited; // Locked status alias
                                     
                                     <div class="card border-0 shadow-sm animate-entrance @(entry.IsAudited ? "border-success border-start border-4" : "")">
@@ -1906,6 +1907,21 @@
 
             // DIRECT SQL INSERT to bypass potential repository caching issues
             using var db = await DbFactory.CreateDbContextAsync();
+
+            // Guard: Check for existing entry before inserting (prevent duplicates from double-clicks)
+            var targetEffectiveDate = enteredDate;
+            var isDuplicate = await db.LotteryShifts.AnyAsync(s => 
+                s.ShiftDate.Date == targetEffectiveDate.Date && 
+                s.ShiftType == _lotteryModel.ShiftType);
+
+            if (isDuplicate)
+            {
+                _errorDetails = $"A lottery entry for {targetEffectiveDate:MMM dd} ({_lotteryModel.ShiftType}) already exists. Please use the 'Lottery Sales' tab to edit existing entries.";
+                _isSaving = false;
+                StateHasChanged();
+                return;
+            }
+
             using var connection = new Microsoft.Data.SqlClient.SqlConnection(db.Database.GetConnectionString());
             await connection.OpenAsync();
             
@@ -2907,7 +2923,7 @@
                     .FirstOrDefaultAsync(e => 
                         (e.AdjustedSaleDate ?? e.SaleDate.Date) == targetEffectiveDate.Date && 
                         e.Shift == _model.Shift && 
-                        !e.IsRentalHall);
+                        e.IsRentalHall == _model.IsRentalHall);
 
                 if (existing != null)
                 {
