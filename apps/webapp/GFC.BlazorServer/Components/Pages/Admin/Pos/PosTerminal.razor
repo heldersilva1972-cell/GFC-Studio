@@ -1,0 +1,712 @@
+@page "/admin/pos-terminal"
+@using Microsoft.AspNetCore.Authorization
+@using GFC.Core.Interfaces
+@using GFC.BlazorServer.Services
+@using global::System.Text.Json
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject IToastService Toast
+@inject GFC.BlazorServer.Services.CustomAuthenticationStateProvider AuthStateProvider
+@attribute [Authorize]
+
+<PageTitle>GFC Terminal #1</PageTitle>
+
+<div class="pos-container">
+    <!-- Header with Navy Border and Rounded IDs -->
+    <header class="pos-header">
+        <div class="pos-header__left">
+            <button class="btn-back" @onclick="GoBack">
+                <i class="bi bi-chevron-left"></i>
+            </button>
+            <span class="brand-text">GFC</span>
+            <span class="terminal-id">TERMINAL #1</span>
+        </div>
+        
+        <div class="pos-status">
+            <div class="status-pill @(IsOnline ? "online" : "offline")">
+                <i class="bi @(IsOnline ? "bi-wifi" : "bi-wifi-off")"></i>
+                <span>@(IsOnline ? "ONLINE" : "OFFLINE")</span>
+            </div>
+
+            @if (PendingSyncSales.Any())
+            {
+                <div class="sync-pill warning pulse">
+                    <i class="bi bi-cloud-arrow-up-fill"></i>
+                    <span>@PendingSyncSales.Count PENDING SYNC</span>
+                </div>
+            }
+            else
+            {
+                <div class="sync-pill success">
+                    <i class="bi bi-cloud-check-fill"></i>
+                    <span>SYNCED</span>
+                </div>
+            }
+        </div>
+        
+        <script>
+            window.registerConnectivityListener = (dotnetObj) => {
+                window.addEventListener('online', () => dotnetObj.invokeMethodAsync('UpdateConnectivityStatus', true));
+                window.addEventListener('offline', () => dotnetObj.invokeMethodAsync('UpdateConnectivityStatus', false));
+                // Initial check
+                dotnetObj.invokeMethodAsync('UpdateConnectivityStatus', window.navigator.onLine);
+            }
+        </script>
+
+        <div class="pos-header__right">
+            <div class="user-pill">
+                <i class="bi bi-person-circle-fill"></i>
+                <span>@CurrentUserName.ToUpper()</span>
+            </div>
+            <button class="btn-shift" @onclick="ToggleShiftControls">
+                <i class="bi bi-shield-lock"></i>
+                SHIFT
+            </button>
+        </div>
+    </header>
+
+    @if (ShowShiftControls)
+    {
+        <div class="shift-overlay">
+            <div class="shift-card">
+                <header class="card-header">
+                    <h2>SHIFT CONTROLS</h2>
+                    <button class="btn-close" @onclick="ToggleShiftControls"><i class="bi bi-x-circle-fill"></i></button>
+                </header>
+                <div class="card-body">
+                    <div class="stat-pill-grid">
+                        <div class="stat-pill">CASH: $@ShiftCashTotal.ToString("F2")</div>
+                        <div class="stat-pill">CARD: $@ShiftCardTotal.ToString("F2")</div>
+                        <div class="stat-pill">TABS: $@ShiftTabTotal.ToString("F2")</div>
+                    </div>
+                    <div class="printer-settings-area">
+                        <h3>PRINTER & DRAWER</h3>
+                        <div class="settings-row">
+                            <label>IP ADDRESS</label>
+                            <input type="text" @bind="PrinterIpAddress" placeholder="192.168.1.100" class="settings-input" />
+                        </div>
+                        <div class="settings-row checkboxes">
+                            <label><input type="checkbox" @bind="AutoPrintReceipt" /> AUTO-PRINT</label>
+                            <label><input type="checkbox" @bind="AutoOpenDrawer" /> OPEN DRAWER</label>
+                        </div>
+                    </div>
+
+                    <div class="z-out-area">
+                        <button class="btn-z-out" @onclick="ProcessZOut">CLOSE SHIFT & PRINT Z-TAPE</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (ShowCheckoutOverlay)
+    {
+        <div class="shift-overlay">
+            <div class="checkout-card">
+                <button class="btn-close-modal" @onclick="() => ShowCheckoutOverlay = false"><i class="bi bi-x-circle"></i></button>
+                <div class="card-body">
+                    <div class="checkout-summary-grid">
+                        <div class="summary-pill total">
+                            <span class="label">TOTAL DUE</span>
+                            <span class="value">$@Subtotal.ToString("F2")</span>
+                        </div>
+                        <div class="summary-pill change @(CashReceived.HasValue && CashReceived.Value >= Subtotal ? "visible" : "")">
+                            <span class="label">CHANGE DUE</span>
+                            <span class="value">$@ChangeDue.ToString("F2")</span>
+                        </div>
+                    </div>
+
+                    <div class="cash-input-display">
+                        <div class="display-header">
+                            <div class="label">CASH RECEIVED</div>
+                            <button class="btn-clear-input" @onclick='() => HandleNumPad("CLEAR")'>CLEAR</button>
+                        </div>
+                        <div class="cash-display-pill">
+                            <span class="currency">$</span>
+                            <span class="amount">@(string.IsNullOrWhiteSpace(CashInputString) ? "0.00" : CashInputString)</span>
+                        </div>
+                    </div>
+
+                    <div class="checkout-grid">
+                        <!-- Number Pad -->
+                        <div class="numpad-container">
+                            <div class="numpad-grid">
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("7")'>7</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("8")'>8</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("9")'>9</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("4")'>4</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("5")'>5</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("6")'>6</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("1")'>1</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("2")'>2</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("3")'>3</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad(".")'>.</button>
+                                <button class="numpad-btn" @onclick='() => HandleNumPad("0")'>0</button>
+                                <button class="numpad-btn btn-backspace" @onclick='() => HandleNumPad("BACK")'>
+                                    <i class="bi bi-backspace-fill"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Quick Cash Vertical Column -->
+                        <div class="quick-cash-grid-vertical">
+                            <button class="btn-quick-cash" @onclick="() => SetCashReceived(Subtotal)">EXACT</button>
+                            <button class="btn-quick-cash" @onclick="() => SetCashReceived(5)">$5</button>
+                            <button class="btn-quick-cash" @onclick="() => SetCashReceived(10)">$10</button>
+                            <button class="btn-quick-cash" @onclick="() => SetCashReceived(20)">$20</button>
+                            <button class="btn-quick-cash" @onclick="() => SetCashReceived(50)">$50</button>
+                            <button class="btn-quick-cash" @onclick="() => SetCashReceived(100)">$100</button>
+                        </div>
+                    </div>
+
+                    <div class="checkout-actions">
+                        <button class="btn-add-more" @onclick="() => ShowCheckoutOverlay = false">ADD TO ORDER</button>
+                        <button class="btn-complete" @onclick="FinalizeSale">COMPLETE TRANSACTION</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <main class="pos-workspace">
+        <!-- LEFT: Product Grid with Rounded Cards -->
+        <section class="pos-catalog">
+            <div class="catalog-filters">
+                @foreach (var cat in Categories)
+                {
+                    <button class="filter-pill @(ActiveCategory == cat ? "active" : "")" @onclick='() => ActiveCategory = cat'>@cat</button>
+                }
+            </div>
+
+            <div class="product-grid">
+                @foreach (var item in FilteredItems)
+                {
+                    <button class="product-card" @onclick="() => AddToCart(item)">
+                        <span class="item-name">@item.Name</span>
+                        <span class="item-price">$@item.Price.ToString("F2")</span>
+                    </button>
+                }
+            </div>
+        </section>
+
+        <!-- RIGHT: Rounded Active Order Panel -->
+        <aside class="pos-cart">
+            <div class="cart-header">
+                <h3>ACTIVE ORDER</h3>
+                <button class="btn-clear" @onclick="ClearCart">CLEAR</button>
+            </div>
+
+            <div class="cart-items">
+                @if (CartItems.Count == 0)
+                {
+                    <div class="cart-empty">
+                        <i class="bi bi-cart"></i>
+                        <p>No Items Selected</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var item in CartItems)
+                    {
+                        <div class="cart-item-pill">
+                            <div class="item-info">
+                                <span class="qty">@item.Quantity ×</span>
+                                <span class="name">@item.Name</span>
+                            </div>
+                            <div class="item-actions">
+                                <span class="price">$@((item.Price * item.Quantity).ToString("F2"))</span>
+                                <button class="btn-remove" @onclick="() => RemoveItem(item)"><i class="bi bi-dash-circle-fill"></i></button>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="cart-footer">
+                <div class="total-summary">
+                    <div class="summary-line">
+                        <span>SUBTOTAL</span>
+                        <span>$@Subtotal.ToString("F2")</span>
+                    </div>
+                    <div class="grand-total-pill">
+                        <span class="label">TOTAL DUE</span>
+                        <span class="value">$@Subtotal.ToString("F2")</span>
+                    </div>
+                </div>
+                
+                <button class="btn-checkout @(CartItems.Count == 0 ? "disabled" : "")" 
+                        disabled="@(CartItems.Count == 0)"
+                        @onclick="Checkout">
+                    <i class="bi bi-wallet2"></i>
+                    CHECKOUT
+                </button>
+            </div>
+        </aside>
+    </main>
+</div>
+
+<style>
+    :root {
+        --pos-navy: #1e3a8a;
+        --pos-bg: #f8fafc;
+        --pos-border: #e2e8f0;
+        --pos-text: #0f172a;
+    }
+
+    /* FULL REMOVAL OF UNUSED BLACK */
+    .pos-container {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: var(--pos-bg);
+        color: var(--pos-text);
+        display: flex;
+        flex-direction: column;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* ROUNDED HEADER */
+    .pos-header {
+        height: 75px;
+        background: white;
+        border-bottom: 4px solid var(--pos-navy);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 2rem;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+
+    .brand-text { font-weight: 900; font-size: 1.8rem; color: var(--pos-navy); margin-right: 1rem; }
+    .terminal-id { background: #f1f5f9; padding: 6px 16px; border-radius: 50px; color: var(--pos-navy); font-weight: 800; font-size: 0.8rem; }
+
+    .pos-status { display: flex; align-items: center; gap: 0.75rem; }
+    .status-pill { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 1rem; border-radius: 50px; font-weight: 900; font-size: 0.8rem; line-height: 1; }
+    .status-pill.online { background: #f0fdf4; color: #166534; border: 2px solid #bbf7d0; }
+    .status-pill.offline { background: #fef2f2; color: #991b1b; border: 2px solid #fecaca; }
+    
+    .sync-pill { display: flex; align-items: center; gap: 8px; padding: 0.4rem 1rem; border-radius: 50px; font-weight: 950; font-size: 0.8rem; letter-spacing: 0.2px; line-height: 1; }
+    .sync-pill.success { background: #f1f5f9; color: #64748b; border: 2px solid #e2e8f0; }
+    .sync-pill.warning { background: #fff7ed; color: #c2410c; border: 2px solid #fed7aa; }
+    
+    .pulse { animation: pulse 2s infinite; }
+    @@keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.6; }
+        100% { opacity: 1; }
+    }
+
+    .pos-header__right { display: flex; align-items: center; gap: 0.75rem; }
+    .btn-shift { 
+        background: var(--pos-navy); color: white; border: none; padding: 0.6rem 1rem; border-radius: 50px; 
+        font-weight: 900; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 8px; 
+        transition: all 0.2s; box-shadow: 0 4px 6px rgba(30, 58, 138, 0.1); line-height: 1;
+    }
+    .btn-shift:hover { transform: translateY(-1px); box-shadow: 0 6px 12px rgba(30, 58, 138, 0.15); }
+    .user-pill { 
+        display: flex; align-items: center; gap: 8px; background: #f8fafc; padding: 0.5rem 1rem; border-radius: 50px; 
+        font-weight: 850; font-size: 0.8rem; color: #475569; border: 2px solid #e2e8f0; line-height: 1;
+    }
+    .user-pill i { color: #94a3b8; font-size: 1.1rem; }
+
+    /* WORKSPACE & CATALOG */
+    .pos-workspace { flex: 1; display: flex; overflow: hidden; }
+    .pos-catalog { flex: 1; padding: 2rem; overflow-y: auto; background: white; border-right: 2px solid var(--pos-border); }
+
+    .catalog-filters { display: flex; gap: 1rem; margin-bottom: 2.5rem; }
+    .filter-pill { background: white; border: 2px solid #cbd5e1; color: #475569; padding: 12px 32px; border-radius: 50px; font-weight: 800; cursor: pointer; transition: 0.2s; }
+    .filter-pill.active { background: var(--pos-navy); border-color: var(--pos-navy); color: white; transform: translateY(-2px); }
+
+    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.5rem; }
+    .product-card {
+        aspect-ratio: 1.2; background: white; border: 2px solid #e2e8f0; border-radius: 24px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        padding: 1.5rem; transition: all 0.2s; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+    .product-card:hover { border-color: var(--pos-navy); transform: translateY(-6px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+    .product-card:active { background: var(--pos-navy); color: white; transform: scale(0.92); }
+    .product-card .item-name { font-weight: 900; font-size: 1.3rem; margin-bottom: 0.5rem; color: #334155; }
+    .product-card .item-price { font-weight: 800; color: var(--pos-navy); font-size: 1.1rem; }
+    .product-card:active .item-name, .product-card:active .item-price { color: white; }
+
+    /* SIDEBAR / CART */
+    .pos-cart { width: 440px; background: #f8fafc; display: flex; flex-direction: column; }
+    .cart-header { padding: 2rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+    .cart-header h3 { font-weight: 900; letter-spacing: 1px; color: var(--pos-navy); }
+    .btn-clear { background: none; border: none; color: #ef4444; font-weight: 900; cursor: pointer; }
+
+    .cart-items { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+    .cart-item-pill { 
+        background: white; border: 1px solid #e2e8f0; border-radius: 50px; padding: 10px 20px;
+        display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
+    }
+    .item-info { display: flex; align-items: center; gap: 1rem; }
+    .item-info .qty { color: var(--pos-navy); font-weight: 950; font-size: 1.4rem; min-width: 35px; text-align: center; }
+    .item-info .name { font-weight: 800; color: #1e293b; font-size: 1.1rem; }
+    .item-actions { display: flex; align-items: center; gap: 1rem; }
+    .item-actions .price { font-weight: 800; color: #475569; }
+    .btn-remove { background: none; border: none; font-size: 1.5rem; color: #94a3b8; cursor: pointer; line-height: 1; display: flex; align-items: center; }
+    .btn-remove:hover { color: #f43f5e; }
+
+    /* CLEAN WHITE FOOTER - NO BLACK */
+    .cart-footer { padding: 2.5rem 1.5rem; background: white; border-top: 4px solid var(--pos-navy); border-radius: 40px 40px 0 0; box-shadow: 0 -10px 30px rgba(0,0,0,0.05); }
+    .summary-line { display: flex; justify-content: space-between; margin-bottom: 1.5rem; font-weight: 700; color: #94a3b8; }
+    
+    .grand-total-pill {
+        background: #f1f7ff; padding: 1.5rem; border-radius: 24px; margin-bottom: 2rem;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .grand-total-pill .label { font-weight: 900; font-size: 0.9rem; color: #64748b; }
+    .grand-total-pill .value { font-size: 3rem; font-weight: 950; color: var(--pos-navy); letter-spacing: -2px; }
+
+    .btn-checkout {
+        width: 100%; padding: 1.5rem; background: var(--pos-navy); color: white; border: none; border-radius: 50px;
+        font-weight: 900; font-size: 1.5rem; letter-spacing: 1px; cursor: pointer; box-shadow: 0 15px 30px rgba(30, 58, 138, 0.2);
+    }
+    .btn-checkout:active { transform: translateY(4px); transition: 0.1s; }
+    .btn-checkout.disabled { background: #e2e8f0; color: #94a3b8; box-shadow: none; cursor: not-allowed; }
+
+    /* SHIFT CONTROLS ROUNDED */
+    .shift-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.9); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .shift-card { background: white; width: 600px; border-radius: 30px; overflow: hidden; padding: 2rem; }
+    .shift-card .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .shift-card h2 { font-weight: 950; color: var(--pos-navy); margin: 0; }
+    .btn-close { background: none; border: none; font-size: 2rem; color: #cbd5e1; cursor: pointer; }
+    .stat-pill-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2.5rem; }
+    .stat-pill { background: #f8fafc; padding: 1.5rem 1rem; border-radius: 20px; font-weight: 900; color: var(--pos-navy); text-align: center; font-size: 1.1rem; }
+    .printer-settings-area { margin-top: 1.5rem; background: #f8fafc; padding: 1.5rem; border-radius: 20px; border: 1px solid #e2e8f0; }
+    .printer-settings-area h3 { font-size: 0.9rem; font-weight: 900; color: #475569; margin-bottom: 1rem; text-transform: uppercase; }
+    .settings-row { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .settings-row.checkboxes { justify-content: flex-start; gap: 2rem; font-weight: 800; color: #1e293b; font-size: 0.9rem; }
+    .settings-row label { font-weight: 850; color: #64748b; font-size: 0.8rem; }
+    .settings-input { border: 2px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; font-weight: 800; color: var(--pos-navy); width: 160px; }
+    
+    .z-out-area { margin-top: 1.5rem; }
+    .btn-z-out { width: 100%; padding: 1.25rem; background: #ef4444; color: white; border: none; border-radius: 50px; font-weight: 900; font-size: 1.1rem; cursor: pointer; }
+
+    /* CHECKOUT OVERLAY */
+    .checkout-card { background: white; width: 500px; max-height: 95vh; border-radius: 40px; padding: 2.5rem 2rem 2rem 2rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); position: relative; }
+    
+    .btn-close-modal { position: absolute; top: 20px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #cbd5e1; cursor: pointer; padding: 8px; z-index: 100; transition: color 0.2s; }
+    .btn-close-modal:hover { color: #94a3b8; }
+
+    .checkout-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+    .summary-pill { background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 20px; padding: 1rem; display: flex; flex-direction: column; align-items: center; transition: all 0.3s; }
+    .summary-pill.total { border-color: var(--pos-navy); background: #f0f7ff; }
+    .summary-pill.change { opacity: 0.3; filter: grayscale(1); }
+    .summary-pill.change.visible { opacity: 1; filter: none; border-color: #10b981; background: #ecfdf5; }
+    
+    .summary-pill .label { font-weight: 900; color: #475569; font-size: 0.75rem; margin-bottom: 4px; }
+    .summary-pill .value { font-size: 1.75rem; font-weight: 950; color: var(--pos-navy); }
+    .summary-pill.change.visible .value { color: #059669; }
+
+    .cash-input-display { margin-bottom: 1.5rem; }
+    .display-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .cash-input-display .label { font-weight: 850; color: #475569; font-size: 0.85rem; }
+    .btn-clear-input { 
+        background: #fee2e2; border: none; color: #ef4444; font-weight: 950; font-size: 0.75rem; 
+        cursor: pointer; padding: 6px 16px; border-radius: 50px; text-transform: uppercase; letter-spacing: 1px;
+        transition: all 0.2s; border: 2px solid transparent;
+    }
+    .btn-clear-input:hover { background: #fecaca; }
+    .btn-clear-input:active { transform: scale(0.95); background: #ef4444; color: white; }
+    
+    .cash-display-pill { 
+        background: #f1f7ff; padding: 1rem 1.5rem; border-radius: 24px;
+        display: flex; justify-items: center; align-items: center; gap: 0.5rem; border: 3px solid #bcd7ff;
+    }
+    .cash-display-pill .currency { font-size: 1.25rem; font-weight: 900; color: #94a3b8; }
+    .cash-display-pill .amount { font-size: 2.5rem; font-weight: 950; color: var(--pos-navy); flex: 1; text-align: right; letter-spacing: -1px; }
+
+    .checkout-grid { display: grid; grid-template-columns: 1fr 120px; gap: 1rem; margin-bottom: 1.5rem; }
+
+    .numpad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .numpad-btn { 
+        aspect-ratio: 1.1; background: white; border: 2px solid #e2e8f0; border-radius: 16px;
+        font-size: 1.5rem; font-weight: 900; color: var(--pos-navy); cursor: pointer; transition: 0.1s;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .numpad-btn:hover { border-color: var(--pos-navy); background: #f8fafc; }
+    .numpad-btn:active { background: var(--pos-navy); color: white; transform: scale(0.92); }
+    .numpad-btn.btn-backspace { color: #ef4444; }
+
+    .quick-cash-grid-vertical { display: flex; flex-direction: column; gap: 6px; }
+    .btn-quick-cash { 
+        flex: 1; background: #f1f5f9; border: 2px solid transparent; padding: 10px; border-radius: 12px; 
+        font-weight: 800; font-size: 0.9rem; color: #1e3a8a; cursor: pointer; transition: 0.2s;
+    }
+    .btn-quick-cash:hover { background: #e2e8f0; border-color: #cbd5e1; }
+    .btn-quick-cash:active { transform: scale(0.95); }
+
+    .checkout-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 1rem; }
+    
+    .btn-add-more { 
+        padding: 1rem; background: #64748b; color: white; border: none; border-radius: 50px; 
+        font-weight: 900; font-size: 0.9rem; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-add-more:hover { background: #475569; }
+    .btn-add-more:active { transform: scale(0.95); }
+
+    .btn-complete { 
+        padding: 1rem; background: var(--pos-navy); color: white; border: none; border-radius: 50px; 
+        font-weight: 950; font-size: 1.1rem; cursor: pointer; box-shadow: 0 10px 20px rgba(30, 58, 138, 0.2);
+    }
+    .btn-complete:active { transform: translateY(2px); }
+
+    @@keyframes slideIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+</style>
+
+@code {
+    private string CurrentUserName = "BARTENDER";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            CurrentUserName = user.Identity.Name ?? "BARTENDER";
+        }
+
+        // Initialize local persistence (Load from browser memory)
+        await LoadPendingSales();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Register JS event listeners for connectivity
+            await JSRuntime.InvokeVoidAsync("registerConnectivityListener", DotNetObjectReference.Create(this));
+        }
+    }
+
+    [JSInvokable]
+    public async Task UpdateConnectivityStatus(bool online)
+    {
+        IsOnline = online;
+        if (IsOnline && PendingSyncSales.Any())
+        {
+            await SyncSales();
+        }
+        StateHasChanged();
+    }
+
+    private bool ShowShiftControls = false;
+    private string PrinterIpAddress = "192.168.1.100";
+    private bool AutoPrintReceipt = true;
+    private bool AutoOpenDrawer = true;
+
+    private decimal ShiftCashTotal = 120.50m;
+    private decimal ShiftCardTotal = 450.25m;
+    private decimal ShiftTabTotal = 75.00m;
+
+    private bool IsOnline = true;
+    private List<SaleRecord> PendingSyncSales = new();
+    private List<ProductItem> CartItems = new();
+    private decimal Subtotal => CartItems.Sum(x => x.Price * x.Quantity);
+
+    private string ActiveCategory = "ALL";
+    private List<string> Categories = new() { "ALL", "BEER", "WINE", "LIQUOR", "CIGS" };
+    
+    private IEnumerable<ProductItem> FilteredItems => ActiveCategory == "ALL" 
+        ? MockItems 
+        : MockItems.Where(x => x.Category == ActiveCategory);
+
+    private List<ProductItem> MockItems = new()
+    {
+        new() { Id = 1, Name = "BUD LIGHT", Price = 4.50m, Category = "BEER" },
+        new() { Id = 2, Name = "BUDWEISER", Price = 4.50m, Category = "BEER" },
+        new() { Id = 3, Name = "HEINEKEN", Price = 5.50m, Category = "BEER" },
+        new() { Id = 4, Name = "GUINNESS", Price = 6.00m, Category = "BEER" },
+        new() { Id = 5, Name = "WHISKEY SHOT", Price = 7.00m, Category = "LIQUOR" },
+        new() { Id = 6, Name = "VODKA SODA", Price = 8.50m, Category = "LIQUOR" },
+        new() { Id = 7, Name = "MALBEC GLASS", Price = 9.00m, Category = "WINE" },
+        new() { Id = 8, Name = "CHARDONNAY", Price = 9.00m, Category = "WINE" },
+        new() { Id = 9, Name = "COKE / SODA", Price = 2.50m, Category = "MISC" },
+        new() { Id = 10, Name = "RED BULL", Price = 4.00m, Category = "MISC" }
+    };
+
+    private void AddToCart(ProductItem item)
+    {
+        var existing = CartItems.FirstOrDefault(x => x.Id == item.Id);
+        if (existing != null) existing.Quantity++;
+        else CartItems.Add(new ProductItem { Id = item.Id, Name = item.Name, Price = item.Price, Category = item.Category, Quantity = 1 });
+        StateHasChanged();
+    }
+
+    private void RemoveItem(ProductItem item)
+    {
+        if (item.Quantity > 1) item.Quantity--;
+        else CartItems.Remove(item);
+    }
+
+    private void ClearCart() => CartItems.Clear();
+
+    private bool ShowCheckoutOverlay = false;
+    private decimal? CashReceived = null;
+    private string CashInputString = "";
+    private decimal ChangeDue => (CashReceived ?? 0) - Subtotal;
+
+    private void HandleNumPad(string key)
+    {
+        if (key == "CLEAR")
+        {
+            CashInputString = "";
+        }
+        else if (key == "BACK")
+        {
+            if (CashInputString.Length > 0) 
+                CashInputString = CashInputString.Substring(0, CashInputString.Length - 1);
+        }
+        else if (key == ".")
+        {
+            if (!CashInputString.Contains("."))
+                CashInputString += ".";
+        }
+        else
+        {
+            // Limit to 2 decimal places
+            if (CashInputString.Contains(".") && CashInputString.Split('.')[1].Length >= 2) return;
+            CashInputString += key;
+        }
+
+        if (decimal.TryParse(CashInputString, out var val))
+            CashReceived = val;
+        else
+            CashReceived = null;
+    }
+
+    private void SetCashReceived(decimal amount)
+    {
+        CashReceived = Math.Round(amount, 2);
+        CashInputString = CashReceived.Value.ToString("F2");
+    }
+
+    private void Checkout()
+    {
+        CashInputString = "";
+        CashReceived = null;
+        ShowCheckoutOverlay = true;
+    }
+
+    private async Task FinalizeSale()
+    {
+        var sale = new SaleRecord 
+        { 
+            Id = Guid.NewGuid(), 
+            Timestamp = DateTime.Now, 
+            Total = Subtotal,
+            Bartender = CurrentUserName,
+            // Capture payment type (simulated)
+            PaymentType = CashReceived.HasValue ? "CASH" : "OTHER",
+            // Simple serialization for demo
+            ItemsJson = string.Join(",", CartItems.Select(i => $"{i.Quantity}x {i.Name}"))
+        };
+
+        // 1. Hardware Commands (Printer & Drawer)
+        if (AutoOpenDrawer && sale.PaymentType == "CASH")
+        {
+            await KickDrawer();
+        }
+        
+        if (AutoPrintReceipt)
+        {
+            await PrintReceipt(sale);
+        }
+
+        // 2. Persistence Logic
+        if (IsOnline)
+        {
+            Toast.ShowSuccess($"Sale Complete: ${Subtotal:F2}");
+        }
+        else
+        {
+            PendingSyncSales.Add(sale);
+            await SavePendingSales();
+            Toast.ShowWarning($"Offline: Sale saved to tablet memory.");
+        }
+
+        CartItems.Clear();
+        ShowCheckoutOverlay = false;
+        CashReceived = null;
+        CashInputString = "";
+    }
+
+    private async Task KickDrawer()
+    {
+        // Simulate ESC/POS command to DK (Drawer Kick) port
+        try {
+            await JSRuntime.InvokeVoidAsync("console.log", $"HARDWARE: Kicking Drawer via {PrinterIpAddress}");
+        } catch {}
+    }
+
+    private async Task PrintReceipt(SaleRecord sale)
+    {
+        // Simulate thermal print job
+        try {
+            await JSRuntime.InvokeVoidAsync("console.log", $"HARDWARE: Printing Receipt to {PrinterIpAddress}", sale);
+        } catch {}
+    }
+
+    private async Task SavePendingSales()
+    {
+        try {
+            var json = JsonSerializer.Serialize(PendingSyncSales);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_pending_sales", json);
+        } catch {}
+    }
+
+    private async Task LoadPendingSales()
+    {
+        try {
+            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_pending_sales");
+            if (!string.IsNullOrEmpty(json))
+            {
+                PendingSyncSales = JsonSerializer.Deserialize<List<SaleRecord>>(json) ?? new();
+            }
+        } catch {}
+    }
+
+    private async Task SyncSales()
+    {
+        // Simulate syncing logic
+        await Task.Delay(2000); // Simulate network delay
+        PendingSyncSales.Clear();
+        await SavePendingSales();
+        Toast.ShowSuccess("All pending sales synced successfully!");
+    }
+
+    private void ToggleShiftControls() => ShowShiftControls = !ShowShiftControls;
+
+    private void ProcessZOut()
+    {
+        Toast.ShowSuccess("Z-Tape Generated! Shift successfully closed.");
+        ShowShiftControls = false;
+        ShiftCashTotal = 0; ShiftCardTotal = 0; ShiftTabTotal = 0;
+        StateHasChanged();
+    }
+
+    private void GoBack() => Navigation.NavigateTo("/admin");
+
+    public class ProductItem
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public decimal Price { get; set; }
+        public string Category { get; set; } = "ALL";
+        public int Quantity { get; set; }
+    }
+
+    public class SaleRecord
+    {
+        public Guid Id { get; set; }
+        public DateTime Timestamp { get; set; }
+        public decimal Total { get; set; }
+        public string Bartender { get; set; } = "";
+        public string PaymentType { get; set; } = "CASH";
+        public string ItemsJson { get; set; } = "";
+    }
+}

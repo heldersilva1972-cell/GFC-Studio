@@ -145,6 +145,10 @@ public class PageDiscoveryService
             normalized == "admin/system/alerts")
             return "SYSTEM";
 
+        // [POS SYSTEM]
+        if (normalized.StartsWith("admin/pos") || normalized == "admin/pos-terminal")
+            return "POS SYSTEM";
+
         // [LIQUOR]
         if (normalized.StartsWith("liquor/") || normalized == "liquor" || normalized == "mobile/liquor/manage")
             return "LIQUOR";

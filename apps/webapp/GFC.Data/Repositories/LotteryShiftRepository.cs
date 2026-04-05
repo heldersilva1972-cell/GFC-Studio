@@ -233,6 +233,7 @@ namespace GFC.Data.Repositories
                         IsReconciled = @IsReconciled,
                         ReconciledBy = @ReconciledBy,
                         ReconciledDate = @ReconciledDate,
+                        CreatedBy = @CreatedBy,
                         ModifiedBy = @ModifiedBy,
                         ModifiedDate = @ModifiedDate,
                         TicketImageUrl = @TicketImageUrl
