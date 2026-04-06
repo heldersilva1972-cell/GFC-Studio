@@ -17,10 +17,14 @@ namespace GFC.BlazorServer.Components.Pages
         [Inject]
         public ILogger<Lottery> Logger { get; set; } = null!;
 
+        [Inject]
+        public GFC.BlazorServer.Services.IFinancialAnalyticsService FinancialService { get; set; } = null!;
+
         private List<LotteryShiftDto> _shifts = new();
         private List<LotteryShiftSummaryDto> _dailySummaries = new();
         private List<LotteryShiftSummaryDto> _weeklySummaries = new();
         private List<LotteryShiftSummaryDto> _monthlySummaries = new();
+        private List<GFC.Core.DTOs.DailySalesReportDto> _reconcileReports = new();
         private List<string> _employeeNames = new();
         private List<(string Username, string FullName)> _employeeMetadata = new();
         private bool _loading = true;
@@ -127,6 +131,10 @@ namespace GFC.BlazorServer.Components.Pages
                 {
                     await LoadMonthlySummaries();
                 }
+                else if (_viewMode == "reconcile")
+                {
+                    await LoadReconcileData();
+                }
             }
             catch (Exception ex)
             {
@@ -162,6 +170,48 @@ namespace GFC.BlazorServer.Components.Pages
                 .OrderByDescending(s => s.ShiftDate.Date)
                 .ThenBy(s => s.ShiftType == "Day" ? 0 : s.ShiftType == "Night" ? 1 : 2)
                 .ToList();
+        }
+
+        private ReconcileTotalsDto ReconcileTotals => CalculateReconcileTotals();
+
+        private ReconcileTotalsDto CalculateReconcileTotals()
+        {
+            var totals = new ReconcileTotalsDto();
+            if (_reconcileReports == null || !_reconcileReports.Any()) return totals;
+
+            totals.TotalSales = _reconcileReports.Sum(d => d.TotalLottoSalesActivity);
+            totals.TotalPayouts = _reconcileReports.Sum(d => d.TotalLottoPayoutsActivity);
+            totals.TotalTickets = _reconcileReports.Sum(d => d.TotalLottoCancelsActivity);
+            totals.TotalEnvelope = _reconcileReports.Sum(d => d.TotalEnvelope);
+            totals.TotalNetDue = _reconcileReports.Sum(d => d.TotalLottoNetDueActivity);
+            totals.TotalIncome = _reconcileReports.Sum(d => d.TotalLotteryIncome);
+            totals.TotalFees = _reconcileReports.Sum(d => d.TotalIdentifiedFees);
+            totals.TotalVariance = _reconcileReports.Sum(d => d.TotalVariance);
+
+            totals.NetDebt = (totals.TotalNetDue - totals.TotalTickets);
+            totals.ExpectedProfit = totals.TotalIncome - totals.TotalFees + totals.TotalVariance;
+            totals.ActualProfit = totals.TotalEnvelope - totals.NetDebt;
+            totals.ReconciliationGap = totals.ActualProfit - totals.ExpectedProfit;
+            totals.IsAuditBalanced = Math.Abs(totals.ReconciliationGap) < 2.0m;
+
+            return totals;
+        }
+
+        public class ReconcileTotalsDto
+        {
+            public decimal TotalSales { get; set; }
+            public decimal TotalPayouts { get; set; }
+            public decimal TotalTickets { get; set; }
+            public decimal TotalEnvelope { get; set; }
+            public decimal TotalNetDue { get; set; }
+            public decimal TotalIncome { get; set; }
+            public decimal TotalFees { get; set; }
+            public decimal TotalVariance { get; set; }
+            public decimal NetDebt { get; set; }
+            public decimal ExpectedProfit { get; set; }
+            public decimal ActualProfit { get; set; }
+            public decimal ReconciliationGap { get; set; }
+            public bool IsAuditBalanced { get; set; }
         }
 
         private List<(DateTime Start, DateTime End, string Label)> _availableWeeks = new();
@@ -258,6 +308,25 @@ namespace GFC.BlazorServer.Components.Pages
             }
         }
 
+        private async Task LoadReconcileData()
+        {
+            try
+            {
+                // Align start date to the nearest Sunday to get clean weeks
+                var start = GetWeekStart(_filterStartDate);
+                var end = start.AddDays(6);
+                
+                var result = await FinancialService.GetDailySalesReportsAsync(start, end);
+                _reconcileReports = result.Data.OrderBy(d => d.Date).ToList();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading reconcile data");
+                _reconcileReports = new List<DailySalesReportDto>();
+                throw;
+            }
+        }
+
         private async Task OnFilterChanged()
         {
             await LoadData();
@@ -322,9 +391,9 @@ namespace GFC.BlazorServer.Components.Pages
             
             // [FIX] Find the PREVIOUS shift on the same day to get the baseline for cumulative subtraction
             decimal baselineSales = 0, baselinePrizes = 0, baselineTickets = 0;
-            if (shiftEntity.ShiftType == "Night")
+            if (string.Equals(shiftEntity.ShiftType, "Night", StringComparison.OrdinalIgnoreCase))
             {
-                var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == shiftEntity.ShiftDate.Date && s.ShiftType == "Day");
+                var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == shiftEntity.ShiftDate.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
                 if (dayShift != null)
                 {
                     baselineSales = dayShift.TotalSales;

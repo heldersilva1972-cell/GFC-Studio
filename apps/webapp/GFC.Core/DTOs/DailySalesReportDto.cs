@@ -12,26 +12,30 @@ namespace GFC.Core.DTOs
         // Daily Totals - Based on the night shift (Gold Standard) if available
         public decimal TotalBarSales => Shifts.Sum(s => s.BarSales); 
         
-        // Cumulative Totals for the Day (derived from the Night shift record)
+        // Daily Totals - Taken from the final reading of the day (Night Shift)
         public decimal TotalLottoSales => GetLatestCumulativeValue(s => s.LottoSales);
         public decimal TotalLottoPayouts => GetLatestCumulativeValue(s => s.LottoPayouts);
         public decimal TotalLottoNetDue => GetLatestCumulativeValue(s => s.LottoNetDue);
         public decimal TotalLottoCancels => GetLatestCumulativeValue(s => s.LottoCancels);
 
-        // Daily Performance Metrics - Sum of shift activities
-        public decimal TotalLottoNetSales => Shifts.Sum(s => s.NetSales);
-        public decimal TotalEnvelope => Shifts.Sum(s => s.EnvelopeAmount);
-        public decimal TotalLotteryIncome => Shifts.Sum(s => s.LotteryIncome);
-        public decimal TotalIdentifiedFees => Shifts.Sum(s => s.IdentifiedFees);
-        public decimal TotalVariance => Shifts.Sum(s => s.Variance);
-        public decimal TotalNetIncome => Shifts.Sum(s => s.NetIncome);
+        // Daily Activity Metrics - Sum of shift activities (excluding hall rentals)
+        public decimal TotalLottoSalesActivity => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.ShiftSalesActivity);
+        public decimal TotalLottoPayoutsActivity => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.ShiftPayoutsActivity);
+        public decimal TotalLottoNetDueActivity => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.ShiftNetDueActivity);
+        public decimal TotalLottoCancelsActivity => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.ShiftCancelsActivity);
+        public decimal TotalLottoNetSales => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.NetSales);
+        public decimal TotalEnvelope => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.EnvelopeAmount);
+        public decimal TotalLotteryIncome => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.LotteryIncome);
+        public decimal TotalIdentifiedFees => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.IdentifiedFees);
+        public decimal TotalVariance => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.Variance);
+        public decimal TotalNetIncome => Shifts.Where(s => !s.IsRentalHall).Sum(s => s.NetIncome);
 
         private decimal GetLatestCumulativeValue(Func<ShiftReportDto, decimal> selector)
         {
             // Night reflects the total for the day, so if it exists, use it. Otherwise use Day.
-            var night = Shifts.FirstOrDefault(s => s.ShiftType == "Night");
+            var night = Shifts.FirstOrDefault(s => s.ShiftType.Equals("Night", StringComparison.OrdinalIgnoreCase));
             if (night != null) return selector(night);
-            var day = Shifts.FirstOrDefault(s => s.ShiftType == "Day");
+            var day = Shifts.FirstOrDefault(s => s.ShiftType.Equals("Day", StringComparison.OrdinalIgnoreCase));
             return day != null ? selector(day) : 0;
         }
 

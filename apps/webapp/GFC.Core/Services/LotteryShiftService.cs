@@ -32,9 +32,9 @@ namespace GFC.Core.Services
             var shifts = _repository.GetByDateRange(startDate, endDate);
             
             // Post-processing to fix stale "Beginning Cash" for Drafts
-            foreach (var shift in shifts.Where(s => s.Status == "Draft" && s.ShiftType == "Night"))
+            foreach (var shift in shifts.Where(s => (s.Status == "Draft" || s.Status == "Submitted") && string.Equals(s.ShiftType, "Night", StringComparison.OrdinalIgnoreCase)))
             {
-                var dayShift = shifts.FirstOrDefault(s => s.ShiftDate.Date == shift.ShiftDate.Date && s.ShiftType == "Day");
+                var dayShift = shifts.FirstOrDefault(s => s.ShiftDate.Date == shift.ShiftDate.Date && string.Equals(s.ShiftType, "Day", StringComparison.OrdinalIgnoreCase));
                 if (dayShift != null && dayShift.EndingCash > 0)
                 {
                     shift.StartingCash = dayShift.EndingCash;

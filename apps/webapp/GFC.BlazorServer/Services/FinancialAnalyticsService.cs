@@ -360,8 +360,8 @@ namespace GFC.BlazorServer.Services
                     var hallBar = barEntries.FirstOrDefault(e => e.Date == date && e.IsRentalHall);
 
 
-                    var dayLotto = lottoShifts.FirstOrDefault(s => s.ShiftDate.Date == date && s.ShiftType == "Day");
-                    var nightLotto = lottoShifts.FirstOrDefault(s => s.ShiftDate.Date == date && s.ShiftType == "Night");
+                    var dayLotto = lottoShifts.FirstOrDefault(s => s.ShiftDate.Date == date && s.ShiftType.Equals("Day", StringComparison.OrdinalIgnoreCase));
+                    var nightLotto = lottoShifts.FirstOrDefault(s => s.ShiftDate.Date == date && s.ShiftType.Equals("Night", StringComparison.OrdinalIgnoreCase));
 
                     // Map Day Shift
                     if (dayBar != null || dayLotto != null)
@@ -388,13 +388,6 @@ namespace GFC.BlazorServer.Services
                         decimal activeTickets = lotto?.ShiftCancelsActivity ?? 0;
                         decimal activeNetDue = lotto?.ShiftNetDueActivity ?? 0;
 
-                        // Net Sales (Physical) = Sales - Payouts - Cancels
-                        decimal netSales = activeSales - activePrizes - activeTickets;
-
-                        // Expected Cash = Starting + NetDue + Refs 
-                        // (Wait, NetDue is activity based here)
-                        decimal expected = (lotto?.StartingCash ?? 0) + activeNetDue + (lotto?.BagRefillAmount ?? 0);
-                        decimal variance = (lotto?.EndingCash ?? 0) - expected;
 
                         dailyReport.Shifts.Add(new ShiftReportDto {
                              ShiftId = lotto?.ShiftId ?? 0,
@@ -411,12 +404,13 @@ namespace GFC.BlazorServer.Services
                              BackupBagAmount = lotto?.BackupBagAmount ?? 0,
                              EnvelopeAmount = 0, // Day shifts always 0
                              BagRefillAmount = lotto?.BagRefillAmount ?? 0,
-                             NetSales = netSales,
-                             ExpectedCash = expected,
-                             Variance = variance,
-                             LotteryIncome = earnings,
+                             // [FIX]: Recalculate Expected and Variance from machine activity to bypass corrupted DB math
+                             NetSales = activeSales - activePrizes - activeTickets,
+                             ExpectedCash = (lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0),
+                             Variance = (lotto?.EndingCash ?? 0) - ((lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0)),
+                             LotteryIncome = lotto?.LotteryIncome ?? 0,
                              IdentifiedFees = fees,
-                             NetIncome = earnings + variance,
+                             NetIncome = lotto?.NetIncome ?? 0,
                              ShiftSalesActivity = activeSales,
                              ShiftPayoutsActivity = activePrizes,
                              ShiftCancelsActivity = activeTickets,
@@ -453,9 +447,6 @@ namespace GFC.BlazorServer.Services
                         decimal activeTickets = lotto?.ShiftCancelsActivity ?? 0;
                         decimal activeNetDue = lotto?.ShiftNetDueActivity ?? 0;
 
-                        decimal netSales = activeSales - activePrizes - activeTickets;
-                        decimal expected = (lotto?.StartingCash ?? 0) + activeNetDue + (lotto?.BagRefillAmount ?? 0);
-                        decimal variance = (lotto?.EndingCash ?? 0) - expected;
 
                         dailyReport.Shifts.Add(new ShiftReportDto {
                              ShiftId = lotto?.ShiftId ?? 0,
@@ -472,12 +463,12 @@ namespace GFC.BlazorServer.Services
                              BackupBagAmount = lotto?.BackupBagAmount ?? 0,
                              EnvelopeAmount = lotto?.EnvelopeAmount ?? 0,
                              BagRefillAmount = lotto?.BagRefillAmount ?? 0,
-                             NetSales = netSales,
-                             ExpectedCash = expected,
-                             Variance = variance,
-                             LotteryIncome = earnings,
+                             NetSales = activeSales - activePrizes - activeTickets,
+                             ExpectedCash = (lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0),
+                             Variance = (lotto?.EndingCash ?? 0) - ((lotto?.StartingCash ?? 0) + (activeSales - activePrizes - activeTickets) + (lotto?.BagRefillAmount ?? 0)),
+                             LotteryIncome = lotto?.LotteryIncome ?? 0,
                              IdentifiedFees = fees,
-                             NetIncome = earnings + variance,
+                             NetIncome = lotto?.NetIncome ?? 0,
                              ShiftSalesActivity = activeSales,
                              ShiftPayoutsActivity = activePrizes,
                              ShiftCancelsActivity = activeTickets,
@@ -502,7 +493,17 @@ namespace GFC.BlazorServer.Services
                             Notes = hallBar.Notes,
                             CreatedBy = hallBar.CreatedBy,
                             CreatedAt = hallBar.CreatedAt,
-                            HourlyRate = hallBar.HourlyRate
+                            HourlyRate = hallBar.HourlyRate,
+                            // Explicitly zero out lottery fields to prevent variance leakage
+                            Variance = 0,
+                            ExpectedCash = 0,
+                            ShiftSalesActivity = 0,
+                            ShiftPayoutsActivity = 0,
+                            ShiftCancelsActivity = 0,
+                            ShiftNetDueActivity = 0,
+                            LotteryIncome = 0,
+                            IdentifiedFees = 0,
+                            NetIncome = 0
                         });
                     }
 
