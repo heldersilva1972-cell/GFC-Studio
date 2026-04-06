@@ -77,30 +77,67 @@
                 @foreach (var week in _weeklySummaries)
                 {
                     <div class="weekly-card mb-5">
-                        <div class="weekly-header d-flex justify-content-between align-items-center p-3 mb-3 glass-header rounded-4">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="week-pill bg-primary text-white px-3 py-1 rounded-pill fw-bold" style="font-size: 0.75rem;">
-                                    WEEK @GetWeekNumber(week.WeekStart)
+                        <div class="weekly-header d-flex justify-content-between align-items-center p-4 border-bottom">
+                            <div class="d-flex align-items-center gap-4">
+                                <div class="date-range">
+                                    <span class="text-uppercase fw-black text-muted x-small tracking-widest d-block mb-1">Fiscal Period: Week @GetWeekNumber(week.WeekStart)</span>
+                                    <h3 class="fw-black mb-0 text-dark" style="font-size: 1.4rem; letter-spacing: -0.01em;">
+                                        @week.WeekStart.ToString("MMMM d") &mdash; @week.WeekEnd.ToString("MMMM d, yyyy")
+                                    </h3>
                                 </div>
-                                <h3 class="fw-black mb-0 text-dark" style="font-size: 1.1rem;">
-                                    @week.WeekStart.ToString("MMMM d") - @week.WeekEnd.ToString("MMMM d, yyyy")
-                                </h3>
                             </div>
                             
                             <div class="d-flex gap-4">
-                                <div class="header-stat text-start">
-                                    <span class="l">WEEKLY COMMISSIONS</span>
-                                    <span class="v text-success fw-black">@week.TotalIncome.ToString("C2")</span>
+                                @{
+                                    // RECONCILIATION LOGIC:
+                                    // expected = Net Commission Earnings (Earnings - System Fees + Cumulative Variance)
+                                    // actual = The cash profit we actually hold (Total Envelopes - Debt to State)
+                                    decimal netDebt = (week.TotalNetDue - week.TotalTickets);
+                                    decimal expected = week.TotalIncome - week.TotalFees + week.TotalVariance;
+                                    decimal actual = week.TotalEnvelope - netDebt;
+                                    decimal diff = actual - expected;
+                                    bool isBalanced = Math.Abs(diff) < 2.0m; 
+                                }
+
+                                <div class="audit-status-badge d-flex align-items-center gap-2 px-3 py-2 rounded-pill @(isBalanced ? "status-balanced" : "status-investigate")">
+                                    <div class="status-dot"></div>
+                                    <span class="fw-black text-uppercase tracking-wider" style="font-size: 0.75rem;">
+                                        @(isBalanced ? "Audit Balanced" : "Investigation Required")
+                                    </span>
                                 </div>
-                                <div class="header-divider"></div>
-                                <div class="header-stat text-start">
-                                    <span class="l">TOTAL ENVELOPE CASH</span>
-                                    <span class="v text-primary fw-black">@week.TotalEnvelope.ToString("C2")</span>
+                            </div>
+                        </div>
+
+                        <!-- RECONCILIATION DASHBOARD - CLEAN & PROFESSIONAL -->
+                        <div class="reconcile-dashboard p-4 pb-0 bg-white shadow-none">
+                            <div class="row g-4">
+                                <div class="col-md-3">
+                                    <div class="finance-card">
+                                        <div class="finance-label">Total Cash Dropped</div>
+                                        <div class="finance-value">@week.TotalEnvelope.ToString("C2")</div>
+                                        <div class="finance-meta">Sum of recorded envelopes</div>
+                                    </div>
                                 </div>
-                                <div class="header-divider"></div>
-                                <div class="header-stat text-start">
-                                    <span class="l">DUE TO LOTTERY</span>
-                                    <span class="v text-dark fw-black">@((week.TotalNetDue - week.TotalTickets).ToString("C2"))</span>
+                                <div class="col-md-3">
+                                    <div class="finance-card">
+                                        <div class="finance-label">Debt to Lottery</div>
+                                        <div class="finance-value text-danger">@netDebt.ToString("C2")</div>
+                                        <div class="finance-meta">Final debt per RPT 50/34</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="finance-card card-accent-blue">
+                                        <div class="finance-label">Audited Net Revenue</div>
+                                        <div class="finance-value">@actual.ToString("C2")</div>
+                                        <div class="finance-meta">Physical cash after state debt</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="finance-card @(isBalanced ? "card-accent-green" : "card-accent-red")">
+                                        <div class="finance-label">Reconciliation Gap</div>
+                                        <div class="finance-value">@diff.ToString("C2")</div>
+                                        <div class="finance-meta">@(isBalanced ? "Verified: Cash matches earnings" : "Variance: Investigate recorded drops")</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -147,7 +184,7 @@
                                                                   style="font-size: 0.55rem; width: 1.4rem; height: 1.4rem; display: flex; align-items: center; justify-content: center;"
                                                                   title="@(dayShift != null ? $"Day Shift: {dayShift.CreatedBy}" : "Day Shift Missing")">D</span>
                                                             
-                                                            <span class="badge rounded-pill @(nightShift != null ? "bg-primary text-white" : "bg-light text-muted border")" 
+                                                            <span class="badge rounded-pill @(nightShift != null ? "bg-indigo text-white" : "bg-light text-muted border")" 
                                                                   style="font-size: 0.55rem; width: 1.4rem; height: 1.4rem; display: flex; align-items: center; justify-content: center;"
                                                                   title="@(nightShift != null ? $"Night Shift: {nightShift.CreatedBy}" : "Night Shift Missing")">N</span>
                                                         </div>
@@ -159,8 +196,10 @@
                                                 <td class="text-end text-muted small ps-4">@day.TotalLottoNetDue.ToString("N2")</td>
                                                 <td class="text-end text-dark fw-semibold">@((day.TotalLottoNetDue - day.TotalLottoCancels).ToString("N2"))</td>
                                                 <td class="text-end fw-bold text-primary ps-4">@day.TotalEnvelope.ToString("C2")</td>
-                                                <td class="text-end pe-4 fw-bold @(day.TotalVariance == 0 ? "text-muted" : day.TotalVariance > 0 ? "text-primary" : "text-danger")">
-                                                    @day.TotalVariance.ToString("C2")
+                                                <td class="text-end pe-4">
+                                                    <span class="variance-pill @(day.TotalVariance < 0 ? "variance-neg" : day.TotalVariance > 0 ? "variance-pos" : "variance-zero")">
+                                                        @day.TotalVariance.ToString("C2")
+                                                    </span>
                                                 </td>
                                             </tr>
                                         }
@@ -174,7 +213,11 @@
                                             <td class="text-end py-3 text-muted">@week.TotalNetDue.ToString("N2")</td>
                                             <td class="text-end py-3 text-dark fw-bold">@((week.TotalNetDue - week.TotalTickets).ToString("N2"))</td>
                                             <td class="text-end py-3 fw-bold text-primary border-0">@week.TotalEnvelope.ToString("C2")</td>
-                                            <td class="text-end pe-4 py-3 fw-bold @(week.TotalVariance == 0 ? "text-muted" : week.TotalVariance > 0 ? "text-primary" : "text-danger")">@week.TotalVariance.ToString("C2")</td>
+                                            <td class="text-end pe-4 py-3">
+                                                <span class="variance-pill @(week.TotalVariance < 0 ? "variance-neg" : week.TotalVariance > 0 ? "variance-pos" : "variance-zero")">
+                                                    @week.TotalVariance.ToString("C2")
+                                                </span>
+                                            </td>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -196,58 +239,103 @@
         padding-bottom: 3rem;
     }
 
+    .variance-pill {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 8px;
+        font-weight: 800;
+        font-size: 0.85rem;
+        min-width: 90px;
+        text-align: right;
+    }
+    .variance-neg { background-color: #fee2e2 !important; color: #991b1b !important; }
+    .variance-pos { background-color: #dcfce7 !important; color: #166534 !important; }
+    .variance-zero { background-color: #f8fafc !important; color: #64748b !important; }
+
+    .bg-indigo { background-color: #4f46e5 !important; }
+    .btn-indigo {
+        background-color: #4f46e5 !important;
+        color: white !important;
+        border: none !important;
+    }
+    .btn-indigo:hover {
+        background-color: #4338ca !important;
+        transform: translateY(-1px);
+    }
+
     .dash-modern-canvas {
-        padding: 1.5rem 2rem 2rem 2rem;
+        background: #ffffff;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        margin: 0 1.5rem;
+        overflow: hidden;
+    }
+
+    .weekly-card {
+        border-bottom: 8px solid #f1f5f9;
+        margin-bottom: 0 !important;
+    }
+
+    .finance-card {
+        padding: 1.5rem;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        height: 100%;
+        transition: transform 0.2s ease;
+    }
+    
+    .finance-label {
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: #64748b;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+    }
+    
+    .finance-value {
+        font-size: 1.5rem;
+        font-weight: 900;
+        color: #0f172a;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: -0.04em;
+    }
+    
+    .finance-meta {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #94a3b8;
+        margin-top: 0.25rem;
+    }
+
+    .card-accent-blue { border-left: 4px solid #4f46e5 !important; }
+    .card-accent-green { border-left: 4px solid #10b981 !important; }
+    .card-accent-red { border-left: 4px solid #ef4444 !important; }
+
+    .audit-status-badge {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+    }
+
+    .status-balanced { border-color: #10b98133; color: #065f46; background: #ecfdf5; }
+    .status-investigate { border-color: #ef444433; color: #991b1b; background: #fef2f2; }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+    }
+
+    .status-balanced .status-dot { background: #10b981; }
+    .status-investigate .status-dot { background: #ef4444; }
+
+    .dash-modern-canvas-slim {
         max-width: 1400px;
         margin: 0 auto;
     }
-
-    .dash-modern-canvas-slim {
-        max-width: 1320px;
-        margin: 0 auto;
-    }
-
-    /* Fixed Header Styles */
-    .sticky-page-header {
-        position: fixed;
-        top: 56px; 
-        left: 240px; 
-        right: 0;
-        z-index: 950;
-        background: rgba(255, 255, 255, 0.98);
-        backdrop-filter: blur(16px);
-        padding: 1.5rem 2.5rem;
-        border-bottom: 2px solid #f1f5f9;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-    }
-
-    .page-header-spacer {
-        height: 100px;
-    }
-
-    .header-main-title {
-        color: #0f172a; 
-        letter-spacing: -0.03em;
-        font-size: 1.75rem;
-    }
-
-    .fw-black { font-weight: 900 !important; }
-
-    .glass-header {
-        background: rgba(255, 255, 255, 0.6);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.05);
-    }
-
-    .header-stat {
-        display: flex;
-        flex-direction: column;
-        text-align: right;
-    }
-    .header-stat .l { font-size: 0.58rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
-    .header-stat .v { font-size: 1.1rem; font-weight: 900; }
-    .header-divider { width: 1px; height: 32px; background: #e2e8f0; align-self: center; }
 
     .bg-light-green-subtle { background-color: #f0fdf4 !important; }
     .bg-light-yellow-subtle { background-color: #fffbeb !important; }
@@ -264,19 +352,21 @@
     }
 
     .table thead th {
-        font-size: 0.65rem;
-        font-weight: 800;
-        color: #64748b;
-        letter-spacing: 0.05em;
+        font-size: 0.75rem;
+        font-weight: 900;
+        color: #1e293b;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
-        border-bottom: 1px solid #f1f5f9;
-        padding: 1rem 0.75rem;
+        border-bottom: 2px solid #cbd5e1;
+        padding: 1.25rem 0.75rem;
     }
 
     .table tbody td {
-        font-size: 0.85rem;
-        padding: 1rem 0.75rem;
-        border-bottom: 1px solid #f1f5f9;
+        font-size: 1rem !important;
+        padding: 1.1rem 0.75rem;
+        border-bottom: 1.5px solid #e2e8f0;
+        font-weight: 600;
+        color: #0f172a !important;
     }
 
     .table tfoot td {
@@ -335,10 +425,12 @@
 
     private List<WeeklySummaryDto> GroupByWeek(List<DailySalesReportDto> dailyReports)
     {
+        // Use a strict Sunday-to-Saturday fiscal week
         return dailyReports
             .GroupBy(d => {
-                int diff = (7 + (d.Date.DayOfWeek - DayOfWeek.Sunday)) % 7;
-                return d.Date.AddDays(-1 * diff).Date;
+                var date = d.Date.Date;
+                int diff = (date.DayOfWeek - DayOfWeek.Sunday + 7) % 7;
+                return date.AddDays(-1 * diff);
             })
             .Select(g => new WeeklySummaryDto {
                 WeekStart = g.Key,
@@ -375,5 +467,18 @@
         public decimal TotalIncome => Days.Sum(d => d.TotalLotteryIncome);
         public decimal TotalVariance => Days.Sum(d => d.TotalVariance);
         public decimal TotalNetProfit => Days.Sum(d => d.TotalNetIncome);
+        public decimal TotalFees => Days.Sum(d => d.TotalIdentifiedFees);
+
+        // SaturdaySurplus removed - redundant as Envelopes already cover drawer surplus.
+
+        public decimal Discrepancy {
+            get {
+                // Expected Cash Profit = Net Commission + Variance - System Fees
+                decimal netDebt = (TotalNetDue - TotalTickets);
+                decimal expected = TotalIncome - TotalFees + TotalVariance;
+                decimal actual = TotalEnvelope - netDebt;
+                return actual - expected;
+            }
+        }
     }
 }

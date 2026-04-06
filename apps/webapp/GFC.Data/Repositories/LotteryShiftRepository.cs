@@ -13,16 +13,20 @@ namespace GFC.Data.Repositories
                 using var connection = Db.GetConnection();
                 connection.Open();
                 const string sql = @"
-                    SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
-                           StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
-                           Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
-                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
-                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
-                           Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
-                    FROM LotteryShifts
-                    WHERE ShiftId = @ShiftId";
+                    SELECT 
+                        s.ShiftId, s.ShiftDate, s.ShiftType, s.MachineId,
+                        s.StartingCash, s.EndingCash, s.TotalSales, s.TotalPayouts, s.TotalCancels,
+                        s.Commission, s.CashBonus, s.ClaimsBonus, s.NetDue,
+                        s.BackupBagAmount, s.EnvelopeAmount, s.BagRefillAmount,
+                        s.NetSales, s.ExpectedCash, s.Variance, s.LotteryIncome, s.NetIncome,
+                        s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
+                        s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
+                        s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
+                    FROM LotteryShifts s
+                    LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
+                    LEFT JOIN Members m ON u.MemberId = m.MemberID
+                    WHERE s.ShiftId = @ShiftId";
                 using var command = new SqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@ShiftId", shiftId);
                 using var reader = command.ExecuteReader();
@@ -43,17 +47,21 @@ namespace GFC.Data.Repositories
                 using var connection = Db.GetConnection();
                 connection.Open();
                 const string sql = @"
-                    SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
-                           StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
-                           Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
-                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
-                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
-                           Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
-                    FROM LotteryShifts
-                    WHERE ShiftDate >= @StartDate AND ShiftDate < DATEADD(day, 1, @EndDate)
-                    ORDER BY ShiftDate DESC, EmployeeName";
+                    SELECT 
+                        s.ShiftId, s.ShiftDate, s.ShiftType, s.MachineId,
+                        s.StartingCash, s.EndingCash, s.TotalSales, s.TotalPayouts, s.TotalCancels,
+                        s.Commission, s.CashBonus, s.ClaimsBonus, s.NetDue,
+                        s.BackupBagAmount, s.EnvelopeAmount, s.BagRefillAmount,
+                        s.NetSales, s.ExpectedCash, s.Variance, s.LotteryIncome, s.NetIncome,
+                        s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
+                        s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
+                        s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
+                    FROM LotteryShifts s
+                    LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
+                    LEFT JOIN Members m ON u.MemberId = m.MemberID
+                    WHERE s.ShiftDate >= @StartDate AND s.ShiftDate < DATEADD(day, 1, @EndDate)
+                    ORDER BY s.ShiftDate DESC, ResolvedEmployeeName";
                 using var command = new SqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@StartDate", startDate.Date);
                 command.Parameters.AddWithValue("@EndDate", endDate.Date);
@@ -79,16 +87,21 @@ namespace GFC.Data.Repositories
                 using var connection = Db.GetConnection();
                 connection.Open();
                 var sql = @"
-                    SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
-                           StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
-                           Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
-                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
-                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
-                           Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
-                    FROM LotteryShifts
-                    WHERE EmployeeName = @EmployeeName";
+                    SELECT 
+                        s.ShiftId, s.ShiftDate, s.ShiftType, s.MachineId,
+                        s.StartingCash, s.EndingCash, s.TotalSales, s.TotalPayouts, s.TotalCancels,
+                        s.Commission, s.CashBonus, s.ClaimsBonus, s.NetDue,
+                        s.BackupBagAmount, s.EnvelopeAmount, s.BagRefillAmount,
+                        s.NetSales, s.ExpectedCash, s.Variance, s.LotteryIncome, s.NetIncome,
+                        s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
+                        s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
+                        s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
+                    FROM LotteryShifts s
+                    LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
+                    LEFT JOIN Members m ON u.MemberId = m.MemberID
+                    WHERE (s.EmployeeName = @EmployeeName OR 
+                           ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) = @EmployeeName)";
                 
                 if (startDate.HasValue)
                 {
@@ -132,16 +145,20 @@ namespace GFC.Data.Repositories
                 using var connection = Db.GetConnection();
                 connection.Open();
                 const string sql = @"
-                    SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
-                           StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
-                           Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
-                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
-                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
-                           Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
-                    FROM LotteryShifts
-                    ORDER BY ShiftDate DESC, EmployeeName";
+                    SELECT 
+                        s.ShiftId, s.ShiftDate, s.ShiftType, s.MachineId,
+                        s.StartingCash, s.EndingCash, s.TotalSales, s.TotalPayouts, s.TotalCancels,
+                        s.Commission, s.CashBonus, s.ClaimsBonus, s.NetDue,
+                        s.BackupBagAmount, s.EnvelopeAmount, s.BagRefillAmount,
+                        s.NetSales, s.ExpectedCash, s.Variance, s.LotteryIncome, s.NetIncome,
+                        s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
+                        s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
+                        s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
+                    FROM LotteryShifts s
+                    LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
+                    LEFT JOIN Members m ON u.MemberId = m.MemberID
+                    ORDER BY s.ShiftDate DESC, ResolvedEmployeeName";
                 using var command = new SqlCommand(sql, connection);
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
@@ -274,17 +291,21 @@ namespace GFC.Data.Repositories
                 using var connection = Db.GetConnection();
                 connection.Open();
                 const string sql = @"
-                    SELECT ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
-                           StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
-                           Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
-                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
-                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
-                           Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
-                    FROM LotteryShifts
+                    SELECT 
+                        s.ShiftId, s.ShiftDate, s.ShiftType, s.MachineId,
+                        s.StartingCash, s.EndingCash, s.TotalSales, s.TotalPayouts, s.TotalCancels,
+                        s.Commission, s.CashBonus, s.ClaimsBonus, s.NetDue,
+                        s.BackupBagAmount, s.EnvelopeAmount, s.BagRefillAmount,
+                        s.NetSales, s.ExpectedCash, s.Variance, s.LotteryIncome, s.NetIncome,
+                        s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
+                        s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
+                        s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
+                    FROM LotteryShifts s
+                    LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
+                    LEFT JOIN Members m ON u.MemberId = m.MemberID
                     WHERE IsReconciled = 0
-                    ORDER BY ShiftDate DESC";
+                    ORDER BY s.ShiftDate DESC, ResolvedEmployeeName";
                 using var command = new SqlCommand(sql, connection);
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
@@ -307,16 +328,20 @@ namespace GFC.Data.Repositories
                 using var connection = Db.GetConnection();
                 connection.Open();
                 const string sql = @"
-                    SELECT TOP 1 ShiftId, ShiftDate, EmployeeName, ShiftType, MachineId,
-                           StartingCash, EndingCash, TotalSales, TotalPayouts, TotalCancels,
-                           Commission, CashBonus, ClaimsBonus, NetDue,
-                           BackupBagAmount, EnvelopeAmount, BagRefillAmount,
-                           NetSales, ExpectedCash, Variance, LotteryIncome, NetIncome,
-                           ShiftSalesActivity, ShiftPayoutsActivity, ShiftCancelsActivity, ShiftNetDueActivity,
-                           Notes, Status, IsReconciled, ReconciledBy, ReconciledDate,
-                           CreatedBy, CreatedDate, ModifiedBy, ModifiedDate, TicketImageUrl
-                    FROM LotteryShifts
-                    WHERE EmployeeName = @EmployeeName AND ShiftDate = @ShiftDate";
+                    SELECT TOP 1 
+                        s.ShiftId, s.ShiftDate, s.ShiftType, s.MachineId,
+                        s.StartingCash, s.EndingCash, s.TotalSales, s.TotalPayouts, s.TotalCancels,
+                        s.Commission, s.CashBonus, s.ClaimsBonus, s.NetDue,
+                        s.BackupBagAmount, s.EnvelopeAmount, s.BagRefillAmount,
+                        s.NetSales, s.ExpectedCash, s.Variance, s.LotteryIncome, s.NetIncome,
+                        s.ShiftSalesActivity, s.ShiftPayoutsActivity, s.ShiftCancelsActivity, s.ShiftNetDueActivity,
+                        s.Notes, s.Status, s.IsReconciled, s.ReconciledBy, s.ReconciledDate,
+                        s.CreatedBy, s.CreatedDate, s.ModifiedBy, s.ModifiedDate, s.TicketImageUrl,
+                        ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as ResolvedEmployeeName
+                    FROM LotteryShifts s
+                    LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
+                    LEFT JOIN Members m ON u.MemberId = m.MemberID
+                    WHERE s.EmployeeName = @EmployeeName AND s.ShiftDate = @ShiftDate";
                 using var command = new SqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@EmployeeName", employeeName);
                 command.Parameters.AddWithValue("@ShiftDate", date);
@@ -355,23 +380,23 @@ namespace GFC.Data.Repositories
                 using var connection = Db.GetConnection();
                 connection.Open();
                 // Fetch active users linked to members for full names
+                // Fetch unique FullNames that exist in the shifts table
+                // Group by FullName to prevent duplicates (e.g. if one shift has 'mcosta' and another has 'Michael Costa')
                 const string sql = @"
-                    SELECT u.Username, m.FirstName, m.LastName, m.Suffix
-                    FROM AppUsers u
-                    LEFT JOIN Members m ON u.MemberId = m.MemberID
-                    WHERE u.IsActive = 1
-                    ORDER BY m.LastName, m.FirstName";
+                    SELECT DISTINCT FullName FROM (
+                        SELECT 
+                            ISNULL(m.FirstName + ' ' + m.LastName + ISNULL(' ' + m.Suffix, ''), s.EmployeeName) as FullName
+                        FROM LotteryShifts s
+                        LEFT JOIN AppUsers u ON s.EmployeeName = u.Username
+                        LEFT JOIN Members m ON u.MemberId = m.MemberID
+                    ) a
+                    ORDER BY FullName";
                 using var command = new SqlCommand(sql, connection);
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
                 {
-                    string username = (string)reader["Username"];
-                    string fullName = username;
-                    if (reader["FirstName"] != DBNull.Value)
-                    {
-                        fullName = $"{reader["FirstName"]} {reader["LastName"]}{(reader["Suffix"] != DBNull.Value ? " " + reader["Suffix"] : "")}";
-                    }
-                    metadata.Add((username, fullName));
+                    string fullName = reader["FullName"].ToString();
+                    metadata.Add((fullName, fullName)); // Use FullName for both to simplify matching
                 }
                 return metadata;
             }
@@ -421,7 +446,7 @@ namespace GFC.Data.Repositories
             {
                 ShiftId = (int)reader["ShiftId"],
                 ShiftDate = (DateTime)reader["ShiftDate"],
-                EmployeeName = (string)reader["EmployeeName"],
+                EmployeeName = (string)reader["ResolvedEmployeeName"],
                 ShiftType = reader["ShiftType"] as string,
                 MachineId = reader["MachineId"] as string,
                 StartingCash = (decimal)reader["StartingCash"],

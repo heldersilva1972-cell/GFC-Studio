@@ -173,6 +173,7 @@ public class Program
         builder.Services.AddScoped<ITrustedDeviceRepository, TrustedDeviceRepository>();
         builder.Services.AddScoped<IAppSettingsRepository, AppSettingsRepository>();
         builder.Services.AddScoped<ILotteryShiftRepository, LotteryShiftRepository>();
+        builder.Services.AddScoped<ILotteryRateRepository, LotteryRateRepository>();
         builder.Services.AddScoped<IPhysicalKeyRepository, PhysicalKeyRepository>();
         builder.Services.AddScoped<IUserNotificationPreferencesRepository, UserNotificationPreferencesRepository>();
         builder.Services.AddScoped<IPagePermissionRepository, PagePermissionRepository>();

@@ -30,6 +30,10 @@ namespace GFC.Core.Interfaces
         decimal GetTotalVariance(DateTime? startDate = null, DateTime? endDate = null);
         List<string> GetEmployeeNames();
         List<(string Username, string FullName)> GetEmployeeMetadata();
+
+        // Commission Rates
+        List<LotteryCommissionRate> GetAllRates();
+        void SaveRate(LotteryCommissionRate rate);
     }
 }
 

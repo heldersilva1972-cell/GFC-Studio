@@ -22,6 +22,7 @@ namespace GFC.Core.DTOs
         public decimal TotalLottoNetSales => Shifts.Sum(s => s.NetSales);
         public decimal TotalEnvelope => Shifts.Sum(s => s.EnvelopeAmount);
         public decimal TotalLotteryIncome => Shifts.Sum(s => s.LotteryIncome);
+        public decimal TotalIdentifiedFees => Shifts.Sum(s => s.IdentifiedFees);
         public decimal TotalVariance => Shifts.Sum(s => s.Variance);
         public decimal TotalNetIncome => Shifts.Sum(s => s.NetIncome);
 
@@ -72,6 +73,7 @@ namespace GFC.Core.DTOs
         public decimal ExpectedCash { get; set; }
         public decimal Variance { get; set; }
         public decimal LotteryIncome { get; set; }
+        public decimal IdentifiedFees { get; set; }
         public decimal NetIncome { get; set; }
         
         // Shift-Specific Activity (Non-cumulative)

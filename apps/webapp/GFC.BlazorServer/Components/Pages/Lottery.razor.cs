@@ -47,21 +47,42 @@ namespace GFC.BlazorServer.Components.Pages
         private string _viewMode = "shifts";
         private int _selectedYear = DateTime.Now.Year;
 
+        // Commission Rates State
+        private bool _showRatesModal = false;
+        private List<LotteryCommissionRate> _commissionRates = new();
+
         // Summary stats computed from _shifts list using Business Day logic
-        private decimal TotalSales => _shifts.Where(s => s.Status == "Submitted")
+        private decimal TotalSales => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalSales) : 
+            _shifts.Where(s => s.Status != "Draft")
             .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalSales);
+            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalSales));
 
-        private decimal TotalPayouts => _shifts.Where(s => s.Status == "Submitted")
+        private decimal TotalPayouts => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalPayouts) : 
+            _shifts.Where(s => s.Status != "Draft")
             .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalPayouts);
+            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalPayouts));
 
-        private decimal TotalNetSales => _shifts.Where(s => s.Status == "Submitted")
+        private decimal TotalNetSales => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalNetSales) : 
+            _shifts.Where(s => s.Status != "Draft")
             .GroupBy(s => s.ShiftDate.Date)
-            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().NetSales);
+            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().NetSales));
 
-        private decimal TotalEnvelope => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.EnvelopeAmount);
-        private decimal TotalVariance => _shifts.Where(s => s.Status == "Submitted").Sum(s => s.Variance);
+        private decimal TotalEnvelope => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalEnvelope) : 
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.EnvelopeAmount));
+
+        private decimal TotalVariance => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalVariance) : 
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.Variance));
+
+        private decimal TotalEarnings => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalIncome) : 
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.Commission));
+
+        private decimal TotalFees => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalFees) : 
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.IdentifiedFees));
+
+        private decimal TotalInstantTickets => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalCancels) : 
+            _shifts.Where(s => s.Status != "Draft")
+            .GroupBy(s => s.ShiftDate.Date)
+            .Sum(g => g.OrderByDescending(s => s.ShiftId).First().TotalCancels));
 
         private ShiftFormModel _shiftForm = new();
         private ShiftFormModel _originalForm = new(); // CHANGE TRACKER
@@ -74,6 +95,7 @@ namespace GFC.BlazorServer.Components.Pages
 
         protected override async Task OnInitializedAsync()
         {
+            InitializeWeeks();
             await LoadData();
         }
 
@@ -87,6 +109,7 @@ namespace GFC.BlazorServer.Components.Pages
             {
                 _employeeMetadata = await Task.Run(() => LotteryService.GetEmployeeMetadata());
                 _employeeNames = _employeeMetadata.Select(m => m.FullName).ToList();
+                _commissionRates = await Task.Run(() => LotteryService.GetAllRates());
                 
                 if (_viewMode == "shifts")
                 {
@@ -120,12 +143,14 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task LoadShifts()
         {
             var startDate = _filterStartDate.Date;
-            var endDate = _filterEndDate.Date.AddDays(1).AddTicks(-1); // End of day
+            var endDate = _filterEndDate.Date;
             var shifts = await Task.Run(() => LotteryService.GetShiftsByDateRange(startDate, endDate));
             
             if (!string.IsNullOrEmpty(_filterEmployee))
             {
-                shifts = shifts.Where(s => s.EmployeeName == _filterEmployee).ToList();
+                shifts = shifts.Where(s => s.EmployeeName != null && 
+                    s.EmployeeName.Trim().Equals(_filterEmployee.Trim(), StringComparison.OrdinalIgnoreCase))
+                    .ToList();
             }
             
             if (_showReconciled.HasValue)
@@ -137,6 +162,37 @@ namespace GFC.BlazorServer.Components.Pages
                 .OrderByDescending(s => s.ShiftDate.Date)
                 .ThenBy(s => s.ShiftType == "Day" ? 0 : s.ShiftType == "Night" ? 1 : 2)
                 .ToList();
+        }
+
+        private List<(DateTime Start, DateTime End, string Label)> _availableWeeks = new();
+
+        private void InitializeWeeks()
+        {
+            _availableWeeks.Clear();
+            // Start from the current Sun-Sat week and go back 12 weeks
+            var currentSun = GetWeekStart(DateTime.Today);
+            for (int i = 0; i < 12; i++)
+            {
+                var start = currentSun.AddDays(-7 * i);
+                var end = start.AddDays(6);
+                _availableWeeks.Add((start, end, $"{start:MMM d} - {end:MMM d, yyyy}"));
+            }
+        }
+
+        private async Task OnWeekSelected(ChangeEventArgs e)
+        {
+            if (DateTime.TryParse(e.Value?.ToString(), out var start))
+            {
+                _filterStartDate = start;
+                _filterEndDate = start.AddDays(6);
+                await OnFilterChanged();
+            }
+        }
+
+        private static DateTime GetWeekStart(DateTime date)
+        {
+            var diff = (7 + (date.DayOfWeek - DayOfWeek.Sunday)) % 7;
+            return date.AddDays(-1 * diff).Date;
         }
 
         private async Task LoadDailySummaries()
@@ -207,6 +263,20 @@ namespace GFC.BlazorServer.Components.Pages
             await LoadData();
         }
 
+        private async Task ApplyCurrentWeekFilter()
+        {
+            _filterStartDate = GetWeekStart(DateTime.Today);
+            _filterEndDate = _filterStartDate.AddDays(6);
+            await LoadData();
+        }
+
+        private async Task ApplyPastWeekFilter()
+        {
+            _filterStartDate = GetWeekStart(DateTime.Today).AddDays(-7);
+            _filterEndDate = _filterStartDate.AddDays(6);
+            await LoadData();
+        }
+
         private async Task ChangeReconciledFilter(bool? value)
         {
             _showReconciled = value;
@@ -249,6 +319,20 @@ namespace GFC.BlazorServer.Components.Pages
             if (shiftEntity == null) return;
 
             _editingShiftId = shiftId;
+            
+            // [FIX] Find the PREVIOUS shift on the same day to get the baseline for cumulative subtraction
+            decimal baselineSales = 0, baselinePrizes = 0, baselineTickets = 0;
+            if (shiftEntity.ShiftType == "Night")
+            {
+                var dayShift = _shifts.FirstOrDefault(s => s.ShiftDate.Date == shiftEntity.ShiftDate.Date && s.ShiftType == "Day");
+                if (dayShift != null)
+                {
+                    baselineSales = dayShift.TotalSales;
+                    baselinePrizes = dayShift.TotalPayouts;
+                    baselineTickets = dayShift.TotalCancels;
+                }
+            }
+
             _shiftForm = new ShiftFormModel
             {
                 ShiftDate = shiftEntity.ShiftDate,
@@ -265,7 +349,17 @@ namespace GFC.BlazorServer.Components.Pages
                 Notes = shiftEntity.Notes ?? string.Empty,
                 Status = shiftEntity.Status ?? "Submitted",
                 CreatedBy = shiftEntity.CreatedBy ?? string.Empty,
-                CreatedDate = shiftEntity.CreatedDate
+                CreatedDate = shiftEntity.CreatedDate,
+                
+                // [FIX] Set the baselines for accurate cumulative-to-activity math
+                BaselineSales = baselineSales,
+                BaselinePrizes = baselinePrizes,
+                BaselineTickets = baselineTickets,
+                
+                // Keep persisted values as additional backup/reference
+                PersistedNetSales = shiftEntity.NetSales,
+                PersistedExpectedCash = shiftEntity.ExpectedCash,
+                PersistedVariance = shiftEntity.Variance
             };
             _originalEmployeeName = shiftEntity.EmployeeName;
             _originalForm = (ShiftFormModel)_shiftForm.Clone(); // SNAPSHOT ORIGINAL STATE
@@ -337,6 +431,17 @@ namespace GFC.BlazorServer.Components.Pages
                 shift.TotalPayouts = _shiftForm.TotalPayouts ?? 0;
                 shift.TotalCancels = _shiftForm.TotalCancels ?? 0;
                 shift.NetDue = _shiftForm.NetDue ?? 0;
+                
+                // [FIX]: Save the SHIFT-SPECIFIC activity results, not the cumulative machine totals.
+                // This ensures the database always has the "Money Added/Removed" for that shift specifically.
+                shift.NetSales = _shiftForm.NetSales;
+                shift.ExpectedCash = _shiftForm.ExpectedCash;
+                shift.Variance = _shiftForm.Variance;
+                
+                shift.ShiftSalesActivity = _shiftForm.ShiftSalesActivity;
+                shift.ShiftPayoutsActivity = _shiftForm.ShiftPayoutsActivity;
+                shift.ShiftCancelsActivity = _shiftForm.ShiftCancelsActivity;
+                
                 shift.EnvelopeAmount = _shiftForm.EnvelopeAmount;
                 shift.BagRefillAmount = _shiftForm.BagRefillAmount ?? 0;
                 shift.Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes;
@@ -444,6 +549,44 @@ namespace GFC.BlazorServer.Components.Pages
             }
         }
 
+        // --- COMMISSION RATE MANAGEMENT ---
+        private void OpenRatesModal()
+        {
+            _showRatesModal = true;
+        }
+
+        private async Task SaveCommissionRate(LotteryCommissionRate rate)
+        {
+            try
+            {
+                var currentUser = AuthStateProvider.GetCurrentUser();
+                rate.CreatedBy = currentUser?.Username ?? "Admin";
+                await Task.Run(() => LotteryService.SaveRate(rate));
+                
+                // Refresh data to reflect new calculations globally
+                await LoadData();
+            }
+            catch (Exception ex)
+            {
+                _modalError = "Failed to save rate: " + ex.Message;
+            }
+        }
+
+        private void AddNewYearRate()
+        {
+            int nextYear = _commissionRates.Any() ? _commissionRates.Max(r => r.Year) + 1 : DateTime.Now.Year;
+            var prevRate = _commissionRates.FirstOrDefault(); // Higher year due to DESC sort
+            
+            _commissionRates.Insert(0, new LotteryCommissionRate 
+            { 
+                Year = nextYear,
+                // Carry over previous values per user request
+                SalesRate = prevRate?.SalesRate ?? 5.00m,
+                CashingRate = prevRate?.CashingRate ?? 1.00m,
+                TicketRate = prevRate?.TicketRate ?? 1.00m
+            });
+        }
+
         public class ShiftFormModel : ICloneable
         {
             [Required(ErrorMessage = "Audit date is required")]
@@ -487,10 +630,35 @@ namespace GFC.BlazorServer.Components.Pages
             public string CreatedBy { get; set; } = string.Empty;
             public DateTime CreatedDate { get; set; } // HANG PREVENTION
             
-            public decimal NetSales => (TotalSales ?? 0) - (TotalPayouts ?? 0) - (TotalCancels ?? 0);
+            // Persistent trackers to hold the math from the mobile submission or service
+            public decimal PersistedNetSales { get; set; }
+            public decimal PersistedExpectedCash { get; set; }
+            public decimal PersistedVariance { get; set; }
+            
+            // Baselines from the previous shift of the same day (used to extract activity from cumulative totals)
+            public decimal BaselineSales { get; set; }
+            public decimal BaselinePrizes { get; set; }
+            public decimal BaselineTickets { get; set; }
+
+            public decimal NetSales {
+                get {
+                    // [SMART-MATH]: Shift Activity = (Current Cumulative Reading) - (Baseline from previous shift)
+                    decimal activeSales = (TotalSales ?? 0) - BaselineSales;
+                    decimal activePrizes = (TotalPayouts ?? 0) - BaselinePrizes;
+                    decimal activeTickets = (TotalCancels ?? 0) - BaselineTickets;
+                    
+                    return activeSales - activePrizes - activeTickets;
+                }
+            }
+
             public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + (BagRefillAmount ?? 0);
             public decimal Variance => (EndingCash ?? 0) - ExpectedCash;
             
+            // PERSIST THE ACTIVITY FIELDS FOR REPOSITORY
+            public decimal ShiftSalesActivity => (TotalSales ?? 0) - BaselineSales;
+            public decimal ShiftPayoutsActivity => (TotalPayouts ?? 0) - BaselinePrizes;
+            public decimal ShiftCancelsActivity => (TotalCancels ?? 0) - BaselineTickets;
+
             // AUTOMATIC ENVELOPE CALCULATION ($1,200 Bag Target)
             public decimal EnvelopeAmount => (ShiftType != "Day" && (EndingCash ?? 0) > 1200) ? (EndingCash ?? 0) - 1200 : 0;
 

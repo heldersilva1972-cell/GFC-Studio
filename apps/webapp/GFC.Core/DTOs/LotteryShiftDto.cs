@@ -37,6 +37,15 @@ namespace GFC.Core.DTOs
         // Joined Data from BarSaleEntries
         public decimal? BarLaborHours { get; set; }
         public decimal? BarRegisterSales { get; set; }
+
+        // [SMART-CALC]: Internal shift activity (Raw values for this user's specific shift)
+        public decimal ShiftSalesActivity { get; set; }
+        public decimal ShiftPayoutsActivity { get; set; }
+        public decimal ShiftCancelsActivity { get; set; }
+        public decimal ShiftNetDueActivity { get; set; }
+        
+        // [SMART-CALC]: Identified Transparency Fields
+        public decimal IdentifiedFees { get; set; }
     }
 
     /// <summary>
@@ -55,6 +64,8 @@ namespace GFC.Core.DTOs
         public decimal TotalNetSales { get; set; }
         public decimal TotalEnvelope { get; set; }
         public decimal TotalVariance { get; set; }
+        public decimal TotalIncome { get; set; }
+        public decimal TotalFees { get; set; }
         public decimal AverageVariance { get; set; }
         public int VarianceCount { get; set; } // Number of shifts with variance
         public decimal LargestVariance { get; set; }

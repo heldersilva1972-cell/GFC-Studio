@@ -5,6 +5,7 @@ using Microsoft.Data.SqlClient;
 using System.Data;
 using System.Linq;
 using GFC.Core.DTOs;
+using GFC.Core.Interfaces;
 
 
 namespace GFC.BlazorServer.Services
@@ -78,10 +79,12 @@ namespace GFC.BlazorServer.Services
     public class FinancialAnalyticsService : IFinancialAnalyticsService
     {
         private readonly IDbContextFactory<GfcDbContext> _dbFactory;
+        private readonly ILotteryRateRepository _rateRepository; // [NEW]
 
-        public FinancialAnalyticsService(IDbContextFactory<GfcDbContext> dbFactory)
+        public FinancialAnalyticsService(IDbContextFactory<GfcDbContext> dbFactory, ILotteryRateRepository rateRepository)
         {
             _dbFactory = dbFactory;
+            _rateRepository = rateRepository;
         }
 
         public async Task<List<int>> GetAvailableYearsAsync()
@@ -363,73 +366,129 @@ namespace GFC.BlazorServer.Services
                     // Map Day Shift
                     if (dayBar != null || dayLotto != null)
                     {
+                        var lotto = dayLotto;
+                        decimal earnings = 0;
+                        decimal fees = 0;
+                        if (lotto != null) 
+                        {
+                            var r = _rateRepository.GetApplicableRate(lotto.ShiftDate.Year);
+                            earnings = (lotto.ShiftSalesActivity * r.SalesCommissionMultiplier) +
+                                       (lotto.ShiftPayoutsActivity * r.CashingBonusMultiplier) +
+                                       (lotto.ShiftCancelsActivity * r.TicketBonusMultiplier);
+
+                            if (nightLotto == null)
+                            {
+                                fees = r.DailySystemFee + r.DailyBondingFee;
+                            }
+                        }
+
+                        // [SELF-HEALING] Ignore persisted math and recalculate from raw activity
+                        decimal activeSales = lotto?.ShiftSalesActivity ?? 0;
+                        decimal activePrizes = lotto?.ShiftPayoutsActivity ?? 0;
+                        decimal activeTickets = lotto?.ShiftCancelsActivity ?? 0;
+                        decimal activeNetDue = lotto?.ShiftNetDueActivity ?? 0;
+
+                        // Net Sales (Physical) = Sales - Payouts - Cancels
+                        decimal netSales = activeSales - activePrizes - activeTickets;
+
+                        // Expected Cash = Starting + NetDue + Refs 
+                        // (Wait, NetDue is activity based here)
+                        decimal expected = (lotto?.StartingCash ?? 0) + activeNetDue + (lotto?.BagRefillAmount ?? 0);
+                        decimal variance = (lotto?.EndingCash ?? 0) - expected;
+
                         dailyReport.Shifts.Add(new ShiftReportDto {
-                             ShiftId = dayLotto?.ShiftId ?? 0,
+                             ShiftId = lotto?.ShiftId ?? 0,
                              ShiftType = "Day",
                              IsRentalHall = false,
                              BarSales = dayBar?.TotalSales ?? 0,
                              TotalHours = dayBar?.TotalHours,
-                             LottoSales = dayLotto?.TotalSales ?? 0,
-                             LottoPayouts = dayLotto?.TotalPayouts ?? 0,
-                             LottoNetDue = dayLotto?.NetDue ?? 0,
-                             LottoCancels = dayLotto?.TotalCancels ?? 0,
-                             StartingCash = dayLotto?.StartingCash ?? 0,
-                             EndingCash = dayLotto?.EndingCash ?? 0,
-                             BackupBagAmount = dayLotto?.BackupBagAmount ?? 0,
-                             EnvelopeAmount = dayLotto?.EnvelopeAmount ?? 0,
-                             BagRefillAmount = dayLotto?.BagRefillAmount ?? 0,
-                             NetSales = dayLotto?.NetSales ?? 0,
-                             ExpectedCash = dayLotto?.ExpectedCash ?? 0,
-                             Variance = dayLotto?.Variance ?? 0,
-                             LotteryIncome = dayLotto?.LotteryIncome ?? 0,
-                             NetIncome = dayLotto?.NetIncome ?? 0,
-                             ShiftSalesActivity = dayLotto?.ShiftSalesActivity ?? (dayLotto?.TotalSales ?? 0),
-                             ShiftPayoutsActivity = dayLotto?.ShiftPayoutsActivity ?? (dayLotto?.TotalPayouts ?? 0),
-                             ShiftCancelsActivity = dayLotto?.ShiftCancelsActivity ?? (dayLotto?.TotalCancels ?? 0),
-                             ShiftNetDueActivity = dayLotto?.ShiftNetDueActivity ?? (dayLotto?.NetDue ?? 0),
-                             Notes = !string.IsNullOrWhiteSpace(dayBar?.Notes) ? dayBar.Notes : dayLotto?.Notes,
-                             Status = dayLotto?.Status,
+                             LottoSales = lotto?.TotalSales ?? 0,
+                             LottoPayouts = lotto?.TotalPayouts ?? 0,
+                             LottoNetDue = lotto?.NetDue ?? 0,
+                             LottoCancels = lotto?.TotalCancels ?? 0,
+                             StartingCash = lotto?.StartingCash ?? 0,
+                             EndingCash = lotto?.EndingCash ?? 0,
+                             BackupBagAmount = lotto?.BackupBagAmount ?? 0,
+                             EnvelopeAmount = 0, // Day shifts always 0
+                             BagRefillAmount = lotto?.BagRefillAmount ?? 0,
+                             NetSales = netSales,
+                             ExpectedCash = expected,
+                             Variance = variance,
+                             LotteryIncome = earnings,
+                             IdentifiedFees = fees,
+                             NetIncome = earnings + variance,
+                             ShiftSalesActivity = activeSales,
+                             ShiftPayoutsActivity = activePrizes,
+                             ShiftCancelsActivity = activeTickets,
+                             ShiftNetDueActivity = activeNetDue,
+                             Notes = !string.IsNullOrWhiteSpace(dayBar?.Notes) ? dayBar.Notes : lotto?.Notes,
+                             Status = lotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : 
-                                        (!string.IsNullOrWhiteSpace(dayLotto?.EmployeeName) ? dayLotto.EmployeeName : "Unknown"),
-                             CreatedAt = dayBar?.CreatedAt ?? dayLotto?.CreatedDate ?? date,
+                                        (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : "Unknown"),
+                             CreatedAt = dayBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
                              HourlyRate = dayBar?.HourlyRate
-                         });
+                        });
                     }
 
                     // Map Night Shift
                     if (nightBar != null || nightLotto != null)
                     {
+                        var lotto = nightLotto;
+                        decimal earnings = 0;
+                        decimal fees = 0;
+                        if (lotto != null) 
+                        {
+                            var r = _rateRepository.GetApplicableRate(lotto.ShiftDate.Year);
+                            earnings = (lotto.ShiftSalesActivity * r.SalesCommissionMultiplier) +
+                                       (lotto.ShiftPayoutsActivity * r.CashingBonusMultiplier) +
+                                       (lotto.ShiftCancelsActivity * r.TicketBonusMultiplier);
+
+                            // NEW: Combined Daily Fees (System + Bonding) applied to the Final shift
+                            fees = r.DailySystemFee + r.DailyBondingFee;
+                        }
+
+                        // [SELF-HEALING] Ignore persisted math and recalculate from raw activity
+                        decimal activeSales = lotto?.ShiftSalesActivity ?? 0;
+                        decimal activePrizes = lotto?.ShiftPayoutsActivity ?? 0;
+                        decimal activeTickets = lotto?.ShiftCancelsActivity ?? 0;
+                        decimal activeNetDue = lotto?.ShiftNetDueActivity ?? 0;
+
+                        decimal netSales = activeSales - activePrizes - activeTickets;
+                        decimal expected = (lotto?.StartingCash ?? 0) + activeNetDue + (lotto?.BagRefillAmount ?? 0);
+                        decimal variance = (lotto?.EndingCash ?? 0) - expected;
+
                         dailyReport.Shifts.Add(new ShiftReportDto {
-                             ShiftId = nightLotto?.ShiftId ?? 0,
+                             ShiftId = lotto?.ShiftId ?? 0,
                              ShiftType = "Night",
                              IsRentalHall = false,
                              BarSales = nightBar?.TotalSales ?? 0,
                              TotalHours = nightBar?.TotalHours,
-                             LottoSales = nightLotto?.TotalSales ?? 0,
-                             LottoPayouts = nightLotto?.TotalPayouts ?? 0,
-                             LottoNetDue = nightLotto?.NetDue ?? 0,
-                             LottoCancels = nightLotto?.TotalCancels ?? 0,
-                             StartingCash = nightLotto?.StartingCash ?? 0,
-                             EndingCash = nightLotto?.EndingCash ?? 0,
-                             BackupBagAmount = nightLotto?.BackupBagAmount ?? 0,
-                             EnvelopeAmount = nightLotto?.EnvelopeAmount ?? 0,
-                             BagRefillAmount = nightLotto?.BagRefillAmount ?? 0,
-                             NetSales = nightLotto?.NetSales ?? 0,
-                             ExpectedCash = nightLotto?.ExpectedCash ?? 0,
-                             Variance = nightLotto?.Variance ?? 0,
-                             LotteryIncome = nightLotto?.LotteryIncome ?? 0,
-                             NetIncome = nightLotto?.NetIncome ?? 0,
-                             ShiftSalesActivity = nightLotto?.ShiftSalesActivity ?? (nightLotto?.TotalSales ?? 0),
-                             ShiftPayoutsActivity = nightLotto?.ShiftPayoutsActivity ?? (nightLotto?.TotalPayouts ?? 0),
-                             ShiftCancelsActivity = nightLotto?.ShiftCancelsActivity ?? (nightLotto?.TotalCancels ?? 0),
-                             ShiftNetDueActivity = nightLotto?.ShiftNetDueActivity ?? (nightLotto?.NetDue ?? 0),
-                             Notes = !string.IsNullOrWhiteSpace(nightBar?.Notes) ? nightBar.Notes : nightLotto?.Notes,
-                             Status = nightLotto?.Status,
+                             LottoSales = lotto?.TotalSales ?? 0,
+                             LottoPayouts = lotto?.TotalPayouts ?? 0,
+                             LottoNetDue = lotto?.NetDue ?? 0,
+                             LottoCancels = lotto?.TotalCancels ?? 0,
+                             StartingCash = lotto?.StartingCash ?? 0,
+                             EndingCash = lotto?.EndingCash ?? 0,
+                             BackupBagAmount = lotto?.BackupBagAmount ?? 0,
+                             EnvelopeAmount = lotto?.EnvelopeAmount ?? 0,
+                             BagRefillAmount = lotto?.BagRefillAmount ?? 0,
+                             NetSales = netSales,
+                             ExpectedCash = expected,
+                             Variance = variance,
+                             LotteryIncome = earnings,
+                             IdentifiedFees = fees,
+                             NetIncome = earnings + variance,
+                             ShiftSalesActivity = activeSales,
+                             ShiftPayoutsActivity = activePrizes,
+                             ShiftCancelsActivity = activeTickets,
+                             ShiftNetDueActivity = activeNetDue,
+                             Notes = !string.IsNullOrWhiteSpace(nightBar?.Notes) ? nightBar.Notes : lotto?.Notes,
+                             Status = lotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : 
-                                        (!string.IsNullOrWhiteSpace(nightLotto?.EmployeeName) ? nightLotto.EmployeeName : "Unknown"),
-                             CreatedAt = nightBar?.CreatedAt ?? nightLotto?.CreatedDate ?? date,
+                                        (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : "Unknown"),
+                             CreatedAt = nightBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
                              HourlyRate = nightBar?.HourlyRate
-                         });
+                        });
                     }
 
                     // Map Hall Rental
@@ -474,10 +533,21 @@ namespace GFC.BlazorServer.Services
             if (!string.IsNullOrEmpty(employeeName))
                 query = query.Where(s => s.EmployeeName == employeeName);
 
-            return await query
+            var result = await query
                 .OrderByDescending(s => s.ShiftDate)
                 .ThenByDescending(s => s.ShiftId)
                 .ToListAsync();
+
+            // [NEW] Overwrite income with on-the-fly calculation per user instructions
+            foreach (var s in result)
+            {
+                var r = _rateRepository.GetApplicableRate(s.ShiftDate.Year);
+                s.LotteryIncome = (s.ShiftSalesActivity * r.SalesCommissionMultiplier) +
+                                  (s.ShiftPayoutsActivity * r.CashingBonusMultiplier) +
+                                  (s.ShiftCancelsActivity * r.TicketBonusMultiplier);
+            }
+            
+            return result;
         }
 
         public async Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All")
@@ -698,9 +768,18 @@ namespace GFC.BlazorServer.Services
             snapshot.BarSalesDownstairs = barSales.Where(b => !b.IsRentalHall).Sum(b => b.TotalSales);
             snapshot.BarSalesUpstairs = barSales.Where(b => b.IsRentalHall).Sum(b => b.TotalSales);
 
-            // 2. Income - Lottery (Set to 0 per user request)
-            snapshot.LotteryCommissions = 0m;
-            snapshot.LotteryBonuses = 0m;
+            // 2. Income - Lottery
+            var lottoAnalyticShifts = await GetLotteryAnalyticsAsync(start, end);
+            decimal totalLottoIncome = 0;
+            foreach (var s in lottoAnalyticShifts)
+            {
+                var r = _rateRepository.GetApplicableRate(s.ShiftDate.Year);
+                totalLottoIncome += (s.ShiftSalesActivity * r.SalesCommissionMultiplier) +
+                                    (s.ShiftPayoutsActivity * r.CashingBonusMultiplier) +
+                                    (s.ShiftCancelsActivity * r.TicketBonusMultiplier);
+            }
+            snapshot.LotteryCommissions = totalLottoIncome;
+            snapshot.LotteryBonuses = 0m; // Included in commissions for simplicity
 
             // 3. Income - Membership Dues
             if (month.HasValue)
