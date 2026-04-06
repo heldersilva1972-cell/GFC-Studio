@@ -38,5 +38,7 @@ namespace GFC.Core.Models
         public decimal? TotalEmployerTaxes_AtTimeOfShift { get; set; }
 
         public string Status { get; set; } = "Draft";
+        public string? AcknowledgedBy { get; set; }
+        public DateTime? AcknowledgedAt { get; set; }
     }
 }

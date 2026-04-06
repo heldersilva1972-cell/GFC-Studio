@@ -23,6 +23,7 @@
 @inject NavigationManager NavMgr
 @inject IControllerClient ControllerClient
 @inject DashboardSessionState SessionState
+@inject IFinancialAnalyticsService FinancialService
 @using GFC.BlazorServer.Components.Shared
 @using GFC.Core.Models
 @inject IRentalService RentalService
@@ -244,6 +245,21 @@
                     @if (_pendingSyncCount > 0)
                     {
                         @* Pending sync pulses can be added here *@
+                    }
+
+                    @if (ShowNoteAlerts && _metrics?.UnacknowledgedNotes?.Any() == true)
+                    {
+                        var noteCount = _metrics.UnacknowledgedNotes.Count;
+                        <div class="pulse-tile pulse-warning pulse-attention shadow-sm" style="cursor: pointer;" @onclick="OpenNoteAlertModal">
+                            <div class="pulse-icon"><i class="bi bi-sticky-fill"></i></div>
+                            <div class="pulse-content">
+                                <div class="pulse-title">@(noteCount == 1 ? "1 New Shift Note" : $"{noteCount} New Shift Notes")</div>
+                                <div class="pulse-message">Click to view and acknowledge recent notes from staff.</div>
+                            </div>
+                            <div class="pulse-action">
+                                <span class="badge rounded-pill bg-warning text-dark px-3 mt-1">Review Now</span>
+                            </div>
+                        </div>
                     }
 
                     @foreach (var alert in _alertPreview)
@@ -650,6 +666,15 @@
                             </div>
                         </div>
                     }
+                    <div class="custom-toggle-item p-3 border rounded-3 d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="fw-semibold">Shift Note Alerts</div>
+                            <div class="extra-small text-muted">Pulsing alerts for new shift notes</div>
+                        </div>
+                        <div class="form-check form-switch m-0">
+                            <input class="form-check-input" type="checkbox" role="switch" @bind="ShowNoteAlerts" @bind:after="SavePreferencesAsync">
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1017,6 +1042,7 @@
         public bool QaShowKeyCards { get; set; } = true;
         public bool QaShowEndOfShift { get; set; } = true;
         public bool QaShowLottery { get; set; } = true;
+        public bool ShowNoteAlerts { get; set; } = true;
     }
 
     private async Task SavePreferencesAsync()
@@ -1049,7 +1075,8 @@
                 QaShowSettings = QaShowSettings,
                 QaShowKeyCards = QaShowKeyCards,
                 QaShowEndOfShift = QaShowEndOfShift,
-                QaShowLottery = QaShowLottery
+                QaShowLottery = QaShowLottery,
+                ShowNoteAlerts = ShowNoteAlerts
             };
             var json = System.Text.Json.JsonSerializer.Serialize(prefs);
             await JS.InvokeVoidAsync("localStorage.setItem", "dashboard_prefs", json);
@@ -1095,6 +1122,7 @@
                     QaShowKeyCards = prefs.QaShowKeyCards;
                     QaShowEndOfShift = prefs.QaShowEndOfShift;
                     QaShowLottery = prefs.QaShowLottery;
+                    ShowNoteAlerts = prefs.ShowNoteAlerts;
                 }
             }
         }
@@ -1141,6 +1169,91 @@
         public const int ControllersOfflineCritical = 2;
         public const int BackupStaleDaysWarning = 7;
         public const int BackupStaleDaysCritical = 30;
+    }
+
+    private bool ShowNoteAlerts { get; set; } = true;
+    private bool _showNoteAlertModal = false;
+    private List<ShiftNoteAlert> _notesToAcknowledge = new();
+    private bool _isAcknowledging = false;
+
+    private void OpenNoteAlertModal()
+    {
+        if (_metrics?.UnacknowledgedNotes != null)
+        {
+            _notesToAcknowledge = _metrics.UnacknowledgedNotes.ToList();
+            _showNoteAlertModal = true;
+        }
+    }
+
+    private void CloseNoteAlertModal()
+    {
+        _showNoteAlertModal = false;
+    }
+
+    private async Task AcknowledgeNote(ShiftNoteAlert note)
+    {
+        if (_isAcknowledging) return;
+        _isAcknowledging = true;
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser()?.Username ?? "Admin";
+            await FinancialService.AcknowledgeNoteAsync(note.NoteType, note.RecordId, currentUser);
+            
+            // Remove from local list
+            _notesToAcknowledge.Remove(note);
+            
+            // Update metrics
+            if (_metrics?.UnacknowledgedNotes != null)
+            {
+                var original = _metrics.UnacknowledgedNotes.FirstOrDefault(n => n.RecordId == note.RecordId && n.NoteType == note.NoteType);
+                if (original != null) _metrics.UnacknowledgedNotes.Remove(original);
+            }
+            
+            if (!_notesToAcknowledge.Any())
+            {
+                _showNoteAlertModal = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error acknowledging note: {ex.Message}");
+        }
+        finally
+        {
+            _isAcknowledging = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task AcknowledgeAllNotes()
+    {
+        if (_isAcknowledging) return;
+        _isAcknowledging = true;
+        try
+        {
+            var currentUser = AuthStateProvider.GetCurrentUser()?.Username ?? "Admin";
+            foreach (var note in _notesToAcknowledge.ToList())
+            {
+                await FinancialService.AcknowledgeNoteAsync(note.NoteType, note.RecordId, currentUser);
+            }
+            
+            if (_metrics?.UnacknowledgedNotes != null)
+            {
+                _metrics.UnacknowledgedNotes.Clear();
+            }
+            
+            _notesToAcknowledge.Clear();
+            _showNoteAlertModal = false;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error acknowledging all notes: {ex.Message}");
+        }
+        finally
+        {
+            _isAcknowledging = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private string _systemTimeZoneId = "Eastern Standard Time";
@@ -2053,4 +2166,65 @@
         </div>
     </div>
     <div class="modal-backdrop fade show" style="z-index: 2450;"></div>
+}
+
+<!-- Shift Note Acknowledgment Modal -->
+@if (_showNoteAlertModal)
+{
+    <div class="modal fade show" style="display: block; background: rgba(0,0,0,0.5); z-index: 2600;" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header bg-warning py-3 border-0">
+                    <h5 class="modal-title d-flex align-items-center fw-bold text-dark">
+                        <i class="bi bi-sticky-fill me-2"></i>
+                        New Shift Notes
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseNoteAlertModal"></button>
+                </div>
+                <div class="modal-body p-4 bg-light">
+                    <p class="text-muted small mb-4">The following notes were included in recent shift reports. Please review and acknowledge.</p>
+                    
+                    <div class="d-flex flex-column gap-3">
+                        @foreach (var note in _notesToAcknowledge)
+                        {
+                            <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+                                <div class="card-header bg-white border-0 py-2 d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="badge bg-primary-subtle text-primary border-0">@note.NoteType</span>
+                                        <span class="fw-bold small">@note.ShiftDate.ToString("MMMM dd, yyyy")</span>
+                                        <span class="text-muted extra-small">• @note.ShiftType</span>
+                                        @if (note.IsRentalHall)
+                                        {
+                                            <span class="badge bg-info-subtle text-info border-0 ms-2">Rental Hall</span>
+                                        }
+                                    </div>
+                                    <div class="text-muted small">By: <strong>@note.Author</strong></div>
+                                </div>
+                                <div class="card-body bg-white pt-1 pb-3">
+                                    <div class="p-3 bg-light rounded-3 border-start border-3 border-warning italic" style="font-size: 0.95rem; color: #334155;">
+                                        "@note.NoteText"
+                                    </div>
+                                    <div class="mt-3 d-flex justify-content-end">
+                                        <button class="btn btn-sm btn-outline-success rounded-pill px-4 fw-bold" @onclick="() => AcknowledgeNote(note)" disabled="@_isAcknowledging">
+                                            <i class="bi bi-check2-circle me-1"></i> Acknowledge
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer bg-white border-0 py-3 rounded-bottom-4">
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-4" @onclick="CloseNoteAlertModal">Close</button>
+                    @if (_notesToAcknowledge.Count > 1)
+                    {
+                        <button type="button" class="btn btn-sm btn-success rounded-pill px-4 shadow-sm fw-bold" @onclick="AcknowledgeAllNotes" disabled="@_isAcknowledging">
+                            <i class="bi bi-check-all me-1"></i> Acknowledge All
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show" style="z-index: 2550;"></div>
 }

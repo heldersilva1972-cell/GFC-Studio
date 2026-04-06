@@ -121,13 +121,60 @@ public class DashboardMetricsService : IDashboardMetricsService
                 LastSignInDrawExportDate = drawStatus.lastExport,
                 LastSignInDrawChangeDate = drawStatus.lastChange,
                 SignInDrawChangeReasons = drawStatus.reasons,
-                SignInDrawTotalCount = drawStatus.totalCount
+                SignInDrawTotalCount = drawStatus.totalCount,
+                UnacknowledgedNotes = await GetUnacknowledgedNotesAsync(ct)
             };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to fetch consolidated dashboard metrics. Returning empty metrics.");
             return new DashboardMetricsDto();
+        }
+    }
+
+    private async Task<List<ShiftNoteAlert>> GetUnacknowledgedNotesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await _contextFactory.CreateDbContextAsync(ct);
+            
+            var barNotes = await db.BarSaleEntries
+                .AsNoTracking()
+                .Where(e => e.Status == "Submitted" && e.Notes != null && e.Notes != "" && e.AcknowledgedAt == null)
+                .Select(e => new ShiftNoteAlert
+                {
+                    RecordId = e.Id,
+                    NoteType = "Bar",
+                    ShiftDate = e.AdjustedSaleDate ?? e.SaleDate,
+                    ShiftType = e.Shift,
+                    Author = e.CreatedBy ?? "Unknown",
+                    NoteText = e.Notes!,
+                    IsRentalHall = e.IsRentalHall
+                })
+                .ToListAsync(ct);
+
+            var lottoNotes = await db.LotteryShifts
+                .AsNoTracking()
+                .Where(e => e.Status == "Submitted" && e.Notes != null && e.Notes != "" && e.AcknowledgedAt == null)
+                .Select(e => new ShiftNoteAlert
+                {
+                    RecordId = e.ShiftId,
+                    NoteType = "Lottery",
+                    ShiftDate = e.ShiftDate,
+                    ShiftType = e.ShiftType ?? "Unknown",
+                    Author = e.CreatedBy ?? "Unknown",
+                    NoteText = e.Notes!
+                })
+                .ToListAsync(ct);
+
+            return barNotes.Concat(lottoNotes)
+                .OrderByDescending(n => n.ShiftDate)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching unacknowledged shift notes");
+            return new List<ShiftNoteAlert>();
         }
     }
 

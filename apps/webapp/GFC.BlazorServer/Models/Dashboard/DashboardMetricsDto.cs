@@ -26,6 +26,20 @@ public class DashboardMetricsDto
     public DateTime? LastSignInDrawChangeDate { get; set; }
     public List<string> SignInDrawChangeReasons { get; set; } = new();
     public int SignInDrawTotalCount { get; set; }
+
+    // Shift Note Monitoring
+    public List<ShiftNoteAlert> UnacknowledgedNotes { get; set; } = new();
+}
+
+public class ShiftNoteAlert
+{
+    public int RecordId { get; set; }
+    public string NoteType { get; set; } = "Bar"; // "Bar" or "Lottery"
+    public DateTime ShiftDate { get; set; }
+    public string ShiftType { get; set; } = string.Empty;
+    public string Author { get; set; } = string.Empty;
+    public string NoteText { get; set; } = string.Empty;
+    public bool IsRentalHall { get; set; }
 }
 
 public class BartenderInfo

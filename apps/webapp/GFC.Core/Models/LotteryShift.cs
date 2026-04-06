@@ -55,5 +55,7 @@ namespace GFC.Core.Models
         public string? ModifiedBy { get; set; }
         public DateTime? ModifiedDate { get; set; }
         public string? TicketImageUrl { get; set; }
+        public string? AcknowledgedBy { get; set; }
+        public DateTime? AcknowledgedAt { get; set; }
     }
 }

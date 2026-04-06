@@ -19,6 +19,7 @@ namespace GFC.BlazorServer.Services
         Task<List<LotteryShift>> GetLotteryAnalyticsAsync(DateTime startDate, DateTime endDate, string? shiftType = null, string? employeeName = null);
         Task<List<EmployeeHoursDto>> GetEmployeeHoursAsync(DateTime startDate, DateTime endDate, string? username = null, string? location = "All");
         Task<FinancialSnapshotDto> GetFinancialSnapshotAsync(int year, int? month = null);
+        Task AcknowledgeNoteAsync(string noteType, int recordId, string username);
     }
 
 
@@ -252,7 +253,8 @@ namespace GFC.BlazorServer.Services
                         Notes = e.Notes ?? "",
                         CreatedBy = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown",
                         CreatedAt = (DateTime?)e.CreatedAt ?? DateTime.MinValue,
-                        HourlyRate = e.HourlyRate_AtTimeOfShift
+                        HourlyRate = e.HourlyRate_AtTimeOfShift,
+                        Status = e.Status ?? "Draft"
                     })
                     .ToListAsync();
                 
@@ -294,7 +296,8 @@ namespace GFC.BlazorServer.Services
                     e.CreatedBy,
                     e.CreatedAt,
                     HourlyRate = e.HourlyRate ?? (userRatesByUsername.TryGetValue(e.CreatedBy, out var r1) ? r1 : 
-                                                 (userRatesByName.TryGetValue(e.CreatedBy, out var r2) ? r2 : 0m))
+                                                 (userRatesByName.TryGetValue(e.CreatedBy, out var r2) ? r2 : 0m)),
+                    e.Status
                 }).Where(e => e.Date >= start && e.Date <= end).ToList();
 
                 Console.WriteLine($"[FinancialService] Found {barEntries.Count} barEntries.");
@@ -416,7 +419,7 @@ namespace GFC.BlazorServer.Services
                              ShiftCancelsActivity = activeTickets,
                              ShiftNetDueActivity = activeNetDue,
                              Notes = !string.IsNullOrWhiteSpace(dayBar?.Notes) ? dayBar.Notes : lotto?.Notes,
-                             Status = lotto?.Status,
+                             Status = !string.IsNullOrWhiteSpace(dayBar?.Status) ? dayBar.Status : lotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : 
                                         (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : "Unknown"),
                              CreatedAt = dayBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
@@ -474,7 +477,7 @@ namespace GFC.BlazorServer.Services
                              ShiftCancelsActivity = activeTickets,
                              ShiftNetDueActivity = activeNetDue,
                              Notes = !string.IsNullOrWhiteSpace(nightBar?.Notes) ? nightBar.Notes : lotto?.Notes,
-                             Status = lotto?.Status,
+                             Status = !string.IsNullOrWhiteSpace(nightBar?.Status) ? nightBar.Status : lotto?.Status,
                              CreatedBy = !string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : 
                                         (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : "Unknown"),
                              CreatedAt = nightBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
@@ -501,6 +504,7 @@ namespace GFC.BlazorServer.Services
                             ShiftPayoutsActivity = 0,
                             ShiftCancelsActivity = 0,
                             ShiftNetDueActivity = 0,
+                            Status = hallBar.Status,
                             LotteryIncome = 0,
                             IdentifiedFees = 0,
                             NetIncome = 0
@@ -798,7 +802,7 @@ namespace GFC.BlazorServer.Services
 
             // 4. Income - Hall Rentals
             snapshot.HallRentals = await db.HallRentals.AsNoTracking()
-                .Where(h => h.EventDate >= start && h.EventDate <= end)
+                .Where(h => h.EventDate >= start && h.EventDate <= end && h.Status == "Completed")
                 .SumAsync(h => (decimal?)h.TotalPrice) ?? 0m;
 
             // 5. Expenses - Reimbursements
@@ -821,6 +825,31 @@ namespace GFC.BlazorServer.Services
             }
 
             return snapshot;
+        }
+
+        public async Task AcknowledgeNoteAsync(string noteType, int recordId, string username)
+        {
+            using var db = await _dbFactory.CreateDbContextAsync();
+            if (noteType == "Bar")
+            {
+                var entry = await db.BarSaleEntries.FindAsync(recordId);
+                if (entry != null)
+                {
+                    entry.AcknowledgedBy = username;
+                    entry.AcknowledgedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+            }
+            else if (noteType == "Lottery")
+            {
+                var shift = await db.LotteryShifts.FindAsync(recordId);
+                if (shift != null)
+                {
+                    shift.AcknowledgedBy = username;
+                    shift.AcknowledgedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+            }
         }
     }
 }
