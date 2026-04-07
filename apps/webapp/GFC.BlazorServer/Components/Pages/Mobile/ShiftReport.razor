@@ -139,6 +139,66 @@
         </div>
     }
 
+    @if (_showDistributionSlip)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in" style="max-width: 450px; border: 3px solid #0d6efd;">
+                <div class="glass-modal-header-icon success mb-3" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd; border-color: #0d6efd;">
+                    <i class="bi bi-cash-stack"></i>
+                </div>
+                <h3 class="fw-black text-dark mb-1 text-uppercase">💵 End-of-Shift Cash Slip</h3>
+                <p class="text-muted small mb-4">Please pull the following amounts from the drawer now.</p>
+                
+                <div class="bg-light rounded-4 p-4 mb-4 border text-start shadow-inner">
+                    @if (LottoBagRefill > 0)
+                    {
+                        <div class="math-row mb-3 pb-2 border-bottom">
+                            <div class="d-flex flex-column">
+                                <span class="fw-black text-dark text-uppercase small opacity-75">Money to be returned:</span>
+                                <span class="text-muted small">Place this back into the money backup bag.</span>
+                                @if (_debtBreakdown.Count > 0)
+                                {
+                                    <div class="mt-2 p-2 bg-white rounded border border-info border-opacity-25" style="font-size: 0.65rem;">
+                                        <div class="fw-bold text-info mb-1"><i class="bi bi-info-circle me-1"></i>Bag Debt History:</div>
+                                        @foreach (var item in _debtBreakdown)
+                                        {
+                                            <div class="d-flex justify-content-between text-muted">
+                                                <span>@item.Date.ToString("MMM d") (@item.Shift)</span>
+                                                <span class="fw-bold">@item.Amount.ToString("C2")</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <span class="fw-black text-dark fs-4">@(LottoBagRefill.ToString("C2"))</span>
+                        </div>
+                    }
+
+                    <div class="math-row mb-2">
+                        <div class="d-flex flex-column">
+                            <span class="fw-black text-primary text-uppercase small">Deposit amount:</span>
+                            <span class="text-muted small">Place this in the envelope.</span>
+                        </div>
+                        <span class="fw-black text-primary fs-2">@(LottoEnvelopeAmount.ToString("C2"))</span>
+                    </div>
+
+                    <div class="text-center mt-3 pt-3 border-top border-dark border-opacity-10 d-flex justify-content-between align-items-center opacity-75">
+                         <span class="fw-bold small text-uppercase"><i class="bi bi-bank me-2"></i>Ending drawer cash:</span>
+                         <span class="fw-black text-dark">$1,200.00</span>
+                    </div>
+                </div>
+
+                <div class="alert alert-info py-2 px-3 mb-4 rounded-pill border-2 d-flex align-items-center justify-content-center">
+                    <span class="fw-black text-primary text-uppercase" style="font-size: 0.7rem;">Envelope total: @(LottoEnvelopeAmount.ToString("C2")) ONLY</span>
+                </div>
+
+                <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="HandleSubmit">
+                    <i class="bi bi-check2-all me-2"></i> MONEY PLACED CORRECTLY
+                </button>
+            </div>
+        </div>
+    }
+
     @if (_showLottoCountReminder)
     {
         <div class="glass-modal-overlay">
@@ -181,7 +241,7 @@
                     </ul>
                 </div>
                 <button type="button" class="btn btn-warning w-100 py-3 rounded-pill fw-black shadow-sm text-dark" @onclick="() => _showBackupBagReminder = false">
-                    I UNDERSTAND, I'M ONLY ENTERING BAG MONEY
+                    I UNDERSTAND, I AM ENTERING ONLY MONEY REMOVED FROM BACKUP BAG
                 </button>
             </div>
         </div>
@@ -571,9 +631,16 @@
                                      <span>- Tickets (RPT 34)</span>
                                      <span class="fw-bold">-@((Math.Abs((ShiftType == "Night" ? (LottoInstantTickets ?? 0) - _prevDayTickets : (LottoInstantTickets ?? 0)))).ToString("N2"))</span>
                                  </div>
+                                 @if (LottoBackupBag > 0)
+                                 {
+                                     <div class="math-row text-primary py-1 px-2 rounded-2 mt-2 mb-1" style="font-size: 0.7rem; background: rgba(13, 110, 253, 0.05); border: 1px dashed rgba(13, 110, 253, 0.2);">
+                                         <span class="fw-black text-uppercase">💰 From Backup Bag</span>
+                                         <span class="fw-black">+@((LottoBackupBag ?? 0).ToString("C2"))</span>
+                                     </div>
+                                 }
                                  
                                  <div class="math-row border-top mt-1 pt-1 mb-1 @(LottoNetMade >= 0 ? "text-success" : "text-danger")" style="font-size: 0.85rem;">
-                                     <span class="fw-black">SHIFT NET CASH</span>
+                                     <span class="fw-black">NET REGISTER SALES</span>
                                      <span class="fw-black">@(LottoNetMade >= 0 ? "+" : "-")@(Math.Abs(LottoNetMade).ToString("C2"))</span>
                                  </div>
                                  <div class="math-row total-expected border-top border-primary border-opacity-10 mt-1 pt-1">
@@ -1595,6 +1662,7 @@
     private bool _showSubmitConfirm = false;
     private bool _showLottoCountReminder = false;
     private bool _showBackupBagReminder = false;
+    private bool _showDistributionSlip = false;
     private bool _lottoSignConfirmed = true; 
     private Action? _onModalConfirm;
 
@@ -1609,6 +1677,7 @@
     private bool _fieldFreshlyActivated = false;
     private decimal _totalBagDebt = 0; // Cumulative debt to bag from previous shifts + current day shift
     private bool _rescueMode = false; // True if Night is missing Day's starting data
+    private List<(DateTime Date, string Shift, decimal Amount)> _debtBreakdown = new(); // Breakdown of unpaid bag debt
 
     private bool ShouldShowSignConfirmation {
         get {
@@ -2000,6 +2069,15 @@
 
     private async Task ProceedWithSubmit() {
         _showSubmitConfirm = false;
+        
+        // NEW STEP: If it's the Night shift and there is cash logic to handle, 
+        // show the dedicated slip before finalizing the DB entry and logout.
+        if (ShiftType == "Night" && (LottoEnvelopeAmount > 0 || LottoBagRefill > 0))
+        {
+            _showDistributionSlip = true;
+            return;
+        }
+
         await HandleSubmit();
     }
 
@@ -2394,8 +2472,32 @@
         try {
             using var db = await DbFactory.CreateDbContextAsync();
             var allShifts = await db.LotteryShifts.AsNoTracking().ToListAsync();
-            decimal totalRemoved = allShifts.Sum(s => s.BackupBagAmount);
-            decimal totalRefilled = allShifts.Sum(s => s.BagRefillAmount);
+            
+            // [BUG FIX] Exclude the current shift record from the cumulative debt sum.
+            // If we are editing/resubmitting, we want the "True" historical debt,
+            // otherwise we double-count the current entry's contribution to the snowball.
+            var filteredShifts = allShifts.Where(s => 
+                !(s.ShiftDate.Date == ReportDate.Date && s.ShiftType == ShiftType));
+            
+            decimal totalRemoved = filteredShifts.Sum(s => s.BackupBagAmount);
+            decimal totalRefilled = filteredShifts.Sum(s => s.BagRefillAmount);
+            
+            // Build breakdown for transparency
+            _debtBreakdown.Clear();
+            var netDebts = filteredShifts.GroupBy(s => s.ShiftDate.Date)
+                .Select(g => new { 
+                    Date = g.Key, 
+                    Shifts = g.Select(s => new { s.ShiftType, Net = s.BackupBagAmount - s.BagRefillAmount }) 
+                });
+
+            foreach (var day in netDebts) {
+                foreach (var s in day.Shifts) {
+                    if (s.Net != 0) {
+                        _debtBreakdown.Add((day.Date, s.ShiftType, s.Net));
+                    }
+                }
+            }
+            
             return Math.Max(0, totalRemoved - totalRefilled);
         } catch { return 0; }
     }
@@ -2413,6 +2515,7 @@
             return;
         }
 
+        _showDistributionSlip = false;
         IsSubmitting = true;
         await _saveLock.WaitAsync(); // Ensure background saves are finished
         try {

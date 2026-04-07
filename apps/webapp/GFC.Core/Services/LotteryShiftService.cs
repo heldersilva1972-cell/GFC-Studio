@@ -131,7 +131,7 @@ namespace GFC.Core.Services
                 shift.NetSales = sales - payouts - cancels;
             }
 
-            shift.ExpectedCash = shift.StartingCash + shift.NetSales + shift.BagRefillAmount;
+            shift.ExpectedCash = shift.StartingCash + shift.NetSales + shift.BackupBagAmount;
             shift.Variance = shift.EndingCash - shift.ExpectedCash;
         }
 
@@ -287,6 +287,10 @@ namespace GFC.Core.Services
                 // FINANCIALS: The missing fields for the dashboard
                 TotalIncome = dtos.Sum(s => s.Commission),
                 TotalFees = dtos.Sum(s => s.IdentifiedFees),
+ 
+                // BACKUP BAG TRACKING
+                TotalBagOut = dtos.Sum(s => s.BackupBagAmount),
+                TotalBagIn = dtos.Sum(s => s.BagRefillAmount),
                 
                 AverageVariance = varianceCount > 0 ? variances.Where(v => Math.Abs(v) > 0.01m).Average() : 0,
                 VarianceCount = varianceCount,
@@ -354,7 +358,7 @@ namespace GFC.Core.Services
                 reconciledNetSales = shift.NetSales;
             }
 
-            decimal reconciledExpected = shift.StartingCash + reconciledNetSales + shift.BagRefillAmount;
+            decimal reconciledExpected = shift.StartingCash + reconciledNetSales + shift.BackupBagAmount;
             decimal reconciledVariance = shift.EndingCash - reconciledExpected;
 
             return new LotteryShiftDto

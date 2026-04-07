@@ -82,6 +82,14 @@ namespace GFC.BlazorServer.Components.Pages
 
         private decimal TotalFees => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalFees) : 
             _shifts.Where(s => s.Status != "Draft").Sum(s => s.IdentifiedFees));
+        
+        private decimal TotalBagOut => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalBagOut) : 
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.BackupBagAmount));
+
+        private decimal TotalBagIn => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalBagIn) : 
+            _shifts.Where(s => s.Status != "Draft").Sum(s => s.BagRefillAmount));
+
+        private decimal NetBagDebt => TotalBagOut - TotalBagIn;
 
         private decimal TotalInstantTickets => (_viewMode == "weekly" ? _weeklySummaries.Sum(s => s.TotalCancels) : 
             _shifts.Where(s => s.Status != "Draft")
@@ -415,6 +423,7 @@ namespace GFC.BlazorServer.Components.Pages
                 TotalCancels = shiftEntity.TotalCancels,
                 NetDue = shiftEntity.NetDue,
                 BagRefillAmount = shiftEntity.BagRefillAmount,
+                BackupBagAmount = shiftEntity.BackupBagAmount,
                 Notes = shiftEntity.Notes ?? string.Empty,
                 Status = shiftEntity.Status ?? "Submitted",
                 CreatedBy = shiftEntity.CreatedBy ?? string.Empty,
@@ -513,6 +522,7 @@ namespace GFC.BlazorServer.Components.Pages
                 
                 shift.EnvelopeAmount = _shiftForm.EnvelopeAmount;
                 shift.BagRefillAmount = _shiftForm.BagRefillAmount ?? 0;
+                shift.BackupBagAmount = _shiftForm.BackupBagAmount;
                 shift.Notes = string.IsNullOrWhiteSpace(_shiftForm.Notes) ? null : _shiftForm.Notes;
                 shift.Status = _shiftForm.Status;
                 shift.CreatedBy = _shiftForm.CreatedBy;
@@ -693,6 +703,8 @@ namespace GFC.BlazorServer.Components.Pages
 
             [Range(0, double.MaxValue, ErrorMessage = "Backup Bag must be 0 or greater")]
             public decimal? BagRefillAmount { get; set; }
+
+            public decimal BackupBagAmount { get; set; }
             
             public string Notes { get; set; } = string.Empty;
             public string Status { get; set; } = "Submitted";
@@ -720,7 +732,7 @@ namespace GFC.BlazorServer.Components.Pages
                 }
             }
 
-            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + (BagRefillAmount ?? 0);
+            public decimal ExpectedCash => (StartingCash ?? 0) + NetSales + BackupBagAmount;
             public decimal Variance => (EndingCash ?? 0) - ExpectedCash;
             
             // PERSIST THE ACTIVITY FIELDS FOR REPOSITORY
@@ -745,6 +757,7 @@ namespace GFC.BlazorServer.Components.Pages
                        TotalCancels != other.TotalCancels ||
                        NetDue != other.NetDue ||
                        BagRefillAmount != other.BagRefillAmount ||
+                       BackupBagAmount != other.BackupBagAmount ||
                        CreatedBy != other.CreatedBy;
             }
         }

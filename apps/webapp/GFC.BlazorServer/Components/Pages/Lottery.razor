@@ -468,9 +468,10 @@
             </div>
         </div>
         <div class="col">
-            <div class="data-card border-0" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; box-shadow: 0 10px 15px -3px rgba(220, 38, 38, 0.2);">
-                <div class="small fw-bold opacity-75 mb-1">System Fees</div>
-                <div class="h3 mb-0 fw-black">@TotalFees.ToString("C")</div>
+            <div class="data-card border-0" style="background: linear-gradient(135deg, @(NetBagDebt > 0 ? "#ef4444" : "#10b981") 0%, @(NetBagDebt > 0 ? "#dc2626" : "#059669") 100%); color: white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);">
+                <div class="small fw-bold opacity-75 mb-1">Backup Bag Change</div>
+                <div class="h3 mb-0 fw-black">@(NetBagDebt > 0 ? "-" : "+")@Math.Abs(NetBagDebt).ToString("C2")</div>
+                <div class="x-small fw-bold opacity-75">@(NetBagDebt > 0 ? "Net Debt" : "Bag Surplus") for Period</div>
             </div>
         </div>
         <div class="col">
@@ -547,7 +548,7 @@
                         <th>Machine Payouts (RPT 50)</th>
                         <th>Instant Tickets (RPT 34)</th>
                         <th class="text-primary">Lottery Earnings</th>
-                        <th class="text-danger">System Fees</th>
+                        <th class="text-indigo">Backup Bag</th>
                         <th>Net Due (RPT 50)</th>
                         <th>Shift Net Sales</th>
                         <th>Expected Drawer</th>
@@ -595,7 +596,25 @@
                                 <td>@shift.TotalPayouts.ToString("C2")</td>
                                 <td>@shift.TotalCancels.ToString("C2")</td>
                                 <td class="fw-bold text-primary">@shift.Commission.ToString("C2")</td>
-                                <td class="text-danger">@shift.IdentifiedFees.ToString("C2")</td>
+                                <td>
+                                    @if (shift.BackupBagAmount > 0 || shift.BagRefillAmount > 0)
+                                    {
+                                        <div class="d-flex flex-column" style="font-size: 0.75rem; line-height: 1.2;">
+                                            @if (shift.BackupBagAmount > 0)
+                                            {
+                                                <span class="text-danger fw-black">OUT: (-@shift.BackupBagAmount.ToString("N2"))</span>
+                                            }
+                                            @if (shift.BagRefillAmount > 0)
+                                            {
+                                                <span class="text-success fw-black">REFILL: +@shift.BagRefillAmount.ToString("N2")</span>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted opacity-50">$0.00</span>
+                                    }
+                                </td>
                                 <td class="fw-bold">@shift.NetDue.ToString("C2")</td>
                                 <td>@shift.NetSales.ToString("C2")</td>
                                 <td class="fw-bold">@shift.ExpectedCash.ToString("C2")</td>
@@ -652,6 +671,7 @@
                             <th>Machine Payouts</th>
                             <th>Instant Tickets</th>
                             <th>Net Due (RPT 50)</th>
+                            <th>Backup Bag (Net)</th>
                             <th>Shift Net Sales</th>
                             <th>Total Envelopes</th>
                             <th>Total Variance</th>
@@ -667,6 +687,9 @@
                                 <td>@summary.TotalPayouts.ToString("C2")</td>
                                 <td>@summary.TotalCancels.ToString("C2")</td>
                                 <td class="fw-bold">@summary.TotalNetDue.ToString("C2")</td>
+                                <td class="fw-bold @(summary.NetBagChange > 0 ? "text-danger" : summary.NetBagChange < 0 ? "text-success" : "text-muted opacity-50")">
+                                    @(summary.NetBagChange != 0 ? (summary.NetBagChange > 0 ? "-" : "+") + Math.Abs(summary.NetBagChange).ToString("C2") : "$0.00")
+                                </td>
                                 <td>@summary.TotalNetSales.ToString("C2")</td>
                                 <td>@summary.TotalEnvelope.ToString("C2")</td>
                                 <td>
@@ -696,6 +719,7 @@
                             <th>Machine Sales</th>
                             <th>Machine Payouts</th>
                             <th>Net Due</th>
+                            <th>Backup Bag (Net)</th>
                             <th>Shift Net Sales</th>
                             <th>Total Envelopes</th>
                             <th>Total Variance</th>
@@ -710,6 +734,9 @@
                                 <td>@summary.TotalSales.ToString("C2")</td>
                                 <td>@summary.TotalPayouts.ToString("C2")</td>
                                 <td class="fw-bold">@summary.TotalNetDue.ToString("C2")</td>
+                                <td class="fw-bold @(summary.NetBagChange > 0 ? "text-danger" : summary.NetBagChange < 0 ? "text-success" : "text-muted opacity-50")">
+                                    @(summary.NetBagChange != 0 ? (summary.NetBagChange > 0 ? "-" : "+") + Math.Abs(summary.NetBagChange).ToString("C2") : "$0.00")
+                                </td>
                                 <td>@summary.TotalNetSales.ToString("C2")</td>
                                 <td>@summary.TotalEnvelope.ToString("C2")</td>
                                 <td>
@@ -956,18 +983,27 @@
                             </div>
                         </div>
 
-                        <!-- ⑤ Backup Bag added -->
+                        <!-- ⑤ Money Taken from Bag (Start) -->
                         <div>
-                            <label class="fw-bold text-dark x-small mb-1 px-1 text-uppercase">⑤ Backup Bag added</label>
+                            <label class="fw-bold text-dark x-small mb-1 px-1 text-uppercase">⑤ Money Taken from Bag (Start)</label>
                             <div class="input-group border rounded-2 overflow-hidden shadow-sm">
                                 <span class="input-group-text bg-light border-0 text-muted fw-bold px-2 fs-7">+</span>
+                                <InputNumber @bind-Value="_shiftForm.BackupBagAmount" class="form-control border-0 fw-bold py-1.5 fs-7" placeholder="0" />
+                            </div>
+                        </div>
+
+                        <!-- ⑥ Bag Refilled (End) -->
+                        <div>
+                            <label class="fw-bold text-dark x-small mb-1 px-1 text-uppercase">⑥ Bag Refilled (End)</label>
+                            <div class="input-group border rounded-2 overflow-hidden shadow-sm">
+                                <span class="input-group-text bg-light border-0 text-muted fw-bold px-2 fs-7">↓</span>
                                 <InputNumber @bind-Value="_shiftForm.BagRefillAmount" class="form-control border-0 fw-bold py-1.5 fs-7" placeholder="0" />
                             </div>
                         </div>
 
-                        <!-- ⑥ Ending Cash (Counted) -->
+                        <!-- ⑦ Ending Cash (Counted) -->
                         <div>
-                            <label class="fw-bold text-success x-small mb-1 px-1 text-uppercase">⑥ Ending Cash (Counted)</label>
+                            <label class="fw-bold text-success x-small mb-1 px-1 text-uppercase">⑦ Ending Cash (Counted)</label>
                             <div class="input-group border rounded-2 overflow-hidden shadow-sm border-success border-opacity-25">
                                 <span class="input-group-text bg-light border-0 text-success fw-bold px-2 fs-7">$</span>
                                 <InputNumber @bind-Value="_shiftForm.EndingCash" class="form-control border-0 fw-bold py-1.5 fs-7 text-success" placeholder="0.00" />

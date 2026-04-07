@@ -70,6 +70,11 @@ namespace GFC.Core.DTOs
         public int VarianceCount { get; set; } // Number of shifts with variance
         public decimal LargestVariance { get; set; }
         public decimal SmallestVariance { get; set; }
+        
+        // Backup Bag Tracking
+        public decimal TotalBagOut { get; set; }
+        public decimal TotalBagIn { get; set; }
+        public decimal NetBagChange => TotalBagOut - TotalBagIn;
     }
 }
 
