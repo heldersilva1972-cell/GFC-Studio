@@ -282,7 +282,10 @@ namespace GFC.Core.Services
                 // ACTIVITY: We sum EVERY shift's results to get the total for the week
                 TotalNetSales = dtos.Sum(s => s.NetSales),
                 TotalEnvelope = dtos.Sum(s => s.EnvelopeAmount),
-                TotalVariance = dtos.Sum(s => s.Variance),
+                
+                // [FIX]: Monthly/Weekly Variance should only measure CASH errors (Counted vs Expected).
+                // We exclude the Bag transactions from the "Variance" so it doesn't inflate.
+                TotalVariance = dtos.Sum(s => s.EndingCash - (s.StartingCash + s.NetSales)),
                 
                 // FINANCIALS: The missing fields for the dashboard
                 TotalIncome = dtos.Sum(s => s.Commission),

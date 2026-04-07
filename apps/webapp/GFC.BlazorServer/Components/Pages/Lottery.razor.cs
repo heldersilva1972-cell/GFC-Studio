@@ -139,6 +139,10 @@ namespace GFC.BlazorServer.Components.Pages
                 {
                     await LoadMonthlySummaries();
                 }
+                else if (_viewMode == "commissions")
+                {
+                    await LoadDailySummaries();
+                }
                 else if (_viewMode == "reconcile")
                 {
                     await LoadReconcileData();
@@ -340,6 +344,13 @@ namespace GFC.BlazorServer.Components.Pages
             await LoadData();
         }
 
+        private async Task ApplyTodayFilter()
+        {
+            _filterStartDate = DateTime.Today;
+            _filterEndDate = DateTime.Today;
+            await OnFilterChanged();
+        }
+
         private async Task ApplyCurrentWeekFilter()
         {
             _filterStartDate = GetWeekStart(DateTime.Today);
@@ -363,6 +374,7 @@ namespace GFC.BlazorServer.Components.Pages
         private async Task ChangeViewMode(string mode)
         {
             _viewMode = mode;
+            _error = string.Empty;
             await LoadData();
         }
 
