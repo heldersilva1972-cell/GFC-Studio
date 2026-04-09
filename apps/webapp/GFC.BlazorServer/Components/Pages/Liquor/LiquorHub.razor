@@ -8,6 +8,7 @@
 @inject ILiquorService LiquorService
 @inject IJSRuntime JSRuntime
 @inject NavigationManager NavMgr
+@inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SystemSettingsService
 @inject CustomAuthenticationStateProvider AuthStateProvider
 @inject IBlazorSystemSettingsService SystemSettingsService
 
@@ -221,8 +222,10 @@
                     @if (!_itemToEdit.IsUnitBased)
                     {
                         <div class="col-6">
-                            <label class="small fw-bold text-muted mb-1">Shot Size (oz)</label>
-                            <input type="number" class="form-control rounded-pill border-2" onfocus="this.select();" @bind="_itemToEdit.PourSize" step="0.1" />
+                            <label class="small fw-bold text-muted mb-1">Yield Rule</label>
+                            <div class="bg-light p-2 px-3 rounded-pill text-navy small fw-black border border-navy border-opacity-10 text-center">
+                                GLOBAL @(_settings?.GlobalLiquorPourSize.ToString("F2") ?? "1.50")oz
+                            </div>
                         </div>
                     }
                 </div>
@@ -356,20 +359,18 @@
 
     <!-- Header -->
     <div class="hub-header d-flex justify-content-between align-items-end mb-4">
-        <div>
-            <nav aria-label="breadcrumb">
-                <ol class="breadcrumb mb-1">
-                    <li class="breadcrumb-item"><a href="/" class="text-decoration-none text-muted">Dashboard</a></li>
-                    <li class="breadcrumb-item active">Liquor</li>
-                </ol>
-            </nav>
-            <h1 class="display-6 fw-black mb-1" style="color: #334155; letter-spacing: -0.03em;">Liquor Ordering & Inventory</h1>
-            <div class="d-flex align-items-center gap-2 text-muted small">
-                <i class="bi bi-cart-check text-success"></i>
-                <span>Managed by @_currentUser?.Username</span>
-                <span class="mx-1">•</span>
-                <span>@_vendors.Count Vendors active</span>
+        <div class="col-lg-6">
+            <!-- Legend for Icons -->
+            <div class="d-flex gap-3 align-items-center mb-0 opacity-75">
+                <div class="d-flex align-items-center gap-1 extra-small fw-black text-muted">
+                    <i class="bi bi-box-seam text-dark"></i> FULL CASES
+                </div>
+                <div class="d-flex align-items-center gap-1 extra-small fw-black text-muted">
+                    <svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg> INDIVIDUAL UNITS
+                </div>
             </div>
+            <h1 class="fw-black mb-0 display-5 text-navy-hub">LIQUOR HUB</h1>
+            <p class="text-muted fw-bold small">Master inventory, smart purchasing, and sales intelligence</p>
         </div>
         <div class="d-flex gap-2 mb-1">
              <button class="btn btn-sm px-3 py-2 rounded-pill bg-white border shadow-sm text-dark fw-bold" @onclick="RefreshDataAsync">
@@ -585,7 +586,7 @@
                                 <div class="vr mx-1"></div>
                                 <div class="d-flex align-items-center gap-1 bg-light rounded-pill p-1 border">
                                     <button class="btn btn-sm rounded-pill px-3 fw-black @(!_filterBeerOnly ? "btn-white shadow-sm" : "text-muted")" style="font-size: 0.65rem;" @onclick="() => _filterBeerOnly = false">ALL</button>
-                                    <button class="btn btn-sm rounded-pill px-3 fw-black @(_filterBeerOnly ? "btn-amber shadow-sm" : "text-muted")" style="font-size: 0.65rem;" @onclick="() => _filterBeerOnly = true"><i class="bi bi-cup-straw me-1"></i>BEER ONLY</button>
+                                    <button class="btn btn-sm rounded-pill px-3 fw-black @(_filterBeerOnly ? "btn-amber shadow-sm" : "text-muted")" style="font-size: 0.65rem;" @onclick="() => _filterBeerOnly = true"><svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg> BEER ONLY</button>
                                 </div>
                             </div>
                             
@@ -611,15 +612,43 @@
                                                                 <span>@item.CurrentPrice.ToString("C")</span>
                                                             </div>
                                                         </div>
-                                                        <div class="stock-pill @(item.CurrentStock == 0 ? "empty" : (item.CurrentStock <= item.MinStockLimit ? "low" : "ok"))">
-                                                            <div class="stock-label">STOCK</div>
-                                                            <div class="stock-number">@item.CurrentStock</div>
-                                                        </div>
+                                                                 <div class="stock-pill @(item.CurrentStock == 0 ? "empty" : (item.CurrentStock <= item.MinStockLimit ? "low" : "ok"))">
+                                                                    <div class="d-flex align-items-center justify-content-center gap-1">
+                                                                        @if (item.PackSize > 1)
+                                                                        {
+                                                                            <div class="stock-unit-group" title="Full Cases">
+                                                                                <span class="stock-icon"><i class="bi bi-box-seam"></i></span>
+                                                                                <span class="stock-value">@(item.CurrentStock / item.PackSize)</span>
+                                                                            </div>
+                                                                            <div class="stock-divider"></div>
+                                                                            <div class="stock-unit-group" title="Individual Bottles">
+                                                                                <span class="stock-icon"><svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg></span>
+                                                                                <span class="stock-value">@(item.CurrentStock % item.PackSize)</span>
+                                                                            </div>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <span class="stock-value">@item.CurrentStock</span>
+                                                                            <span class="stock-icon-small"><svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg></span>
+                                                                        }
+                                                                    </div>
+                                                                </div>
                                                     </div>
                                                   </div>
                                                   <div class="quantity-control px-2 @(GetCartQuantity(item.Id) > 0 && GetCartQuantity(item.Id) < item.MinimumOrderQuantity ? "border border-danger rounded-3" : "")">
                                                       <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, -1)">-</button>
-                                                      <input type="number" class="qty-input" value="@GetCartQuantity(item.Id)" onfocus="this.select()" @oninput="e => SetCartQuantity(item.Id, e.Value)" />
+                                                       <div class='qty-display d-flex flex-column align-items-center justify-content-center' style='min-width: 65px; line-height: 1;'>
+                                                           @if (item.PackSize > 1)
+                                                           {
+                                                               <span class='fw-black text-primary' style='font-size: 1rem;'>@(GetCartQuantity(item.Id) / item.PackSize) cs</span>
+                                                               <span class='extra-small text-muted' style='font-size: 0.55rem;'>(@GetCartQuantity(item.Id) units)</span>
+                                                           }
+                                                           else
+                                                           {
+                                                               <span class='fw-black text-dark' style='font-size: 1.1rem;'>@GetCartQuantity(item.Id)</span>
+                                                               <span class='extra-small text-muted' style='font-size: 0.55rem;'>units</span>
+                                                           }
+                                                       </div>
                                                       <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, 1)">+</button>
                                                   </div>
                                                 </div>
@@ -660,15 +689,43 @@
                                                                             <span>@item.CurrentPrice.ToString("C")</span>
                                                                         </div>
                                                                     </div>
-                                                                    <div class="stock-pill @(item.CurrentStock == 0 ? "empty" : (item.CurrentStock <= item.MinStockLimit ? "low" : "ok"))">
-                                                                        <div class="stock-label">STOCK</div>
-                                                                        <div class="stock-number">@item.CurrentStock</div>
+                                                                     <div class="stock-pill @(item.CurrentStock == 0 ? "empty" : (item.CurrentStock <= item.MinStockLimit ? "low" : "ok"))">
+                                                                        <div class="d-flex align-items-center justify-content-center gap-1">
+                                                                            @if (item.PackSize > 1)
+                                                                            {
+                                                                                 <div class="stock-unit-group" title="Full Cases">
+                                                                                    <span class="stock-icon"><i class="bi bi-box-seam"></i></span>
+                                                                                    <span class="stock-value">@(item.CurrentStock / item.PackSize)</span>
+                                                                                 </div>
+                                                                                 <div class="stock-divider"></div>
+                                                                                 <div class="stock-unit-group" title="Individual Bottles">
+                                                                                    <span class="stock-icon"><svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg></span>
+                                                                                    <span class="stock-value">@(item.CurrentStock % item.PackSize)</span>
+                                                                                 </div>
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                <span class="stock-value">@item.CurrentStock</span>
+                                                                                <span class="stock-icon-small"><svg width='1.1em' height='1.1em' viewBox='0 0 16 16' fill='currentColor' style='display: inline-block; vertical-align: -0.15em;' xmlns='http://www.w3.org/2000/svg'><path d='M9.5 2H6.5V4.5C6 5 5.5 5.5 5.5 6.5V14H10.5V6.5C10.5 5.5 10 5 9.5 4.5V2Z'/></svg></span>
+                                                                            }
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                             <div class="quantity-control px-2 @(GetCartQuantity(item.Id) > 0 && GetCartQuantity(item.Id) < item.MinimumOrderQuantity ? "border border-danger rounded-3" : "")">
                                                                 <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, -1)">-</button>
-                                                                <input type="number" class="qty-input" value="@GetCartQuantity(item.Id)" onfocus="this.select()" @oninput="e => SetCartQuantity(item.Id, e.Value)" />
+                                                                <div class="qty-display d-flex flex-column align-items-center justify-content-center" style="min-width: 65px; line-height: 1;">
+                                                           @if (item.PackSize > 1)
+                                                           {
+                                                               <span class="fw-black text-primary" style="font-size: 1rem;">@(GetCartQuantity(item.Id) / item.PackSize) cs</span>
+                                                               <span class="extra-small text-muted" style="font-size: 0.55rem;">(@GetCartQuantity(item.Id) units)</span>
+                                                           }
+                                                           else
+                                                           {
+                                                               <span class="fw-black text-dark" style="font-size: 1.1rem;">@GetCartQuantity(item.Id)</span>
+                                                               <span class="extra-small text-muted" style="font-size: 0.55rem;">units</span>
+                                                           }
+                                                       </div>
                                                                 <button class="btn btn-sm btn-icon" @onclick="() => AdjustCartQuantity(item.Id, 1)">+</button>
                                                             </div>
                                                         </div>
@@ -1364,11 +1421,12 @@
                                     }
                                     else
                                     {
+                                        decimal globalPour = _settings?.GlobalLiquorPourSize ?? 1.5m;
                                         var totalOz = GetOuncesFromSize(item.BottleSize);
                                         var costPerOz = totalOz > 0 ? item.CurrentPrice / (decimal)totalOz : 0;
-                                        costPerPurSellUnit = costPerOz * item.PourSize;
+                                        costPerPurSellUnit = costPerOz * globalPour;
                                         profitPerDrink = item.RetailPrice - costPerPurSellUnit;
-                                        unitsPerMainUnit = (int)(totalOz / (double)(item.PourSize > 0 ? item.PourSize : 1));
+                                        unitsPerMainUnit = (int)(totalOz / (double)(globalPour > 0 ? globalPour : 1));
                                         marginPercent = item.RetailPrice > 0 ? (profitPerDrink / item.RetailPrice) * 100 : 0;
                                     }
 
@@ -1532,7 +1590,10 @@
                                         <h5 class="fw-black text-uppercase mb-1">Item Mapping & Pricing</h5>
                                         <p class="small text-muted mb-0">Assign vendors to your items and set the current purchase price.</p>
                                     </div>
-                                    <div class="d-flex gap-2">
+                                    <div class="d-flex gap-2 align-items-center">
+                                         <div class="badge rounded-pill fw-black px-4 py-2 border shadow-sm" style="background: #eff6ff; color: #1e40af; border-color: #bfdbfe !important;">
+                                             <i class="bi bi-info-circle me-1"></i> Global Shot: <span class="fw-black">@(_settings?.GlobalLiquorPourSize.ToString("F2") ?? "1.50")oz</span>
+                                         </div>
                                          <button class="btn btn-outline-primary px-4 rounded-pill fw-black" @onclick="() => _showPriceHistoryModal = true"><i class="bi bi-clock-history me-1"></i>PRICE LOG</button>
                                          <button class="btn btn-outline-primary px-4 rounded-pill fw-black" @onclick='() => _activeSetupTab = "vendors"'>MANAGE VENDORS</button>
                                          <button class="btn btn-success px-4 rounded-pill fw-black" @onclick="() => _showAddItemModal = true"><i class="bi bi-plus-lg me-1"></i>ADD NEW ITEM</button>
@@ -1554,7 +1615,7 @@
                                                 <th class="text-center" style="width: 10%;">Min Stock</th>
                                                 <th class="text-center">Bottle / Case Cost</th>
                                                 <th class="text-center">Drink Price</th>
-                                                <th class="text-center" style="width: 10%;">Shot Size</th>
+                                                <th class="text-center" style="width: 10%;">Yield Rule</th>
                                                 <th class="text-end pe-4" style="width: 8%;">Actions</th>
                                             </tr>
                                         </thead>
@@ -1600,13 +1661,14 @@
                                                          </div>
                                                     </td>
                                                     <td class="text-center">
-                                                         <div class="input-group input-group-sm justify-content-center">
-                                                            <input type="number" class="form-control form-control-sm border-0 bg-light rounded-3 fw-bold text-center" 
-                                                                   style="max-width: 60px;"
-                                                                   onfocus="this.select();"
-                                                                   @bind="item.PourSize" @bind:event="oninput" step="0.1" />
-                                                            <span class="input-group-text border-0 bg-transparent extra-small fw-bold">oz</span>
-                                                         </div>
+                                                        @if (item.IsUnitBased)
+                                                        {
+                                                            <span class="badge rounded-pill fw-black px-3 py-2" style="background: #f1f5f9; color: #475569; font-size: 0.65rem; letter-spacing: 0.5px;">UNIT</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="badge rounded-pill fw-black px-3 py-2 border" style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd !important; font-size: 0.65rem; letter-spacing: 0.5px;">GLOBAL</span>
+                                                        }
                                                     </td>
                                                     <td class="text-end pe-4">
                                                         <button class="btn btn-sm btn-icon text-danger border-0" @onclick="() => DeleteItemAsync(item.Id)">
@@ -2215,24 +2277,16 @@
         margin-left: 5px;
     }
 
-    .stock-pill {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        min-width: 60px;
-        padding: 5px 10px;
-        border-radius: 12px;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-    }
+    .stock-pill { padding: 4px 10px; border-radius: 12px; font-weight: 900; min-width: 75px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .stock-pill.ok { background: #ecfdf5; color: #059669; border: 1.5px solid #10b98122; }
+    .stock-pill.low { background: #fffbeb; color: #d97706; border: 1.5px solid #f59e0b22; }
+    .stock-pill.empty { background: #fef2f2; color: #dc2626; border: 1.5px solid #ef444422; }
 
-    .stock-pill.ok { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
-    .stock-pill.low { background: #fffbeb; border-color: #fef3c7; color: #b45309; }
-    .stock-pill.empty { background: #fef2f2; border-color: #fee2e2; color: #b91c1c; }
-
-    .stock-label { font-size: 0.6rem; font-weight: 800; opacity: 0.7; letter-spacing: 0.05em; }
-    .stock-number { font-size: 1.25rem; font-weight: 900; line-height: 1.1; }
+    .stock-unit-group { display: flex; flex-direction: column; line-height: 1; align-items: center; }
+    .stock-icon { font-size: 0.85rem; opacity: 0.8; margin-bottom: 1px; }
+    .stock-value { font-size: 1rem; font-family: 'Inter', sans-serif; font-weight: 950; }
+    .stock-divider { width: 1.5px; height: 18px; background: currentColor; opacity: 0.15; margin: 0 4px; }
+    .stock-icon-small { font-size: 0.8rem; opacity: 0.7; margin-left: 2px; }
 
     .order-item-card {
         background: #fff;
@@ -2377,6 +2431,73 @@
 
     .shadow-inner {
         box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+    }
+
+    /* PREMIUM STOCK PILLS */
+    .stock-pill { padding: 6px 14px; border-radius: 14px; font-weight: 950; min-width: 90px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: all 0.2s; }
+    .stock-pill.ok { background: #f0fdf4; color: #166534; border: 1.5px solid #bbf7d0; }
+    .stock-pill.low { background: #fffbeb; color: #9a3412; border: 1.5px solid #fed7aa; }
+    .stock-pill.empty { background: #fef2f2; color: #991b1b; border: 1.5px solid #fecaca; }
+
+    .stock-unit-group { display: flex; flex-direction: column; line-height: 1; align-items: center; }
+    .stock-icon { font-size: 0.9rem; opacity: 0.7; margin-bottom: 2px; }
+    .stock-value { font-size: 1.25rem; font-family: 'Inter', sans-serif; font-weight: 950; }
+    .stock-divider { width: 2px; height: 22px; background: currentColor; opacity: 0.15; margin: 0 6px; }
+    .stock-icon-small { font-size: 1.1rem; opacity: 0.7; margin-left: 3px; }
+
+    /* ORDERING CHIP STYLES */
+    .quantity-control { 
+        background: #f8fafc; 
+        border: 2px solid #e2e8f0 !important; 
+        border-radius: 20px !important; 
+        padding: 5px 12px !important; 
+        box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.03);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .qty-display { 
+        min-width: 75px; 
+        text-align: center;
+    }
+    
+    .btn-icon { 
+        width: 36px !important; 
+        height: 36px !important; 
+        border-radius: 50% !important; 
+        background: white !important; 
+        border: 1.5px solid #cbd5e1 !important; 
+        box-shadow: 0 2px 5px rgba(0,0,0,0.06) !important; 
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        color: #1e293b !important;
+        transition: all 0.1s ease !important;
+    }
+    
+    .btn-icon:hover { 
+        background: #f8fafc !important; 
+        border-color: #94a3b8 !important;
+        transform: translateY(-1px);
+    }
+    
+    .btn-icon:active { 
+        transform: scale(0.92); 
+        box-shadow: none !important;
+    }
+
+    .btn-icon i { font-size: 1.25rem; -webkit-text-stroke: 1px currentColor; }
+
+    /* CUSTOM BOTTLE ICON OVERRIDE */
+    .bi-cup-straw::before { 
+        content: '' !important; 
+        display: inline-block; 
+        width: 1.1em; 
+        height: 1.1em; 
+        background-color: currentColor; 
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M9 1h-2v3.13a2.5 2.5 0 0 0-.5 1.37V15a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V5.5c0-.52-.18-1-.5-1.37V1zm-1 4.5c.28 0 .5.22.5.5v8c0 .28-.22.5-.5.5s-.5-.22-.5-.5V6c0-.28.22-.5.5-.5z'/%3E%3C/svg%3E") no-repeat center; 
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M9 1h-2v3.13a2.5 2.5 0 0 0-.5 1.37V15a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V5.5c0-.52-.18-1-.5-1.37V1zm-1 4.5c.28 0 .5.22.5.5v8c0 .28-.22.5-.5.5s-.5-.22-.5-.5V6c0-.28.22-.5.5-.5z'/%3E%3C/svg%3E") no-repeat center; 
     }
 </style>
 
@@ -2616,8 +2737,10 @@
 
     private void AdjustCartQuantity(int itemId, int delta)
     {
+        var item = _items.FirstOrDefault(i => i.Id == itemId);
+        int step = (item != null && item.PackSize > 1) ? item.PackSize : 1;
         var current = GetCartQuantity(itemId);
-        _cart[itemId] = Math.Max(0, current + delta);
+        _cart[itemId] = Math.Max(0, current + (delta * step));
     }
 
     private decimal GetCartTotal()
@@ -3041,9 +3164,10 @@
             var unitCost = i.PackSize > 0 ? i.CurrentPrice / i.PackSize : 0;
             return i.RetailPrice - unitCost;
         } else {
+            decimal globalPour = _settings?.GlobalLiquorPourSize ?? 1.5m;
             var totalOz = GetOuncesFromSize(i.BottleSize);
             var costPerOz = totalOz > 0 ? i.CurrentPrice / (decimal)totalOz : 0;
-            return i.RetailPrice - (costPerOz * i.PourSize);
+            return i.RetailPrice - (costPerOz * globalPour);
         }
     }
     private async Task SaveEmailSettingsAsync()

@@ -1,0 +1,739 @@
+@page "/admin/pos-audit"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using global::System.Text.Json
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject NavigationManager Navigation
+@inject GFC.BlazorServer.Services.IBlazorSystemSettingsService SystemSettingsService
+@attribute [Authorize]
+
+<PageTitle>POS Sales Audit</PageTitle>
+
+<div class="audit-page-wrapper">
+    <!-- STICKY TOP SECTION -->
+    <div class="sticky-top-section bg-light p-4 pt-4">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="fw-black mb-1">POS TRANSACTION AUDIT</h2>
+                <p class="text-muted small mb-0">Live feed of all bar station activity</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary rounded-pill fw-bold bg-white" @onclick="LoadSales">
+                    <i class="bi bi-arrow-clockwise me-2"></i>REFRESH
+                </button>
+                <button class="btn btn-navy rounded-pill fw-bold" @onclick='() => Navigation.NavigateTo("/admin/pos-terminal")'>
+                    OPEN POS TERMINAL
+                </button>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="d-flex gap-3 mb-4 overflow-x-auto pb-2">
+            <div style="min-width: 200px;">
+                <div class="stat-card">
+                    <div class="label">TOTAL REVENUE</div>
+                    <div class="value">@TodayTotal.ToString("C")</div>
+                    <div class="footer text-success fw-bold">Live Combined Feed</div>
+                </div>
+            </div>
+            @foreach (var station in StationTotals)
+            {
+                <div style="min-width: 160px;">
+                    <div class="stat-card station-stat">
+                        <div class="label">@station.Key</div>
+                        <div class="value">@station.Value.ToString("C")</div>
+                        <div class="footer">@(station.Value > 0 ? "Active" : "Closed")</div>
+                    </div>
+                </div>
+            }
+            <div style="min-width: 420px; margin-left: auto;">
+                <div class="stat-card" style="border-left: 8px solid #3b82f6;">
+                    <div class="label">LIFETIME TOKEN TRACKER</div>
+                    <div class="d-flex align-items-center gap-4">
+                        <div>
+                            <div class="fw-black text-muted mb-1" style="font-size: 0.6rem; letter-spacing: 0.5px;">BEER TOKENS</div>
+                            <div class="value" style="font-size: 1.1rem !important;">@LifetimeBeerSold <span class="fs-6 text-muted" style="font-size: 0.65rem !important; vertical-align: middle;">SOLD</span> / @LifetimeBeerUsed <span class="fs-6 text-muted" style="font-size: 0.65rem !important; vertical-align: middle;">USED</span></div>
+                            <div class="footer fw-bold @(LifetimeBeerSold > LifetimeBeerUsed ? "text-primary" : "text-success")">
+                                @(LifetimeBeerSold - LifetimeBeerUsed) In Wild
+                            </div>
+                        </div>
+                        <div style="width: 1.5px; height: 40px; background: #e2e8f0;"></div>
+                        <div>
+                            <div class="fw-black text-muted mb-1" style="font-size: 0.6rem; letter-spacing: 0.5px;">MIXED DRINKS</div>
+                            <div class="value" style="font-size: 1.1rem !important;">@LifetimeMixedSold <span class="fs-6 text-muted" style="font-size: 0.65rem !important; vertical-align: middle;">SOLD</span> / @LifetimeMixedUsed <span class="fs-6 text-muted" style="font-size: 0.65rem !important; vertical-align: middle;">USED</span></div>
+                            <div class="footer fw-bold @(LifetimeMixedSold > LifetimeMixedUsed ? "text-primary" : "text-success")">
+                                @(LifetimeMixedSold - LifetimeMixedUsed) In Wild
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-bar p-3 bg-white rounded-4 shadow-sm">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted mb-1 d-block">DATE RANGE</label>
+                    <div class="d-flex gap-2 align-items-center">
+                        <input type="date" class="form-control rounded-pill border-0 bg-light fw-bold" @bind="StartDate" @bind:after="OnDateManualChanged">
+                        <span class="text-muted small fw-bold">TO</span>
+                        <input type="date" class="form-control rounded-pill border-0 bg-light fw-bold" @bind="EndDate" @bind:after="OnDateManualChanged">
+                    </div>
+                </div>
+                <div class="col-md-5">
+                    <label class="small fw-bold text-muted mb-1 d-block">QUICK PRESETS</label>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-xs rounded-pill px-3 fw-bold @(ActivePreset == "today" ? "btn-navy" : "btn-light")" @onclick='() => SetPreset("today")'>TODAY</button>
+                        <button class="btn btn-xs rounded-pill px-3 fw-bold @(ActivePreset == "yesterday" ? "btn-navy" : "btn-light")" @onclick='() => SetPreset("yesterday")'>YESTERDAY</button>
+                        <button class="btn btn-xs rounded-pill px-3 fw-bold @(ActivePreset == "thisweek" ? "btn-navy" : "btn-light")" @onclick='() => SetPreset("thisweek")'>THIS WEEK</button>
+                        <button class="btn btn-xs rounded-pill px-3 fw-bold @(ActivePreset == "lastweek" ? "btn-navy" : "btn-light")" @onclick='() => SetPreset("lastweek")'>LAST WEEK</button>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="small fw-bold text-muted mb-1 d-block">STATION</label>
+                    <select class="form-select rounded-pill border-0 bg-light fw-bold" @bind="FilterTerminal" @bind:after="LoadSales">
+                        <option value="">ALL</option>
+                        @foreach (var terminal in TerminalList)
+                        {
+                            <option value="@terminal">@terminal</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 text-end pt-3">
+                    <button class="btn btn-primary rounded-pill fw-black w-100" @onclick="GenerateSummary">
+                        <i class="bi bi-file-earmark-bar-graph me-2"></i>SUMMARY
+                    </button>
+                </div>
+                <div class="col-md-6 pt-3 text-end">
+                    <div class="btn-group p-1 bg-light rounded-pill">
+                        <button class="btn @(ActiveTab == "SALES" ? "btn-navy shadow-sm" : "btn-link text-muted fw-bold") rounded-pill px-4" @onclick='() => ActiveTab = "SALES"'>SALES FEED</button>
+                        <button class="btn @(ActiveTab == "INVENTORY" ? "btn-navy shadow-sm" : "btn-link text-muted fw-bold") rounded-pill px-4" @onclick='() => ActiveTab = "INVENTORY"'>RECONCILIATION AUDIT</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCROLLABLE WORKSPACE -->
+    <div class="audit-workspace-wrapper px-4 pb-4">
+        <div class="audit-workspace shadow-sm rounded-4 overflow-hidden">
+            @if (ActiveTab == "SALES")
+            {
+                <!-- LEFT: Transaction List -->
+                <div class="audit-list-panel">
+                    <div class="panel-header">
+                        <span>RECENT TRANSACTIONS</span>
+                        <span class="badge bg-navy text-white rounded-pill">@Sales.Count</span>
+                    </div>
+                    <div class="scroll-container">
+                        @if (Sales == null || !Sales.Any())
+                        {
+                            <div class="text-center p-5 text-muted">No sales found.</div>
+                        }
+                        else
+                        {
+                            @foreach (var sale in Sales)
+                            {
+                                <div class="sale-item @(SelectedSale?.Id == sale.Id ? "active" : "")" @onclick="() => SelectSale(sale)">
+                                    <div class="sale-info">
+                                        <div class="time">@sale.Timestamp.ToString("h:mm tt")</div>
+                                        <div class="terminal">@sale.TerminalName</div>
+                                        <div class="bartender">by @sale.BartenderName</div>
+                                    </div>
+                                    <div class="sale-amount">@sale.TotalAmount.ToString("C")</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <!-- RIGHT: Receipt Viewer -->
+                <div class="audit-viewer-panel">
+                    @if (SelectedSale == null)
+                    {
+                        <div class="empty-state">
+                            <i class="bi bi-arrow-left-circle mb-3"></i>
+                            <h5>SELECT A TRANSACTION</h5>
+                            <p class="text-muted">Choose a sale from the left to view the receipt details.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="receipt-stage animate-fade-in">
+                            <div class="receipt-paper shadow-lg">
+                                <div class="receipt-header">
+                                    <div class="brand">GFC POS</div>
+                                    <h6>@SelectedSale.TerminalName</h6>
+                                    <div class="timestamp">@SelectedSale.Timestamp.ToString("MMMM dd, yyyy @ h:mm tt")</div>
+                                    <div class=" bart">Bartender: @SelectedSale.BartenderName</div>
+                                </div>
+                                
+                                <div class="receipt-body">
+                                    <div class="section-title">ITEMS</div>
+                                    @foreach (var item in GetItemsList(SelectedSale.ItemsJson))
+                                    {
+                                        <div class="receipt-item">
+                                            <span class="qty">@item.Quantity x</span>
+                                            <span class="name">@item.Name</span>
+                                            <span class="price">@((item.Price * item.Quantity).ToString("C"))</span>
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="receipt-footer">
+                                    <div class="total-row">
+                                        <span>TOTAL AMOUNT</span>
+                                        <span>@SelectedSale.TotalAmount.ToString("C")</span>
+                                    </div>
+                                    <div class="ref-id">TXN ID: @SelectedSale.Id</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <!-- RECONCILIATION VIEW -->
+                <div class="p-5 flex-grow-1 bg-white overflow-y-auto">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h4 class="fw-black mb-0">STATION YIELD ANALYSIS: @(string.IsNullOrEmpty(FilterTerminal) ? "ALL STATIONS" : FilterTerminal.ToUpper())</h4>
+                        <div class="badge bg-navy-light text-navy p-2 rounded-pill px-3 fw-bold border">
+                            @{
+                                decimal pour = _settings?.GlobalLiquorPourSize ?? 1.5m;
+                                int shotsPerL = (int)(33.8m / (pour > 0 ? pour : 1.5m));
+                            }
+                            <i class="bi bi-info-circle me-2"></i>Yield is calculated at @shotsPerL shots (@pour.ToString("F2")oz) per 1L bottle pulled.
+                        </div>
+                    </div>
+
+                    <table class="table table-hover align-middle border">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="ps-4">LIQUOR PRODUCT</th>
+                                <th class="text-center">DRINKS SOLD (POS)</th>
+                                <th class="text-center">BOTTLES PULLED</th>
+                                <th class="text-center">EXPECTED YIELD</th>
+                                <th class="pe-4 text-end">VARIANCE / LOSS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!ReconResults.Any())
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-center py-5 text-muted">No inventory pulls recorded for this period.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var r in ReconResults.OrderBy(x => x.ItemName))
+                                {
+                                    var variance = r.ExpectedYield - r.DrinksSold;
+                                    var yieldPercent = r.ExpectedYield > 0 ? (r.DrinksSold / (decimal)r.ExpectedYield * 100) : 100;
+                                    
+                                    <tr>
+                                        <td class="ps-4 fw-black">@r.ItemName <span class="text-muted small fw-normal ms-2">(@r.BottleSize, @r.PourSize.ToString("F2")oz)</span></td>
+                                        <td class="text-center fw-bold">@r.DrinksSold</td>
+                                        <td class="text-center fw-bold">@r.BottlesPulled BOTTLES</td>
+                                        <td class="text-center text-muted">@r.ExpectedYield SHOTS</td>
+                                        <td class="pe-4 text-end">
+                                            @if (variance > 2)
+                                            {
+                                                <span class="text-danger fw-black">-@variance.ToString("F0") SHOTS (@yieldPercent.ToString("F1")%)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-success fw-bold">TIGHT (@yieldPercent.ToString("F1")%)</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .audit-page-wrapper { 
+        height: 100vh; display: flex; flex-direction: column; overflow: hidden; BACKGROUND: #f8fafc;
+    }
+    
+    .sticky-top-section { flex: 0 0 auto; border-bottom: 1.5px solid #e2e8f0; }
+
+    .audit-workspace-wrapper { flex: 1; overflow: hidden; min-height: 0; }
+    .audit-workspace { display: flex; height: 100%; background: white; border: 1.5px solid #e2e8f0; }
+    
+    /* LEFT PANEL */
+    .audit-list-panel { width: 380px; display: flex; flex-direction: column; border-right: 1.5px solid #e2e8f0; background: #f8fafc; }
+    .audit-list-panel .panel-header { padding: 1.25rem; background: white; border-bottom: 1.5px solid #e2e8f0; font-weight: 900; font-size: 0.75rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; letter-spacing: 0.5px; }
+    
+    .scroll-container { flex: 1; overflow-y: auto; }
+    .sale-item { 
+        padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; 
+        border-bottom: 1px solid #e2e8f0; cursor: pointer; transition: 0.2s; background: white;
+    }
+    .sale-item:hover { background: #f1f5f9; }
+    .sale-item.active { background: #eef2ff; border-right: 4px solid var(--pos-navy); }
+    
+    .sale-item .time { font-weight: 900; font-size: 0.95rem; color: #1e293b; margin-bottom: 2px; }
+    .sale-item .terminal { font-size: 0.7rem; font-weight: 800; color: #3730a3; text-transform: uppercase; }
+    .sale-item .bartender { font-size: 0.7rem; color: #94a3b8; font-weight: 600; }
+    .sale-item .sale-amount { font-weight: 900; font-size: 1.1rem; color: #1e293b; }
+
+    /* RIGHT PANEL */
+    .audit-viewer-panel { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding-top: 3rem; background: #f1f5f9; overflow-y: auto; }
+    
+    .empty-state { text-align: center; color: #94a3b8; margin-top: 5rem; }
+    .empty-state i { font-size: 4rem; }
+    
+    .receipt-stage { padding-bottom: 5rem; width: 100%; display: flex; justify-content: center; }
+    .receipt-paper { background: white; width: 380px; padding: 2.5rem; position: relative; border-radius: 4px; }
+    .receipt-paper::after {
+        content: ""; position: absolute; bottom: -10px; left: 0; right: 0; height: 10px;
+        background: linear-gradient(-45deg, white 5px, transparent 0), linear-gradient(45deg, white 5px, transparent 0);
+        background-size: 10px 10px;
+    }
+
+    .receipt-header { text-align: center; border-bottom: 2px dashed #e2e8f0; padding-bottom: 1.5rem; margin-bottom: 1.5rem; }
+    .receipt-header .brand { font-size: 1.25rem; font-weight: 900; color: #1e293b; margin-bottom: 4px; }
+    .receipt-header h6 { font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+    .receipt-header .timestamp { font-size: 0.7rem; color: #94a3b8; }
+    .receipt-header .bart { font-size: 0.75rem; font-weight: 700; color: #475569; margin-top: 5px; }
+
+    .section-title { font-size: 0.7rem; font-weight: 900; color: #94a3b8; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    .receipt-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+    .receipt-item .qty { width: 40px; font-weight: 800; color: #64748b; }
+    .receipt-item .name { flex: 1; font-weight: 700; color: #1e293b; text-transform: uppercase; }
+    .receipt-item .price { font-weight: 800; color: #1e293b; }
+
+    .receipt-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #1e293b; }
+    .receipt-footer .total-row { display: flex; justify-content: space-between; font-weight: 950; font-size: 1.25rem; color: #1e293b; }
+    .receipt-footer .ref-id { margin-top: 2rem; font-size: 0.6rem; color: #cbd5e1; text-align: center; font-family: monospace; }
+
+    .stat-card { background: white; padding: 1.25rem; border-radius: 16px; border: 1.5px solid #e2e8f0; position: relative; }
+    .stat-card .label { font-size: 0.7rem; font-weight: 900; color: #64748b; margin-bottom: 0.25rem; }
+    .stat-card .value { font-size: 1.5rem; font-weight: 900; color: #1e293b; }
+    .stat-card .footer { font-size: 0.65rem; color: #94a3b8; }
+    .station-stat { border-left: 5px solid var(--pos-navy); }
+
+    .animate-fade-in { animation: fadeIn 0.15s ease-out forwards; }
+    @@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    
+    /* LEFT PANEL */
+    .audit-list-panel { width: 380px; display: flex; flex-direction: column; border-right: 1.5px solid #e2e8f0; background: #f8fafc; }
+    .audit-list-panel .panel-header { padding: 1.25rem; background: white; border-bottom: 1.5px solid #e2e8f0; font-weight: 900; font-size: 0.75rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; letter-spacing: 0.5px; }
+    
+    .scroll-container { flex: 1; overflow-y: auto; }
+    .sale-item { 
+        padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; 
+        border-bottom: 1px solid #e2e8f0; cursor: pointer; transition: 0.2s; background: white;
+    }
+    .sale-item:hover { background: #f1f5f9; }
+    .sale-item.active { background: #eef2ff; border-right: 4px solid var(--pos-navy); }
+    
+    .sale-item .time { font-weight: 900; font-size: 0.95rem; color: #1e293b; margin-bottom: 2px; }
+    .sale-item .terminal { font-size: 0.7rem; font-weight: 800; color: #3730a3; text-transform: uppercase; }
+    .sale-item .bartender { font-size: 0.7rem; color: #94a3b8; font-weight: 600; }
+    .sale-item .sale-amount { font-weight: 900; font-size: 1.1rem; color: #1e293b; }
+
+    /* RIGHT PANEL */
+    .audit-viewer-panel { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding-top: 3rem; background: #f1f5f9; overflow-y: auto; }
+    
+    .empty-state { text-align: center; color: #94a3b8; margin-top: 5rem; }
+    .empty-state i { font-size: 4rem; }
+    
+    .receipt-stage { padding-bottom: 5rem; width: 100%; display: flex; justify-content: center; }
+    .receipt-paper { background: white; width: 380px; padding: 2.5rem; position: relative; border-radius: 4px; }
+    .receipt-paper::after {
+        content: ""; position: absolute; bottom: -10px; left: 0; right: 0; height: 10px;
+        background: linear-gradient(-45deg, white 5px, transparent 0), linear-gradient(45deg, white 5px, transparent 0);
+        background-size: 10px 10px;
+    }
+
+    .receipt-header { text-align: center; border-bottom: 2px dashed #e2e8f0; padding-bottom: 1.5rem; margin-bottom: 1.5rem; }
+    .receipt-header .brand { font-size: 1.25rem; font-weight: 900; color: #1e293b; margin-bottom: 4px; }
+    .receipt-header h6 { font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+    .receipt-header .timestamp { font-size: 0.7rem; color: #94a3b8; }
+    .receipt-header .bart { font-size: 0.75rem; font-weight: 700; color: #475569; margin-top: 5px; }
+
+    .section-title { font-size: 0.7rem; font-weight: 900; color: #94a3b8; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    .receipt-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+    .receipt-item .qty { width: 40px; font-weight: 800; color: #64748b; }
+    .receipt-item .name { flex: 1; font-weight: 700; color: #1e293b; text-transform: uppercase; }
+    .receipt-item .price { font-weight: 800; color: #1e293b; }
+
+    .receipt-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #1e293b; }
+    .receipt-footer .total-row { display: flex; justify-content: space-between; font-weight: 950; font-size: 1.25rem; color: #1e293b; }
+    .receipt-footer .ref-id { margin-top: 2rem; font-size: 0.6rem; color: #cbd5e1; text-align: center; font-family: monospace; }
+
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .bg-light-gray { background: #f8fafc; }
+    .sale-row { cursor: pointer; transition: 0.2s; }
+    .sale-row:hover { background: #f1f5f9 !important; }
+    .expanded-border td { border-bottom: none !important; }
+    
+    .receipt-detail { border-top: none; animation: slideDown 0.3s ease-out; }
+    
+    .receipt-paper { 
+        background: white; max-width: 400px; margin: 0 auto; padding: 2rem; 
+        border-radius: 4px; position: relative;
+    }
+    .receipt-paper::after {
+        content: ""; position: absolute; bottom: -10px; left: 0; right: 0; height: 10px;
+        background: linear-gradient(-45deg, white 5px, transparent 0), linear-gradient(45deg, white 5px, transparent 0);
+        background-size: 10px 10px;
+    }
+
+    .receipt-header { border-bottom: 2px dashed #e2e8f0; padding-bottom: 1rem; margin-bottom: 1rem; text-align: center; }
+    .receipt-header h6 { font-weight: 900; letter-spacing: 1px; margin-bottom: 4px; }
+    .receipt-header small { color: #94a3b8; font-size: 0.6rem; }
+
+    .receipt-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.85rem; }
+    .receipt-item .qty { font-weight: 800; color: #64748b; width: 30px; }
+    .receipt-item .name { flex: 1; font-weight: 700; color: #1e293b; }
+    .receipt-item .price { font-weight: 800; color: #1e293b; }
+
+    .receipt-footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 2px solid #1e293b; }
+    .receipt-footer .total-line { display: flex; justify-content: space-between; font-weight: 900; font-size: 1.1rem; }
+
+    @@keyframes slideDown {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .stat-card { background: white; padding: 1rem 1.25rem; border-radius: 16px; border: 1.5px solid #e2e8f0; position: relative; overflow: hidden; height: 100%; display: flex; flex-direction: column; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .stat-card .label { font-size: 0.65rem; font-weight: 950; color: #64748b; letter-spacing: 0.8px; margin-bottom: 0.25rem; text-transform: uppercase; }
+    .stat-card .value { font-size: 1.4rem; font-weight: 950; color: #1e293b; line-height: 1.1; margin-bottom: 0.25rem; }
+    .stat-card .footer { font-size: 0.6rem; color: #94a3b8; font-weight: 700; }
+    
+    .station-stat { border-left: 8px solid var(--pos-navy); }
+    .bg-navy-light { background: #eef2ff; }
+    .text-navy { color: #3730a3; }
+    .bg-success-light { background: #f0fdf4; }
+    .bg-warning-light { background: #fffbeb; }
+    .text-orange { color: #b45309; }
+    .fw-black { font-weight: 900; }
+    .btn-navy { background: #3730a3; color: white; }
+    .btn-navy:hover { background: #312e81; color: white; }
+
+    .items-list { color: #475569; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .table thead th { font-size: 0.7rem; font-weight: 950; text-transform: uppercase; color: #64748b; letter-spacing: 1px; padding: 1rem 0.5rem; border: none; }
+    .table tbody td { vertical-align: middle; padding: 1.25rem 0.5rem; border-color: #f1f5f9; }
+
+    .btn-xs { padding: 0.25rem 0.75rem; font-size: 0.65rem; }
+    .summary-table-wrapper { max-height: 400px; overflow-y: auto; }
+    .table-sm td, .table-sm th { padding: 0.5rem; }
+
+    /* OVERLAY & MODAL FIXES */
+    .shift-overlay {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(8px);
+        display: flex; align-items: center; justify-content: center; z-index: 10000;
+        animation: fadeIn 0.2s ease-out;
+    }
+    .notice-modal {
+        background: white; padding: 2.5rem; border-radius: 40px; text-align: center;
+        max-width: 650px; width: 95%; border: 6px solid #f1f5f9; box-shadow: 0 40px 80px rgba(0,0,0,0.3);
+        position: relative;
+    }
+    .btn-close-modal {
+        position: absolute; top: 25px; right: 25px; background: #f1f5f9; border: none;
+        width: 45px; height: 45px; border-radius: 50%; font-size: 1.4rem; color: #64748b;
+        display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+    }
+    .btn-close-modal:hover { background: #e2e8f0; color: #0f172a; transform: scale(1.1); }
+</style>
+
+@if (_showSummaryModal)
+{
+    <div class="shift-overlay">
+        <div class="notice-modal animate__animated animate__zoomIn">
+            <button class="btn-close-modal shadow-sm" @onclick="() => _showSummaryModal = false">
+                <i class="bi bi-x-lg"></i>
+            </button>
+            <div class="notice-icon-circle bg-blue mb-3">
+                <i class="bi bi-graph-up"></i>
+            </div>
+            <h3 class="fw-black text-uppercase">SALES SUMMARY</h3>
+            <p class="text-muted fw-bold small mb-4">@StartDate.ToShortDateString() - @EndDate.ToShortDateString() (@(string.IsNullOrEmpty(FilterTerminal) ? "ALL STATIONS" : FilterTerminal))</p>
+            
+            <div class="summary-table-wrapper border rounded-4 overflow-hidden mb-4 scrollbar-thin">
+                <table class="table table-sm table-hover mb-0" style="font-size: 0.9rem;">
+                    <thead class="bg-light">
+                        <tr>
+                            <th class="ps-3 py-3 text-start">PRODUCT</th>
+                            <th class="text-center py-3">QTY</th>
+                            <th class="text-end pe-3 py-3">REVENUE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in SummaryResults.OrderByDescending(x => x.Revenue))
+                        {
+                            <tr class="align-middle">
+                                <td class="ps-3 fw-bold text-start py-3">@item.Name</td>
+                                <td class="text-center fw-black py-3">@item.Quantity</td>
+                                <td class="text-end pe-3 fw-bold py-3">@item.Revenue.ToString("C")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot class="bg-light fw-black border-top">
+                        <tr>
+                            <td class="ps-3 py-3 text-start">TOTAL VOLUME</td>
+                            <td class="text-center py-3">@SummaryResults.Sum(x => x.Quantity)</td>
+                            <td class="text-end pe-3 py-3">@SummaryResults.Sum(x => x.Revenue).ToString("C")</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <button class="btn btn-navy w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="() => _showSummaryModal = false">
+                CLOSE REPORT
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private string ActiveTab = "SALES";
+    private List<PosSale> Sales = new();
+    private string FilterTerminal = "";
+    private List<string> TerminalList = new();
+    private decimal TodayTotal = 0;
+    private Dictionary<string, decimal> StationTotals = new();
+    private PosSale? SelectedSale = null;
+    private List<ReconEntry> ReconResults = new();
+    private SystemSettings? _settings;
+    private int TotalTokensSold = 0;
+    private int TotalTokensRedeemed = 0;
+    private int LifetimeBeerSold = 0;
+    private int LifetimeBeerUsed = 0;
+    private int LifetimeMixedSold = 0;
+    private int LifetimeMixedUsed = 0;
+
+    private DateTime StartDate = DateTime.Today;
+    private DateTime EndDate = DateTime.Today;
+    private string ActivePreset = "today";
+    private bool _showSummaryModal = false;
+    private List<SummaryResult> SummaryResults = new();
+
+    public class SummaryResult
+    {
+        public string Name { get; set; } = "";
+        public int Quantity { get; set; }
+        public decimal Revenue { get; set; }
+    }
+
+    private async Task SetPreset(string preset)
+    {
+        ActivePreset = preset;
+        var today = DateTime.Today;
+
+        switch (preset)
+        {
+            case "today":
+                StartDate = today;
+                EndDate = today;
+                break;
+            case "yesterday":
+                StartDate = today.AddDays(-1);
+                EndDate = today.AddDays(-1);
+                break;
+            case "thisweek":
+                int diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
+                StartDate = today.AddDays(-1 * diff).Date;
+                EndDate = today;
+                break;
+            case "lastweek":
+                int lastWeekDiff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7 + 7;
+                StartDate = today.AddDays(-1 * lastWeekDiff).Date;
+                EndDate = StartDate.AddDays(6);
+                break;
+        }
+        await LoadSales();
+    }
+
+    private async Task OnDateManualChanged()
+    {
+        ActivePreset = ""; // Clear highlighted preset if user touches dates
+        await LoadSales();
+    }
+
+    private void GenerateSummary()
+    {
+        var allItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).ToList();
+        SummaryResults = allItems.GroupBy(i => i.Name)
+                                .Select(g => new SummaryResult 
+                                { 
+                                    Name = g.Key, 
+                                    Quantity = g.Sum(i => i.Quantity),
+                                    Revenue = g.Sum(i => i.Price * i.Quantity)
+                                }).ToList();
+        _showSummaryModal = true;
+    }
+
+    public class ReconEntry {
+        public string ItemName { get; set; } = "";
+        public string BottleSize { get; set; } = "1L";
+        public decimal PourSize { get; set; } = 1.5m;
+        public int DrinksSold { get; set; }
+        public int BottlesPulled { get; set; }
+        public int ExpectedYield { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var db = DbFactory.CreateDbContext();
+        await CalculateLifetimeTokens(db);
+        await LoadSales();
+    }
+
+    private async Task LoadSales()
+    {
+        using var db = DbFactory.CreateDbContext();
+        
+        var query = db.PosSales.AsQueryable();
+
+        // Date Range Filter
+        query = query.Where(s => s.Timestamp.Date >= StartDate.Date && s.Timestamp.Date <= EndDate.Date);
+
+        if (!string.IsNullOrEmpty(FilterTerminal))
+        {
+            query = query.Where(s => s.TerminalName == FilterTerminal);
+        }
+
+        Sales = await query.OrderByDescending(s => s.Timestamp).ToListAsync();
+
+        // Calculate Totals for cards
+        TodayTotal = Sales.Sum(s => s.TotalAmount);
+        
+        StationTotals = Sales.GroupBy(s => s.TerminalName)
+                            .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
+
+        // Token Tracking (Daily)
+        var allItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson)).ToList();
+        TotalTokensSold = allItems.Where(i => i.Category == "TOKENS").Sum(i => i.Quantity);
+        TotalTokensRedeemed = allItems.Where(i => i.Name.Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
+
+        // 1. Calculate Reconciliation Data
+        await CalculateReconciliation(db);
+
+        // Get unique terminal names for the dropdown
+        TerminalList = await db.PosSales.Select(s => s.TerminalName).Distinct().ToListAsync();
+
+        // Select the first one by default if any
+        if (Sales.Any() && SelectedSale == null)
+        {
+            SelectedSale = Sales.First();
+        }
+    }
+
+    private async Task CalculateReconciliation(GfcDbContext db)
+    {
+        ReconResults.Clear();
+        _settings = await SystemSettingsService.GetAsync();
+
+        // A. Get all drinks sold in this period from POS
+        var allSalesItems = Sales.SelectMany(s => GetItemsList(s.ItemsJson));
+        var posGrouped = allSalesItems.GroupBy(i => i.Name)
+                                      .ToDictionary(g => g.Key, g => g.Sum(i => i.Quantity));
+
+        // B. Get all bottles pulled from Inventory for this station/period
+        var inventoryQuery = db.LiquorTransactions.Where(t => t.Timestamp.Date >= StartDate.Date && t.Timestamp.Date <= EndDate.Date && 
+                                                             (t.Notes ?? "").Contains("POS End-of-Shift Removal"));
+        
+        if (!string.IsNullOrEmpty(FilterTerminal))
+        {
+            inventoryQuery = inventoryQuery.Where(t => (t.Notes ?? "").Contains($"[{FilterTerminal}]"));
+        }
+
+        var inventoryTransactions = await inventoryQuery.Include(t => t.Item).ToListAsync();
+        
+        // C. Process each distinct liquor involved
+        var allItemNames = posGrouped.Keys.Union(inventoryTransactions.Select(t => t.Item?.Name ?? "Unknown")).Distinct();
+
+        foreach(var name in allItemNames)
+        {
+            var drinksSold = posGrouped.ContainsKey(name) ? posGrouped[name] : 0;
+            var pulls = inventoryTransactions.Where(t => t.Item?.Name == name).ToList();
+            var bottlesPulled = pulls.Sum(t => Math.Abs(t.ChangeAmount));
+            
+            // Get item metadata (size/shot)
+            var itemMeta = pulls.FirstOrDefault()?.Item;
+            if (itemMeta == null) {
+                // Try and find from db if no pull happened but sales did
+                itemMeta = await db.LiquorItems.FirstOrDefaultAsync(i => i.Name == name);
+            }
+
+            decimal ounces = 33.8m; // Default 1L
+            decimal pour = _settings?.GlobalLiquorPourSize ?? 1.5m; // Use GLOBAL setting per user request
+            string bSize = itemMeta?.BottleSize ?? "1L";
+
+            if (bSize.Contains("750")) ounces = 25.4m;
+            if (bSize.Contains("1.75")) ounces = 59.2m;
+            
+            // Override global pour IF it is explicitly unit based (Beer/Cans)
+            if (itemMeta?.IsUnitBased == true) {
+                ounces = 1;
+                pour = 1;
+            }
+
+            int expectedShots = (int)(Math.Floor(ounces / (pour > 0 ? pour : 1)) * bottlesPulled);
+
+            ReconResults.Add(new ReconEntry {
+                ItemName = name,
+                BottleSize = bSize,
+                PourSize = pour,
+                DrinksSold = drinksSold,
+                BottlesPulled = bottlesPulled,
+                ExpectedYield = expectedShots
+            });
+        }
+    }
+
+    private async Task CalculateLifetimeTokens(GfcDbContext db)
+    {
+        // Scan all sales for absolute liability
+        var allSales = await db.PosSales.Select(s => new { s.ItemsJson, s.PaymentType }).ToListAsync();
+        
+        LifetimeBeerSold = 0; LifetimeBeerUsed = 0;
+        LifetimeMixedSold = 0; LifetimeMixedUsed = 0;
+
+        foreach (var sale in allSales)
+        {
+            var items = GetItemsList(sale.ItemsJson);
+            
+            // BEER Tracking
+            LifetimeBeerSold += items.Where(i => i.Category == "TOKENS" && i.Name.ToUpper().Contains("BEER")).Sum(i => i.Quantity);
+            LifetimeBeerUsed += items.Where(i => i.Name.ToUpper().Contains("BEER") && i.Name.Contains("(TOKEN)") && i.Price == 0).Sum(i => i.Quantity);
+
+            // MIXED DRINK Tracking
+            LifetimeMixedSold += items.Where(i => (i.Category == "TOKENS" && !i.Name.ToUpper().Contains("BEER"))).Sum(i => i.Quantity);
+            LifetimeMixedUsed += items.Where(i => (i.Name.Contains("(TOKEN)") && !i.Name.ToUpper().Contains("BEER") && i.Price == 0)).Sum(i => i.Quantity);
+        }
+    }
+
+    private void SelectSale(PosSale sale)
+    {
+        SelectedSale = sale;
+    }
+
+    private List<PosTerminal.ProductItem> GetItemsList(string json)
+    {
+        try 
+        {
+            if (string.IsNullOrEmpty(json)) return new();
+            var items = JsonSerializer.Deserialize<List<PosTerminal.ProductItem>>(json);
+            return items ?? new();
+        }
+        catch { return new(); }
+    }
+}

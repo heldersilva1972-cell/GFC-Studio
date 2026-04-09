@@ -140,6 +140,10 @@ public class GfcDbContext : DbContext
     public DbSet<TaxBracket> TaxBrackets => Set<TaxBracket>();
     public DbSet<TaxStandardDeduction> TaxStandardDeductions => Set<TaxStandardDeduction>();
     public DbSet<YearlyWage> YearlyWages => Set<YearlyWage>();
+    public DbSet<PosCategory> PosCategories => Set<PosCategory>();
+    public DbSet<PosToken> PosTokens => Set<PosToken>();
+    public DbSet<PosSale> PosSales => Set<PosSale>();
+    public DbSet<PosZReport> PosZReports => Set<PosZReport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -800,6 +804,13 @@ public class GfcDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<PosZReport>(entity =>
+        {
+            entity.ToTable("PosZReports");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CashTotal).HasColumnType("decimal(18,2)");
+        });
+
         // Liquor Inventory Configuration
         modelBuilder.Entity<LiquorItem>(entity =>
         {
@@ -947,6 +958,13 @@ public class GfcDbContext : DbContext
             entity.ToTable("ClubEventTransactions");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Amount).HasColumnType("decimal(18,2)");
+        });
+
+        modelBuilder.Entity<PosCategory>(entity =>
+        {
+            entity.ToTable("PosCategories");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DisplayOrder);
         });
     }
 

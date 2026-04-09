@@ -211,7 +211,7 @@ public class DatabaseHealthService
             command.CommandText = @"
                 SELECT TOP 1 e.Id
                 FROM ControllerEvents e WITH (NOLOCK)
-                ORDER BY e.Timestamp DESC";
+                ORDER BY e.TimestampUtc DESC";
 
             using (var reader = await ((System.Data.Common.DbCommand)command).ExecuteReaderAsync(cancellationToken))
             {

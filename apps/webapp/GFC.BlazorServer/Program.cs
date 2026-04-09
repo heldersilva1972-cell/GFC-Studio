@@ -1219,6 +1219,76 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
                         Console.WriteLine($"[Startup] Auto-detected environment: {detectedEnvironment} (Machine: {Environment.MachineName})");
                     }
                 }
+
+                // [AUTO-FIX 6] Run the POS Categories script
+                var posCatScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "CreatePosCategoriesTable.sql");
+                if (File.Exists(posCatScriptPath))
+                {
+                    Console.WriteLine($">>> Applying POS Categories Schema Fixes from: {posCatScriptPath}");
+                    var posSqlFile = File.ReadAllText(posCatScriptPath);
+                    var posBatches = System.Text.RegularExpressions.Regex.Split(posSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in posBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                db.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing POS categories batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> POS Categories Schema Fixes Applied Successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($">>> WARNING: POS categories script not found at {posCatScriptPath}");
+                }
+
+                // [AUTO-FIX 7] Run the ShowInPos script
+                var showInPosScriptInfo = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "AddShowInPosToLiquorItems.sql");
+                if (File.Exists(showInPosScriptInfo))
+                {
+                    Console.WriteLine($">>> Applying ShowInPos Schema Fixes from: {showInPosScriptInfo}");
+                    var posSqlFile = File.ReadAllText(showInPosScriptInfo);
+                    var posBatches = System.Text.RegularExpressions.Regex.Split(posSqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in posBatches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                db.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing ShowInPos batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> ShowInPos Schema Fixes Applied Successfully.");
+                }
+
+                // [AUTO-FIX 8] Run the CreatePosTokensTable script
+                var tokensScriptPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "docs", "DatabaseScripts", "CreatePosTokensTable.sql");
+                if (File.Exists(tokensScriptPath))
+                {
+                    Console.WriteLine($">>> Applying PosTokens Schema Fixes from: {tokensScriptPath}");
+                    var sqlFile = File.ReadAllText(tokensScriptPath);
+                    var batches = System.Text.RegularExpressions.Regex.Split(sqlFile, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                    foreach (var batch in batches)
+                    {
+                        if (!string.IsNullOrWhiteSpace(batch))
+                        {
+                            try {
+                                db.Database.ExecuteSqlRaw(batch);
+                            } catch (Exception ex) {
+                                Console.WriteLine($"Error executing PosTokens batch: {ex.Message}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(">>> PosTokens Schema Fixes Applied Successfully.");
+                }
             }
             catch (Exception ex)
             {

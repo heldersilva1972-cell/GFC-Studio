@@ -1,0 +1,448 @@
+@page "/admin/pos-analysis"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using global::System.Text.Json
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject NavigationManager Navigation
+@attribute [Authorize]
+
+<PageTitle>Sales Intelligence</PageTitle>
+
+<div class="analysis-page-wrapper">
+    <!-- STICKY TOP SECTION -->
+    <div class="sticky-top-section bg-light p-4 shadow-sm border-bottom">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="fw-black mb-1 text-navy">SALES INTELLIGENCE</h2>
+                <p class="text-muted small mb-0">Deep dive into product performance and revenue trends</p>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+                <div class="quick-filters d-flex gap-1 me-2 bg-white p-1 rounded-pill border shadow-sm">
+                    <button class="btn btn-sm rounded-pill fw-black px-3 @(ActivePreset == "Today" ? "btn-primary" : "btn-light")" @onclick='() => SetPreset("Today")'>TODAY</button>
+                    <button class="btn btn-sm rounded-pill fw-black px-3 @(ActivePreset == "CurrentWeek" ? "btn-primary" : "btn-light")" @onclick='() => SetPreset("CurrentWeek")'>THIS WEEK</button>
+                    <button class="btn btn-sm rounded-pill fw-black px-3 @(ActivePreset == "PrevWeek" ? "btn-primary" : "btn-light")" @onclick='() => SetPreset("PrevWeek")'>PREV WEEK</button>
+                    <button class="btn btn-sm rounded-pill fw-black px-3 @(ActivePreset == "MonthMode" ? "btn-primary" : "btn-light")" @onclick='() => SetPreset("MonthMode")'>MONTH</button>
+                    <button class="btn btn-sm rounded-pill fw-black px-3 @(ActivePreset == "YearMode" ? "btn-primary" : "btn-light")" @onclick='() => SetPreset("YearMode")'>YEAR</button>
+                </div>
+
+                @if (ActivePreset == "MonthMode" || ActivePreset == "YearMode")
+                {
+                    <div class="historical-filters d-flex gap-2 align-items-center bg-white p-1 rounded-pill border shadow-sm px-3 animate-slide-in">
+                        @if (ActivePreset == "MonthMode")
+                        {
+                            <select class="form-select form-select-sm border-0 fw-bold" style="width: 130px;" @onchange="OnMonthChanged">
+                                @for (int i = 1; i <= 12; i++)
+                                {
+                                    <option value="@i" selected="@(i == SelectedMonth)">@GetMonthName(i)</option>
+                                }
+                            </select>
+                        }
+                        <select class="form-select form-select-sm border-0 fw-bold" style="width: 100px;" @onchange="OnYearChanged">
+                            @for (int year = DateTime.Today.Year; year >= 2024; year--)
+                            {
+                                <option value="@year" selected="@(year == SelectedYear)">@year</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="date-selector bg-white rounded-pill px-3 py-1 d-flex align-items-center border shadow-sm">
+                    <i class="bi bi-calendar-range me-2 text-primary"></i>
+                    <input type="date" class="border-0 bg-transparent fw-bold small" @bind="StartDate" @bind:after="LoadAnalytics">
+                    <span class="mx-2 text-muted">to</span>
+                    <input type="date" class="border-0 bg-transparent fw-bold small" @bind="EndDate" @bind:after="LoadAnalytics">
+                </div>
+                <button class="btn btn-navy rounded-pill fw-bold" @onclick="LoadAnalytics">
+                    <i class="bi bi-arrow-clockwise me-2"></i>RECALCULATE
+                </button>
+            </div>
+        </div>
+
+        @if (!IsLoading)
+        {
+            <!-- Key Metrics Ribbon -->
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <div class="icon bg-primary-light"><i class="bi bi-currency-dollar"></i></div>
+                        <div class="content">
+                            <div class="label">TOTAL REVENUE</div>
+                            <div class="value">@TotalRevenue.ToString("C0")</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <div class="icon bg-success-light"><i class="bi bi-cart-check"></i></div>
+                        <div class="content">
+                            <div class="label">TOTAL SALES</div>
+                            <div class="value">@TotalTransactions</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <div class="icon bg-warning-light"><i class="bi bi-receipt"></i></div>
+                        <div class="content">
+                            <div class="label">AVG SALE VALUE</div>
+                            <div class="value">@AvgSaleValue.ToString("C2")</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <div class="icon bg-info-light"><i class="bi bi-lightning-charge"></i></div>
+                        <div class="content">
+                            <div class="label">TOP STATION</div>
+                            <div class="value text-uppercase">@MostActiveTerminal</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- MAIN SCROLLABLE DASHBOARD -->
+    <div class="analysis-content p-4 overflow-auto">
+        @if (IsLoading)
+        {
+            <div class="text-center p-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="mt-3 text-muted fw-bold">Analyzing your bar data...</p>
+            </div>
+        }
+        else
+        {
+            <div class="row g-4">
+                <!-- PRODUCT PERFORMANCE TABLE -->
+                <div class="col-md-7">
+                    <div class="chart-card">
+                        <div class="header d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="fw-black mb-0">PRODUCT PERFORMANCE RANKING</h5>
+                                <p class="small text-muted mb-0">Gross sales by item</p>
+                            </div>
+                            <span class="badge bg-primary rounded-pill">TOP 15</span>
+                        </div>
+                        <div class="body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="bg-light sticky-top">
+                                        <tr>
+                                            <th class="ps-4">PRODUCT / BRAND</th>
+                                            <th class="text-center">VOLUME SOLD</th>
+                                            <th class="text-end">REVENUE</th>
+                                            <th class="text-end pe-4">MARKET SHARE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in ProductStats.OrderByDescending(x => x.Value.Revenue).Take(15))
+                                        {
+                                            var share = TotalRevenue > 0 ? (double)item.Value.Revenue / (double)TotalRevenue * 100 : 0;
+                                            <tr>
+                                                <td class="ps-4">
+                                                    <div class="fw-black text-navy">@item.Key</div>
+                                                    <div class="extra-small text-muted text-uppercase tracking-tighter">Usage Leader</div>
+                                                </td>
+                                                <td class="text-center">
+                                                    <div class="fw-black fs-5">@item.Value.Quantity</div>
+                                                    <div class="extra-small text-primary fw-bold">UNITS</div>
+                                                </td>
+                                                <td class="text-end fw-black text-dark">@item.Value.Revenue.ToString("C0")</td>
+                                                <td class="text-end pe-4">
+                                                    <div class="d-flex align-items-center justify-content-end gap-3">
+                                                        <div class="progress rounded-pill flex-grow-1" style="height: 12px; width: 80px; background: #f1f5f9;">
+                                                            <div class="progress-bar bg-navy animate-grow" style="width: @(share)%"></div>
+                                                        </div>
+                                                        <span class="fw-black text-navy" style="min-width: 45px;">@share.ToString("0.0")%</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CATEGORY & STATION INSIGHTS -->
+                <div class="col-md-5">
+                    <div class="chart-card mb-4">
+                        <div class="header">
+                            <h5 class="fw-black mb-0">CATEGORY SALES</h5>
+                            <p class="small text-muted mb-0">Revenue distribution by group</p>
+                        </div>
+                        <div class="body">
+                            @foreach (var cat in CategoryRevenue.OrderByDescending(x => x.Value))
+                            {
+                                var catPct = TotalRevenue > 0 ? (double)cat.Value / (double)TotalRevenue * 100 : 0;
+                                <div class="category-stat-row mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="fw-black small" style="color: @GetCategoryColor(cat.Key)">@cat.Key</span>
+                                        <span class="fw-black small">@cat.Value.ToString("C0")</span>
+                                    </div>
+                                    <div class="progress rounded-pill" style="height: 10px; background: #f1f5f9;">
+                                        <div class="progress-bar" style="width: @(catPct)%; background: @GetCategoryColor(cat.Key)"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="header">
+                            <h5 class="fw-black mb-0">STATION REVENUE SHARE</h5>
+                            <p class="small text-muted mb-0">Compare bar terminal activity</p>
+                        </div>
+                        <div class="body">
+                            @foreach (var terminal in TerminalRevenue.OrderByDescending(x => x.Value))
+                            {
+                                var pct = TotalRevenue > 0 ? (double)terminal.Value / (double)TotalRevenue * 100 : 0;
+                                <div class="d-flex justify-content-between mb-1 small fw-bold mt-2">
+                                    <span>@terminal.Key</span>
+                                    <span>@terminal.Value.ToString("C2") (@pct.ToString("0")%)</span>
+                                </div>
+                                <div class="progress rounded-pill mb-3" style="height: 8px;">
+                                    <div class="progress-bar" style="width: @(pct)%; background: @GetTerminalColor(terminal.Key)"></div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .analysis-page-wrapper { 
+        height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #f8fafc;
+    }
+    
+    .sticky-top-section { flex: 0 0 auto; z-index: 10; background: white !important; }
+    .analysis-content { flex: 1; min-height: 0; }
+
+    .fw-black { font-weight: 900; }
+    .text-navy { color: #1e1b4b; }
+    .btn-navy { background: #3730a3; color: white; }
+    .btn-navy:hover { background: #312e81; color: white; }
+
+    .stat-box { background: white; padding: 1.25rem; border-radius: 16px; border: 1.5px solid #e2e8f0; display: flex; align-items: center; gap: 1rem; }
+    .stat-box .icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
+    .stat-box .label { font-size: 0.65rem; font-weight: 900; color: #64748b; letter-spacing: 0.5px; }
+    .stat-box .value { font-size: 1.15rem; font-weight: 900; color: #1e293b; }
+
+    .bg-primary-light { background: #eff6ff; color: #2563eb; }
+    .bg-success-light { background: #f0fdf4; color: #16a34a; }
+    .bg-warning-light { background: #fffbeb; color: #d97706; }
+    .bg-info-light { background: #ecfeff; color: #0891b2; }
+
+    .chart-card { background: white; border-radius: 20px; border: 1.5px solid #e2e8f0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+    .chart-card .header { padding: 1.25rem; border-bottom: 1.5px solid #f1f5f9; background: white; }
+    .chart-card .body { padding: 1.25rem; flex: 1; }
+    
+    .table th { font-size: 0.7rem; font-weight: 950; text-transform: uppercase; color: #64748b; letter-spacing: 1px; border-bottom: 2px solid #e2e8f0; }
+    .table td { border-bottom: 1px solid #f1f5f9; padding: 1rem 0.5rem; }
+
+    .animate-grow { animation: growWidth 0.8s ease-out forwards; transform-origin: left; }
+    @@keyframes growWidth { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+    .extra-small { font-size: 0.6rem; }
+    .tracking-tighter { letter-spacing: -0.5px; }
+
+    .animate-slide-in { animation: slideIn 0.2s ease-out forwards; }
+    @@keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+</style>
+
+@code {
+    private DateTime StartDate = DateTime.Today;
+    private DateTime EndDate = DateTime.Today;
+    private bool IsLoading = true;
+    private string ActivePreset = "Today";
+    
+    private int SelectedMonth = DateTime.Today.Month;
+    private int SelectedYear = DateTime.Today.Year;
+
+    private decimal TotalRevenue;
+    private int TotalTransactions;
+    private decimal AvgSaleValue;
+    private string MostActiveTerminal = "N/A";
+    
+    private Dictionary<string, ProductMetric> ProductStats = new();
+    private Dictionary<string, decimal> CategoryRevenue = new();
+    private Dictionary<string, decimal> TerminalRevenue = new();
+
+    public class ProductMetric {
+        public int Quantity { get; set; }
+        public decimal Revenue { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAnalytics();
+    }
+
+    private async Task OnMonthChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int m))
+        {
+            SelectedMonth = m;
+            ActivePreset = "Monthly";
+            UpdateRangeFromMonthYear();
+            await LoadAnalytics();
+        }
+    }
+
+    private async Task OnYearChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int y))
+        {
+            SelectedYear = y;
+            ActivePreset = "Monthly";
+            UpdateRangeFromMonthYear();
+            await LoadAnalytics();
+        }
+    }
+
+    private void UpdateRangeFromMonthYear()
+    {
+        if (SelectedMonth == 0)
+        {
+            // Full Year Logic
+            StartDate = new DateTime(SelectedYear, 1, 1);
+            EndDate = new DateTime(SelectedYear, 12, 31);
+        }
+        else
+        {
+            StartDate = new DateTime(SelectedYear, SelectedMonth, 1);
+            EndDate = StartDate.AddMonths(1).AddDays(-1);
+        }
+        
+        // Don't let end date be in the future
+        if (EndDate > DateTime.Today) EndDate = DateTime.Today;
+    }
+
+    private void SetPreset(string preset)
+    {
+        ActivePreset = preset;
+        var today = DateTime.Today;
+
+        switch (preset)
+        {
+            case "Today":
+                StartDate = today;
+                EndDate = today;
+                break;
+            case "CurrentWeek":
+                int diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
+                StartDate = today.AddDays(-1 * diff);
+                EndDate = today;
+                break;
+            case "PrevWeek":
+                int pDiff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
+                StartDate = today.AddDays(-1 * pDiff).AddDays(-7);
+                EndDate = today.AddDays(-1 * pDiff).AddDays(-1);
+                break;
+            case "MonthMode":
+                // Trigger month logic
+                UpdateRangeFromMonthYear();
+                break;
+            case "YearMode":
+                // Set to full year
+                StartDate = new DateTime(SelectedYear, 1, 1);
+                EndDate = new DateTime(SelectedYear, 12, 31);
+                if (EndDate > today) EndDate = today;
+                break;
+        }
+
+        _ = LoadAnalytics();
+    }
+
+    private async Task LoadAnalytics()
+    {
+        IsLoading = true;
+        StateHasChanged();
+
+        using var db = DbFactory.CreateDbContext();
+        
+        var sales = await db.PosSales
+            .Where(s => s.Timestamp.Date >= StartDate.Date && s.Timestamp.Date <= EndDate.Date)
+            .ToListAsync();
+
+        TotalTransactions = sales.Count;
+        TotalRevenue = sales.Sum(s => s.TotalAmount);
+        AvgSaleValue = TotalTransactions > 0 ? TotalRevenue / TotalTransactions : 0;
+
+        MostActiveTerminal = sales.GroupBy(s => s.TerminalName)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .FirstOrDefault() ?? "N/A";
+
+        ProductStats = new();
+        CategoryRevenue = new();
+        
+        foreach (var sale in sales)
+        {
+            var items = DeserializeItems(sale.ItemsJson);
+            foreach (var item in items)
+            {
+                if (!ProductStats.ContainsKey(item.Name)) 
+                    ProductStats[item.Name] = new ProductMetric();
+                
+                ProductStats[item.Name].Quantity += item.Quantity;
+                ProductStats[item.Name].Revenue += (item.Price * item.Quantity);
+
+                var catName = string.IsNullOrEmpty(item.Category) ? "UNCATEGORIZED" : item.Category.ToUpper();
+                if (!CategoryRevenue.ContainsKey(catName)) CategoryRevenue[catName] = 0;
+                CategoryRevenue[catName] += (item.Price * item.Quantity);
+            }
+        }
+
+        TerminalRevenue = sales.GroupBy(s => s.TerminalName)
+            .ToDictionary(g => g.Key, g => g.Sum(s => s.TotalAmount));
+
+        IsLoading = false;
+        StateHasChanged();
+    }
+
+    private List<PosTerminal.ProductItem> DeserializeItems(string json)
+    {
+        try { return JsonSerializer.Deserialize<List<PosTerminal.ProductItem>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private string GetMonthName(int m)
+    {
+        return m switch
+        {
+            1 => "JANUARY", 2 => "FEBRUARY", 3 => "MARCH", 4 => "APRIL",
+            5 => "MAY", 6 => "JUNE", 7 => "JULY", 8 => "AUGUST",
+            9 => "SEPTEMBER", 10 => "OCTOBER", 11 => "NOVEMBER", 12 => "DECEMBER",
+            _ => ""
+        };
+    }
+
+    private string GetTerminalColor(string name)
+    {
+        if (name.Contains("Patio")) return "#0ea5e9";
+        if (name.Contains("Main")) return "#6366f1";
+        if (name.Contains("Downstairs")) return "#8b5cf6";
+        return "#64748b";
+    }
+
+    private string GetCategoryColor(string category)
+    {
+        return category switch
+        {
+            "BEER" => "#16a34a",
+            "LIQUOR" => "#9333ea",
+            "TOKENS" => "#d97706",
+            "FOOD" => "#dc2626",
+            "MIXED DRINKS" => "#0891b2",
+            _ => "#64748b"
+        };
+    }
+}

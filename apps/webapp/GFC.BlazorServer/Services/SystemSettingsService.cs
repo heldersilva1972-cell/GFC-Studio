@@ -324,6 +324,7 @@ public class SystemSettingsService : IBlazorSystemSettingsService, GFC.Core.Inte
         // Liquor Specific Settings
         existingSettings.LiquorEmailEnabled = settings.LiquorEmailEnabled;
         existingSettings.LiquorEmailSignature = settings.LiquorEmailSignature;
+        existingSettings.GlobalLiquorPourSize = settings.GlobalLiquorPourSize;
 
         // SMTP Settings
         existingSettings.SmtpHost = settings.SmtpHost;

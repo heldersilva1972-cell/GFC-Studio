@@ -167,4 +167,7 @@ public class SystemSettings
     // Tax IDs for Bulk Filing
     public string? MaEmployerAccountNumber { get; set; } // EAN
     public string? FederalEmployerIdNumber { get; set; } // FEIN
+
+    // Global Inventory & Yield Settings
+    public decimal GlobalLiquorPourSize { get; set; } = 1.5m;
 }

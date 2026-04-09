@@ -56,10 +56,16 @@ namespace GFC.Core.Models
 
         public bool IsActive { get; set; } = true;
         public bool IsBeer { get; set; } = false;
+        public bool ShowInPos { get; set; } = false;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public virtual ICollection<LiquorOrderItem> OrderHistory { get; set; } = new List<LiquorOrderItem>();
+
+        [NotMapped]
+        public string StockSummary => PackSize > 1 
+            ? $"{(CurrentStock / PackSize)} cs, {(CurrentStock % PackSize)} btl" 
+            : $"{CurrentStock} units";
     }
 }
 

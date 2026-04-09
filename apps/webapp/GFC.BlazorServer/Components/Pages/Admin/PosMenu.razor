@@ -1,40 +1,722 @@
 @page "/admin/pos-menu"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Data
+@using GFC.Core.Models
 @attribute [Authorize]
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
+@inject GFC.BlazorServer.Services.IToastService ToastService
 
 <PageTitle>POS Menu Manager | GFC</PageTitle>
 
-<div class="container-fluid py-4">
+<div class="container-fluid py-4 h-100 d-flex flex-column" style="min-height: 85vh;">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="h3 mb-0 fw-bold">POS Menu Manager</h1>
             <p class="text-muted">Manage liquor prices, categories, and fast-tap buttons.</p>
         </div>
-        <button class="btn btn-primary rounded-pill px-4 shadow-sm" disabled>
+        <button class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="OpenAddCategoryModal">
             <i class="bi bi-plus-lg me-2"></i> Add New Category
         </button>
     </div>
 
-    <div class="row">
-        <div class="col-lg-4">
-            <div class="card border-0 shadow-sm rounded-4 mb-4 p-4 text-center text-muted">
-                <i class="bi bi-list-columns-reverse fs-2 mb-2"></i>
-                <h5 class="fw-bold text-dark">No Menu Created Yet</h5>
-                <p class="small">Start adding items to your bar menu to see them in the POS terminal.</p>
+    <div class="row flex-grow-1">
+        <div class="col-lg-3">
+            <div class="card border-0 shadow-sm rounded-4 h-100 overflow-hidden bg-white">
+                <div class="card-header bg-light border-0 py-3">
+                    <h6 class="fw-bold mb-0 text-muted small text-uppercase">Menu Categories</h6>
+                </div>
+                <div class="list-group list-group-flush">
+                    @if (categories == null)
+                    {
+                        <div class="text-center py-5"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+                    }
+                    else
+                    {
+                        @foreach (var cat in categories.OrderBy(c => c.DisplayOrder))
+                        {
+                            <button class="list-group-item list-group-item-action border-0 py-3 @(selectedCategory?.Id == cat.Id && !showUncategorized ? "active" : "")" 
+                                    @onclick="() => SelectCategory(cat)">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="fw-bold">@cat.Name</span>
+                                    @if (categoryWarnings.TryGetValue(cat.Name.Trim().ToUpper(), out var warnCount) && warnCount > 0)
+                                    {
+                                        <span class="badge bg-warning text-dark rounded-pill extra-small ms-auto me-2">@warnCount INACTIVE</span>
+                                    }
+                                    <i class="bi bi-chevron-right small"></i>
+                                </div>
+                            </button>
+                        }
+                        
+                        <div class="card-header bg-light border-0 py-2 mt-3">
+                            <h6 class="fw-bold mb-0 text-muted extra-small text-uppercase">Maintenance</h6>
+                        </div>
+                        <button class="list-group-item list-group-item-action border-0 py-3 @(showUncategorized ? "bg-warning-subtle text-warning-emphasis fw-bold" : "")" 
+                                @onclick="SelectUncategorized">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-exclamation-triangle-fill me-2"></i> NEEDS CATEGORY</span>
+                                @if (uncategorizedCount > 0)
+                                {
+                                    <span class="badge bg-danger rounded-pill">@uncategorizedCount</span>
+                                }
+                            </div>
+                        </button>
+
+                        <div class="card-header bg-light border-0 py-2 mt-3">
+                            <h6 class="fw-bold mb-0 text-muted extra-small text-uppercase">Automation</h6>
+                        </div>
+                        <button class="list-group-item list-group-item-action border-0 py-3 @(showTokensTab ? "active" : "")" 
+                                @onclick="SelectTokensTab">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-ticket-perforated-fill me-2"></i> TOKEN MANAGER</span>
+                                <i class="bi bi-chevron-right small"></i>
+                            </div>
+                        </button>
+                    }
+                </div>
             </div>
         </div>
-        <div class="col-lg-8">
-            <div class="card border-0 shadow-sm rounded-4 p-5 text-center bg-white h-100">
-                <div class="py-5">
-                    <i class="bi bi-grid-3x3-gap fs-1 text-primary opacity-25 mb-3 d-block"></i>
-                    <h4 class="fw-bold">No Items Drafted</h4>
-                    <p class="text-muted">Once categories are added, they'll appear here for button layout.</p>
-                </div>
+        <div class="col-lg-9">
+            <div class="card border-0 shadow-sm rounded-4 h-100 bg-white p-4">
+                @if (showTokensTab)
+                {
+                    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-4">
+                        <div>
+                            <h2 class="fw-black mb-1">Token Manager</h2>
+                            <p class="text-muted small mb-0">Define tokens and link them to eligible drinks.</p>
+                        </div>
+                        <button class="btn btn-primary rounded-pill px-4" @onclick="OpenAddTokenModal">
+                            <i class="bi bi-plus-lg me-2"></i> Add New Token
+                        </button>
+                    </div>
+
+                    @if (tokens == null)
+                    {
+                        <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+                    }
+                    else if (!tokens.Any())
+                    {
+                        <div class="text-center py-5">
+                            <i class="bi bi-ticket-perforated fs-1 text-muted opacity-25"></i>
+                            <h5 class="mt-3">No Tokens Defined</h5>
+                            <p class="text-muted">Create a token like "Beer Token" to start.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row row-cols-1 row-cols-md-2 g-4">
+                            @foreach (var token in tokens)
+                            {
+                                <div class="col">
+                                    <div class="card h-100 border-2 rounded-4 p-3 @(token.IsActive ? "" : "opacity-50")" style="border-left: 8px solid @token.ColorHex;">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div>
+                                                <h5 class="fw-bold mb-1">@token.Name</h5>
+                                                <div class="badge bg-light text-dark border px-3 py-2 rounded-pill mb-2">
+                                                    Sale Price: @token.SalePrice.ToString("C")
+                                                </div>
+                                                <p class="small text-muted mb-0">
+                                                    @(string.IsNullOrEmpty(token.EligibleItemIds) ? "No drinks linked" : $"{token.EligibleItemIds.Split(',').Length} drinks linked")
+                                                </p>
+                                            </div>
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm btn-light border rounded-pill" @onclick="() => OpenEditTokenModal(token)">Edit</button>
+                                                <button class="btn btn-sm btn-outline-danger border rounded-pill" @onclick="() => DeleteToken(token)"><i class="bi bi-trash"></i></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+                else if (selectedCategory == null)
+                {
+                    <div class="text-center py-5">
+                        <i class="bi bi-grid-3x3-gap fs-1 text-primary opacity-25 mb-3 d-block"></i>
+                        <h4 class="fw-bold">Select a Category</h4>
+                        <p class="text-muted">Select a category on the left to manage its items and layout.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex justify-content-between align-items-end mb-4 border-bottom pb-4">
+                        <div>
+                            <h2 class="fw-black mb-1">@selectedCategory.Name</h2>
+                            <p class="text-muted small mb-0">Managing items in @selectedCategory.Name</p>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <div class="input-group input-group-sm me-2" style="width: 250px;">
+                                <span class="input-group-text bg-white border-2 rounded-start-pill"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control border-2 border-start-0 rounded-end-pill" 
+                                       placeholder="Search items..." @bind="searchQuery" @bind:event="oninput" />
+                            </div>
+                            <button class="btn btn-outline-danger btn-sm rounded-pill px-3" @onclick="DeleteCategory">Delete Cat</button>
+                            <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="OpenAddItemModal">
+                                <i class="bi bi-plus-lg me-1"></i> Add New Item
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (isLoadingItems)
+                    {
+                        <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+                    }
+                    else if (categoryItems == null || !categoryItems.Any())
+                    {
+                        <div class="text-center py-5">
+                            <i class="bi bi-box2-heart fs-1 text-muted opacity-25"></i>
+                            <h5 class="mt-3">No Items Found</h5>
+                            <p class="text-muted">Try using a different name or adding items for this category.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Name</th>
+                                        <th class="text-center">Retail Price</th>
+                                        <th class="text-center">Current Cat</th>
+                                        <th class="text-center">Show in POS</th>
+                                        <th class="text-end px-4">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in categoryItems.Where(i => string.IsNullOrWhiteSpace(searchQuery) || i.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        <tr class="@(!item.IsActive ? "bg-warning-subtle" : "")">
+                                            <td class="fw-bold">
+                                                @item.Name
+                                                @if (!item.IsActive)
+                                                {
+                                                    <span class="badge bg-danger rounded-pill extra-small ms-2" style="font-size: 0.6rem;">INACTIVE IN HUB</span>
+                                                }
+                                            </td>
+                                            <td class="text-center">@item.RetailPrice.ToString("C")</td>
+                                            <td class="text-center text-muted small">@item.Category</td>
+                                            <td class="text-center">
+                                                <div class="form-check form-switch d-flex justify-content-center">
+                                                    <input class="form-check-input" type="checkbox" checked="@item.ShowInPos" 
+                                                           @onchange="(e) => ToggleShowInPos(item, e.Value)" />
+                                                </div>
+                                            </td>
+                                            <td class="text-end px-4">
+                                                <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="() => OpenEditItemModal(item)">Edit</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
             </div>
         </div>
     </div>
 </div>
 
+@if (showAddCatModal)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">Add New Category</h5>
+                    <button type="button" class="btn-close" @onclick="() => showAddCatModal = false"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Category Name</label>
+                        <input type="text" class="form-control form-control-lg rounded-3 border-2" 
+                               @bind="newCategoryName" placeholder="e.g. BEERS, LIQUOR, SNACKS..." />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Display Order</label>
+                        <input type="number" class="form-control rounded-3" @bind="newCategoryOrder" />
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => showAddCatModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4" 
+                            @onclick="SaveNewCategory" disabled="@string.IsNullOrWhiteSpace(newCategoryName)">
+                        Save Category
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (editingItem != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">@(editingItem.Id == 0 ? "Add Item" : "Edit Item")</h5>
+                    <button type="button" class="btn-close" @onclick="() => editingItem = null"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted text-uppercase">Item Name</label>
+                        <input type="text" class="form-control rounded-3 border-2" @bind="editingItem.Name" />
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">Retail Price</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" step="0.01" class="form-control" @bind="editingItem.RetailPrice" />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">Category</label>
+                                <select class="form-select" @bind="editingItem.Category">
+                                    @if (categories != null)
+                                    {
+                                        @foreach (var cat in categories)
+                                        {
+                                            <option value="@cat.Name">@cat.Name</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-check form-switch mt-2">
+                        <input class="form-check-input" type="checkbox" id="showInPosSwitch" @bind="editingItem.ShowInPos" />
+                        <label class="form-check-label fw-bold small text-muted text-uppercase" for="showInPosSwitch">Show in POS Terminal</label>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => editingItem = null">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="SaveItem">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (editingToken != null)
+{
+    <div class="modal fade show" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">@(editingToken.Id == 0 ? "Add New Token" : "Edit Token")</h5>
+                    <button type="button" class="btn-close" @onclick="() => editingToken = null"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">Token Name</label>
+                                <input type="text" class="form-control rounded-3 border-2" @bind="editingToken.Name" placeholder="e.g. Beer Token" />
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">Sale Price</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" step="0.01" class="form-control" @bind="editingToken.SalePrice" />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-muted text-uppercase">Color</label>
+                                <input type="color" class="form-control form-control-color w-100" @bind="editingToken.ColorHex" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <label class="form-label small fw-bold text-muted text-uppercase d-block mb-3">Eligible Drinks</label>
+                        <p class="text-muted small mb-3">Check every item that this token is authorized to cover.</p>
+                        
+                        <div class="border rounded-4 p-3 bg-light" style="max-height: 400px; overflow-y: auto;">
+                            <div class="row row-cols-1 row-cols-md-2 g-2">
+                                @if (allItemsForTokens != null)
+                                {
+                                    @foreach (var item in allItemsForTokens)
+                                    {
+                                        <div class="col">
+                                            <div class="form-check p-2 rounded-3 hover-bg bg-white border">
+                                                <input class="form-check-input ms-0 me-3" type="checkbox" 
+                                                       value="@item.Id"
+                                                       checked="@(IsItemEligible(item.Id))"
+                                                       @onchange="(e) => ToggleItemEligibility(item.Id, e.Value)" />
+                                                <label class="form-check-label fw-bold">@item.Name</label>
+                                                <span class="d-block small text-muted">@item.Category - @item.RetailPrice.ToString("C")</span>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill px-4" @onclick="() => editingToken = null">Cancel</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="SaveToken">Save Token Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .rounded-4 { border-radius: 1rem !important; }
+    .list-group-item.active { background-color: var(--bs-primary); border-color: var(--bs-primary); color: white; }
+    .fw-black { font-weight: 900; }
 </style>
+
+@code {
+    private List<PosCategory>? categories;
+    private PosCategory? selectedCategory;
+    private List<LiquorItem>? categoryItems;
+    private bool isLoadingItems = false;
+    private bool showUncategorized = false;
+    private bool showTokensTab = false;
+    private int uncategorizedCount = 0;
+    private string searchQuery = "";
+
+    private bool showAddCatModal = false;
+    private string newCategoryName = "";
+    private int newCategoryOrder = 0;
+
+    private LiquorItem? editingItem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategories();
+    }
+
+    private Dictionary<string, int> categoryWarnings = new();
+
+    private async Task LoadCategories()
+    {
+        using var db = await DbFactory.CreateDbContextAsync();
+        categories = await db.PosCategories.Where(c => c.IsActive).OrderBy(c => c.DisplayOrder).ToListAsync();
+        
+        // Count items that don't match any of our organized categories
+        var allManaged = await db.LiquorItems.Where(i => i.IsActive || i.ShowInPos).ToListAsync();
+        var catNames = categories.Select(c => c.Name.Trim().ToUpper()).ToList();
+        
+        uncategorizedCount = allManaged
+            .Count(i => i.IsActive && (string.IsNullOrWhiteSpace(i.Category) || !catNames.Contains(i.Category.Trim().ToUpper())));
+
+        // Track inconsistencies: IsActive=false but ShowInPos=true
+        categoryWarnings = categories.ToDictionary(
+            c => c.Name.Trim().ToUpper(),
+            c => allManaged.Count(i => !i.IsActive && i.ShowInPos && i.Category?.Trim().ToUpper() == c.Name.Trim().ToUpper())
+        );
+    }
+
+    private async Task SelectCategory(PosCategory cat)
+    {
+        showUncategorized = false;
+        selectedCategory = cat;
+        await ReloadItems();
+    }
+
+    private async Task SelectUncategorized()
+    {
+        selectedCategory = new PosCategory { Name = "NEEDS CATEGORY" };
+        showUncategorized = true;
+        await ReloadItems();
+    }
+
+    private async Task SelectTokensTab()
+    {
+        selectedCategory = null;
+        showUncategorized = false;
+        showTokensTab = true;
+        await LoadTokens();
+    }
+
+    private List<PosToken>? tokens;
+    private List<LiquorItem>? allItemsForTokens;
+    private PosToken? editingToken;
+
+    private async Task LoadTokens()
+    {
+        using var db = await DbFactory.CreateDbContextAsync();
+        tokens = await db.PosTokens.OrderBy(t => t.Name).ToListAsync();
+        allItemsForTokens = await db.LiquorItems.Where(i => i.IsActive).OrderBy(i => i.Name).ToListAsync();
+    }
+
+    private async Task ReloadItems()
+    {
+        showTokensTab = false;
+        if (selectedCategory == null) return;
+        
+        isLoadingItems = true;
+        categoryItems = null;
+        StateHasChanged();
+
+        using var db = await DbFactory.CreateDbContextAsync();
+        
+        // 1. First, find all items we care about (Active OR currently showing in POS)
+        var allAvailable = await db.LiquorItems.Where(i => i.IsActive || i.ShowInPos).ToListAsync();
+        
+        if (showUncategorized)
+        {
+            var catNames = categories?.Select(c => c.Name.Trim().ToUpper()).ToList() ?? new List<string>();
+            categoryItems = allAvailable
+                .Where(i => i.IsActive && (string.IsNullOrWhiteSpace(i.Category) || !catNames.Contains(i.Category.Trim().ToUpper())))
+                .OrderBy(i => i.Name)
+                .ToList();
+        }
+        else
+        {
+            var nameToFind = selectedCategory.Name.Trim();
+            // 2. Filter to match OUR selected category name
+            categoryItems = allAvailable
+                .Where(i => !string.IsNullOrWhiteSpace(i.Category) && i.Category.Trim().Equals(nameToFind, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(i => i.Name)
+                .ToList();
+        }
+            
+        isLoadingItems = false;
+        await LoadCategories(); // Sync the count badge
+        StateHasChanged();
+    }
+
+    private void OpenAddCategoryModal()
+    {
+        newCategoryName = "";
+        newCategoryOrder = (categories?.Count ?? 0) + 1;
+        showAddCatModal = true;
+    }
+
+    private async Task SaveNewCategory()
+    {
+        if (string.IsNullOrWhiteSpace(newCategoryName)) return;
+
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var category = new PosCategory
+            {
+                Name = newCategoryName.ToUpper().Trim(),
+                DisplayOrder = newCategoryOrder,
+                IsActive = true
+            };
+
+            db.PosCategories.Add(category);
+            await db.SaveChangesAsync();
+
+            showAddCatModal = false;
+            await ToastService.ShowSuccess($"Category '{newCategoryName}' added successfully.");
+            await LoadCategories();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to add category: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteCategory()
+    {
+        if (selectedCategory == null) return;
+        
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var cat = await db.PosCategories.FindAsync(selectedCategory.Id);
+            if (cat != null)
+            {
+                db.PosCategories.Remove(cat);
+                await db.SaveChangesAsync();
+                selectedCategory = null;
+                await LoadCategories();
+                await ToastService.ShowSuccess("Category removed.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+
+    private void OpenAddItemModal()
+    {
+        editingItem = new LiquorItem 
+        { 
+            Category = selectedCategory?.Name ?? "LIQUOR", 
+            IsActive = true,
+            ShowInPos = true,
+            Name = ""
+        };
+    }
+
+    private void OpenEditItemModal(LiquorItem item)
+    {
+        // Clone for safe editing
+        editingItem = new LiquorItem
+        {
+            Id = item.Id,
+            Name = item.Name,
+            RetailPrice = item.RetailPrice,
+            Category = item.Category,
+            IsActive = true,
+            ShowInPos = item.ShowInPos
+        };
+    }
+
+    private async Task SaveItem()
+    {
+        if (editingItem == null) return;
+        
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            if (editingItem.Id == 0)
+            {
+                db.LiquorItems.Add(editingItem);
+                await ToastService.ShowSuccess("Item added successfully.");
+            }
+            else
+            {
+                var original = await db.LiquorItems.FindAsync(editingItem.Id);
+                if (original != null)
+                {
+                    original.Name = editingItem.Name;
+                    original.RetailPrice = editingItem.RetailPrice;
+                    original.Category = editingItem.Category;
+                    original.ShowInPos = editingItem.ShowInPos;
+                    db.LiquorItems.Update(original);
+                }
+                await ToastService.ShowSuccess("Item updated.");
+            }
+            
+            await db.SaveChangesAsync();
+            editingItem = null;
+            await ReloadItems();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to save: {ex.Message}");
+        }
+    }
+
+    private async Task ToggleShowInPos(LiquorItem item, object? val)
+    {
+        if (val is bool isChecked)
+        {
+            try
+            {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var original = await db.LiquorItems.FindAsync(item.Id);
+                if (original != null)
+                {
+                    original.ShowInPos = isChecked;
+                    await db.SaveChangesAsync();
+                    item.ShowInPos = isChecked;
+                    await LoadCategories();
+                    await ToastService.ShowSuccess($"POS Visibility updated for {item.Name}");
+                }
+            }
+            catch (Exception ex)
+            {
+                await ToastService.ShowError($"Error: {ex.Message}");
+            }
+        }
+    }
+
+    private void OpenAddTokenModal()
+    {
+        editingToken = new PosToken { ColorHex = "#3b82f6", IsActive = true };
+    }
+
+    private void OpenEditTokenModal(PosToken token)
+    {
+        editingToken = new PosToken
+        {
+            Id = token.Id,
+            Name = token.Name,
+            SalePrice = token.SalePrice,
+            ColorHex = token.ColorHex,
+            IsActive = token.IsActive,
+            EligibleItemIds = token.EligibleItemIds
+        };
+    }
+
+    private bool IsItemEligible(int itemId)
+    {
+        if (editingToken == null || string.IsNullOrEmpty(editingToken.EligibleItemIds)) return false;
+        var ids = editingToken.EligibleItemIds.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        return ids.Contains(itemId.ToString());
+    }
+
+    private void ToggleItemEligibility(int itemId, object? val)
+    {
+        if (editingToken == null) return;
+        var ids = string.IsNullOrEmpty(editingToken.EligibleItemIds) 
+            ? new List<string>() 
+            : editingToken.EligibleItemIds.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        if (val is bool isChecked)
+        {
+            if (isChecked && !ids.Contains(itemId.ToString())) ids.Add(itemId.ToString());
+            else if (!isChecked) ids.Remove(itemId.ToString());
+        }
+
+        editingToken.EligibleItemIds = string.Join(",", ids);
+    }
+
+    private async Task SaveToken()
+    {
+        if (editingToken == null) return;
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            if (editingToken.Id == 0)
+            {
+                db.PosTokens.Add(editingToken);
+                await ToastService.ShowSuccess("Token created.");
+            }
+            else
+            {
+                var original = await db.PosTokens.FindAsync(editingToken.Id);
+                if (original != null)
+                {
+                    original.Name = editingToken.Name;
+                    original.SalePrice = editingToken.SalePrice;
+                    original.ColorHex = editingToken.ColorHex;
+                    original.EligibleItemIds = editingToken.EligibleItemIds;
+                }
+            }
+            await db.SaveChangesAsync();
+            editingToken = null;
+            await LoadTokens();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error saving token: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteToken(PosToken token)
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            db.PosTokens.Remove(token);
+            await db.SaveChangesAsync();
+            await LoadTokens();
+            await ToastService.ShowSuccess("Token deleted.");
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+}

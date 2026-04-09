@@ -1,0 +1,177 @@
+@page "/admin/pos-z-reports"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using GFC.BlazorServer.Data
+@using GFC.BlazorServer.Data.Entities
+@using global::System.Text.Json
+@inject IDbContextFactory<GfcDbContext> DbFactory
+@inject NavigationManager Navigation
+@attribute [Authorize]
+
+<PageTitle>GFC | POS Z-Report History</PageTitle>
+
+<style>
+    .history-card { background: white; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); overflow: hidden; }
+    .history-header { background: #1e3a8a; color: white; padding: 2rem; }
+    .history-table th { font-weight: 950; text-transform: uppercase; font-size: 0.75rem; color: #64748b; border-top: none; }
+    .history-table td { vertical-align: middle; font-weight: 800; padding: 1rem 0.75rem; }
+    .badge-cash { background: #dcfce7; color: #166534; border-radius: 50px; padding: 4px 12px; font-size: 0.8rem; }
+    .badge-card { background: #eff6ff; color: #1e40af; border-radius: 50px; padding: 4px 12px; font-size: 0.8rem; }
+    .btn-view { background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 8px 16px; font-weight: 900; font-size: 0.8rem; color: #475569; transition: all 0.2s; }
+    .btn-view:hover { background: #1e3a8a; color: white; border-color: #1e3a8a; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .detail-card { background: white; width: 600px; max-height: 90vh; border-radius: 30px; overflow: hidden; display: flex; flex-direction: column; }
+    .detail-body { overflow-y: auto; padding: 2rem; }
+</style>
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="fw-black mb-1">TERMINAL AUDIT</h1>
+            <p class="text-muted fw-bold">Permanent history of all POS Shift Close-outs (Z-Reports)</p>
+        </div>
+        <button class="btn btn-navy rounded-pill px-4 py-3 fw-black" @onclick='() => Navigation.NavigateTo("/admin/pos-terminal")'>
+            <i class="bi bi-arrow-left me-2"></i> RETURN TO TERMINAL
+        </button>
+    </div>
+
+    <div class="history-card">
+        <div class="p-0">
+            <table class="table history-table mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">DATE & TIME</th>
+                        <th>TERMINAL</th>
+                        <th>BARTENDER</th>
+                        <th class="text-end">CASH TOTAL</th>
+                        <th class="text-center pe-4">ACTION</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_reports == null)
+                    {
+                        <tr><td colspan="8" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>
+                    }
+                    else if (!_reports.Any())
+                    {
+                        <tr><td colspan="8" class="text-center py-5 text-muted fw-bold">No Z-Reports found in the history log.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var r in _reports)
+                        {
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="d-flex flex-column">
+                                        <span>@r.Timestamp.ToString("MMM dd, yyyy")</span>
+                                        <small class="text-muted">@r.Timestamp.ToString("h:mm tt")</small>
+                                    </div>
+                                </td>
+                                <td><span class="badge bg-light text-dark border fw-black">@r.TerminalName</span></td>
+                                <td>@r.BartenderName</td>
+                                <td class="text-end fw-black text-success">$@r.CashTotal.ToString("N2")</td>
+                                <td class="text-center pe-4">
+                                    <button class="btn-view" @onclick="() => ShowDetails(r)">VIEW AUDIT</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (_selectedReport != null)
+{
+    <div class="modal-overlay" @onclick="() => _selectedReport = null">
+        <div class="detail-card shadow-lg" @onclick:stopPropagation>
+            <div class="history-header">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="text-uppercase fw-black opacity-75 mb-1">Audit Details</h6>
+                        <h2 class="fw-black mb-0">@_selectedReport.TerminalName - Z REPORT</h2>
+                        <p class="mb-0 opacity-75 fw-bold">@_selectedReport.Timestamp.ToString("MMMM dd, yyyy @ h:mm tt")</p>
+                    </div>
+                    <button class="btn btn-link text-white p-0" @onclick="() => _selectedReport = null">
+                        <i class="bi bi-x-lg fs-4"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="detail-body">
+                <div class="row g-3 mb-5">
+                    <div class="col-12">
+                        <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-success">
+                            <label class="text-muted small fw-bold d-block mb-1">PHYSICAL CASH TO RECONCILE</label>
+                            <span class="fs-1 fw-black text-success">$@_selectedReport.CashTotal.ToString("N2")</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3">Inventory Removal Log</h6>
+                <div class="border rounded-4 overflow-hidden">
+                    <table class="table mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="ps-3 border-0">Item Name</th>
+                                <th class="text-center border-0">Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                var pulls = ParsePulls(_selectedReport.InventoryPullsJson);
+                                if (!pulls.Any())
+                                {
+                                    <tr><td colspan="2" class="text-center py-4 text-muted">No inventory was tracked for this shift.</td></tr>
+                                }
+                                else
+                                {
+                                    foreach (var pull in pulls)
+                                    {
+                                        <tr>
+                                            <td class="ps-3 fw-bold">@GetItemName(pull.Key)</td>
+                                            <td class="text-center fw-black"><span class="badge bg-navy rounded-pill px-3">@pull.Value</span></td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="mt-5 pt-3 border-top text-center">
+                    <button class="btn btn-navy w-100 py-3 rounded-pill fw-black mb-3" @onclick="() => _selectedReport = null">DONE</button>
+                    <p class="text-muted small fw-bold mb-0">This is a permanent system record. It cannot be modified or deleted.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<PosZReport>? _reports;
+    private PosZReport? _selectedReport;
+    private Dictionary<int, string> _itemNames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var db = await DbFactory.CreateDbContextAsync();
+        _reports = await db.PosZReports.OrderByDescending(r => r.Timestamp).Take(100).ToListAsync();
+        
+        // Pre-fetch item names for the audit log
+        var items = await db.LiquorItems.Select(i => new { i.Id, i.Name }).ToListAsync();
+        _itemNames = items.ToDictionary(x => x.Id, x => x.Name);
+    }
+
+    private void ShowDetails(PosZReport report) => _selectedReport = report;
+
+    private Dictionary<int, int> ParsePulls(string json)
+    {
+        try { return JsonSerializer.Deserialize<Dictionary<int, int>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private string GetItemName(int id) => _itemNames.ContainsKey(id) ? _itemNames[id] : $"Unknown Item (ID: {id})";
+}
