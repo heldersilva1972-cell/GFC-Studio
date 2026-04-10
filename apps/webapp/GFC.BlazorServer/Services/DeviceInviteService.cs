@@ -8,7 +8,7 @@ namespace GFC.BlazorServer.Services;
 
 public interface IDeviceInviteService
 {
-    Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1, int? targetStationId = null);
+    Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1, int? targetStationId = null, string? loginMode = null, string? authorizedUserIdsCsv = null);
     Task<DeviceInviteToken?> ValidateTokenAsync(string token);
     Task<bool> MarkTokenAsUsedAsync(string token);
     Task CleanupExpiredInvitesAsync();
@@ -28,7 +28,7 @@ public class DeviceInviteService : IDeviceInviteService
         _logger = logger;
     }
 
-    public async Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1, int? targetStationId = null)
+    public async Task<string> CreateInviteTokenAsync(int userId, string? deviceName, int expiryHours = 1, int? targetStationId = null, string? loginMode = null, string? authorizedUserIdsCsv = null)
     {
         try
         {
@@ -44,6 +44,8 @@ public class DeviceInviteService : IDeviceInviteService
                 ExpiresAtUtc = DateTime.UtcNow.AddHours(expiryHours),
                 TargetDeviceName = deviceName,
                 TargetStationId = targetStationId,
+                LoginMode = loginMode,
+                AuthorizedUserIdsCsv = authorizedUserIdsCsv,
                 IsRevoked = false
             };
 

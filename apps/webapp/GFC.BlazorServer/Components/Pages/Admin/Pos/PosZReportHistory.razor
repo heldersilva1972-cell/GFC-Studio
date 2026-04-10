@@ -44,7 +44,7 @@
                         <th class="ps-4">DATE & TIME</th>
                         <th>TERMINAL</th>
                         <th>BARTENDER</th>
-                        <th class="text-end">CASH TOTAL</th>
+                        <th class="text-end">GROSS SALES</th>
                         <th class="text-center pe-4">ACTION</th>
                     </tr>
                 </thead>
@@ -70,7 +70,7 @@
                                 </td>
                                 <td><span class="badge bg-light text-dark border fw-black">@r.TerminalName</span></td>
                                 <td>@r.BartenderName</td>
-                                <td class="text-end fw-black text-success">$@r.CashTotal.ToString("N2")</td>
+                                <td class="text-end fw-black text-primary p-3" style="font-size: 1.1rem;">$@r.TotalGrossSales.ToString("N2")</td>
                                 <td class="text-center pe-4">
                                     <button class="btn-view" @onclick="() => ShowDetails(r)">VIEW AUDIT</button>
                                 </td>
@@ -90,8 +90,9 @@
             <div class="history-header">
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
-                        <h6 class="text-uppercase fw-black opacity-75 mb-1">Audit Details</h6>
-                        <h2 class="fw-black mb-0">@_selectedReport.TerminalName - Z REPORT</h2>
+                        <h6 class="text-uppercase fw-black opacity-75 mb-1">End of Shift Z Report</h6>
+                        <h2 class="fw-black mb-0">@_selectedReport.TerminalName.ToUpper()</h2>
+                        <h5 class="fw-black text-warning">BY: @_selectedReport.BartenderName.ToUpper()</h5>
                         <p class="mb-0 opacity-75 fw-bold">@_selectedReport.Timestamp.ToString("MMMM dd, yyyy @ h:mm tt")</p>
                     </div>
                     <button class="btn btn-link text-white p-0" @onclick="() => _selectedReport = null">
@@ -100,23 +101,61 @@
                 </div>
             </div>
             
-            <div class="detail-body">
-                <div class="row g-3 mb-5">
+            <div class="detail-body px-4">
+                <!-- TOP STATS -->
+                <div class="row g-3 mb-4">
                     <div class="col-12">
-                        <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-success">
-                            <label class="text-muted small fw-bold d-block mb-1">PHYSICAL CASH TO RECONCILE</label>
-                            <span class="fs-1 fw-black text-success">$@_selectedReport.CashTotal.ToString("N2")</span>
+                        <div class="p-4 bg-light rounded-4 text-center border-start border-5 border-primary">
+                            <label class="text-muted small fw-bold d-block mb-1">TOTAL GROSS SALES</label>
+                            <span class="fs-2 fw-black text-primary">$@_selectedReport.TotalGrossSales.ToString("N2")</span>
                         </div>
                     </div>
                 </div>
 
-                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3">Inventory Removal Log</h6>
-                <div class="border rounded-4 overflow-hidden">
-                    <table class="table mb-0">
+                <!-- SALES SUMMARY -->
+                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                    <i class="bi bi-receipt me-2"></i> POS Sales Activity
+                </h6>
+                <div class="border rounded-4 overflow-hidden mb-5 bg-white shadow-sm">
+                    <table class="table mb-0 table-sm">
                         <thead class="bg-light">
                             <tr>
-                                <th class="ps-3 border-0">Item Name</th>
-                                <th class="text-center border-0">Qty</th>
+                                <th class="ps-3 py-2 border-0 small">Item Name</th>
+                                <th class="text-center py-2 border-0 small">Sold</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                var sales = ParseSummary(_selectedReport.SalesSummaryJson);
+                                if (!sales.Any())
+                                {
+                                    <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No sales recorded during this shift.</td></tr>
+                                }
+                                else
+                                {
+                                    foreach (var item in sales.OrderByDescending(x => x.Value))
+                                    {
+                                        <tr>
+                                            <td class="ps-3 py-2 fw-bold text-dark small">@item.Key.ToUpper()</td>
+                                            <td class="text-center py-2"><span class="badge bg-primary text-white fw-black" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@item.Value</span></td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- INVENTORY LOG -->
+                <h6 class="fw-black text-uppercase letter-spacing-1 mb-3 text-secondary d-flex align-items-center">
+                    <i class="bi bi-box-seam me-2"></i> Inventory Removal Log
+                </h6>
+                <div class="border rounded-4 overflow-hidden bg-white shadow-sm">
+                    <table class="table mb-0 table-sm">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="ps-3 py-2 border-0 small">Bottle Name</th>
+                                <th class="text-center py-2 border-0 small">Pulled</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -124,15 +163,15 @@
                                 var pulls = ParsePulls(_selectedReport.InventoryPullsJson);
                                 if (!pulls.Any())
                                 {
-                                    <tr><td colspan="2" class="text-center py-4 text-muted">No inventory was tracked for this shift.</td></tr>
+                                    <tr><td colspan="2" class="text-center py-4 text-muted small fw-bold">No inventory recorded for this shift.</td></tr>
                                 }
                                 else
                                 {
                                     foreach (var pull in pulls)
                                     {
                                         <tr>
-                                            <td class="ps-3 fw-bold">@GetItemName(pull.Key)</td>
-                                            <td class="text-center fw-black"><span class="badge bg-navy rounded-pill px-3">@pull.Value</span></td>
+                                            <td class="ps-3 py-2 fw-bold text-dark small">@GetItemName(pull.Key).ToUpper()</td>
+                                            <td class="text-center py-2"><span class="badge bg-navy text-white fw-black" style="font-size: 0.85rem; padding: 6px 14px; min-width: 40px;">@pull.Value</span></td>
                                         </tr>
                                     }
                                 }
@@ -166,6 +205,12 @@
     }
 
     private void ShowDetails(PosZReport report) => _selectedReport = report;
+
+    private Dictionary<string, int> ParseSummary(string json)
+    {
+        try { return JsonSerializer.Deserialize<Dictionary<string, int>>(json) ?? new(); }
+        catch { return new(); }
+    }
 
     private Dictionary<int, int> ParsePulls(string json)
     {

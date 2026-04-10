@@ -277,7 +277,19 @@
                                             <div class="user-avatar bg-info bg-opacity-10 text-info me-3">
                                                 <i class="bi bi-display"></i>
                                             </div>
-                                            <div class="fw-bold">@(!string.IsNullOrEmpty(station.StationName) ? station.StationName : "Unnamed Station")</div>
+                                            <div>
+                                                <div class="fw-bold">@(!string.IsNullOrEmpty(station.StationName) ? station.StationName : "Unnamed Station")</div>
+                                                @if (station.LoginMode == "FastGrid")
+                                                {
+                                                    <span class="badge bg-primary-subtle text-primary border border-primary border-opacity-25 x-small px-2 py-0">
+                                                        <i class="bi bi-grid-fill me-1"></i>Fast Login
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-light text-muted border x-small px-2 py-0">Standard</span>
+                                                }
+                                            </div>
                                         </div>
                                     </td>
                                     <td><code class="text-primary bg-light px-2 py-1 rounded">@station.IpAddress</code></td>
@@ -288,6 +300,9 @@
                                         </span>
                                     </td>
                                     <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-primary px-3 rounded-pill me-2" @onclick="() => OpenEditStationModal(station)">
+                                            <i class="bi bi-pencil me-1"></i>Edit
+                                        </button>
                                         <button class="btn btn-sm btn-outline-danger px-3 rounded-pill" @onclick="() => RevokeStation(station)">
                                             <i class="bi bi-trash3 me-1"></i>Revoke
                                         </button>
@@ -889,6 +904,28 @@
                                         </div>
                                     </div>
 
+                                    <div class="form-group mb-3">
+                                        <label class="form-label fw-bold small text-muted text-uppercase mb-2">
+                                            <i class="bi bi-people-fill me-2"></i>Curate Staff Shortcut List (Fast Login)
+                                        </label>
+                                        <div class="user-selection-grid p-2 bg-light border rounded-3" style="max-height: 180px; overflow-y: auto;">
+                                            @foreach (var user in _users.Where(u => u.IsActive).OrderBy(u => u.Username))
+                                            {
+                                                <div class="form-check small mb-1">
+                                                    <input class="form-check-input" type="checkbox" id="staff-@user.UserId" 
+                                                           checked="@_selectedAuthorizedUserIds.Contains(user.UserId)"
+                                                           @onchange="@(e => ToggleStationUser(user.UserId, (bool)e.Value))">
+                                                    <label class="form-check-label" for="staff-@user.UserId">
+                                                        @user.Username @(string.IsNullOrEmpty(user.MemberName) ? "" : $"({user.MemberName})")
+                                                    </label>
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="x-small text-muted mt-2">
+                                            <i class="bi bi-info-circle me-1"></i> These users will appear on the Fast Login grid.
+                                        </div>
+                                    </div>
+
                                     <div class="mt-auto p-2 bg-light rounded small text-center">
                                         <i class="bi bi-shield-check me-2 text-success"></i>Authorized by: <strong>Admin (@(_users.FirstOrDefault(u => u.UserId == _currentUserId)?.Username ?? "You"))</strong>
                                     </div>
@@ -929,6 +966,12 @@
                                      else { <i class="bi bi-link-45deg me-2"></i> }
                                      Generate Access Link
                                  </button>
+
+                                 <button class="btn btn-primary py-3 fw-bold shadow-sm" 
+                                         @onclick="GenerateSetupCode" 
+                                         disabled="@(_generatingQuickLink || (_quickOnboardUserId == 0 && !_isStationSetup) || (_isPinOnlySetup && _selectedStationId == 0) || (_isStationSetup && string.IsNullOrWhiteSpace(_quickStationName)) || !string.IsNullOrEmpty(_quickGeneratedLink))">
+                                     <i class="bi bi-key-fill me-2"></i> Generate 8-Digit Setup Code
+                                 </button>
                                 
                                  <button class="btn btn-outline-secondary py-2 small" @onclick="ResetQuickModal" disabled="@(string.IsNullOrEmpty(_quickGeneratedLink))">
                                     <i class="bi bi-arrow-counterclockwise me-1"></i> Start Over
@@ -942,11 +985,19 @@
                         <div class="invite-results-container mt-3 p-3 bg-white rounded-4 border shadow-sm animate-entrance">
                             <div class="row align-items-center">
                                 <div class="col-md-5 text-center border-md-end mb-3 mb-md-0">
-                                    @if (_showQrCode)
+                                    @if (_showQrCode && !string.IsNullOrEmpty(_quickGeneratedLink) && !_quickGeneratedLink.Contains("-"))
                                     {
                                         <img src="@($"https://api.qrserver.com/v1/create-qr-code/?size=140x140&data={Uri.EscapeDataString(_quickGeneratedLink)}")" 
                                              alt="QR Code" width="140" height="140" class="img-fluid rounded border p-1" />
                                         <div class="x-small text-primary fw-bold mt-1">Scan for Fast Access</div>
+                                    }
+                                    else if (!string.IsNullOrEmpty(_quickSetupCode))
+                                    {
+                                        <div class="setup-code-badge p-2 bg-primary bg-opacity-10 rounded-3 border border-primary border-opacity-25 shadow-sm">
+                                            <div class="x-small fw-bold text-muted text-uppercase">Recovery Setup Code</div>
+                                            <div class="h2 mb-0 fw-black text-primary ls-2" style="font-family: monospace; letter-spacing: 2px;">@_quickSetupCode</div>
+                                            <div class="x-small text-danger mt-1">Expires in 15 mins</div>
+                                        </div>
                                     }
                                     else if (_isPinOnlySetup)
                                     {
@@ -974,7 +1025,8 @@
                                         </button>
                                     </div>
                                     <p class="x-small text-muted mb-0 lh-sm">
-                                        @if (_isPinOnlySetup) { <text>Enter the 8-char code at login to set PIN without a link.</text> }
+                                        @if (!string.IsNullOrEmpty(_quickSetupCode)) { <text>Enter this code on the blocked machine's <b>Access Shield</b> screen to restore access.</text> }
+                                        else if (_isPinOnlySetup) { <text>Enter the 8-char code at login to set PIN without a link.</text> }
                                         else if (_isStationSetup) { <text>Open this link on the machine to trust it as a Station.</text> }
                                         else { <text>Open this link on mobile device to register biometrics.</text> }
                                     </p>
@@ -993,6 +1045,74 @@
             </div>
             <div class="modal-footer border-top-0 py-2">
                 <button class="btn btn-outline-secondary px-4 btn-sm rounded-pill" @onclick="CloseQuickOnboardModal">Done</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Edit Station Modal *@
+@if (_showEditStationModal && _editingStation != null)
+{
+    <div class="modal-overlay" @onclick="CloseEditStationModal">
+        <div class="modal-container" @onclick:stopPropagation style="max-width: 500px;">
+            <div class="modal-header border-bottom-0 pb-0">
+                <div>
+                    <h2 class="modal-title h4 fw-bold text-primary">Edit Station Configuration</h2>
+                    <p class="modal-subtitle">Update login mode and staff curation for <strong>@_editingStation.StationName</strong></p>
+                </div>
+                <button class="btn-close" @onclick="CloseEditStationModal">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="modal-body pt-3">
+                <div class="form-group mb-4">
+                    <label class="form-label fw-bold small text-muted text-uppercase mb-2">1. Login Experience</label>
+                    <div class="d-flex gap-2">
+                        <button class="btn @(_editingStationLoginMode == "Standard" ? "btn-primary shadow-sm" : "btn-outline-secondary") flex-grow-1 py-2 fw-bold" 
+                                @onclick='() => _editingStationLoginMode = "Standard"'>
+                            <i class="bi bi-keyboard me-2"></i> Standard
+                        </button>
+                        <button class="btn @(_editingStationLoginMode == "FastGrid" ? "btn-primary shadow-sm" : "btn-outline-secondary") flex-grow-1 py-2 fw-bold" 
+                                @onclick='() => _editingStationLoginMode = "FastGrid"'>
+                            <i class="bi bi-grid-fill me-2"></i> User Grid
+                        </button>
+                    </div>
+                    <div class="x-small text-muted mt-2">
+                        <i class="bi bi-info-circle me-1"></i> "User Grid" mode recommended for high-volume POS terminals.
+                    </div>
+                </div>
+
+                <div class="form-group mb-2">
+                    <label class="form-label fw-bold small text-muted text-uppercase mb-2">
+                        <i class="bi bi-people-fill me-2"></i>2. Curate Staff Shortcut List
+                    </label>
+                    <div class="user-selection-grid p-3 bg-light border rounded-4" style="max-height: 250px; overflow-y: auto;">
+                        @foreach (var user in _users.Where(u => u.IsActive).OrderBy(u => u.Username))
+                        {
+                            <div class="form-check small mb-2">
+                                <input class="form-check-input" type="checkbox" id="edit-staff-@user.UserId" 
+                                       checked="@_selectedAuthorizedUserIds.Contains(user.UserId)"
+                                       @onchange="@(e => ToggleStationUser(user.UserId, (bool)e.Value))">
+                                <label class="form-check-label fw-600" for="edit-staff-@user.UserId">
+                                    @user.Username
+                                    @if (!string.IsNullOrEmpty(user.MemberName))
+                                    {
+                                        <span class="text-muted fw-normal ms-1">(@user.MemberName)</span>
+                                    }
+                                </label>
+                            </div>
+                        }
+                    </div>
+                    <div class="x-small text-muted mt-2">
+                        <i class="bi bi-info-circle me-1"></i> Selected users will appear on the Fast Login grid.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-top-0 pb-4">
+                <button class="btn btn-outline-secondary px-4 rounded-pill" @onclick="CloseEditStationModal">Cancel</button>
+                <button class="btn btn-primary px-4 rounded-pill fw-bold shadow-sm" @onclick="SaveStationConfig">
+                    Save Changes <i class="bi bi-check2 ms-2"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -1100,9 +1220,14 @@
     private bool _isPinOnlySetup = false;
     private string _quickStationName = "";
     private List<TrustedDevice> _activeStations = new();
-    private int _selectedStationId = 0;
+    private int? _selectedStationId = 0;
     private string _onboardMode = "Mobile";
     private bool _showAdminPasscode = false;
+    private HashSet<int> _selectedAuthorizedUserIds = new();
+    private string? _quickSetupCode;
+    private TrustedDevice? _editingStation;
+    private bool _showEditStationModal = false;
+    private string _editingStationLoginMode = "Standard";
 
     // User Modal
     private UserListItemDto? _editingUser = null;
@@ -1782,6 +1907,8 @@
         _isPinOnlySetup = false;
         _quickStationName = "";
         _selectedStationId = 0;
+        _selectedAuthorizedUserIds.Clear();
+        _quickSetupCode = null;
     }
 
     private void OpenQuickOnboardModal()
@@ -1795,6 +1922,8 @@
         _isPinOnlySetup = false;
         _quickStationName = "";
         _selectedStationId = 0;
+        _selectedAuthorizedUserIds.Clear();
+        _quickSetupCode = null;
         // [SAFETY] Default to 0 (Choose a user...) instead of auto-selecting the first user (which might be admin)
         _quickOnboardUserId = 0; 
         
@@ -1805,6 +1934,53 @@
     private void CloseQuickOnboardModal()
     {
         _showQuickOnboardModal = false;
+    }
+
+    private void OpenEditStationModal(TrustedDevice station)
+    {
+        _editingStation = station;
+        _editingStationLoginMode = !string.IsNullOrEmpty(station.LoginMode) ? station.LoginMode : "Standard";
+        _selectedAuthorizedUserIds.Clear();
+        
+        if (!string.IsNullOrEmpty(station.AuthorizedUserIdsCsv))
+        {
+            var ids = station.AuthorizedUserIdsCsv.Split(',').Select(int.Parse).ToList();
+            _selectedAuthorizedUserIds = new HashSet<int>(ids);
+        }
+        
+        _showEditStationModal = true;
+    }
+
+    private void CloseEditStationModal()
+    {
+        _showEditStationModal = false;
+        _editingStation = null;
+    }
+
+    private async Task SaveStationConfig()
+    {
+        if (_editingStation == null) return;
+        
+        _editingStation.LoginMode = _editingStationLoginMode;
+        _editingStation.AuthorizedUserIdsCsv = _selectedAuthorizedUserIds.Any() ? string.Join(",", _selectedAuthorizedUserIds) : null;
+        
+        try
+        {
+            await DeviceTrustService.UpdateDeviceAsync(_editingStation);
+            await ToastService.ShowSuccess($"Configuration for {_editingStation.StationName} updated.");
+            CloseEditStationModal();
+            await RefreshStations();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to save: {ex.Message}");
+        }
+    }
+
+    private void ToggleStationUser(int userId, bool isChecked)
+    {
+        if (isChecked) _selectedAuthorizedUserIds.Add(userId);
+        else _selectedAuthorizedUserIds.Remove(userId);
     }
 
     private void OnStationToggle()
@@ -1862,7 +2038,10 @@
                 targetDeviceName = station?.StationName ?? "PIN Device";
             }
 
-            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, targetDeviceName, 24, _isPinOnlySetup ? _selectedStationId : null);
+            var loginMode = _isStationSetup ? "FastGrid" : "Standard";
+            var authorizedUsersCsv = _isStationSetup && _selectedAuthorizedUserIds.Any() ? string.Join(",", _selectedAuthorizedUserIds) : null;
+
+            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, targetDeviceName, 24, _isPinOnlySetup ? _selectedStationId : null, loginMode, authorizedUsersCsv);
             _quickInviteToken = token;
             var baseUrl = await UrlHelper.GetBaseUrlAsync();
             
@@ -1874,6 +2053,36 @@
         catch (Exception ex)
         {
             await ToastService.ShowError($"Failed to generate link: {ex.Message}");
+        }
+        finally
+        {
+            _generatingQuickLink = false;
+        }
+    }
+
+    private async Task GenerateSetupCode()
+    {
+        if (_quickOnboardUserId == 0 && !_isStationSetup) return;
+        
+        var targetUserId = _isStationSetup ? _currentUserId : _quickOnboardUserId;
+        if (targetUserId == 0) return;
+
+        _generatingQuickLink = true;
+        try
+        {
+            var targetDeviceName = _isStationSetup ? _quickStationName : "PIN";
+            var loginMode = _isStationSetup ? "FastGrid" : "Standard";
+            var authorizedUsersCsv = _isStationSetup && _selectedAuthorizedUserIds.Any() ? string.Join(",", _selectedAuthorizedUserIds) : null;
+            
+            var token = await DeviceInviteService.CreateInviteTokenAsync(targetUserId, targetDeviceName, 1, _isPinOnlySetup ? _selectedStationId : null, loginMode, authorizedUsersCsv);
+            
+            _quickSetupCode = await DeviceTrustService.GenerateSetupCodeAsync(token);
+            _quickInviteToken = token;
+            _quickGeneratedLink = _quickSetupCode; 
+        }
+        catch (Exception ex)
+        {
+            await ToastService.ShowError($"Failed to generate code: {ex.Message}");
         }
         finally
         {

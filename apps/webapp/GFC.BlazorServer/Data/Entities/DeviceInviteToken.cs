@@ -33,5 +33,10 @@ public class DeviceInviteToken
 
     public int? TargetStationId { get; set; }
 
+    [MaxLength(20)]
+    public string? LoginMode { get; set; }
+
+    public string? AuthorizedUserIdsCsv { get; set; }
+
     public bool IsValid => !IsRevoked && UsedAtUtc == null && ExpiresAtUtc > DateTime.UtcNow;
 }

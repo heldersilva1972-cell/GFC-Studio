@@ -141,6 +141,13 @@ namespace GFC.BlazorServer.Middleware
                         <p>This device is not registered to access the GFC System.</p>
                         <hr style='border: 0; border-top: 1px solid #eee; margin: 1.5rem 0;' />
                         <p style='font-size: 0.9rem; color: #666;'>To access the system, an administrator must provide you with a <strong>Secure Setup Link</strong>.</p>
+                        
+                        <div style='margin: 1.5rem 0;'>
+                            <a href='/setup/recovery' style='display: inline-block; padding: 12px 24px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1);'>
+                                <i class='bi bi-key-fill'></i> Restore Access with Setup Code
+                            </a>
+                        </div>
+
                         <div style='background: #fff3f3; color: #856404; padding: 1rem; border-radius: 4px; margin-top: 1rem; font-size: 0.85rem; border: 1px solid #ffeeba;'>
                              <strong>Security Policy:</strong> External devices are restricted by default, even on the local network.
                         </div>

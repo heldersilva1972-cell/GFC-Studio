@@ -9,7 +9,7 @@ public interface IDeviceTrustService
 {
     Task<bool> ValidateDeviceTokenAsync(string token, int userId);
     Task<string> CreateDeviceTokenAsync(int userId, string userAgent, string ipAddress, int durationDays);
-    Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays, string? stationName = null);
+    Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays, string? stationName = null, string? loginMode = null, string? authorizedUserIdsCsv = null);
     Task<List<TrustedDevice>> GetAllActiveStationsAsync();
     Task<bool> IsStationTokenAsync(string token);
     Task<TrustedDevice?> GetDeviceByTokenAsync(string token);
@@ -34,4 +34,6 @@ public interface IDeviceTrustService
     void InvalidateTokenSession(string token);
     void InvalidateAllUserSessions();
     Task UpdateDeviceAsync(TrustedDevice device);
+    Task<string?> GenerateSetupCodeAsync(string deviceToken);
+    Task<string?> ValidateSetupCodeAsync(string code);
 }

@@ -23,7 +23,13 @@ namespace GFC.BlazorServer.Data.Entities
         public decimal CashTotal { get; set; }
 
         [Required]
+        public decimal TotalGrossSales { get; set; }
+
+        [Required]
         public string InventoryPullsJson { get; set; } = "[]";
+
+        [Required]
+        public string SalesSummaryJson { get; set; } = "[]";
 
         public bool IsSynced { get; set; } = false;
     }

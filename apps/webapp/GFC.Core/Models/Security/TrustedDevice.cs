@@ -32,4 +32,9 @@ public class TrustedDevice
     
     [MaxLength(100)]
     public string? StationName { get; set; }
+
+    [MaxLength(20)]
+    public string? LoginMode { get; set; } // "Standard", "FastGrid"
+
+    public string? AuthorizedUserIdsCsv { get; set; } // Comma-separated list of UserIds authorized for this station
 }

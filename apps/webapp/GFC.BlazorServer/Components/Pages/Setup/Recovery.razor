@@ -1,0 +1,274 @@
+@page "/setup/recovery"
+@layout GFC.BlazorServer.Components.Layout.EmptyLayout
+@inject IDeviceTrustService DeviceTrustService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<Recovery> Logger
+
+<PageTitle>Station Recovery - GFC</PageTitle>
+
+<div class="recovery-container">
+    <div class="recovery-card @(_isProcessing ? "processing" : "")">
+        <div class="recovery-header">
+            <div class="recovery-icon">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <h1>Station Recovery</h1>
+            <p>Enter the 8-digit setup code provided by your administrator to restore trust to this station.</p>
+        </div>
+
+        <div class="code-input-group">
+            <div class="code-display">
+                @for (int i = 0; i < 8; i++)
+                {
+                    <div class="code-digit @(i == _inputIndex ? "active" : "") @(string.IsNullOrEmpty(_codeDigits[i]) ? "" : "filled")">
+                        @(string.IsNullOrEmpty(_codeDigits[i]) ? "•" : _codeDigits[i])
+                    </div>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger animate-shake">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i> @_errorMessage
+                </div>
+            }
+
+            <div class="numpad">
+                @for (int i = 1; i <= 9; i++)
+                {
+                    var digit = i.ToString();
+                    <button class="numpad-btn" @onclick="() => AppendDigit(digit)" disabled="@_isProcessing">@digit</button>
+                }
+                <button class="numpad-btn clear" @onclick="Clear" disabled="@_isProcessing">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+                <button class="numpad-btn" @onclick='() => AppendDigit("0")' disabled="@_isProcessing">0</button>
+                <button class="numpad-btn backspace" @onclick="Backspace" disabled="@_isProcessing">
+                    <i class="bi bi-backspace"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="recovery-footer">
+            <button class="btn-cancel" @onclick='() => Navigation.NavigateTo("/")'>Cancel</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .recovery-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 1rem;
+        color: white;
+    }
+
+    .recovery-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 2.5rem;
+        width: 100%;
+        max-width: 440px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        transition: transform 0.3s ease;
+    }
+
+    .recovery-card.processing {
+        opacity: 0.7;
+        pointer-events: none;
+    }
+
+    .recovery-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+
+    .recovery-icon {
+        font-size: 3rem;
+        color: #007bff;
+        margin-bottom: 1rem;
+        text-shadow: 0 0 20px rgba(0, 123, 255, 0.5);
+    }
+
+    .recovery-header h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin-bottom: 0.75rem;
+    }
+
+    .recovery-header p {
+        font-size: 0.9rem;
+        color: rgba(255, 255, 255, 0.6);
+        line-height: 1.5;
+    }
+
+    .code-display {
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .code-digit {
+        width: 40px;
+        height: 50px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }
+
+    .code-digit.active {
+        border-color: #007bff;
+        background: rgba(0, 123, 255, 0.1);
+        box-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
+    }
+
+    .code-digit.filled {
+        color: #fff;
+    }
+
+    .numpad {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.75rem;
+    }
+
+    .numpad-btn {
+        height: 60px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        color: white;
+        font-size: 1.5rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .numpad-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+    }
+
+    .numpad-btn:active {
+        transform: translateY(0);
+    }
+
+    .numpad-btn.clear { color: #ff4444; }
+    .numpad-btn.backspace { color: #f0ad4e; }
+
+    .recovery-footer {
+        margin-top: 2rem;
+        text-align: center;
+    }
+
+    .btn-cancel {
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.5);
+        cursor: pointer;
+        font-size: 0.9rem;
+        text-decoration: underline;
+    }
+
+    .animate-shake {
+        animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+    }
+
+    @@keyframes shake {
+        10%, 90% { transform: translate3d(-1px, 0, 0); }
+        20%, 80% { transform: translate3d(2px, 0, 0); }
+        30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+        40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
+</style>
+
+@code {
+    private string[] _codeDigits = new string[8];
+    private int _inputIndex = 0;
+    private string? _errorMessage;
+    private bool _isProcessing = false;
+
+    private async Task AppendDigit(string digit)
+    {
+        if (_inputIndex < 8)
+        {
+            _codeDigits[_inputIndex] = digit;
+            _inputIndex++;
+            _errorMessage = null;
+            
+            if (_inputIndex == 8)
+            {
+                await ValidateCode();
+            }
+        }
+    }
+
+    private void Backspace()
+    {
+        if (_inputIndex > 0)
+        {
+            _inputIndex--;
+            _codeDigits[_inputIndex] = "";
+            _errorMessage = null;
+        }
+    }
+
+    private void Clear()
+    {
+        _codeDigits = new string[8];
+        _inputIndex = 0;
+        _errorMessage = null;
+    }
+
+    private async Task ValidateCode()
+    {
+        _isProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            var code = string.Join("", _codeDigits);
+            var token = await DeviceTrustService.ValidateSetupCodeAsync(code);
+
+            if (!string.IsNullOrEmpty(token))
+            {
+                // [SUCCESS] Set identity cookie and redirect
+                await JSRuntime.InvokeVoidAsync("window.setCookie", "GFC_StationIdentity", token, 3650); // 10 years
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "gfc_device_token", token);
+                
+                Navigation.NavigateTo("/", forceLoad: true);
+            }
+            else
+            {
+                _errorMessage = "Invalid or expired setup code. Please contact an administrator.";
+                _inputIndex = 0;
+                _codeDigits = new string[8];
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during code validation");
+            _errorMessage = "An unexpected error occurred. Please try again.";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+}

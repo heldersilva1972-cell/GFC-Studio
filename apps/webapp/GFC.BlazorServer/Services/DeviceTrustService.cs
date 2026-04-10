@@ -3,6 +3,7 @@ using GFC.Core.Models.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
+using System.Collections.Concurrent;
 
 using GFC.Core.Interfaces;
 using GFC.Core.DTOs;
@@ -17,6 +18,7 @@ public class DeviceTrustService : IDeviceTrustService
 {
     private readonly IDbContextFactory<GfcDbContext> _contextFactory;
     private readonly ILogger<DeviceTrustService> _logger;
+    private static readonly ConcurrentDictionary<string, (string Token, DateTime Expiry)> _pendingSetupCodes = new();
 
     public DeviceTrustService(
         IDbContextFactory<GfcDbContext> contextFactory,
@@ -128,7 +130,7 @@ public class DeviceTrustService : IDeviceTrustService
         }
     }
 
-    public async Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays, string? stationName = null)
+    public async Task<string> CreateStationTokenAsync(int authorizedByUserId, string userAgent, string ipAddress, int durationDays, string? stationName = null, string? loginMode = null, string? authorizedUserIdsCsv = null)
     {
         try
         {
@@ -146,10 +148,12 @@ public class DeviceTrustService : IDeviceTrustService
             UserAgent = userAgent?.Length > 256 ? userAgent.Substring(0, 256) : userAgent,
             IpAddress = ipAddress?.Length > 45 ? ipAddress.Substring(0, 45) : ipAddress,
             LastUsedUtc = DateTime.UtcNow,
-            ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays),
+            ExpiresAtUtc = DateTime.UtcNow.AddYears(50), // [FIX] Stations have permanent trust (50 years)
             IsRevoked = false,
             IsStation = true,
-            StationName = stationName
+            StationName = stationName,
+            LoginMode = loginMode ?? "Standard",
+            AuthorizedUserIdsCsv = authorizedUserIdsCsv
         };
 
         context.TrustedDevices.Add(device);
@@ -593,5 +597,48 @@ public class DeviceTrustService : IDeviceTrustService
             _logger.LogError(ex, "Failed to update device {DeviceId}", device.Id);
             throw;
         }
+    }
+
+    public async Task<string?> GenerateSetupCodeAsync(string deviceToken)
+    {
+        // 1. Generate an 8-digit code (e.g. 1234 5678)
+        var randomBytes = new byte[4];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(randomBytes);
+        var code = (BitConverter.ToUInt32(randomBytes, 0) % 100000000).ToString("D8");
+        var formattedCode = $"{code.Substring(0, 4)}-{code.Substring(4, 4)}";
+
+        // 2. Clear stale codes
+        var staleCodes = _pendingSetupCodes.Where(x => x.Value.Expiry < DateTime.UtcNow).Select(x => x.Key).ToList();
+        foreach (var sc in staleCodes) _pendingSetupCodes.TryRemove(sc, out _);
+
+        // 3. Store with 15 minute expiry
+        _pendingSetupCodes[formattedCode] = (deviceToken, DateTime.UtcNow.AddMinutes(15));
+        
+        _logger.LogInformation("Generated Setup Recovery Code {Code} for token {TokenSnippet}", 
+            formattedCode, deviceToken.Substring(0, 8));
+
+        return await Task.FromResult(formattedCode);
+    }
+
+    public async Task<string?> ValidateSetupCodeAsync(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return null;
+        
+        var normalized = code.Trim().Replace(" ", "-");
+        if (!normalized.Contains("-") && normalized.Length == 8)
+        {
+            normalized = $"{normalized.Substring(0, 4)}-{normalized.Substring(4, 4)}";
+        }
+
+        if (_pendingSetupCodes.TryRemove(normalized, out var data))
+        {
+            if (data.Expiry > DateTime.UtcNow)
+            {
+                return await Task.FromResult(data.Token);
+            }
+        }
+        
+        return await Task.FromResult<string?>(null);
     }
 }

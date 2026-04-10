@@ -68,8 +68,55 @@
                     <div class="alert alert-success" role="alert">@_successMessage</div>
                 }
 
+            @if (_loginMode == LoginMode.FastGrid && !_showConfirmation)
+            {
+                <div class="fast-login-grid animate-fade-in">
+                    <h5 class="text-white text-center mb-4 text-uppercase ls-1 fw-bold">Select Your Name</h5>
+                    <div class="user-grid">
+                        @foreach (var user in _fastLoginUsers)
+                        {
+                            <button class="user-btn" @onclick="() => ConfirmUser(user)">
+                                <div class="user-initial">@(user.Username.Substring(0, 1).ToUpper())</div>
+                                <div class="user-name">@user.Username</div>
+                            </button>
+                        }
+                    </div>
+                    <div class="text-center mt-4 border-top border-white border-opacity-10 pt-3">
+                        <button class="btn btn-link btn-sm text-white-50 p-0 text-decoration-none" @onclick='() => SetMode(LoginMode.PassCode)'>
+                            <i class="bi bi-shield-lock me-1"></i> Use Keyboard Login
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @if (_showConfirmation && _confirmingUser != null)
+            {
+                <div class="confirmation-flow animate-zoom text-center">
+                    <div class="conf-icon mb-3">
+                        <i class="bi bi-person-check-fill text-primary" style="font-size: 4rem; opacity: 0.8;"></i>
+                    </div>
+                    <h3 class="text-white fw-bold mb-3">Identity Check</h3>
+                    <p class="text-white-50 mb-4">Yes, I am <strong>@_confirmingUser.Username</strong> logging in.</p>
+                    
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary py-3 fw-bold" @onclick="ProceedToLogin">
+                            Continue to Login <i class="bi bi-arrow-right ms-2"></i>
+                        </button>
+                        <button class="btn btn-link text-white-50 btn-sm mt-2" @onclick="CancelConfirmation">No, that's not me</button>
+                    </div>
+                </div>
+            }
+
             @if (_loginMode == LoginMode.Password || _loginMode == LoginMode.PassCode)
             {
+                @if (_isStationMode && _loginMode == LoginMode.PassCode && _fastLoginUsers.Any())
+                {
+                    <div class="mb-4 text-center">
+                        <button class="btn btn-outline-light btn-sm rounded-pill px-3" @onclick='() => SetMode(LoginMode.FastGrid)'>
+                            <i class="bi bi-grid-fill me-2"></i>Switch to User Grid
+                        </button>
+                    </div>
+                }
                 <EditForm Model="_model" OnSubmit="HandleLoginAsync" autocomplete="off">
                     <DataAnnotationsValidator />
                     <ValidationSummary class="alert alert-danger" />
@@ -261,6 +308,74 @@
         border-radius: 0.75rem;
         font-weight: 500;
     }
+
+    /* Fast Login Grid Styles */
+    .user-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+        max-height: 350px;
+        overflow-y: auto;
+        padding-right: 5px;
+    }
+
+    .user-grid::-webkit-scrollbar { width: 4px; }
+    .user-grid::-webkit-scrollbar-track { background: transparent; }
+    .user-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+    .user-btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1rem;
+        padding: 1rem;
+        color: white;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .user-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+        border-color: rgba(59, 130, 246, 0.5);
+    }
+
+    .user-initial {
+        width: 45px;
+        height: 45px;
+        background: #3b82f6;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 1.25rem;
+        box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4);
+    }
+
+    .user-name {
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        width: 100%;
+    }
+
+    .ls-2 { letter-spacing: 2px; }
+
+    .animate-zoom {
+        animation: zoomIn 0.3s ease-out;
+    }
+
+    @@keyframes zoomIn {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
+    }
 </style>
 
 @code {
@@ -277,6 +392,9 @@
     private bool _isStationMode = false;
     private bool _showPasscode = false;
     private bool _useTextKeyboard = false;
+    private List<UserListItemDto> _fastLoginUsers = new();
+    private UserListItemDto? _confirmingUser = null;
+    private bool _showConfirmation = false;
 
     [Parameter]
     [SupplyParameterFromQuery(Name = "station")]
@@ -304,7 +422,23 @@
 
             if (_isStationMode)
             {
-                _loginMode = LoginMode.PassCode;
+                var stationToken = await JSRuntime.InvokeAsync<string>("window.getCookie", "GFC_StationIdentity");
+                var station = await DeviceTrustService.GetDeviceByTokenAsync(stationToken);
+                
+                if (station?.LoginMode == "FastGrid")
+                {
+                    _loginMode = LoginMode.FastGrid;
+                    if (!string.IsNullOrEmpty(station.AuthorizedUserIdsCsv))
+                    {
+                        var ids = station.AuthorizedUserIdsCsv.Split(',').Select(int.Parse).ToList();
+                        var allUsers = UserManagementService.GetAllUsers();
+                        _fastLoginUsers = allUsers.Where(u => ids.Contains(u.UserId) && u.IsActive).ToList();
+                    }
+                }
+                else
+                {
+                    _loginMode = LoginMode.PassCode;
+                }
             }
 
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -437,11 +571,39 @@
         StateHasChanged();
     }
 
+    private void ConfirmUser(UserListItemDto user)
+    {
+        _confirmingUser = user;
+        _showConfirmation = true;
+        _error = null;
+    }
+
+    private void CancelConfirmation()
+    {
+        _showConfirmation = false;
+        _confirmingUser = null;
+    }
+
+    private void ProceedToLogin()
+    {
+        if (_confirmingUser == null) return;
+        
+        _model.Username = _confirmingUser.Username;
+        _model.Password = ""; // Clear password field
+        _loginMode = LoginMode.PassCode;
+        _showConfirmation = false;
+        
+        // Use a small delay to focus the password field if needed
+        StateHasChanged();
+    }
+
     private void SetMode(LoginMode mode)
     {
         _loginMode = mode;
         _error = null;
         _successMessage = null;
+        _showConfirmation = false;
+        _confirmingUser = null;
     }
 
     private async Task HandleLoginAsync()
@@ -537,7 +699,7 @@
 
 
 
-    private enum LoginMode { PassCode, Passkey, Password }
+    private enum LoginMode { PassCode, Passkey, Password, FastGrid }
     private string _passkeyUsername = "";
 
     private async Task HandleKeyDown(KeyboardEventArgs e)

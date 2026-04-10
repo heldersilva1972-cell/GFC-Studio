@@ -111,16 +111,16 @@
                 <div class="col-md-6 pt-3 text-end">
                     <div class="btn-group p-1 bg-light rounded-pill">
                         <button class="btn @(ActiveTab == "SALES" ? "btn-navy shadow-sm" : "btn-link text-muted fw-bold") rounded-pill px-4" @onclick='() => ActiveTab = "SALES"'>SALES FEED</button>
-                        <button class="btn @(ActiveTab == "INVENTORY" ? "btn-navy shadow-sm" : "btn-link text-muted fw-bold") rounded-pill px-4" @onclick='() => ActiveTab = "INVENTORY"'>RECONCILIATION AUDIT</button>
+                        <button class="btn @(ActiveTab == "INVENTORY" ? "btn-navy shadow-sm" : "btn-link text-muted fw-bold") rounded-pill px-4" @onclick='() => ActiveTab = "INVENTORY"'>BOTTLE YIELD AUDIT</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- SCROLLABLE WORKSPACE -->
-    <div class="audit-workspace-wrapper px-4 pb-4">
-        <div class="audit-workspace shadow-sm rounded-4 overflow-hidden">
+    <!-- SCROLLABLE WORKSPACE (Calculated height to prevent bleeding) -->
+    <div class="audit-workspace-wrapper">
+        <div class="audit-workspace shadow-sm overflow-hidden">
             @if (ActiveTab == "SALES")
             {
                 <!-- LEFT: Transaction List -->
@@ -129,7 +129,7 @@
                         <span>RECENT TRANSACTIONS</span>
                         <span class="badge bg-navy text-white rounded-pill">@Sales.Count</span>
                     </div>
-                    <div class="scroll-container">
+                    <div class="scroll-container custom-scrollbar">
                         @if (Sales == null || !Sales.Any())
                         {
                             <div class="text-center p-5 text-muted">No sales found.</div>
@@ -199,62 +199,66 @@
             else
             {
                 <!-- RECONCILIATION VIEW -->
-                <div class="p-5 flex-grow-1 bg-white overflow-y-auto">
-                    <div class="d-flex justify-content-between align-items-center mb-4">
-                        <h4 class="fw-black mb-0">STATION YIELD ANALYSIS: @(string.IsNullOrEmpty(FilterTerminal) ? "ALL STATIONS" : FilterTerminal.ToUpper())</h4>
-                        <div class="badge bg-navy-light text-navy p-2 rounded-pill px-3 fw-bold border">
-                            @{
-                                decimal pour = _settings?.GlobalLiquorPourSize ?? 1.5m;
-                                int shotsPerL = (int)(33.8m / (pour > 0 ? pour : 1.5m));
-                            }
-                            <i class="bi bi-info-circle me-2"></i>Yield is calculated at @shotsPerL shots (@pour.ToString("F2")oz) per 1L bottle pulled.
+                <div class="bg-white w-100 h-100 d-flex flex-column overflow-hidden">
+                    <div class="px-5 pt-5 pb-3 flex-shrink-0">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h4 class="fw-black mb-0">BOTTLE YIELD ANALYSIS: @(string.IsNullOrEmpty(FilterTerminal) ? "ALL STATIONS" : FilterTerminal.ToUpper())</h4>
+                            <div class="badge bg-navy-light text-navy p-2 rounded-pill px-3 fw-bold border">
+                                @{
+                                    decimal pour = _settings?.GlobalLiquorPourSize ?? 1.5m;
+                                    int shotsPerL = (int)(33.8m / (pour > 0 ? pour : 1.5m));
+                                }
+                                <i class="bi bi-info-circle me-2"></i>Yield is calculated at @shotsPerL shots (@pour.ToString("F2")oz) per 1L bottle pulled.
+                            </div>
                         </div>
                     </div>
 
-                    <table class="table table-hover align-middle border">
-                        <thead class="bg-light">
-                            <tr>
-                                <th class="ps-4">LIQUOR PRODUCT</th>
-                                <th class="text-center">DRINKS SOLD (POS)</th>
-                                <th class="text-center">BOTTLES PULLED</th>
-                                <th class="text-center">EXPECTED YIELD</th>
-                                <th class="pe-4 text-end">VARIANCE / LOSS</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @if (!ReconResults.Any())
-                            {
+                    <div class="flex-grow-1 custom-scrollbar" style="overflow-y: auto !important; -webkit-overflow-scrolling: touch; touch-action: pan-y; padding-left: 3rem; padding-right: 3rem; padding-bottom: 5rem;">
+                        <table class="table table-hover align-middle border mb-0">
+                            <thead class="bg-light sticky-top">
                                 <tr>
-                                    <td colspan="5" class="text-center py-5 text-muted">No inventory pulls recorded for this period.</td>
+                                    <th class="ps-4">LIQUOR PRODUCT</th>
+                                    <th class="text-center">DRINKS SOLD (POS)</th>
+                                    <th class="text-center">BOTTLES PULLED</th>
+                                    <th class="text-center">EXPECTED YIELD</th>
+                                    <th class="pe-4 text-end">VARIANCE / LOSS</th>
                                 </tr>
-                            }
-                            else
-                            {
-                                @foreach (var r in ReconResults.OrderBy(x => x.ItemName))
+                            </thead>
+                            <tbody>
+                                @if (!ReconResults.Any())
                                 {
-                                    var variance = r.ExpectedYield - r.DrinksSold;
-                                    var yieldPercent = r.ExpectedYield > 0 ? (r.DrinksSold / (decimal)r.ExpectedYield * 100) : 100;
-                                    
                                     <tr>
-                                        <td class="ps-4 fw-black">@r.ItemName <span class="text-muted small fw-normal ms-2">(@r.BottleSize, @r.PourSize.ToString("F2")oz)</span></td>
-                                        <td class="text-center fw-bold">@r.DrinksSold</td>
-                                        <td class="text-center fw-bold">@r.BottlesPulled BOTTLES</td>
-                                        <td class="text-center text-muted">@r.ExpectedYield SHOTS</td>
-                                        <td class="pe-4 text-end">
-                                            @if (variance > 2)
-                                            {
-                                                <span class="text-danger fw-black">-@variance.ToString("F0") SHOTS (@yieldPercent.ToString("F1")%)</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-success fw-bold">TIGHT (@yieldPercent.ToString("F1")%)</span>
-                                            }
-                                        </td>
+                                        <td colspan="5" class="text-center py-5 text-muted">No inventory pulls recorded for this period.</td>
                                     </tr>
                                 }
-                            }
-                        </tbody>
-                    </table>
+                                else
+                                {
+                                    @foreach (var r in ReconResults.OrderBy(x => x.ItemName))
+                                    {
+                                        var variance = r.ExpectedYield - r.DrinksSold;
+                                        var yieldPercent = r.ExpectedYield > 0 ? (r.DrinksSold / (decimal)r.ExpectedYield * 100) : 100;
+                                        
+                                        <tr>
+                                            <td class="ps-4 fw-black">@r.ItemName <span class="text-muted small fw-normal ms-2">(@r.BottleSize, @r.PourSize.ToString("F2")oz)</span></td>
+                                            <td class="text-center fw-bold">@r.DrinksSold</td>
+                                            <td class="text-center fw-bold">@r.BottlesPulled BOTTLES</td>
+                                            <td class="text-center text-muted">@r.ExpectedYield SHOTS</td>
+                                            <td class="pe-4 text-end">
+                                                @if (variance > 2)
+                                                {
+                                                    <span class="text-danger fw-black">-@variance.ToString("F0") SHOTS (@yieldPercent.ToString("F1")%)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-success fw-bold">TIGHT (@yieldPercent.ToString("F1")%)</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             }
         </div>
@@ -266,10 +270,14 @@
         height: 100vh; display: flex; flex-direction: column; overflow: hidden; BACKGROUND: #f8fafc;
     }
     
-    .sticky-top-section { flex: 0 0 auto; border-bottom: 1.5px solid #e2e8f0; }
-
-    .audit-workspace-wrapper { flex: 1; overflow: hidden; min-height: 0; }
-    .audit-workspace { display: flex; height: 100%; background: white; border: 1.5px solid #e2e8f0; }
+    .sticky-top-section { flex: 0 0 auto; border-bottom: 1.5px solid #e2e8f0; position: relative; z-index: 100; }
+    
+    .audit-workspace-wrapper { flex: 1; position: relative; overflow: hidden; background: #f8fafc; }
+    .audit-workspace { 
+        position: absolute; 
+        top: 1.5rem; left: 1.5rem; right: 1.5rem; bottom: 1.5rem;
+        display: flex; background: white; border: 1.5px solid #e2e8f0; border-radius: 1rem;
+    }
     
     /* LEFT PANEL */
     .audit-list-panel { width: 380px; display: flex; flex-direction: column; border-right: 1.5px solid #e2e8f0; background: #f8fafc; }
@@ -287,6 +295,13 @@
     .sale-item .terminal { font-size: 0.7rem; font-weight: 800; color: #3730a3; text-transform: uppercase; }
     .sale-item .bartender { font-size: 0.7rem; color: #94a3b8; font-weight: 600; }
     .sale-item .sale-amount { font-weight: 900; font-size: 1.1rem; color: #1e293b; }
+
+    /* CUSTOM SCROLLBARS */
+    .custom-scrollbar::-webkit-scrollbar { width: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .custom-scrollbar { scrollbar-width: thin; scrollbar-color: #cbd5e1 #f1f5f9; }
 
     /* RIGHT PANEL */
     .audit-viewer-panel { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding-top: 3rem; background: #f1f5f9; overflow-y: auto; }
@@ -317,92 +332,10 @@
     .receipt-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #1e293b; }
     .receipt-footer .total-row { display: flex; justify-content: space-between; font-weight: 950; font-size: 1.25rem; color: #1e293b; }
     .receipt-footer .ref-id { margin-top: 2rem; font-size: 0.6rem; color: #cbd5e1; text-align: center; font-family: monospace; }
-
-    .stat-card { background: white; padding: 1.25rem; border-radius: 16px; border: 1.5px solid #e2e8f0; position: relative; }
-    .stat-card .label { font-size: 0.7rem; font-weight: 900; color: #64748b; margin-bottom: 0.25rem; }
-    .stat-card .value { font-size: 1.5rem; font-weight: 900; color: #1e293b; }
-    .stat-card .footer { font-size: 0.65rem; color: #94a3b8; }
-    .station-stat { border-left: 5px solid var(--pos-navy); }
-
-    .animate-fade-in { animation: fadeIn 0.15s ease-out forwards; }
-    @@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     
-    /* LEFT PANEL */
-    .audit-list-panel { width: 380px; display: flex; flex-direction: column; border-right: 1.5px solid #e2e8f0; background: #f8fafc; }
-    .audit-list-panel .panel-header { padding: 1.25rem; background: white; border-bottom: 1.5px solid #e2e8f0; font-weight: 900; font-size: 0.75rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; letter-spacing: 0.5px; }
-    
-    .scroll-container { flex: 1; overflow-y: auto; }
-    .sale-item { 
-        padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; 
-        border-bottom: 1px solid #e2e8f0; cursor: pointer; transition: 0.2s; background: white;
-    }
-    .sale-item:hover { background: #f1f5f9; }
-    .sale-item.active { background: #eef2ff; border-right: 4px solid var(--pos-navy); }
-    
-    .sale-item .time { font-weight: 900; font-size: 0.95rem; color: #1e293b; margin-bottom: 2px; }
-    .sale-item .terminal { font-size: 0.7rem; font-weight: 800; color: #3730a3; text-transform: uppercase; }
-    .sale-item .bartender { font-size: 0.7rem; color: #94a3b8; font-weight: 600; }
-    .sale-item .sale-amount { font-weight: 900; font-size: 1.1rem; color: #1e293b; }
-
-    /* RIGHT PANEL */
-    .audit-viewer-panel { flex: 1; display: flex; justify-content: center; align-items: flex-start; padding-top: 3rem; background: #f1f5f9; overflow-y: auto; }
-    
-    .empty-state { text-align: center; color: #94a3b8; margin-top: 5rem; }
-    .empty-state i { font-size: 4rem; }
-    
-    .receipt-stage { padding-bottom: 5rem; width: 100%; display: flex; justify-content: center; }
-    .receipt-paper { background: white; width: 380px; padding: 2.5rem; position: relative; border-radius: 4px; }
-    .receipt-paper::after {
-        content: ""; position: absolute; bottom: -10px; left: 0; right: 0; height: 10px;
-        background: linear-gradient(-45deg, white 5px, transparent 0), linear-gradient(45deg, white 5px, transparent 0);
-        background-size: 10px 10px;
-    }
-
-    .receipt-header { text-align: center; border-bottom: 2px dashed #e2e8f0; padding-bottom: 1.5rem; margin-bottom: 1.5rem; }
-    .receipt-header .brand { font-size: 1.25rem; font-weight: 900; color: #1e293b; margin-bottom: 4px; }
-    .receipt-header h6 { font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
-    .receipt-header .timestamp { font-size: 0.7rem; color: #94a3b8; }
-    .receipt-header .bart { font-size: 0.75rem; font-weight: 700; color: #475569; margin-top: 5px; }
-
-    .section-title { font-size: 0.7rem; font-weight: 900; color: #94a3b8; letter-spacing: 1px; margin-bottom: 0.75rem; }
-    .receipt-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
-    .receipt-item .qty { width: 40px; font-weight: 800; color: #64748b; }
-    .receipt-item .name { flex: 1; font-weight: 700; color: #1e293b; text-transform: uppercase; }
-    .receipt-item .price { font-weight: 800; color: #1e293b; }
-
-    .receipt-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #1e293b; }
-    .receipt-footer .total-row { display: flex; justify-content: space-between; font-weight: 950; font-size: 1.25rem; color: #1e293b; }
-    .receipt-footer .ref-id { margin-top: 2rem; font-size: 0.6rem; color: #cbd5e1; text-align: center; font-family: monospace; }
-
     .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
     @@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .bg-light-gray { background: #f8fafc; }
-    .sale-row { cursor: pointer; transition: 0.2s; }
-    .sale-row:hover { background: #f1f5f9 !important; }
-    .expanded-border td { border-bottom: none !important; }
     
-    .receipt-detail { border-top: none; animation: slideDown 0.3s ease-out; }
-    
-    .receipt-paper { 
-        background: white; max-width: 400px; margin: 0 auto; padding: 2rem; 
-        border-radius: 4px; position: relative;
-    }
-    .receipt-paper::after {
-        content: ""; position: absolute; bottom: -10px; left: 0; right: 0; height: 10px;
-        background: linear-gradient(-45deg, white 5px, transparent 0), linear-gradient(45deg, white 5px, transparent 0);
-        background-size: 10px 10px;
-    }
-
-    .receipt-header { border-bottom: 2px dashed #e2e8f0; padding-bottom: 1rem; margin-bottom: 1rem; text-align: center; }
-    .receipt-header h6 { font-weight: 900; letter-spacing: 1px; margin-bottom: 4px; }
-    .receipt-header small { color: #94a3b8; font-size: 0.6rem; }
-
-    .receipt-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.85rem; }
-    .receipt-item .qty { font-weight: 800; color: #64748b; width: 30px; }
-    .receipt-item .name { flex: 1; font-weight: 700; color: #1e293b; }
-    .receipt-item .price { font-weight: 800; color: #1e293b; }
-
-    .receipt-footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 2px solid #1e293b; }
     .receipt-footer .total-line { display: flex; justify-content: space-between; font-weight: 900; font-size: 1.1rem; }
 
     @@keyframes slideDown {
