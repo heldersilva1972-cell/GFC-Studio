@@ -36,4 +36,5 @@ public interface IDeviceTrustService
     Task UpdateDeviceAsync(TrustedDevice device);
     Task<string?> GenerateSetupCodeAsync(string deviceToken);
     Task<string?> ValidateSetupCodeAsync(string code);
+    Task<int?> ValidateStationAutoLoginAsync(string stationToken, string username);
 }

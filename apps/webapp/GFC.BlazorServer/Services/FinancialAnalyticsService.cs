@@ -252,6 +252,7 @@ namespace GFC.BlazorServer.Services
                         TotalHours = (decimal?)e.TotalHours ?? 0m,
                         Notes = e.Notes ?? "",
                         CreatedBy = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown",
+                        EmployeeUsername = e.EmployeeUsername,
                         CreatedAt = (DateTime?)e.CreatedAt ?? DateTime.MinValue,
                         HourlyRate = e.HourlyRate_AtTimeOfShift,
                         Status = e.Status ?? "Draft"
@@ -295,8 +296,9 @@ namespace GFC.BlazorServer.Services
                     e.Notes,
                     e.CreatedBy,
                     e.CreatedAt,
-                    HourlyRate = e.HourlyRate ?? (userRatesByUsername.TryGetValue(e.CreatedBy, out var r1) ? r1 : 
-                                                 (userRatesByName.TryGetValue(e.CreatedBy, out var r2) ? r2 : 0m)),
+                    EmployeeUsername = !string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername : e.CreatedBy,
+                    HourlyRate = e.HourlyRate ?? (userRatesByUsername.TryGetValue(!string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername : e.CreatedBy, out var r1) ? r1 : 
+                                                 (userRatesByName.TryGetValue(!string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername : e.CreatedBy, out var r2) ? r2 : 0m)),
                     e.Status
                 }).Where(e => e.Date >= start && e.Date <= end).ToList();
 
@@ -420,8 +422,9 @@ namespace GFC.BlazorServer.Services
                              ShiftNetDueActivity = activeNetDue,
                              Notes = !string.IsNullOrWhiteSpace(dayBar?.Notes) ? dayBar.Notes : lotto?.Notes,
                              Status = !string.IsNullOrWhiteSpace(dayBar?.Status) ? dayBar.Status : lotto?.Status,
-                             CreatedBy = !string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : 
-                                        (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : "Unknown"),
+                             CreatedBy = !string.IsNullOrWhiteSpace(dayBar?.EmployeeUsername) ? dayBar.EmployeeUsername : 
+                                         (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : 
+                                         (!string.IsNullOrWhiteSpace(dayBar?.CreatedBy) ? dayBar.CreatedBy : "Unknown")),
                              CreatedAt = dayBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
                              HourlyRate = dayBar?.HourlyRate
                         });
@@ -478,8 +481,9 @@ namespace GFC.BlazorServer.Services
                              ShiftNetDueActivity = activeNetDue,
                              Notes = !string.IsNullOrWhiteSpace(nightBar?.Notes) ? nightBar.Notes : lotto?.Notes,
                              Status = !string.IsNullOrWhiteSpace(nightBar?.Status) ? nightBar.Status : lotto?.Status,
-                             CreatedBy = !string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : 
-                                        (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : "Unknown"),
+                             CreatedBy = !string.IsNullOrWhiteSpace(nightBar?.EmployeeUsername) ? nightBar.EmployeeUsername : 
+                                         (!string.IsNullOrWhiteSpace(lotto?.EmployeeName) ? lotto.EmployeeName : 
+                                         (!string.IsNullOrWhiteSpace(nightBar?.CreatedBy) ? nightBar.CreatedBy : "Unknown")),
                              CreatedAt = nightBar?.CreatedAt ?? lotto?.CreatedDate ?? date,
                              HourlyRate = nightBar?.HourlyRate
                         });
@@ -582,7 +586,7 @@ namespace GFC.BlazorServer.Services
                     Hours = e.TotalHours ?? 0m,
                     Shift = e.Shift ?? "Day",
                     IsHall = e.IsRentalHall,
-                    User = !string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown",
+                    User = !string.IsNullOrWhiteSpace(e.EmployeeUsername) ? e.EmployeeUsername : (!string.IsNullOrWhiteSpace(e.CreatedBy) ? e.CreatedBy : "Unknown"),
                     HistoricalRate = e.HourlyRate_AtTimeOfShift,
                     HistoricalEmployeeTax = e.TotalEmployeeTaxes_AtTimeOfShift,
                     HistoricalEmployerTax = e.TotalEmployerTaxes_AtTimeOfShift
@@ -610,22 +614,44 @@ namespace GFC.BlazorServer.Services
                 .Where(w => yearsInRange.Contains(w.Year))
                 .ToListAsync();
 
-            // Group entries by user
-            var entriesByUser = entries
-                .GroupBy(e => e.User)
-                .ToDictionary(g => g.Key, g => g.ToList());
+            // Create a lookup for Username to Full Name
+            var nameToUsername = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var user in users)
+            {
+                if (user.MemberId != null)
+                {
+                    var member = allMembers.FirstOrDefault(m => m.MemberID == user.MemberId);
+                    if (member != null)
+                    {
+                        var fullName = $"{member.FirstName} {member.LastName}".Trim();
+                        var fullNameWithSuffix = $"{member.FirstName} {member.LastName} {member.Suffix}".Trim();
+                        
+                        if (!nameToUsername.ContainsKey(fullName))
+                            nameToUsername.Add(fullName, user.Username);
+                        if (!string.IsNullOrEmpty(member.Suffix) && !nameToUsername.ContainsKey(fullNameWithSuffix))
+                            nameToUsername.Add(fullNameWithSuffix, user.Username);
+                    }
+                }
+            }
 
             var filteredResults = new List<EmployeeHoursDto>();
 
             foreach (var user in users)
             {
-                // Skip if this employee has no entries in the current period/location
-                if (!entriesByUser.ContainsKey(user.Username)) continue;
+                // Find all names that map to this user (Username OR Full Name)
+                var userFullNames = nameToUsername.Where(kvp => kvp.Value == user.Username).Select(kvp => kvp.Key).ToList();
+                
+                // Get all shifts belonging to this user (Match by Username or any known Full Name)
+                var userEntries = entries.Where(e => 
+                    string.Equals(e.User?.Trim(), user.Username?.Trim(), StringComparison.OrdinalIgnoreCase) || 
+                    userFullNames.Any(fn => string.Equals(fn.Trim(), e.User?.Trim(), StringComparison.OrdinalIgnoreCase))
+                ).ToList();
 
-                var userEntries = entriesByUser[user.Username];
+                if (!userEntries.Any()) continue;
+
                 var totalHours = userEntries.Sum(e => e.Hours);
 
-                // Skip if they worked 0 hours (e.g. they only recorded a shift with 0 time)
+                // Skip if they worked 0 hours
                 if (totalHours <= 0) continue;
 
                 var defaultRate = user.HourlyRate ?? 0;

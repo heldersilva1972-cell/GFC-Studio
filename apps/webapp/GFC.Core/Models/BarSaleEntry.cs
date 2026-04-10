@@ -40,5 +40,6 @@ namespace GFC.Core.Models
         public string Status { get; set; } = "Draft";
         public string? AcknowledgedBy { get; set; }
         public DateTime? AcknowledgedAt { get; set; }
+        public string? EmployeeUsername { get; set; }
     }
 }

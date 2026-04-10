@@ -641,4 +641,31 @@ public class DeviceTrustService : IDeviceTrustService
         
         return await Task.FromResult<string?>(null);
     }
+
+    public async Task<int?> ValidateStationAutoLoginAsync(string stationToken, string username)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var device = await context.TrustedDevices
+                .FirstOrDefaultAsync(d => d.DeviceToken == stationToken && d.IsStation && !d.IsRevoked && d.ExpiresAtUtc > DateTime.UtcNow);
+                
+            if (device == null || device.LoginMode != "FastGrid") return null;
+
+            var user = await context.AppUsers.FirstOrDefaultAsync(u => u.Username == username && u.IsActive);
+            if (user == null) return null;
+
+            if (string.IsNullOrEmpty(device.AuthorizedUserIdsCsv)) return null;
+
+            var authorizedIds = device.AuthorizedUserIdsCsv.Split(',').Select(int.Parse).ToList();
+            if (!authorizedIds.Contains(user.UserId)) return null;
+
+            return user.UserId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating station auto-login for {Username}", username);
+            return null;
+        }
+    }
 }
