@@ -200,11 +200,21 @@ public class AuthenticationService : IAuthenticationService
 
         _currentUser = user;
         
-        // Update Session Timing without rotating the token to prevent race conditions
-        trustedDevice.LastUsedUtc = DateTime.UtcNow;
-        var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
-        trustedDevice.ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays);
-        await _trustedDeviceRepository.UpdateAsync(trustedDevice);
+        // [PERFORMANCE] Update Session Timing in background to prevent blocking the UI rendering path
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var durationDays = await _systemSettingsService.GetTrustedDeviceDurationDaysAsync();
+                trustedDevice.LastUsedUtc = DateTime.UtcNow;
+                trustedDevice.ExpiresAtUtc = DateTime.UtcNow.AddDays(durationDays);
+                await _trustedDeviceRepository.UpdateAsync(trustedDevice);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Background device token update failed: {Message}", ex.Message);
+            }
+        });
 
         await SafeLogLogin(user.Username, user.UserId, true, ipAddress, "Login via device token successful");
 

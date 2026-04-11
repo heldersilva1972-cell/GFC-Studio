@@ -6,6 +6,7 @@
 @inject IJSRuntime JSRuntime
 @inject NavigationManager Navigation
 @inject IUserConnectionService UserConnectionService
+@inject ILogger<App> _logger
 
 <CascadingAuthenticationState>
     <ErrorBoundary>
@@ -85,7 +86,16 @@
 
         // [FIX] Perform instant redirection for mobile users BEFORE they see any UI
         // This handles cases where the PWA launches to the root URL (/)
-        await UserConnectionService.DetectConnectionIfNeededAsync();
+        // [FIX] Add a safety timeout to connection detection to prevent app startup lockup if DB/Network is hanging
+        var detectionTask = UserConnectionService.DetectConnectionIfNeededAsync();
+        if (await Task.WhenAny(detectionTask, Task.Delay(3000)) != detectionTask)
+        {
+            _logger.LogWarning("Connection detection timed out after 3s during startup. Proceeding with last known state.");
+        }
+        else
+        {
+            await detectionTask;
+        }
         if (UserConnectionService.IsMobile && string.IsNullOrEmpty(Navigation.ToBaseRelativePath(Navigation.Uri)))
         {
             Navigation.NavigateTo("/mobile", true);

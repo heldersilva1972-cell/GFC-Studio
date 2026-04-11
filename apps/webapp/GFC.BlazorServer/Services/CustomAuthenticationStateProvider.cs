@@ -36,7 +36,11 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
     private ClaimsPrincipal _currentPrincipal = CreateUnauthenticatedPrincipal();
     private AppUser? _currentUser;
     private string? _currentToken;
- 
+    private bool _autoLoginAttempted = false;
+
+    // [NEW] Task-Level Protection to prevent "Thundering Herd" (multiple components calling simultaneously)
+    private Task<AuthenticationState>? _getAuthenticationStateTask;
+    private readonly System.Threading.SemaphoreSlim _authLock = new(1, 1);
     /// <summary>
     /// Clears the global session cache for a specific user to force a database re-validation.
     /// Used when a device is revoked or setup is reset.
@@ -120,40 +124,74 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
         OnTokenInvalidated -= HandleTokenInvalidated;
     }
 
-    private bool _autoLoginAttempted = false;
 
-        public override async Task<AuthenticationState> GetAuthenticationStateAsync()
+
+    public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {
-        RefreshFromAuthenticationService();
-
-        // [FIX] Standard Auto-Login: Check cookie and validate against DB
-        if (_currentUser == null)
+        // 1. FAST PATH: Return current session if already established within this circuit
+        if (_currentUser != null)
         {
-            _autoLoginAttempted = true;
-            try 
+            return new AuthenticationState(_currentPrincipal);
+        }
+
+        // 2. THUNDERING HERD PROTECTION: Reuse in-flight auth task if multiple components request state at once
+        if (_getAuthenticationStateTask != null)
+        {
+            return await _getAuthenticationStateTask;
+        }
+
+        await _authLock.WaitAsync();
+        try
+        {
+            // Re-check after acquiring lock
+            if (_currentUser != null) return new AuthenticationState(_currentPrincipal);
+            if (_getAuthenticationStateTask != null) return await _getAuthenticationStateTask;
+
+            _getAuthenticationStateTask = ExecuteGetAuthenticationStateAsync();
+            return await _getAuthenticationStateTask;
+        }
+        finally
+        {
+            _authLock.Release();
+        }
+    }
+
+    private async Task<AuthenticationState> ExecuteGetAuthenticationStateAsync()
+    {
+        try
+        {
+            RefreshFromAuthenticationService();
+
+            if (_currentUser == null && !_autoLoginAttempted)
             {
+                _autoLoginAttempted = true;
+                
                 var context = _httpContextAccessor.HttpContext;
                 string? token = null;
+                bool isCookieToken = false;
 
                 // [STATION DETECTION]
-                // Stations MUST persist their login across refreshes while the browser is open.
                 bool isSharedStation = context?.Request != null && context.Request.Cookies.ContainsKey("GFC_StationIdentity");
-                bool isCookieToken = false;
                 
-                // 1. Try Cookies (Initial load / Prerendering)
+                // 1. Try Cookies (Reliable for Initial SSR/Prerender)
                 if (context != null && context.Request.Cookies.TryGetValue("GFC_DeviceTrustToken", out token) && !string.IsNullOrEmpty(token))
                 {
-                    // Got token from cookie - extremely reliable for refreshes
                     isCookieToken = true;
                 }
                 else 
                 {
-                    // 2. Try LocalStorage (Interactive circuit reconnection)
+                    // 2. Try LocalStorage (Interactive circuit reconnect / PWA state)
                     try 
                     {
-                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                        // [FIX] Add strict safety timeout to JS interop to prevent circuit lockups if SignalR is busy
+                        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token", cts.Token);
                     }
-                    catch { /* Not interactive yet or JS not ready */ }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogWarning("JS localStorage call timed out during auth resolution. Failing closed to prevent UI hang.");
+                    }
+                    catch { /* JS not ready */ }
                 }
 
                 if (!string.IsNullOrEmpty(token))
@@ -179,10 +217,10 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                     }
                     else
                     {
-                         // [FALLBACK] Interactive circuit re-eval without SSR context (SignalR reconnect)
-                         // We must restore state to survive SignalR reconnects whether it's a station or not.
+                         // [FALLBACK] Interactive circuit re-eval without SSR context
                          try {
-                            var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token");
+                            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(1));
+                            var intentToken = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token", cts.Token);
                             shouldRestore = !string.IsNullOrEmpty(intentToken) && intentToken == token;
                          } catch { }
                     }
@@ -221,10 +259,15 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                 _logger?.LogError(ex, "Auto-login failed during state resolution");
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Auto-login failed during state resolution");
+        }
+        finally
+        {
+            // Clear the in-flight task so future refreshes can run fresh logic if needed
+            _getAuthenticationStateTask = null;
         }
 
         return new AuthenticationState(_currentPrincipal);

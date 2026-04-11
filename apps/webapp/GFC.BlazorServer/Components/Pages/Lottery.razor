@@ -399,9 +399,27 @@
 
 <div class="filter-bar mb-4">
     <div class="row g-3 align-items-center">
-        @if (_viewMode == "weekly" || _viewMode == "reconcile")
-        {
-            <div class="col-auto">
+        <div class="col-auto">
+            @if (_viewMode == "weekly" || _viewMode == "monthly")
+            {
+                <div class="input-group input-group-sm shadow-sm rounded-3 overflow-hidden border">
+                    <span class="input-group-text border-0 bg-light text-muted fw-bold px-3">Filter Period:</span>
+                    <select class="form-select border-0 fw-black px-3" @bind="_selectedMonth" @bind:after="OnMonthYearChanged" style="width: 140px; height: 38px;">
+                        @for (int m = 1; m <= 12; m++)
+                        {
+                            <option value="@m">@System.Globalization.DateTimeFormatInfo.CurrentInfo.GetMonthName(m)</option>
+                        }
+                    </select>
+                    <select class="form-select border-0 fw-black px-3 border-start" @bind="_selectedYear" @bind:after="OnMonthYearChanged" style="width: 100px; height: 38px;">
+                        @for (int y = DateTime.Now.Year; y >= 2024; y--)
+                        {
+                            <option value="@y">@y</option>
+                        }
+                    </select>
+                </div>
+            }
+            else
+            {
                 <div class="input-group input-group-sm shadow-sm rounded-3 overflow-hidden border">
                     <span class="input-group-text border-0 bg-light text-muted fw-bold px-3">Select Week:</span>
                     <select class="form-select border-0 fw-black px-4" @onchange="OnWeekSelected" style="min-width: 280px; height: 38px;">
@@ -413,48 +431,33 @@
                         }
                     </select>
                 </div>
-            </div>
-        }
-        else
-        {
-            <div class="col-auto">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text border-0 bg-transparent text-muted fw-bold">From:</span>
-                    <input type="date" class="form-control" @bind="_filterStartDate" @bind:after="OnFilterChanged" />
-                </div>
-            </div>
-            <div class="col-auto">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text border-0 bg-transparent text-muted fw-bold">To:</span>
-                    <input type="date" class="form-control" @bind="_filterEndDate" @bind:after="OnFilterChanged" />
-                </div>
-            </div>
-            <div class="col-auto d-flex gap-1">
-                <button class="btn btn-outline-secondary btn-sm fw-bold px-3" @onclick="ApplyTodayFilter">Today</button>
-                <button class="btn btn-outline-secondary btn-sm fw-bold px-3" @onclick="ApplyCurrentWeekFilter">This Week</button>
-                <button class="btn btn-outline-secondary btn-sm fw-bold px-3" @onclick="ApplyPastWeekFilter">Past Week</button>
-            </div>
-        }
-        <div class="col-auto">
-            <select class="form-select form-select-sm" @bind="_filterEmployee" @bind:after="OnFilterChanged">
-                <option value="">All Employees</option>
-                @foreach (var name in _employeeNames)
-                {
-                    <option value="@name">@name</option>
-                }
-            </select>
+            }
+
+            @if (_viewMode == "daily")
+            {
+                <select class="form-select border-0 shadow-sm fw-bold px-4 py-2 ms-3" style="max-width: 200px; border: 1px solid #e2e8f0 !important;" @bind="_filterEmployee" @bind:after="OnFilterChanged">
+                    <option value="">All Employees</option>
+                    @foreach (var name in _employeeNames)
+                    {
+                        <option value="@name">@name</option>
+                    }
+                </select>
+            }
         </div>
-        <div class="col text-end">
+        <div class="col text-center">
+             <button class="btn @(_viewMode == "reconcile" ? "btn-primary shadow" : "btn-outline-primary") fw-black text-uppercase px-4 border-2" 
+                    style="border-radius: 50px; height: 42px; font-size: 0.85rem;"
+                    @onclick='() => ChangeViewMode("reconcile")'>
+                <i class="bi bi-shield-check me-2"></i>Reconcile
+            </button>
+        </div>
+        <div class="col-auto text-end">
             <div class="d-inline-flex gap-2 align-items-center">
                 <div class="pill-group">
-                    <button class="pill-btn @(_viewMode == "shifts" ? "active" : "")" @onclick='() => ChangeViewMode("shifts")'>Shifts</button>
-                    <button class="pill-btn @(_viewMode == "commissions" ? "active" : "")" @onclick='() => ChangeViewMode("commissions")'>
-                        <i class="bi bi-currency-dollar me-1"></i> Commission Report
-                    </button>
-                    <button class="pill-btn @(_viewMode == "daily" ? "active" : "")" @onclick='() => ChangeViewMode("daily")'>Daily</button>
-                    <button class="pill-btn @(_viewMode == "weekly" ? "active" : "")" @onclick='() => ChangeViewMode("weekly")'>Weekly</button>
-                    <button class="pill-btn @(_viewMode == "monthly" ? "active" : "")" @onclick='() => ChangeViewMode("monthly")'>Monthly</button>
-                    <button class="pill-btn @(_viewMode == "reconcile" ? "active" : "")" @onclick='() => ChangeViewMode("reconcile")'>Reconcile</button>
+                    <button class="pill-btn @(_viewMode == "daily" ? "active" : "")" @onclick='() => ChangeViewMode("daily")'>Shift Audit</button>
+                    <button class="pill-btn @(_viewMode == "commissions" ? "active" : "")" @onclick='() => ChangeViewMode("commissions")'>Commissions</button>
+                    <button class="pill-btn @(_viewMode == "weekly" ? "active" : "")" @onclick='() => ChangeViewMode("weekly")'>Monthly View</button>
+                    <button class="pill-btn @(_viewMode == "monthly" ? "active" : "")" @onclick='() => ChangeViewMode("monthly")'>Yearly View</button>
                 </div>
             </div>
         </div>
@@ -462,54 +465,132 @@
 </div>
 
 @* Summary Statistics *@
-@if ((_viewMode == "shifts" || _viewMode == "weekly") && (_shifts.Any() || _weeklySummaries.Any()))
+@if (_shifts.Any() || _weeklySummaries.Any() || _monthlySummaries.Any())
 {
+    bool isReconcileContext = _viewMode == "reconcile";
+    bool isYearContext = _viewMode == "monthly";
+    bool isMonthContext = _viewMode == "weekly";
+    
+    decimal contextCommissions = 0;
+    decimal contextFees = 0;
+    decimal contextVariance = 0;
+    
+    decimal totalEnvelopeCash = 0;
+    decimal totalDebtToLottery = 0;
+    decimal auditedNetRevenue = 0;
+    
+    if (isReconcileContext)
+    {
+        // [SMART-AUDIT]: We use the official NetDue reading from the machine report (Night Shift)
+        // instead of calculating Sales - Payouts, as the machine total includes commissions.
+        // We also strictly ignore "Draft" shifts.
+        var dailyAuditData = _shifts
+            .Where(s => s.Status != "Draft")
+            .GroupBy(s => s.ShiftDate.Date)
+            .Select(g => {
+                var latestShift = g.OrderByDescending(s => s.ShiftId).First();
+                return new {
+                    EnvelopeCash = g.Sum(s => s.EnvelopeAmount),
+                    NetDue = latestShift.NetDue,
+                    Tickets = latestShift.TotalCancels
+                };
+            }).ToList();
+
+        totalEnvelopeCash = dailyAuditData.Sum(d => d.EnvelopeCash);
+        totalDebtToLottery = dailyAuditData.Sum(d => d.NetDue - d.Tickets);
+        auditedNetRevenue = totalEnvelopeCash - totalDebtToLottery;
+    }
+    else if (isYearContext)
+    {
+        contextCommissions = _monthlySummaries.Sum(m => m.TotalIncome);
+        contextFees = _monthlySummaries.Sum(m => m.TotalFees);
+        contextVariance = _monthlySummaries.Sum(m => m.TotalVariance);
+    }
+    else if (isMonthContext)
+    {
+        contextCommissions = _weeklySummaries.Sum(w => w.TotalIncome);
+        contextFees = _weeklySummaries.Sum(w => w.TotalFees);
+        contextVariance = _weeklySummaries.Sum(w => w.TotalVariance);
+    }
+    else
+    {
+        // [SMART-AUDIT]: Commission for the summary cards is calculated from the cumulative machine readings
+        // of the final shift of each day (Night shift) to ensure it matches the official reports.
+        contextCommissions = _shifts
+            .GroupBy(s => s.ShiftDate.Date)
+            .Sum(g => {
+                var latest = g.OrderByDescending(s => s.ShiftId).First();
+                var rates = _commissionRates.FirstOrDefault(r => r.Year == g.Key.Year);
+                if (rates == null) return 0;
+                return (latest.TotalSales * rates.SalesCommissionMultiplier) + 
+                       (latest.TotalPayouts * rates.CashingBonusMultiplier) + 
+                       (latest.TotalCancels * rates.TicketBonusMultiplier);
+            });
+
+        var rates = _commissionRates.FirstOrDefault(r => r.Year == _filterStartDate.Year);
+        decimal dailyTotalFee = (rates?.DailySystemFee ?? 0) + (rates?.DailyBondingFee ?? 0);
+        contextFees = (decimal)_shifts.Select(s => s.ShiftDate.Date).Distinct().Count() * dailyTotalFee;
+        contextVariance = TotalVariance;
+    }
+
+    string contextLabel = isYearContext ? "Yearly" : (isMonthContext ? "Monthly" : "Weekly");
+
     <div class="row mb-3 px-2">
-        <div class="col">
-            <div class="data-card border-0" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);">
-                <div class="small fw-bold opacity-75 mb-1">Lottery Earnings</div>
-                <div class="h3 mb-0 fw-black">@TotalEarnings.ToString("C")</div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="data-card border-0" style="background: linear-gradient(135deg, @(NetBagDebt > 0 ? "#ef4444" : "#10b981") 0%, @(NetBagDebt > 0 ? "#dc2626" : "#059669") 100%); color: white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);">
-                <div class="small fw-bold opacity-75 mb-1">Backup Bag Change</div>
-                <div class="h3 mb-0 fw-black">@(NetBagDebt > 0 ? "-" : "+")@Math.Abs(NetBagDebt).ToString("C2")</div>
-                <div class="x-small fw-bold opacity-75">@(NetBagDebt > 0 ? "Net Debt" : "Bag Surplus") for Period</div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="data-card">
-                <div class="text-muted small">Total Sales</div>
-                <div class="h4 mb-0">@TotalSales.ToString("C")</div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="data-card">
-                <div class="text-muted small">Total Payouts</div>
-                <div class="h4 mb-0">@TotalPayouts.ToString("C")</div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="data-card">
-                <div class="text-muted small">Instant Tickets</div>
-                <div class="h4 mb-0" style="color: #6366f1;">@TotalInstantTickets.ToString("C")</div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="data-card">
-                <div class="text-muted small">Total Envelopes</div>
-                <div class="h4 mb-0 text-warning">@TotalEnvelope.ToString("C")</div>
-            </div>
-        </div>
-        <div class="col">
-            <div class="data-card">
-                <div class="text-muted small">Total Variance</div>
-                <div class="h4 mb-0 @(TotalVariance < 0 ? "text-danger" : TotalVariance > 0 ? "text-success" : "")">
-                    @TotalVariance.ToString("C")
+        @if (isReconcileContext)
+        {
+            <div class="col-md-4">
+                <div class="data-card border-0" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.2);">
+                    <div class="small fw-bold opacity-75 mb-1 text-uppercase">Total Envelope Cash</div>
+                    <div class="h3 mb-0 fw-black">@totalEnvelopeCash.ToString("C2")</div>
                 </div>
             </div>
-        </div>
+            <div class="col-md-4">
+                <div class="data-card border-0" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.2);">
+                    <div class="small fw-bold opacity-75 mb-1 text-uppercase">Debt to Lottery</div>
+                    <div class="h3 mb-0 fw-black">@totalDebtToLottery.ToString("C2")</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="data-card border-0" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);">
+                    <div class="small fw-bold opacity-75 mb-1 text-uppercase">Audited Net Revenue</div>
+                    <div class="h3 mb-0 fw-black">@auditedNetRevenue.ToString("C2")</div>
+                    <div class="x-small fw-bold opacity-75">Cash Surplus Available</div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="col-md-3">
+                <div class="data-card border-0" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);">
+                    <div class="small fw-bold opacity-75 mb-1 text-uppercase">@contextLabel Commissions Total</div>
+                    <div class="h3 mb-0 fw-black">@contextCommissions.ToString("C2")</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="data-card border-0" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.2);">
+                    <div class="small fw-bold opacity-75 mb-1 text-uppercase">@contextLabel Fees Total</div>
+                    <div class="h3 mb-0 fw-black">-@contextFees.ToString("C2")</div>
+                    <div class="x-small fw-bold opacity-75">@(isYearContext ? "Full Calendar Year" : (isMonthContext ? "Calendar Month" : "Current Reporting Week"))</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                @if (_viewMode != "commissions")
+                {
+                    <div class="data-card">
+                        <div class="text-muted small text-uppercase fw-bold">Calculated Sales</div>
+                        <div class="h4 mb-0">@TotalSales.ToString("C")</div>
+                    </div>
+                }
+            </div>
+            <div class="col-md-3">
+                <div class="data-card">
+                    <div class="text-muted small text-uppercase fw-bold text-danger">Total Variance</div>
+                    <div class="h4 mb-0 @(contextVariance < 0 ? "text-danger" : contextVariance > 0 ? "text-success" : "")">
+                        @contextVariance.ToString("C2")
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 }
 
@@ -535,175 +616,128 @@
     </div>
 }
 
-@if (ShowContent && _viewMode == "shifts")
+@if (ShowContent && _viewMode == "daily")
 {
-    @* Shifts List View *@
-    <div class="data-card">
-            <div class="table-container-fixed">
-            <table class="data-table table-compact table-sticky-header">
+    @* Shift Audit View - High Density (Original Table Format) *@
+    <div class="data-card shadow-sm border-0">
+        <h5 class="fw-black text-muted mb-4 px-3 text-uppercase x-small tracking-widest">Weekly Shift Audit Log</h5>
+        <div class="table-container-fixed">
+            <table class="data-table border-top table-compact">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Shift</th>
-                        <th>Employee</th>
-                        <th>Beginning Drawer Cash</th>
-                        <th>Ending Drawer Cash</th>
-                        <th>Machine Sales (RPT 50)</th>
-                        <th>Machine Payouts (RPT 50)</th>
-                        <th>Instant Tickets (RPT 34)</th>
+                        <th class="ps-4">Shift</th>
+                        <th>Bartender</th>
+                        <th>Beginning Cash</th>
+                        <th>Ending Cash</th>
+                        <th>Machine Sales</th>
+                        <th>Machine Payouts</th>
+                        <th>Instant Tickets</th>
                         <th class="text-indigo">Backup Bag</th>
-                        <th>Net Due (RPT 50)</th>
+                        <th>Net Due</th>
                         <th>Shift Net Sales</th>
                         <th>Expected Drawer</th>
                         <th>Envelope Drop</th>
                         <th>Variance</th>
                         <th>Status</th>
-                        <th>Actions</th>
+                        <th class="text-center">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var dayGroup in _shifts.GroupBy(s => s.ShiftDate.Date))
-                    {
-                        var shiftsInDay = dayGroup.ToList();
-                        for (int i = 0; i < shiftsInDay.Count; i++)
-                        {
-                            var shift = shiftsInDay[i];
-                            var isDayStart = (i == 0);
+                    @{
+                        bool anyShiftsInWeek = _shifts.Any();
+                    }
 
-                            <tr class="@(isDayStart ? "day-group-header" : "day-group-subrow")">
-                                @if (isDayStart)
-                                {
-                                    <td rowspan="@shiftsInDay.Count" class="date-column-centered">
-                                        @shift.ShiftDate.ToString("ddd")<br />
-                                        <span class="small text-muted">@shift.ShiftDate.ToString("MMM d, yyyy")</span>
-                                    </td>
-                                }
-                                <td>
-                                    @if (shift.ShiftType == "Day")
-                                    {
-                                        <span class="badge bg-info-subtle text-info border border-info-subtle">DAY</span>
-                                    }
-                                    else if (shift.ShiftType == "Night")
-                                    {
-                                        <span class="badge bg-indigo-subtle text-indigo border border-indigo-subtle">NIGHT</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-muted">@shift.ShiftType</span>
-                                    }
-                                </td>
-                                <td>@shift.EmployeeName</td>
-                                <td>@shift.StartingCash.ToString("C")</td>
-                                <td>@shift.EndingCash.ToString("C")</td>
-                                <td>@shift.TotalSales.ToString("C2")</td>
-                                <td>@shift.TotalPayouts.ToString("C2")</td>
-                                <td>@shift.TotalCancels.ToString("C2")</td>
-                                
-                                <td>
-                                    @if (shift.BackupBagAmount > 0 || shift.BagRefillAmount > 0)
-                                    {
-                                        <div class="d-flex flex-column" style="font-size: 0.75rem; line-height: 1.2;">
-                                            @if (shift.BackupBagAmount > 0)
-                                            {
-                                                <span class="text-danger fw-black">OUT: (-@shift.BackupBagAmount.ToString("N2"))</span>
-                                            }
-                                            @if (shift.BagRefillAmount > 0)
-                                            {
-                                                <span class="text-success fw-black">REFILL: +@shift.BagRefillAmount.ToString("N2")</span>
-                                            }
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted opacity-50">$0.00</span>
-                                    }
-                                </td>
-                                <td class="fw-bold">@shift.NetDue.ToString("C2")</td>
-                                <td>@shift.NetSales.ToString("C2")</td>
-                                <td class="fw-bold">@shift.ExpectedCash.ToString("C2")</td>
-                                <td class="@(shift.EnvelopeAmount > 0 ? "text-warning fw-bold" : "text-muted opacity-50")">
-                                    @shift.EnvelopeAmount.ToString("C2")
-                                </td>
-                                <td>
-                                    <span class="variance-pill @(shift.Variance < 0 ? "variance-neg" : shift.Variance > 0 ? "variance-pos" : "variance-zero")">
-                                        @shift.Variance.ToString("C2")
-                                    </span>
-                                </td>
-                                <td>
-                                    @if (shift.Status == "Draft")
-                                    {
-                                        <span class="badge bg-warning text-dark border border-warning" style="animation: pulse-attention 2s infinite ease-in-out;">DRAFT</span>
-                                    }
-                                    else if (shift.IsReconciled)
-                                    {
-                                        <span class="badge bg-success">Reconciled</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-info">Submitted</span>
-                                    }
-                                </td>
-                                <td>
-                                    <div class="table-actions">
-                                        <button class="btn btn-outline btn-sm" @onclick="() => EditShift(shift.ShiftId)" title="Edit">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                    </div>
+                    @if (!anyShiftsInWeek)
+                    {
+                        <tr>
+                            <td colspan="15" class="ps-4 py-5 text-center text-muted">
+                                <i class="bi bi-info-circle fs-4 d-block mb-2"></i>
+                                <span class="fw-bold">No lottery shifts recorded for this week.</span><br/>
+                                <span class="small opacity-75">Select a different week or filter from the top bar.</span>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @for (var day = _filterStartDate.Date; day <= _filterEndDate.Date; day = day.AddDays(1))
+                        {
+                            var shiftsForDay = _shifts.Where(s => s.ShiftDate.Date == day.Date).ToList();
+                            if (!shiftsForDay.Any()) continue;
+
+                            @* Day Header Row *@
+                            <tr class="day-group-header">
+                                <td colspan="15" class="ps-4 py-2 border-bottom border-top">
+                                    <span class="fw-black text-primary text-uppercase small tracking-wider">@day.ToString("dddd, MMMM d")</span>
                                 </td>
                             </tr>
+
+                            @foreach (var shift in shiftsForDay)
+                            {
+                                <tr class="align-middle">
+                                    <td class="ps-4">
+                                        @if (shift.ShiftType == "Day")
+                                        {
+                                            <span class="badge bg-info-subtle text-info border border-info-subtle">DAY</span>
+                                        }
+                                        else if (shift.ShiftType == "Night")
+                                        {
+                                            <span class="badge bg-indigo-subtle text-indigo border border-indigo-subtle">NIGHT</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-light text-muted">@shift.ShiftType</span>
+                                        }
+                                    </td>
+                                    <td><span class="fw-bold">@shift.EmployeeName</span></td>
+                                    <td class="small">@shift.StartingCash.ToString("C")</td>
+                                    <td class="small">@shift.EndingCash.ToString("C")</td>
+                                    <td class="small">@shift.TotalSales.ToString("C2")</td>
+                                    <td class="small">@shift.TotalPayouts.ToString("C2")</td>
+                                    <td class="small">@shift.TotalCancels.ToString("C2")</td>
+                                    <td class="small">
+                                        @if (shift.BackupBagAmount > 0 || shift.BagRefillAmount > 0)
+                                        {
+                                            <div class="d-flex flex-column" style="font-size: 0.75rem; line-height: 1.2;">
+                                                @if (shift.BackupBagAmount > 0)
+                                                {
+                                                    <span class="text-danger fw-black">OUT: (-@shift.BackupBagAmount.ToString("N2"))</span>
+                                                }
+                                                @if (shift.BagRefillAmount > 0)
+                                                {
+                                                    <span class="text-success fw-black">REFILL: +@shift.BagRefillAmount.ToString("N2")</span>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted opacity-50">$0.00</span>
+                                        }
+                                    </td>
+                                    <td class="fw-bold">@shift.NetDue.ToString("C2")</td>
+                                    <td class="small">@shift.NetSales.ToString("C2")</td>
+                                    <td class="fw-bold small">@shift.ExpectedCash.ToString("C2")</td>
+                                    <td class="@(shift.EnvelopeAmount > 0 ? "text-warning fw-bold" : "text-muted opacity-50")">
+                                        @shift.EnvelopeAmount.ToString("C2")
+                                    </td>
+                                    <td>
+                                        <span class="variance-pill @(shift.Variance < 0 ? "variance-neg" : shift.Variance > 0 ? "variance-pos" : "variance-zero")">
+                                            @shift.Variance.ToString("C2")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(shift.IsReconciled ? "bg-success" : "bg-info") x-small">@(shift.IsReconciled ? "Reconciled" : "Submitted")</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <button class="btn btn-link btn-sm text-primary p-0" @onclick="() => EditShift(shift.ShiftId)" title="Edit">
+                                            <i class="bi bi-pencil-square fs-5"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
                         }
                     }
                 </tbody>
             </table>
-        </div>
-    </div>
-}
-
-@if (ShowContent && _viewMode == "daily")
-{
-        @* Daily Summary View *@
-        <div class="data-card">
-            <h4>Daily Summaries</h4>
-            <div class="table-container-fixed">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Shifts</th>
-                            <th>Machine Sales</th>
-                            <th>Machine Payouts</th>
-                            <th>Instant Tickets</th>
-                            <th>Net Due (RPT 50)</th>
-                            <th>Backup Bag (Net)</th>
-                            <th>Shift Net Sales</th>
-                            <th>Total Envelopes</th>
-                            <th>Total Variance</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var summary in _dailySummaries)
-                        {
-                            <tr>
-                                <td>@summary.PeriodLabel</td>
-                                <td>@summary.ShiftCount</td>
-                                <td>@summary.TotalSales.ToString("C2")</td>
-                                <td>@summary.TotalPayouts.ToString("C2")</td>
-                                <td>@summary.TotalCancels.ToString("C2")</td>
-                                <td class="fw-bold">@summary.TotalNetDue.ToString("C2")</td>
-                                <td class="fw-bold @(summary.NetBagChange > 0 ? "text-danger" : summary.NetBagChange < 0 ? "text-success" : "text-muted opacity-50")">
-                                    @(summary.NetBagChange != 0 ? (summary.NetBagChange > 0 ? "-" : "+") + Math.Abs(summary.NetBagChange).ToString("C2") : "$0.00")
-                                </td>
-                                <td>@summary.TotalNetSales.ToString("C2")</td>
-                                <td>@summary.TotalEnvelope.ToString("C2")</td>
-                                <td>
-                                    <span class="variance-pill @(summary.TotalVariance < 0 ? "variance-neg" : summary.TotalVariance > 0 ? "variance-pos" : "variance-zero")">
-                                        @summary.TotalVariance.ToString("C2")
-                                    </span>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
         </div>
     </div>
 }
@@ -757,9 +791,9 @@
 
 @if (ShowContent && _viewMode == "weekly")
 {
-        @* Weekly Summary View *@
+        @* Monthly View (Weeks summary) *@
         <div class="data-card">
-            <h4>Weekly Summaries</h4>
+            <h4>Monthly View (Weeks)</h4>
             <div class="table-container-fixed">
                 <table class="data-table">
                     <thead>
@@ -768,13 +802,11 @@
                             <th>Shifts</th>
                             <th>Machine Sales</th>
                             <th>Machine Payouts</th>
+                            <th>Instant Tickets</th>
                             <th>Net Due</th>
-                            <th>Backup Bag (Net)</th>
                             <th>Shift Net Sales</th>
                             <th>Total Envelopes</th>
-                                                        <th class="text-indigo">Bag Balance</th>
                             <th>Cash Variance</th>
-
                         </tr>
                     </thead>
                     <tbody>
@@ -785,10 +817,8 @@
                                 <td>@summary.ShiftCount</td>
                                 <td>@summary.TotalSales.ToString("C2")</td>
                                 <td>@summary.TotalPayouts.ToString("C2")</td>
+                                <td>@summary.TotalCancels.ToString("C2")</td>
                                 <td class="fw-bold">@summary.TotalNetDue.ToString("C2")</td>
-                                <td class="fw-bold @(summary.NetBagChange > 0 ? "text-danger" : summary.NetBagChange < 0 ? "text-success" : "text-muted opacity-50")">
-                                    @(summary.NetBagChange != 0 ? (summary.NetBagChange > 0 ? "-" : "+") + Math.Abs(summary.NetBagChange).ToString("C2") : "$0.00")
-                                </td>
                                 <td>@summary.TotalNetSales.ToString("C2")</td>
                                 <td>@summary.TotalEnvelope.ToString("C2")</td>
                                 <td>
@@ -800,15 +830,15 @@
                         }
                     </tbody>
                 </table>
+            </div>
         </div>
-    </div>
 }
 
 @if (ShowContent && _viewMode == "monthly")
 {
-        @* Monthly Summary View *@
+        @* Yearly View (Months summary) *@
         <div class="data-card">
-            <h4>Monthly Summaries for @_selectedYear</h4>
+            <h4>Yearly View (Months) for @_selectedYear</h4>
             <div class="d-flex gap-2 mb-3">
                 <button class="btn btn-sm btn-outline" @onclick="() => ChangeYear(_selectedYear - 1)">Previous Year</button>
                 <button class="btn btn-sm btn-outline" @onclick="() => ChangeYear(_selectedYear + 1)">Next Year</button>
@@ -821,12 +851,11 @@
                             <th>Shifts</th>
                             <th>Machine Sales</th>
                             <th>Machine Payouts</th>
+                            <th>Instant Tickets</th>
                             <th>Net Due</th>
                             <th>Shift Net Sales</th>
                             <th>Total Envelopes</th>
-                                                        <th class="text-indigo">Bag Balance</th>
                             <th>Cash Variance</th>
-
                         </tr>
                     </thead>
                     <tbody>
@@ -837,12 +866,10 @@
                                 <td>@summary.ShiftCount</td>
                                 <td>@summary.TotalSales.ToString("C2")</td>
                                 <td>@summary.TotalPayouts.ToString("C2")</td>
+                                <td>@summary.TotalCancels.ToString("C2")</td>
                                 <td class="fw-bold">@summary.TotalNetDue.ToString("C2")</td>
                                 <td>@summary.TotalNetSales.ToString("C2")</td>
                                 <td>@summary.TotalEnvelope.ToString("C2")</td>
-                                <td class="fw-bold @(summary.NetBagChange > 0 ? "text-danger" : summary.NetBagChange < 0 ? "text-success" : "text-muted opacity-50")">
-                                    @(summary.NetBagChange != 0 ? (summary.NetBagChange > 0 ? "-" : "+") + Math.Abs(summary.NetBagChange).ToString("C2") : "$0.00")
-                                </td>
                                 <td>
                                     <span class="variance-pill @(summary.TotalVariance < 0 ? "variance-neg" : summary.TotalVariance > 0 ? "variance-pos" : "variance-zero")">
                                         @summary.TotalVariance.ToString("C2")
@@ -856,117 +883,71 @@
         </div>
 }
 
+@* Add/Edit Shift Modal *@
 @if (ShowContent && _viewMode == "reconcile")
 {
-    @* --- AUDIT & RECONCILE VIEW --- *@
-
-    <div class="reconcile-dashboard mb-4">
-        <div class="row align-items-center g-3">
-            <div class="col-md-3">
-                <div class="d-flex flex-column">
-                    <h6 class="fw-black text-dark mb-1 text-uppercase tracking-tighter" style="font-size: 0.75rem;">Audit &mdash; @(_filterStartDate.ToString("MMM d")) Week</h6>
-                    <div class="audit-status-badge @(ReconcileTotals.IsAuditBalanced ? "status-balanced" : "status-investigate") py-1 px-3" style="font-size: 0.6rem; border-width: 1px;">
-                        <div class="status-dot" style="width: 6px; height: 6px;"></div>
-                        <span>@(ReconcileTotals.IsAuditBalanced ? "Balanced" : "Investigate")</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-9">
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <div class="finance-card card-accent-blue">
-                            <div class="finance-label">Cash Dropped</div>
-                            <div class="finance-value">@ReconcileTotals.TotalEnvelope.ToString("C2")</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="finance-card card-accent-amber">
-                            <div class="finance-label">State Debt</div>
-                            <div class="finance-value text-danger">@ReconcileTotals.NetDebt.ToString("C2")</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="finance-card card-accent-blue">
-                            <div class="finance-label">Net Profit</div>
-                            <div class="finance-value">@ReconcileTotals.ActualProfit.ToString("C2")</div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="finance-card @(ReconcileTotals.IsAuditBalanced ? "card-accent-green" : "card-accent-red")">
-                            <div class="finance-label">Audit Gap</div>
-                            <div class="finance-value">@ReconcileTotals.ReconciliationGap.ToString("C2")</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    @* Weekly breakdown table *@
-    <div class="data-card shadow-sm border-0">
-        <h5 class="fw-black text-muted mb-4 px-3 text-uppercase x-small tracking-widest">Daily Performance Breakdown</h5>
-        <div class="table-container-fixed" style="max-height: 500px;">
+    @* Reconcile View (One line per week) *@
+    <div class="data-card">
+        <div class="table-container-fixed">
             <table class="data-table">
                 <thead>
-                    <tr>
-                        <th class="ps-4">Day / Date</th>
+                    <tr class="text-uppercase x-small tracking-widest text-muted">
+                        <th>Fiscal Period</th>
                         <th class="text-end">Sales (RPT 50)</th>
                         <th class="text-end">Cashes (RPT 50)</th>
                         <th class="text-end">Tickets (RPT 34)</th>
-                        <th class="text-end ps-4">Net Due (RPT 50)</th>
-                        <th class="text-end">Due to Lottery</th>
-                        <th class="text-end ps-4">Envelope Cash</th>
-                        <th class="text-end pe-4">Daily Variance</th>
+                        <th class="text-end fw-bold">Net Due</th>
+                        <th class="text-end text-danger fw-bold">Due to Lottery</th>
+                        <th class="text-end text-primary fw-bold">Envelope Cash</th>
+                        <th class="text-end">Net Revenue</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var day in _reconcileReports)
+                    @if (_weeklySummaries != null && _weeklySummaries.Any())
                     {
-                        var dayShift = day.Shifts.FirstOrDefault(s => s.ShiftType == "Day");
-                        var nightShift = day.Shifts.FirstOrDefault(s => s.ShiftType == "Night");
-                        bool isIncomplete = nightShift == null;
+                        @foreach (var week in _weeklySummaries.OrderByDescending(w => w.PeriodStart))
+                        {
+                            // [SMART-AUDIT]: Extract the true daily totals for this week (Ignoring Drafts)
+                            var weekShifts = _shifts.Where(s => s.ShiftDate.Date >= week.PeriodStart.Date && s.ShiftDate.Date <= week.PeriodEnd.Date && s.Status != "Draft");
+                            var dailyData = weekShifts.GroupBy(s => s.ShiftDate.Date)
+                                .Select(g => {
+                                    var latest = g.OrderByDescending(s => s.ShiftId).First();
+                                    return new {
+                                        Sales = latest.TotalSales,
+                                        Payouts = latest.TotalPayouts,
+                                        Tickets = latest.TotalCancels,
+                                        NetDue = latest.NetDue,
+                                        Envelope = g.Sum(s => s.EnvelopeAmount)
+                                    };
+                                }).ToList();
 
-                        <tr class="@(isIncomplete ? "bg-light-yellow-subtle" : "")">
-                            <td class="ps-4">
-                                <div class="d-flex align-items-center justify-content-between pe-3">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="d-flex flex-column">
-                                            <span class="fw-black text-dark" style="line-height: 1;">@day.Date.ToString("ddd")</span>
-                                            <span class="text-muted small" style="font-size: 0.7rem;">@day.Date.ToString("MMM d")</span>
-                                        </div>
-                                        @if (isIncomplete)
-                                        {
-                                            <i class="bi bi-exclamation-triangle-fill text-warning ms-1" title="Night shift missing"></i>
-                                        }
-                                    </div>
-
-                                    <div class="shift-indicators d-flex gap-1">
-                                        <span class="badge @(dayShift != null ? "bg-success text-white" : "bg-light text-muted border")" title="@(dayShift?.CreatedBy ?? "Missing")">D</span>
-                                        <span class="badge @(nightShift != null ? "bg-indigo text-white" : "bg-light text-muted border")" title="@(nightShift?.CreatedBy ?? "Missing")">N</span>
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="text-end text-muted small">@day.TotalLottoSales.ToString("N2")</td>
-                            <td class="text-end text-muted small">-@day.TotalLottoPayouts.ToString("N2")</td>
-                            <td class="text-end text-muted small">@day.TotalLottoCancels.ToString("N2")</td>
-                            <td class="text-end text-muted small ps-4">@day.TotalLottoNetDue.ToString("N2")</td>
-                            <td class="text-end text-dark fw-semibold">@((day.TotalLottoNetDue - day.TotalLottoCancels).ToString("N2"))</td>
-                            <td class="text-end fw-bold text-primary ps-4">@day.TotalEnvelope.ToString("C2")</td>
-                            <td class="text-end pe-4">
-                                <span class="variance-pill @(day.TotalVariance < 0 ? "variance-neg" : day.TotalVariance > 0 ? "variance-pos" : "variance-zero")">
-                                    @day.TotalVariance.ToString("C2")
-                                </span>
-                            </td>
-                        </tr>
+                            var weekSales = dailyData.Sum(d => d.Sales);
+                            var weekPayouts = dailyData.Sum(d => d.Payouts);
+                            var weekTickets = dailyData.Sum(d => d.Tickets);
+                            var weekNetDue = dailyData.Sum(d => d.NetDue);
+                            var weekEnvelope = dailyData.Sum(d => d.Envelope);
+                            var weekDueToLottery = weekNetDue - weekTickets;
+                            var weekRevenue = weekEnvelope - weekDueToLottery;
+                            
+                            <tr class="align-middle">
+                                <td class="fw-bold">@week.PeriodLabel</td>
+                                <td class="text-end">@weekSales.ToString("C2")</td>
+                                <td class="text-end">@weekPayouts.ToString("C2")</td>
+                                <td class="text-end">@weekTickets.ToString("C2")</td>
+                                <td class="text-end fw-bold">@weekNetDue.ToString("C2")</td>
+                                <td class="text-end text-danger fw-bold">@weekDueToLottery.ToString("C2")</td>
+                                <td class="text-end text-primary fw-bold">@weekEnvelope.ToString("C2")</td>
+                                <td class="text-end fw-black @(weekRevenue >= 0 ? "text-success" : "text-danger")">
+                                    @weekRevenue.ToString("C2")
+                                </td>
+                            </tr>
+                        }
                     }
                 </tbody>
             </table>
         </div>
     </div>
 }
-
-@* Add/Edit Shift Modal *@
 @if (_showShiftModal)
 {
     <div class="modal-backdrop" style="z-index: 1050; background: rgba(0,0,0,0.4);"></div>

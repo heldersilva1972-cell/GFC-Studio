@@ -1,5 +1,7 @@
 @using GFC.BlazorServer.Components.Common
 @inherits LayoutComponentBase
+@implements IDisposable
+@implements IAsyncDisposable
 @using GFC.Core.Enums
 @using GFC.Core.Interfaces
 @using GFC.BlazorServer.Services
@@ -19,7 +21,6 @@
 @inject IDeviceTrustService DeviceTrustService
 @inject IUserManagementService UserService
 @inject SignInDrawPrintService PrintDrawService
-@implements IDisposable
 
 @if (_stableIsMobile && string.IsNullOrEmpty(Navigation.ToBaseRelativePath(Navigation.Uri)))
 {
@@ -184,10 +185,11 @@ else
     private bool _canInstallPwa = false;
     private bool _isPwaInstalled = false;
     private bool _isIOS = false;
+    private bool _isDisposed = false;
     private bool _sidebarOpen = false;
-
     private bool _stableIsMobile = false;
 
+    private string? _deviceToken;
     private SystemSettings? _settings;
 
     protected override async Task OnInitializedAsync()
@@ -262,19 +264,28 @@ else
     {
         _healthTimer = new System.Threading.Timer(async _ => 
         {
+            if (_isDisposed) return;
             try {
                 UpdateControllerStatus();
                 await CheckPwaStatus();
-                await AuthStateProvider.RefreshUserAsync(); // [NEW] Sync user state with DB to pickup admin changes (like Passcode Reset)
+
+                // [FIX] Throttled Refresh: Only hit the DB every 30s if the circuit is actually active
+                // This prevents "zombie" disconnected circuits from holding DB connections open.
+                await AuthStateProvider.RefreshUserAsync();
                 await ValidateSession();
-                await InvokeAsync(StateHasChanged);
+                
+                if (!_isDisposed) 
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
             } catch (Exception ex) {
                 Logger.LogWarning("Health monitor cycle encountered an error: {Message}", ex.Message);
             }
-        }, null, 10000, 30000); // Relaxed intervals (30s) for session health checks
+        }, null, 10000, 30000); 
 
         _sessionTimer = new System.Threading.Timer(async _ =>
         {
+            if (_isDisposed) return;
             var absoluteSessionMaxMinutes = _settings?.AbsoluteSessionMaxMinutes ?? 1440;
             
             // [SAFEGUARD] Ensure a minimum of 60 minutes for the absolute session to prevent accidental lockout loops
@@ -287,7 +298,10 @@ else
             }
         }, null, 60000, 60000);
 
-        _activityTimer = new System.Threading.Timer(_ => _ = RecordActivityHeartbeat(), null, 60000, 60000);
+        _activityTimer = new System.Threading.Timer(_ => 
+        {
+            if (!_isDisposed) _ = RecordActivityHeartbeat();
+        }, null, 60000, 60000);
     }
 
     private void EnforceVpnEnforcementSync(SystemSettings? settings)
@@ -431,8 +445,9 @@ else
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        _isDisposed = true;
         _healthTimer?.Dispose();
         _sessionTimer?.Dispose();
         _activityTimer?.Dispose();
@@ -806,5 +821,13 @@ else
             _sidebarOpen = false;
             StateHasChanged();
         }
+    }
+
+    public void Dispose()
+    {
+        _isDisposed = true;
+        _healthTimer?.Dispose();
+        _sessionTimer?.Dispose();
+        _activityTimer?.Dispose();
     }
 }

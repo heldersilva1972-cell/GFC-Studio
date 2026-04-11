@@ -288,7 +288,14 @@ namespace GFC.Core.Services
                 TotalVariance = dtos.Sum(s => s.EndingCash - (s.StartingCash + s.NetSales)),
                 
                 // FINANCIALS: The missing fields for the dashboard
-                TotalIncome = dtos.Sum(s => s.Commission),
+                // FINANCIALS: Income is calculated from the cumulative machine readings of the Latest Shift (Night shift)
+                // to match the official daily report from the terminal.
+                TotalIncome = shiftsByDay.Sum(d => {
+                    var rate = _rateRepository.GetApplicableRate(d.Date.Year);
+                    return (d.LatestShift.TotalSales * rate.SalesCommissionMultiplier) + 
+                           (d.LatestShift.TotalPayouts * rate.CashingBonusMultiplier) + 
+                           (d.LatestShift.TotalCancels * rate.TicketBonusMultiplier);
+                }),
                 TotalFees = dtos.Sum(s => s.IdentifiedFees),
  
                 // BACKUP BAG TRACKING

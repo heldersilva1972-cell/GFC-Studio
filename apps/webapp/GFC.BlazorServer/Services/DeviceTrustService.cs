@@ -541,20 +541,23 @@ public class DeviceTrustService : IDeviceTrustService
     {
         try
         {
+            // [THROTTLING] Optimization: Only update the DB if the LastUsedUtc is older than 5 minutes.
+            // This prevents excessive DB writes on every single page element/asset load for high-traffic stations.
+            if (device.LastUsedUtc > DateTime.UtcNow.AddMinutes(-5))
+            {
+                return;
+            }
+
             // Update last used time
             device.LastUsedUtc = DateTime.UtcNow;
 
             // Rolling Trust: Extend expiration based on system settings
-            // [STATION MODE] Shared stations stay authorized for 1 year (365 days) from last use.
-            // [USER MODE] Personal devices follow the system setting (default 30 days).
             var settings = await context.SystemSettings.FirstOrDefaultAsync(s => s.Id == 1);
             int durationDays = device.IsStation ? 365 : (settings?.TrustedDeviceDurationDays ?? 30);
  
             var newExpiration = DateTime.UtcNow.AddDays(durationDays);
             
-            // Optimization: Only update the DB if the expiration has moved forward significantly (more than 1 day)
-            // or if we are nearing the current expiration (less than 90% of duration left).
-            // This prevents excessive DB writes on every single page navigation.
+            // Only update the expiration date if we are nearing the current expiration (less than 90% of duration left).
             if (device.ExpiresAtUtc < DateTime.UtcNow.AddDays(durationDays * 0.9))
             {
                 device.ExpiresAtUtc = newExpiration;

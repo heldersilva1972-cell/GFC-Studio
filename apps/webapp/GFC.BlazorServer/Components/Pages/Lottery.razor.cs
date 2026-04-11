@@ -44,12 +44,42 @@ namespace GFC.BlazorServer.Components.Pages
         private string _originalEmployeeName = string.Empty;
         private bool _showNoChangesModal = false; // DECISION MODAL STATE
         
-        private DateTime _filterStartDate = DateTime.Today.AddDays(-30);
-        private DateTime _filterEndDate = DateTime.Today;
+        private DateTime _filterStartDate = GetWeekStart(DateTime.Today);
+        private DateTime _filterEndDate = GetWeekStart(DateTime.Today).AddDays(6);
         private string _filterEmployee = string.Empty;
         private bool? _showReconciled = null;
-        private string _viewMode = "shifts";
+        private string _viewMode = "daily";
         private int _selectedYear = DateTime.Now.Year;
+        private int _selectedMonth = DateTime.Now.Month;
+
+        private async Task OnMonthYearChanged()
+        {
+            if (_viewMode == "weekly")
+            {
+                _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
+                _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
+            }
+            // Snap reconcile to start of week if we switch to it
+            if (_viewMode == "reconcile")
+            {
+                _filterStartDate = GetWeekStart(_filterStartDate);
+                _filterEndDate = _filterStartDate.AddDays(6);
+            }
+            
+            await LoadData();
+        }
+
+        private HashSet<DateTime> _expandedDays = new();
+
+        private void ToggleDayExpansion(DateTime date)
+        {
+            if (_expandedDays.Contains(date.Date))
+                _expandedDays.Remove(date.Date);
+            else
+                _expandedDays.Add(date.Date);
+            
+            StateHasChanged();
+        }
 
         // Commission Rates State
         private bool _showRatesModal = false;
@@ -123,11 +153,11 @@ namespace GFC.BlazorServer.Components.Pages
                 _employeeNames = _employeeMetadata.Select(m => m.FullName).ToList();
                 _commissionRates = await Task.Run(() => LotteryService.GetAllRates());
                 
-                if (_viewMode == "shifts")
+                if (_viewMode == "shifts" || _viewMode == "daily")
                 {
                     await LoadShifts();
                 }
-                else if (_viewMode == "daily")
+                if (_viewMode == "daily")
                 {
                     await LoadDailySummaries();
                 }
@@ -145,7 +175,8 @@ namespace GFC.BlazorServer.Components.Pages
                 }
                 else if (_viewMode == "reconcile")
                 {
-                    await LoadReconcileData();
+                    await LoadShifts();
+                    await LoadWeeklySummaries();
                 }
             }
             catch (Exception ex)
@@ -375,6 +406,21 @@ namespace GFC.BlazorServer.Components.Pages
         {
             _viewMode = mode;
             _error = string.Empty;
+
+            // INTELLIGENT DATE SNAPPING
+            if (_viewMode == "daily" || _viewMode == "commissions" || _viewMode == "reconcile")
+            {
+                // Snap back to a clean Sunday-to-Saturday week if entering reconcile or daily mode
+                _filterStartDate = GetWeekStart(_filterStartDate);
+                _filterEndDate = _filterStartDate.AddDays(6);
+            }
+            else if (_viewMode == "weekly")
+            {
+                // Snap to the full month for the weekly totals view
+                _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
+                _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
+            }
+
             await LoadData();
         }
 

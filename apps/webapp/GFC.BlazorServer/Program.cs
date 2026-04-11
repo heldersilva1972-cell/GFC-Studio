@@ -70,9 +70,8 @@ public class Program
         }).AddCircuitOptions(options => 
         {
             options.DetailedErrors = true;
-            // [STABILITY] Keep user state alive for 10 minutes after signal loss instead of the default 3.
-            // This is critical for mobile users who go through tunnels or dead zones.
-            options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(10); 
+            // [STABILITY] Keep user state alive for 3 minutes after signal loss (balanced for shared station resource recovery).
+            options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3); 
         });
 
         builder.Services.AddSignalR(options => 

@@ -296,9 +296,9 @@ namespace GFC.BlazorServer.Services
                     e.Notes,
                     e.CreatedBy,
                     e.CreatedAt,
-                    EmployeeUsername = !string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername : e.CreatedBy,
-                    HourlyRate = e.HourlyRate ?? (userRatesByUsername.TryGetValue(!string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername : e.CreatedBy, out var r1) ? r1 : 
-                                                 (userRatesByName.TryGetValue(!string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername : e.CreatedBy, out var r2) ? r2 : 0m)),
+                    EmployeeUsername = !string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername.Trim() : e.CreatedBy.Trim(),
+                    HourlyRate = e.HourlyRate ?? (userRatesByUsername.TryGetValue(!string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername.Trim() : e.CreatedBy.Trim(), out var r1) ? r1 : 
+                                                 (userRatesByName.TryGetValue(!string.IsNullOrEmpty(e.EmployeeUsername) ? e.EmployeeUsername.Trim() : e.CreatedBy.Trim(), out var r2) ? r2 : 0m)),
                     e.Status
                 }).Where(e => e.Date >= start && e.Date <= end).ToList();
 
