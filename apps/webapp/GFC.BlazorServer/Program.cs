@@ -429,13 +429,13 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
         //     app.UseDevAuthAutoAdmin();
         // }
 
-        app.UseAuthentication();
-        app.UseAuthorization();
-        app.UseRateLimiter(); // Enable rate limiting
-
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseMiddleware<DeviceGuardMiddleware>();
         app.UseMiddleware<VideoAccessGuardMiddleware>();
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.UseRateLimiter(); // Enable rate limiting
 
         // Apply pending migrations at startup and surface any errors
         using (var scope = app.Services.CreateScope())
