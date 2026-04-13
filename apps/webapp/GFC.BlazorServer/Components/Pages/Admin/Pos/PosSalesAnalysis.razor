@@ -1,11 +1,15 @@
 @page "/admin/pos-analysis"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
+@using GFC.Core.Interfaces
 @using GFC.BlazorServer.Data
 @using GFC.BlazorServer.Data.Entities
+@using GFC.Core.Models
 @using global::System.Text.Json
 @inject IDbContextFactory<GfcDbContext> DbFactory
 @inject NavigationManager Navigation
+@inject ILiquorService LiquorService
+@inject IJSRuntime JSRuntime
 @attribute [Authorize]
 
 <PageTitle>Sales Intelligence</PageTitle>
@@ -14,9 +18,14 @@
     <!-- STICKY TOP SECTION -->
     <div class="sticky-top-section bg-light p-4 shadow-sm border-bottom">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="fw-black mb-1 text-navy">SALES INTELLIGENCE</h2>
-                <p class="text-muted small mb-0">Deep dive into product performance and revenue trends</p>
+            <div class="d-flex align-items-center">
+                <button class="btn btn-light rounded-circle me-3 shadow-sm border" @onclick="GoBack" title="Go Back">
+                    <i class="bi bi-chevron-left fs-5"></i>
+                </button>
+                <div>
+                    <h2 class="fw-black mb-1 text-primary">SALES INTELLIGENCE</h2>
+                    <p class="text-muted small mb-0">Deep dive into product performance and revenue trends</p>
+                </div>
             </div>
             <div class="d-flex gap-2 align-items-center">
                 <div class="quick-filters d-flex gap-1 me-2 bg-white p-1 rounded-pill border shadow-sm">
@@ -54,8 +63,11 @@
                     <span class="mx-2 text-muted">to</span>
                     <input type="date" class="border-0 bg-transparent fw-bold small" @bind="EndDate" @bind:after="LoadAnalytics">
                 </div>
-                <button class="btn btn-navy rounded-pill fw-bold" @onclick="LoadAnalytics">
+                <button class="btn btn-primary rounded-pill fw-bold shadow-sm" @onclick="LoadAnalytics">
                     <i class="bi bi-arrow-clockwise me-2"></i>RECALCULATE
+                </button>
+                <button class="btn btn-outline-dark rounded-pill fw-bold shadow-sm ms-2" @onclick="PrepareInventoryPrint">
+                    <i class="bi bi-printer-fill me-2"></i>PRINT INVENTORY
                 </button>
             </div>
         </div>
@@ -143,7 +155,7 @@
                                             var share = TotalRevenue > 0 ? (double)item.Value.Revenue / (double)TotalRevenue * 100 : 0;
                                             <tr>
                                                 <td class="ps-4">
-                                                    <div class="fw-black text-navy">@item.Key</div>
+                                                    <div class="fw-black text-primary">@item.Key</div>
                                                     <div class="extra-small text-muted text-uppercase tracking-tighter">Usage Leader</div>
                                                 </td>
                                                 <td class="text-center">
@@ -154,9 +166,9 @@
                                                 <td class="text-end pe-4">
                                                     <div class="d-flex align-items-center justify-content-end gap-3">
                                                         <div class="progress rounded-pill flex-grow-1" style="height: 12px; width: 80px; background: #f1f5f9;">
-                                                            <div class="progress-bar bg-navy animate-grow" style="width: @(share)%"></div>
+                                                            <div class="progress-bar bg-primary animate-grow" style="width: @(share)%"></div>
                                                         </div>
-                                                        <span class="fw-black text-navy" style="min-width: 45px;">@share.ToString("0.0")%</span>
+                                                        <span class="fw-black text-primary" style="min-width: 45px;">@share.ToString("0.0")%</span>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -217,6 +229,74 @@
     </div>
 </div>
 
+@if (_showPrintPreview)
+{
+    <div class="modal-overlay" @onclick="() => _showPrintPreview = false" style="background: rgba(15, 23, 42, 0.9);">
+        <div class="print-preview-card shadow-2xl animate-pop-in" @onclick:stopPropagation>
+            <div class="preview-header p-3 bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h6 class="fw-black mb-0"><i class="bi bi-eye me-2"></i>PRINT PREVIEW (RECEIPT)</h6>
+                <button class="btn-close" @onclick="() => _showPrintPreview = false"></button>
+            </div>
+            
+            <div class="preview-body p-4 bg-secondary bg-opacity-10 d-flex justify-content-center">
+                <!-- VIRTUAL RECEIPT -->
+                <div id="receipt-strip" class="receipt-strip shadow-sm">
+                    <div class="receipt-header text-center">
+                        <div class="fw-black fs-4">GFC CLUB</div>
+                        <div class="fw-bold extra-small text-uppercase">Current Inventory Status</div>
+                        <div class="extra-small">@DateTime.Now.ToString("MMM dd, yyyy @ h:mm tt")</div>
+                        <div class="border-top border-dark border-1 my-2"></div>
+                    </div>
+
+                    <div class="receipt-content">
+                        @if (_inventoryItems != null)
+                        {
+                            @foreach (var group in _inventoryItems.Where(i => i.IsActive).GroupBy(i => i.IsBeer ? "BEER" : "LIQUOR"))
+                            {
+                                <div class="fw-black text-center text-uppercase border-bottom border-dark mb-2 mt-3" style="font-size: 0.75rem;">--- @group.Key ---</div>
+                                @foreach (var item in group.OrderBy(i => i.Name))
+                                {
+                                    <div class="d-flex justify-content-between align-items-start mb-1" style="font-size: 0.8rem; line-height: 1.1;">
+                                        <div class="fw-bold pe-2">
+                                            @item.Name.ToUpper()
+                                            @if (item.CurrentStock <= item.MinStockLimit)
+                                            {
+                                                <span class="ms-1 fw-black">[!!]</span>
+                                            }
+                                        </div>
+                                        <div class="text-end fw-black" style="white-space: nowrap;">
+                                            @if (item.PackSize > 1)
+                                            {
+                                                <span>@(item.CurrentStock / item.PackSize)cs @(item.CurrentStock % item.PackSize)btl</span>
+                                            }
+                                            else
+                                            {
+                                                <span>@item.CurrentStock units</span>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
+
+                    <div class="receipt-footer text-center mt-4 pt-2 border-top border-dark border-1 border-dotted">
+                        <div class="extra-small fw-bold">END OF REPORT</div>
+                        <div class="extra-small text-muted">Generated by GFC Intelligence</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="preview-footer p-3 bg-white border-top d-grid gap-2">
+                <button class="btn btn-primary btn-lg fw-black rounded-pill shadow" @onclick="ExecutePrint">
+                    <i class="bi bi-printer me-2"></i>CONFIRM & PRINT
+                </button>
+                <button class="btn btn-light rounded-pill fw-bold" @onclick="() => _showPrintPreview = false">CANCEL</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .analysis-page-wrapper { 
         height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #f8fafc;
@@ -226,9 +306,8 @@
     .analysis-content { flex: 1; min-height: 0; }
 
     .fw-black { font-weight: 900; }
-    .text-navy { color: #1e1b4b; }
-    .btn-navy { background: #3730a3; color: white; }
-    .btn-navy:hover { background: #312e81; color: white; }
+    .text-primary { color: #0d6efd; }
+    .btn-primary { transition: all 0.2s; }
 
     .stat-box { background: white; padding: 1.25rem; border-radius: 16px; border: 1.5px solid #e2e8f0; display: flex; align-items: center; gap: 1rem; }
     .stat-box .icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
@@ -255,6 +334,29 @@
 
     .animate-slide-in { animation: slideIn 0.2s ease-out forwards; }
     @@keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+
+    /* PRINT PREVIEW STYLES */
+    .print-preview-card { background: #f1f5f9; width: 450px; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; max-height: 90vh; }
+    .preview-body { overflow-y: auto; flex-grow: 1; }
+    
+    .receipt-strip { 
+        background: white; 
+        width: 300px; 
+        padding: 30px 20px; 
+        color: black; 
+        font-family: 'Courier New', Courier, monospace; 
+        min-height: 400px;
+    }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; }
+    .animate-pop-in { animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+    @@keyframes popIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+
+    @@media print {
+        body * { visibility: hidden; }
+        #receipt-strip, #receipt-strip * { visibility: visible; }
+        #receipt-strip { position: absolute; left: 0; top: 0; width: 80mm; padding: 0; margin: 0; box-shadow: none; }
+    }
 </style>
 
 @code {
@@ -270,6 +372,9 @@
     private int TotalTransactions;
     private decimal AvgSaleValue;
     private string MostActiveTerminal = "N/A";
+
+    private bool _showPrintPreview = false;
+    private List<LiquorItem>? _inventoryItems;
     
     private Dictionary<string, ProductMetric> ProductStats = new();
     private Dictionary<string, decimal> CategoryRevenue = new();
@@ -278,6 +383,11 @@
     public class ProductMetric {
         public int Quantity { get; set; }
         public decimal Revenue { get; set; }
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/");
     }
 
     protected override async Task OnInitializedAsync()
@@ -444,5 +554,16 @@
             "MIXED DRINKS" => "#0891b2",
             _ => "#64748b"
         };
+    }
+
+    private async Task PrepareInventoryPrint()
+    {
+        _inventoryItems = (await LiquorService.GetAllItemsAsync()).ToList();
+        _showPrintPreview = true;
+    }
+
+    private async Task ExecutePrint()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
     }
 }

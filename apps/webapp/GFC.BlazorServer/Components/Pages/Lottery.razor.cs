@@ -3,6 +3,7 @@ using GFC.Core.Interfaces;
 using GFC.Core.Models;
 using Microsoft.AspNetCore.Components;
 using System.ComponentModel.DataAnnotations;
+using Microsoft.JSInterop;
 
 namespace GFC.BlazorServer.Components.Pages
 {
@@ -19,6 +20,9 @@ namespace GFC.BlazorServer.Components.Pages
 
         [Inject]
         public GFC.BlazorServer.Services.IFinancialAnalyticsService FinancialService { get; set; } = null!;
+
+        [Inject]
+        public IJSRuntime JS { get; set; } = null!;
 
         private List<LotteryShiftDto> _shifts = new();
         private List<LotteryShiftSummaryDto> _dailySummaries = new();
@@ -51,10 +55,14 @@ namespace GFC.BlazorServer.Components.Pages
         private string _viewMode = "daily";
         private int _selectedYear = DateTime.Now.Year;
         private int _selectedMonth = DateTime.Now.Month;
+        
+        // Analytics State
+        private LotteryAnalyticsStats _stats = new();
+        private List<LotteryShift> _analyticsShifts = new();
 
         private async Task OnMonthYearChanged()
         {
-            if (_viewMode == "weekly")
+            if (_viewMode == "weekly" || _viewMode == "analytics")
             {
                 _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
                 _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
@@ -177,6 +185,10 @@ namespace GFC.BlazorServer.Components.Pages
                 {
                     await LoadShifts();
                     await LoadWeeklySummaries();
+                }
+                else if (_viewMode == "analytics")
+                {
+                    await LoadAnalyticsData();
                 }
             }
             catch (Exception ex)
@@ -417,6 +429,12 @@ namespace GFC.BlazorServer.Components.Pages
             else if (_viewMode == "weekly")
             {
                 // Snap to the full month for the weekly totals view
+                _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
+                _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
+            }
+            else if (_viewMode == "analytics")
+            {
+                // Snap to the full month for analytics view as requested
                 _filterStartDate = new DateTime(_selectedYear, _selectedMonth, 1);
                 _filterEndDate = _filterStartDate.AddMonths(1).AddDays(-1);
             }
@@ -818,6 +836,112 @@ namespace GFC.BlazorServer.Components.Pages
                        BackupBagAmount != other.BackupBagAmount ||
                        CreatedBy != other.CreatedBy;
             }
+        }
+        private async Task LoadAnalyticsData()
+        {
+            try
+            {
+                var shifts = await FinancialService.GetLotteryAnalyticsAsync(_filterStartDate, _filterEndDate);
+                
+                // Filtering
+                IEnumerable<LotteryShift> query = shifts;
+                if (!string.IsNullOrEmpty(_filterEmployee))
+                {
+                    query = query.Where(s => s.EmployeeName != null && 
+                        s.EmployeeName.Trim().Equals(_filterEmployee.Trim(), StringComparison.OrdinalIgnoreCase));
+                }
+                
+                _analyticsShifts = query.OrderByDescending(s => s.ShiftDate).ToList();
+                CalculateAnalyticsStats();
+                
+                // We need to wait for the UI to render the canvas before calling JS
+                _ = Task.Delay(100).ContinueWith(async _ => await UpdateAnalyticsCharts());
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading analytics data");
+                _error = "Failed to load analytics: " + ex.Message;
+            }
+        }
+
+        private void CalculateAnalyticsStats()
+        {
+            if (!_analyticsShifts.Any())
+            {
+                _stats = new LotteryAnalyticsStats();
+                return;
+            }
+
+            _stats.TotalIncome = _analyticsShifts.Sum(s => s.LotteryIncome);
+            _stats.TotalVariance = _analyticsShifts.Sum(s => s.Variance);
+            _stats.TotalNetProfit = _stats.TotalIncome + _stats.TotalVariance;
+            _stats.AvgVariance = _analyticsShifts.Average(s => s.Variance);
+            
+            _stats.PerfectShiftCount = _analyticsShifts.Count(s => Math.Abs(s.Variance) <= 0.05m);
+            _stats.ShortShiftCount = _analyticsShifts.Count(s => s.Variance < -0.05m);
+            _stats.StabilityScore = (decimal)_stats.PerfectShiftCount / _analyticsShifts.Count * 100;
+            _stats.ShortageFrequency = (decimal)_stats.ShortShiftCount / _analyticsShifts.Count * 100;
+            
+            var shortUsers = _analyticsShifts
+                .Where(s => s.Variance < 0)
+                .GroupBy(s => s.EmployeeName)
+                .Select(g => new { Name = g.Key, TotalShort = g.Sum(s => s.Variance) })
+                .OrderBy(u => u.TotalShort)
+                .FirstOrDefault();
+                
+            _stats.TopShortUser = shortUsers?.Name;
+        }
+
+        private async Task UpdateAnalyticsCharts()
+        {
+            var dailyData = _analyticsShifts
+                .GroupBy(s => s.ShiftDate.Date)
+                .OrderBy(g => g.Key)
+                .Select(g => new { 
+                    Date = g.Key.ToString("MM/dd"), 
+                    Income = g.Sum(s => s.LotteryIncome), 
+                    Variance = g.Sum(s => s.Variance),
+                    Net = g.Sum(s => s.LotteryIncome + s.Variance)
+                }).ToList();
+
+            var labels = dailyData.Select(d => d.Date).ToList();
+            
+            var incomeVsVarDatasets = new List<object>
+            {
+                new { label = "Actual Income", data = dailyData.Select(d => d.Income).ToList(), color = "#3b82f6", bg = "rgba(59, 130, 246, 0.7)", type = "bar" },
+                new { label = "Variance", data = dailyData.Select(d => d.Variance).ToList(), color = "#ef4444", bg = "rgba(239, 68, 68, 0.7)", type = "bar" },
+                new { label = "Net Profit", data = dailyData.Select(d => d.Net).ToList(), color = "#10b981", bg = "rgba(16, 185, 129, 0.1)", type = "line" }
+            };
+
+            await JS.InvokeVoidAsync("financialCharts.renderChart", "incomeVarianceChart", new { 
+                type = "bar", 
+                labels = labels, 
+                datasets = incomeVsVarDatasets
+            });
+
+            var varianceTrendDatasets = new List<object>
+            {
+                new { label = "Daily Variance", data = dailyData.Select(d => d.Variance).ToList(), color = "#f59e0b", bg = "rgba(245, 158, 11, 0.1)", type = "line" }
+            };
+
+            await JS.InvokeVoidAsync("financialCharts.renderChart", "varianceTrendChart", new { 
+                type = "line", 
+                labels = labels, 
+                datasets = varianceTrendDatasets
+            });
+        }
+
+        public class LotteryAnalyticsStats
+        {
+            public decimal TotalIncome { get; set; }
+            public decimal TotalVariance { get; set; }
+            public decimal TotalNetProfit { get; set; }
+            public decimal AvgVariance { get; set; }
+            public int PerfectShiftCount { get; set; }
+            public int ShortShiftCount { get; set; }
+            public decimal StabilityScore { get; set; }
+            public decimal ShortageFrequency { get; set; }
+            public string? TopShortUser { get; set; }
         }
     }
 }

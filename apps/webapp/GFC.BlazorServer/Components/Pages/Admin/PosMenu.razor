@@ -6,14 +6,20 @@
 @attribute [Authorize]
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<GFC.BlazorServer.Data.GfcDbContext> DbFactory
 @inject GFC.BlazorServer.Services.IToastService ToastService
+@inject NavigationManager Navigation
 
 <PageTitle>POS Menu Manager | GFC</PageTitle>
 
 <div class="container-fluid py-4 h-100 d-flex flex-column" style="min-height: 85vh;">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h1 class="h3 mb-0 fw-bold">POS Menu Manager</h1>
-            <p class="text-muted">Manage liquor prices, categories, and fast-tap buttons.</p>
+        <div class="d-flex align-items-center">
+            <button class="btn btn-light rounded-circle me-3 shadow-sm border" @onclick="GoBack" title="Go Back">
+                <i class="bi bi-chevron-left fs-5"></i>
+            </button>
+            <div>
+                <h1 class="h3 mb-0 fw-bold">POS Menu Manager</h1>
+                <p class="text-muted mb-0">Manage liquor prices, categories, and fast-tap buttons.</p>
+            </div>
         </div>
         <button class="btn btn-primary rounded-pill px-4 shadow-sm" @onclick="OpenAddCategoryModal">
             <i class="bi bi-plus-lg me-2"></i> Add New Category
@@ -140,20 +146,26 @@
                 }
                 else
                 {
-                    <div class="d-flex justify-content-between align-items-end mb-4 border-bottom pb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
                         <div>
-                            <h2 class="fw-black mb-1">@selectedCategory.Name</h2>
-                            <p class="text-muted small mb-0">Managing items in @selectedCategory.Name</p>
+                            <h2 class="fw-black mb-0 text-uppercase">@selectedCategory.Name</h2>
+                            <p class="text-muted small mb-0">Managing items and position for @selectedCategory.Name</p>
                         </div>
-                        <div class="d-flex gap-2">
-                            <div class="input-group input-group-sm me-2" style="width: 250px;">
-                                <span class="input-group-text bg-white border-2 rounded-start-pill"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control border-2 border-start-0 rounded-end-pill" 
-                                       placeholder="Search items..." @bind="searchQuery" @bind:event="oninput" />
+                        <div class="d-flex gap-2 align-items-center p-2 bg-light rounded-3 border">
+                            <div style="width: 150px;">
+                                <label class="small fw-bold text-muted mb-0" style="font-size: 0.65rem;">RENAME CATEGORY</label>
+                                <input type="text" class="form-control form-control-sm" @bind="selectedCategory.Name" />
                             </div>
-                            <button class="btn btn-outline-danger btn-sm rounded-pill px-3" @onclick="DeleteCategory">Delete Cat</button>
-                            <button class="btn btn-primary btn-sm rounded-pill px-3" @onclick="OpenAddItemModal">
-                                <i class="bi bi-plus-lg me-1"></i> Add New Item
+                            <div style="width: 80px;">
+                                <label class="small fw-bold text-muted mb-0" style="font-size: 0.65rem;">TAB POS.</label>
+                                <input type="number" class="form-control form-control-sm" @bind="selectedCategory.DisplayOrder" />
+                            </div>
+                            <button class="btn btn-sm btn-primary mt-3" @onclick="SaveCategoryChanges" title="Save Category Settings">
+                                <i class="bi bi-save"></i>
+                            </button>
+                            <div class="vr mx-1 mt-3" style="height: 20px;"></div>
+                            <button class="btn btn-sm btn-outline-danger mt-3" @onclick="DeleteCategory" title="Delete Category">
+                                <i class="bi bi-trash"></i>
                             </button>
                         </div>
                     </div>
@@ -176,39 +188,52 @@
                             <table class="table table-hover align-middle">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Name</th>
-                                        <th class="text-center">Retail Price</th>
-                                        <th class="text-center">Current Cat</th>
-                                        <th class="text-center">Show in POS</th>
+                                        <th class="py-3 px-4 text-muted small fw-bold text-uppercase" style="width: 100px;">Sort</th>
+                                        <th class="py-3 px-4 text-muted small fw-bold text-uppercase">Name</th>
+                                        <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Retail Price</th>
+                                        <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Current Cat</th>
+                                        <th class="py-3 px-4 text-muted small fw-bold text-uppercase text-center">Show in POS</th>
                                         <th class="text-end px-4">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var item in categoryItems.Where(i => string.IsNullOrWhiteSpace(searchQuery) || i.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
+                                    @foreach (var item in categoryItems.OrderBy(i => i.DisplayOrder).ThenBy(i => i.Name).Where(i => string.IsNullOrWhiteSpace(searchQuery) || i.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
                                     {
-                                        <tr class="@(!item.IsActive ? "bg-warning-subtle" : "")">
-                                            <td class="fw-bold">
+                                         <tr class="@(!item.IsActive ? "bg-warning-subtle" : "")">
+                                            <td class="py-3 px-4">
+                                                <input type="number" class="form-control form-control-sm text-center fw-bold" 
+                                                       value="@item.DisplayOrder" 
+                                                       @onchange="@((e) => UpdateItemOrder(item, e.Value))"
+                                                       style="width: 60px; background: #f8fafc;" />
+                                            </td>
+                                            <td class="py-3 px-4 fw-bold">
                                                 @item.Name
                                                 @if (!item.IsActive)
                                                 {
                                                     <span class="badge bg-danger rounded-pill extra-small ms-2" style="font-size: 0.6rem;">INACTIVE IN HUB</span>
                                                 }
                                             </td>
-                                            <td class="text-center">@item.RetailPrice.ToString("C")</td>
-                                            <td class="text-center text-muted small">@item.Category</td>
-                                            <td class="text-center">
+                                            <td class="py-3 px-4 text-center">@item.RetailPrice.ToString("C")</td>
+                                            <td class="py-3 px-4 text-center text-muted small">@item.Category</td>
+                                            <td class="py-3 px-4 text-center">
                                                 <div class="form-check form-switch d-flex justify-content-center">
                                                     <input class="form-check-input" type="checkbox" checked="@item.ShowInPos" 
                                                            @onchange="(e) => ToggleShowInPos(item, e.Value)" />
                                                 </div>
                                             </td>
-                                            <td class="text-end px-4">
+                                            <td class="py-3 px-4 text-end">
                                                 <button class="btn btn-sm btn-light border rounded-pill px-3" @onclick="() => OpenEditItemModal(item)">Edit</button>
                                             </td>
                                         </tr>
                                     }
                                 </tbody>
                             </table>
+                        </div>
+                        
+                        <div class="mt-4 d-flex justify-content-end">
+                            <button class="btn btn-primary px-5 rounded-pill fw-bold shadow-sm" @onclick="OpenAddItemModal">
+                                <i class="bi bi-plus-lg me-2"></i> ADD NEW ITEM TO @selectedCategory.Name.ToUpper()
+                            </button>
                         </div>
                     }
                 }
@@ -276,7 +301,8 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label small fw-bold text-muted text-uppercase">Category</label>
-                                <select class="form-select" @bind="editingItem.Category">
+                                <select class="form-select border-2" @bind="editingItem.Category">
+                                    <option value="">-- NO CATEGORY --</option>
                                     @if (categories != null)
                                     {
                                         @foreach (var cat in categories)
@@ -398,6 +424,11 @@
         await LoadCategories();
     }
 
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/"); 
+    }
+
     private Dictionary<string, int> categoryWarnings = new();
 
     private async Task LoadCategories()
@@ -470,17 +501,17 @@
         {
             var catNames = categories?.Select(c => c.Name.Trim().ToUpper()).ToList() ?? new List<string>();
             categoryItems = allAvailable
-                .Where(i => i.IsActive && (string.IsNullOrWhiteSpace(i.Category) || !catNames.Contains(i.Category.Trim().ToUpper())))
+                .Where(i => string.IsNullOrWhiteSpace(i.Category) || !catNames.Contains(i.Category.Trim().ToUpper()))
                 .OrderBy(i => i.Name)
                 .ToList();
         }
         else
         {
-            var nameToFind = selectedCategory.Name.Trim();
-            // 2. Filter to match OUR selected category name
+            var nameToFind = (selectedCategory.Name ?? "").Trim().ToUpper();
             categoryItems = allAvailable
-                .Where(i => !string.IsNullOrWhiteSpace(i.Category) && i.Category.Trim().Equals(nameToFind, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(i => i.Name)
+                .Where(i => !string.IsNullOrWhiteSpace(i.Category) && i.Category.Trim().ToUpper() == nameToFind)
+                .OrderBy(i => i.DisplayOrder)
+                .ThenBy(i => i.Name)
                 .ToList();
         }
             
@@ -571,6 +602,61 @@
         };
     }
 
+    private async Task UpdateItemOrder(LiquorItem item, object? val)
+    {
+        if (int.TryParse(val?.ToString(), out int newOrder))
+        {
+            try {
+                using var db = await DbFactory.CreateDbContextAsync();
+                var original = await db.LiquorItems.FindAsync(item.Id);
+                if (original != null)
+                {
+                    original.DisplayOrder = newOrder;
+                    await db.SaveChangesAsync();
+                    await ReloadItems(); // Silent refresh
+                }
+            } catch (Exception ex) {
+                await ToastService.ShowError($"Sort error: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task SaveCategoryChanges()
+    {
+        if (selectedCategory == null) return;
+        
+        try {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var original = await db.PosCategories.FindAsync(selectedCategory.Id);
+            if (original != null)
+            {
+                string oldName = original.Name;
+                string newName = selectedCategory.Name.Trim().ToUpper();
+                
+                // 1. Update the Category Name
+                original.Name = newName;
+                original.DisplayOrder = selectedCategory.DisplayOrder;
+                
+                // 2. IMPORTANT: If name changed, update all items linked to it
+                if (oldName != newName)
+                {
+                    var itemsToMigrate = await db.LiquorItems
+                        .Where(i => i.Category == oldName)
+                        .ToListAsync();
+                    
+                    foreach(var i in itemsToMigrate) i.Category = newName;
+                }
+                
+                await db.SaveChangesAsync();
+                await ToastService.ShowSuccess("Category updated successfully.");
+                await LoadCategories();
+                await ReloadItems();
+            }
+        } catch (Exception ex) {
+            await ToastService.ShowError($"Error: {ex.Message}");
+        }
+    }
+
     private async Task SaveItem()
     {
         if (editingItem == null) return;
@@ -580,6 +666,7 @@
             using var db = await DbFactory.CreateDbContextAsync();
             if (editingItem.Id == 0)
             {
+                editingItem.IsActive = true; 
                 db.LiquorItems.Add(editingItem);
                 await ToastService.ShowSuccess("Item added successfully.");
             }
@@ -592,6 +679,7 @@
                     original.RetailPrice = editingItem.RetailPrice;
                     original.Category = editingItem.Category;
                     original.ShowInPos = editingItem.ShowInPos;
+                    original.IsActive = true; 
                     db.LiquorItems.Update(original);
                 }
                 await ToastService.ShowSuccess("Item updated.");
@@ -599,6 +687,7 @@
             
             await db.SaveChangesAsync();
             editingItem = null;
+            await LoadCategories(); // Refresh badges
             await ReloadItems();
         }
         catch (Exception ex)

@@ -23,6 +23,14 @@
                 <i class="bi bi-house-fill me-2"></i> HOME
             </button>
             <h4 class="fw-black text-dark mb-0 d-none d-sm-block text-uppercase" style="font-size: 1.1rem; letter-spacing: 0.05em; opacity: 0.3;">End of Shift</h4>
+            
+            @if (!Loading && !Submitted)
+            {
+                <div class="ms-1 d-flex align-items-center gap-2 px-3 py-1 rounded-pill @(_syncStatus == "Synced" ? "bg-success-subtle text-success" : "bg-warning-subtle text-warning")" style="font-size: 0.7rem; font-weight: 800; letter-spacing: 0.05em; border: 1px solid currentColor;">
+                    <i class="bi @(_syncStatus == "Synced" ? "bi-cloud-check-fill" : "bi-cloud-arrow-up-fill animate-pulse")"></i>
+                    @_syncStatus.ToUpper()
+                </div>
+            }
         </div>
 
         <div class="d-flex align-items-center">
@@ -149,6 +157,27 @@
                     </button>
                     <button type="button" class="btn-modal btn-modal-leave" @onclick="ProceedWithAction">
                         DISCARD & CONTINUE
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showRecoveryModal)
+    {
+        <div class="glass-modal-overlay">
+            <div class="glass-modal-card animate-zoom-in">
+                <div class="glass-modal-header-icon primary">
+                    <i class="bi bi-cloud-download-fill"></i>
+                </div>
+                <h2 class="fw-black text-dark mb-1 text-uppercase">RESTORE DRAFT?</h2>
+                <p class="text-muted small mb-4 px-3">We found a newer unsaved draft on this phone. Would you like to restore your progress?</p>
+                <div class="d-flex flex-column gap-2 px-3">
+                    <button type="button" class="btn btn-primary w-100 py-3 rounded-pill fw-black shadow-sm" @onclick="RestoreFromLocal">
+                        <i class="bi bi-check2-circle me-2"></i> RESTORE MY WORK
+                    </button>
+                    <button type="button" class="btn btn-light w-100 py-3 rounded-pill fw-bold text-muted border-0" @onclick="DiscardLocalDraft">
+                        DISCARD & START FRESH
                     </button>
                 </div>
             </div>
@@ -1806,6 +1835,8 @@
     private List<string> _zeroFields = new();
     private bool _showFocusModal = false;
     private bool _showDistributionSlip = false;
+    private bool _showRecoveryModal = false;
+    private dynamic? _localDraft;
     private bool _lottoSignConfirmed = true; 
     private Action? _onModalConfirm;
 
@@ -1819,6 +1850,9 @@
     private bool _initialized = false;
     private bool _fieldFreshlyActivated = false;
     private bool _isGuidedMode = true; 
+    private global::System.Threading.CancellationTokenSource? _autoSaveCts;
+    private bool _hasLocalChanges = false;
+    private string? _syncStatus = "Synced"; // "Synced", "Saving...", "Offline Backup"
     private decimal _totalBagDebt = 0; // Cumulative debt to bag from previous shifts + current day shift
     private bool _rescueMode = false; // True if Night is missing Day's starting data
     private List<(DateTime Date, string Shift, decimal Amount)> _debtBreakdown = new(); // Breakdown of unpaid bag debt
@@ -1918,7 +1952,7 @@
                 _lottoSignConfirmed = (val == 0); 
             }
             UpdateFieldValue(_activeField, val);
-            _ = AutoSave();
+            _ = DebouncedAutoSave();
         }
     }
 
@@ -1947,7 +1981,7 @@
             _lottoSignConfirmed = (val == null || val == 0);
         }
         UpdateFieldValue(_activeField, val);
-        _ = AutoSave();
+        _ = DebouncedAutoSave();
     }
 
     private decimal? GetRawFieldValue(string field) {
@@ -1987,7 +2021,7 @@
     private void ClearCurrentField() {
         _currentBuffer = "";
         UpdateFieldValue(_activeField, null);
-        _ = AutoSave();
+        _ = DebouncedAutoSave();
     }
 
     private void NextField() {
@@ -2030,7 +2064,7 @@
             case "LottoNetDue": LottoNetDue = -(LottoNetDue ?? 0); break;
         }
         _currentBuffer = ""; 
-        _ = AutoSave();
+        _ = DebouncedAutoSave();
         StateHasChanged();
     }
 
@@ -2049,7 +2083,41 @@
             case "RescueCashes": _prevDayCashes = val ?? 0; break;
             case "RescueTickets": _prevDayTickets = val ?? 0; break;
         }
+
+        // [OFFLINE MIRROR] Save to localStorage immediately on every change
+        _hasLocalChanges = true;
+        _syncStatus = "Saving...";
+        _ = MirrorToLocalStorage();
+        
         StateHasChanged(); // Instant UI Response
+    }
+
+    private async Task MirrorToLocalStorage() {
+        try {
+            var data = new {
+                Date = ReportDate, Shift = ShiftType,
+                BarSales, LottoSales, LottoCashes, LottoInstantTickets, LottoNetDue,
+                LottoOpeningCash, LottoBackupBag, LottoCashCounted, TotalHours, Notes,
+                Timestamp = DateTime.UtcNow
+            };
+            var json = global::System.Text.Json.JsonSerializer.Serialize(data);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}", json);
+        } catch { }
+    }
+
+    private async Task DebouncedAutoSave() {
+        _autoSaveCts?.Cancel();
+        _autoSaveCts = new global::System.Threading.CancellationTokenSource();
+        var token = _autoSaveCts.Token;
+
+        try {
+            await Task.Delay(800, token); // Wait for 800ms of typing inactivity
+            if (!token.IsCancellationRequested) {
+                await AutoSave();
+                _syncStatus = "Synced";
+                await InvokeAsync(StateHasChanged);
+            }
+        } catch (TaskCanceledException) { }
     }
 
     private async Task AutoSave() {
@@ -2384,7 +2452,63 @@
                 }
             }
             catch { /* Device interop silent fail */ }
+
+            // Check if we need to offer a recovery for the current context
+            _ = CheckForLocalDraft();
         }
+    }
+
+    private async Task CheckForLocalDraft() {
+        if (string.IsNullOrEmpty(ShiftType)) return;
+
+        try {
+            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
+            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
+            if (!string.IsNullOrEmpty(json)) {
+                using var doc = global::System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("Timestamp", out var tsProp)) {
+                    var ts = tsProp.GetDateTime();
+                    if ((DateTime.UtcNow - ts).TotalHours < 4) { // Only recover if less than 4 hours old
+                        _localDraft = json; 
+                        _showRecoveryModal = true;
+                        StateHasChanged();
+                    }
+                }
+            }
+        } catch { }
+    }
+
+    private async Task RestoreFromLocal() {
+        if (string.IsNullOrEmpty(_localDraft)) return;
+        try {
+            using var doc = global::System.Text.Json.JsonDocument.Parse(_localDraft);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("BarSales", out global::System.Text.Json.JsonElement bar)) BarSales = bar.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : bar.GetDecimal();
+            if (root.TryGetProperty("LottoSales", out global::System.Text.Json.JsonElement ls)) LottoSales = ls.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : ls.GetDecimal();
+            if (root.TryGetProperty("LottoCashes", out global::System.Text.Json.JsonElement lc)) LottoCashes = lc.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lc.GetDecimal();
+            if (root.TryGetProperty("LottoInstantTickets", out global::System.Text.Json.JsonElement lit)) LottoInstantTickets = lit.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lit.GetDecimal();
+            if (root.TryGetProperty("LottoNetDue", out global::System.Text.Json.JsonElement lnd)) LottoNetDue = lnd.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lnd.GetDecimal();
+            if (root.TryGetProperty("LottoOpeningCash", out global::System.Text.Json.JsonElement loc)) LottoOpeningCash = loc.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : loc.GetDecimal();
+            if (root.TryGetProperty("LottoBackupBag", out global::System.Text.Json.JsonElement lbb)) LottoBackupBag = lbb.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lbb.GetDecimal();
+            if (root.TryGetProperty("LottoCashCounted", out global::System.Text.Json.JsonElement lcc)) LottoCashCounted = lcc.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : lcc.GetDecimal();
+            if (root.TryGetProperty("TotalHours", out global::System.Text.Json.JsonElement h)) TotalHours = h.ValueKind == global::System.Text.Json.JsonValueKind.Null ? null : h.GetDecimal();
+            if (root.TryGetProperty("Notes", out global::System.Text.Json.JsonElement n)) Notes = n.GetString();
+            _showRecoveryModal = false;
+            _syncStatus = "Recovered";
+            _hasLocalChanges = true;
+            _ = AutoSave();
+            StateHasChanged();
+        } catch { }
+    }
+
+    private async Task DiscardLocalDraft() {
+        try {
+            var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", key);
+            _showRecoveryModal = false;
+            StateHasChanged();
+        } catch { }
     }
 
     private string? _lastProcessedQueryDate;
@@ -2464,6 +2588,8 @@
         if (IsLocked) {
              _lockErrorMessage = "This report is currently being worked on by " + (_dayCloser ?? _nightCloser ?? "another user") + " or has been finalized.";
              ShiftType = null; // Kick back to selection screen instead of opening the form
+        } else {
+             _ = CheckForLocalDraft();
         }
         StateHasChanged();
     }
@@ -2872,6 +2998,13 @@
             
             Submitted = true;
             StateHasChanged();
+
+            // [CLEANUP] Remove the local backup now that data is safe on the server
+            try {
+                var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", key);
+            } catch { }
+
             await Task.Delay(2500);
             await AuthStateProvider.LogoutAsync();
             Navigation.NavigateTo("/login", true);

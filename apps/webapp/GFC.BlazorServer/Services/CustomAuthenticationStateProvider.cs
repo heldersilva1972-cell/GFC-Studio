@@ -185,7 +185,7 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                     {
                         // [FIX] Add strict safety timeout to JS interop to prevent circuit lockups if SignalR is busy
                         using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
-                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", "gfc_device_token", cts.Token);
+                        token = await _jsRuntime.InvokeAsync<string>("localStorage.getItem", cts.Token, "gfc_device_token");
                     }
                     catch (OperationCanceledException)
                     {
@@ -206,9 +206,20 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                     {
                         if (isSharedStation)
                         {
-                            // [FIX] On shared stations, only restore if it's an active Session Cookie (meaning a page refresh).
-                            // If it's falling back to LocalStorage (e.g. after a browser restart), reject it to force a PIN input.
-                            shouldRestore = isCookieToken;
+                            // [SECURITY HARDENING]
+                            // On shared stations, we only restore the session if:
+                            // 1. It's a genuine cookie token (not a forced localStorage fallback)
+                            // 2. The browser says our specific window session is active (gfc_session_active)
+                            // This ensures that closing the browser wipes the session, while F5 (Refresh) keeps it.
+                            
+                            bool isInstanceActive = false;
+                            try {
+                                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+                                var flag = await _jsRuntime.InvokeAsync<string>("sessionStorage.getItem", cts.Token, "gfc_session_active");
+                                isInstanceActive = !string.IsNullOrEmpty(flag);
+                            } catch { }
+
+                            shouldRestore = isCookieToken && isInstanceActive;
                         }
                         else
                         {
@@ -418,14 +429,12 @@ public class CustomAuthenticationStateProvider : AuthenticationStateProvider, ID
                 
                 // We attempt to clear localStorage and cookies. If the circuit dies or is too busy,
                 // the /login page's own OnInitialized will handle the fallback cleanup later.
-                var jsTasks = new List<Task>
-                {
-                    _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token").AsTask(),
-                    _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1).AsTask(),
-                    _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';").AsTask()
-                };
-
-                await Task.WhenAll(jsTasks);
+                try {
+                    await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", "gfc_device_token");
+                    await _jsRuntime.InvokeVoidAsync("sessionStorage.removeItem", "gfc_session_active");
+                    await _jsRuntime.InvokeVoidAsync("window.setCookie", "GFC_DeviceTrustToken", "", -1);
+                    await _jsRuntime.InvokeVoidAsync("eval", "document.cookie = 'GFC_DeviceTrustToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';");
+                } catch { }
             }
             catch (Exception ex)
             {
