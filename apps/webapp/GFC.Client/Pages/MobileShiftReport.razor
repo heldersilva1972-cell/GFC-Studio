@@ -1,6 +1,5 @@
-@page "/mobile/shift-report"
-@rendermode InteractiveServer
-@using GFC.BlazorServer.Components.Shared.Mobile
+@page "/mobile/shift-report-OLD"
+@rendermode InteractiveWebAssembly
 
 @using Microsoft.AspNetCore.Authorization
 @using GFC.Core.Interfaces
@@ -1778,7 +1777,7 @@
     private bool _isGuidedMode = true; 
     private global::System.Threading.CancellationTokenSource? _autoSaveCts;
     private bool _hasLocalChanges = false;
-    private string? _syncStatus = null; // "Synced", "Saving...", "Offline Backup"
+    private string? _syncStatus = "Initialized"; // "Synced", "Saving...", "Offline Backup"
     private bool _hasUpdate = false;
     private DateTime? _lastSyncedAt;
     private decimal _totalBagDebt = 0; // Cumulative debt to bag from previous shifts + current day shift
@@ -2489,33 +2488,20 @@
         IsSubmitting = true;
         StateHasChanged();
         
-        // Final background save attempt
-        _ = SilentSave();
+        await SilentSave();
         
-        // NO-GUESS WORKFLOW: We show success immediately because the data is safe LOCALLY.
-        // We mark it in local storage so the Hub can finish the cloud sync silently.
         try {
             var key = $"gfc_shift_draft_{ReportDate:yyyyMMdd}_{ShiftType}";
-            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", key);
-            if (!string.IsNullOrEmpty(json)) {
-                using var doc = global::System.Text.Json.JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                var outboxItem = new {
-                    Data = root,
-                    IsPendingSubmission = true,
-                    Timestamp = DateTime.UtcNow
-                };
-                await JSRuntime.InvokeVoidAsync("localStorage.setItem", key, global::System.Text.Json.JsonSerializer.Serialize(outboxItem));
-            }
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", key);
         } catch { }
         
         IsSubmitting = false;
         Submitted = true;
-        _hasLocalChanges = false;
+        _hasLocalChanges = false; // Ensures NavigationLock doesn't block leaving
         StateHasChanged();
         
-        // Let user move on immediately
-        await Task.Delay(1500);
+        // Let the user admire the "REPORT SECURED" green box for 2 seconds
+        await Task.Delay(2000);
         Navigation.NavigateTo("/mobile");
     }
     private async Task HandleBackToSelection() {
@@ -2543,8 +2529,6 @@
         try
         {
             var summary = await ReportingService.GetDailySummaryAsync(ReportDate);
-            _lastSyncedAt = DateTime.Now;
-            _syncStatus = "Synced";
             
             _dayMainSubmitted = summary.Day.Submitted;
             _dayMainHasData = summary.Day.HasData;

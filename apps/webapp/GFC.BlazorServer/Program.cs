@@ -61,6 +61,8 @@ public class Program
 
         builder.Services.AddRazorPages();
         builder.Services.AddMemoryCache();
+        builder.Services.AddRazorComponents()
+            .AddInteractiveWebAssemblyComponents();
         builder.Services.AddServerSideBlazor().AddHubOptions(options => 
         {
             options.ClientTimeoutInterval = TimeSpan.FromSeconds(120); // Increased for mobile stability
@@ -322,6 +324,7 @@ builder.Services.AddScoped<IDeviceTrustService, DeviceTrustService>();
 builder.Services.AddSingleton<ISecurityRateLimitService, SecurityRateLimitService>();
 builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
+        builder.Services.AddScoped<IMobileReportingService, MobileReportingService>();
         builder.Services.AddScoped<INotificationService, NotificationService>();
         builder.Services.AddScoped<IEventPromotionService, EventPromotionService>();
         builder.Services.AddScoped<INavMenuService, NavMenuService>();
@@ -418,6 +421,7 @@ builder.Services.AddScoped<ISecurityNotificationService, SecurityNotificationSer
             }
         });
 
+        app.UseBlazorFrameworkFiles();
         app.UseRouting();
         
         // Enable CORS
